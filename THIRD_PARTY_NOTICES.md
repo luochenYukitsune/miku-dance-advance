@@ -2,6 +2,10 @@
 
 MDA's original contributions use AGPL-3.0-only; this does not replace any license below. See [LICENSING.md](LICENSING.md) and [LICENSE](LICENSE). Third-party portions and their copyright notices remain under their original terms.
 
+## Documentation website
+
+GitHub Pages renders the documentation using the [Minimal theme](https://github.com/pages-themes/minimal), which is released under CC0-1.0. Its implementation is supplied by GitHub Pages rather than vendored into MDA. Local reading-style overrides are MDA's original contributions. The website does not redistribute standalone font files.
+
 ## HarmonyOS Sans SC (embedded interface fonts)
 
 - Copyright 2021 Huawei Device Co., Ltd. The MDA interface uses HarmonyOS Sans.

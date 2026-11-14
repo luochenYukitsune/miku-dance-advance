@@ -1,0 +1,17 @@
+title: MDA 使用文档
+description: MikuDance Advance
+lang: zh-CN
+url: https://luochenyukitsune.github.io
+baseurl: /miku-dance-advance
+repository: luochenYukitsune/miku-dance-advance
+theme: jekyll-theme-minimal
+show_downloads: false
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

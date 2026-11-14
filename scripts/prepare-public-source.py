@@ -12,7 +12,7 @@ import subprocess
 ROOT_FILES = {'.gitattributes', '.gitignore', 'Directory.Build.props', 'global.json',
               'Mmd.Modern.slnx', 'NuGet.Config', 'LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md'}
 SOURCE_ROOTS = {'src', 'tests', 'native', 'third_party', 'installer', 'examples', 'fixtures', 'scripts', 'tools'}
-PUBLIC_DOC_ROOTS = ('docs/guide/', 'docs/development/', 'docs/site/')
+PUBLIC_DOC_ROOTS = ('docs/guide/', 'docs/development/', 'docs/site/', 'docs/assets/css/')
 PUBLIC_DOC_FILES = {'docs/index.md', 'docs/_config.yml'}
 SECRET_PATTERNS = {
     'credential': re.compile(rb'(?i)(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{25,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)'),
@@ -20,17 +20,19 @@ SECRET_PATTERNS = {
 }
 
 
-def selected(path, include_readme):
+def selected(path, include_readme, include_workflows=False):
     if path in ROOT_FILES or (include_readme and path == 'README.md'):
         return True
     if path in PUBLIC_DOC_FILES or path.startswith(PUBLIC_DOC_ROOTS):
         return True
-    if path.startswith(('.github/workflows/', 'compatibility/d3d9-mme-host/')):
+    if path.startswith('.github/workflows/'):
+        return include_workflows
+    if path.startswith('compatibility/d3d9-mme-host/'):
         return True
     return path.split('/')[0] in SOURCE_ROOTS
 
 
-def prepare(source, destination, report, include_readme):
+def prepare(source, destination, report, include_readme, include_workflows=False):
     if destination.exists():
         raise ValueError('Destination exists; choose a new snapshot directory.')
     source = source.resolve(strict=True)
@@ -40,7 +42,7 @@ def prepare(source, destination, report, include_readme):
         raise ValueError('Track required files first: ' + ', '.join(sorted(missing)))
     entries, excluded, findings = [], [], []
     for relative in sorted(filter(None, paths)):
-        if not selected(relative, include_readme):
+        if not selected(relative, include_readme, include_workflows):
             excluded.append(relative)
             continue
         path = source / relative
@@ -56,7 +58,7 @@ def prepare(source, destination, report, include_readme):
     result = dict(schema='mda.public-source.v1', sourceCommit=subprocess.check_output(
         ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
         sourceWorktreeChanges=subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain'], text=True).splitlines(),
-        destination=str(destination.resolve()), includeReadme=include_readme, files=entries,
+        destination=str(destination.resolve()), includeReadme=include_readme, includeWorkflows=include_workflows, files=entries,
         excluded=excluded, findings=findings, passed=not findings)
     report.parent.mkdir(parents=True, exist_ok=True)
     if findings:
@@ -80,5 +82,6 @@ if __name__ == '__main__':
     parser.add_argument('--destination', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--include-readme', action='store_true', help='Include after DSH text has been integrated.')
+    parser.add_argument('--include-workflows', action='store_true', help='Requires GitHub authorization with workflow scope when pushing.')
     args = parser.parse_args()
-    print(json.dumps(prepare(args.source, args.destination, args.report, args.include_readme)))
+    print(json.dumps(prepare(args.source, args.destination, args.report, args.include_readme, args.include_workflows)))
