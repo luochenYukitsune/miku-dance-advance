@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mmd.Modern.Scheduling.Tests" />
+  </ItemGroup>
+</Project>

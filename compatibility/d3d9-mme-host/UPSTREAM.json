@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "status": "static-research-foundation-not-product-loaded",
+  "upstream": {
+    "repository": "https://github.com/jstzwj/MikuDanceStudio",
+    "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+    "fixedFileCount": 62,
+    "license": "MIT",
+    "licensePath": "upstream/LICENSE",
+    "licenseSha256": "d808f870fd8fe49e6d1e34f763d9f2590bb619a10f009f934257e2ff7c968dfc",
+    "integrityPath": "UPSTREAM_INTEGRITY.json",
+    "integritySha256": "3e9447f4b782934e010a3dc60817a10ab83901d420b8a5018194c716aac8314b",
+    "description": "Third-party behavioral reconstruction; not original MMD/MMEffect author source"
+  },
+  "exclusions": [
+    "No extracted original resources/res payloads",
+    "No binaries, packets, user assets, device runtime DLLs, or import libraries",
+    "Upstream CMake/scripts are provenance only; this build does not execute them",
+    "No product GUI, installer, registry, settings, or physics integration"
+  ],
+  "build": {
+    "entry": "build.py",
+    "zigVersion": "0.16.0",
+    "zigSha256": "086ce9d47ba42f33a514e1a6e04eb1d4a8fa1d75e0868e0213caad447c91e864",
+    "target": "x86_64-windows-gnu",
+    "flags": [
+      "-target",
+      "x86_64-windows-gnu",
+      "-std=c++17",
+      "-stdlib=libc++",
+      "-include",
+      "cstddef",
+      "-fms-extensions",
+      "-O2",
+      "-DMIKUDANCESTUDIO_MME_EMBEDDED=1",
+      "-D_CRT_SECURE_NO_WARNINGS"
+    ],
+    "translationUnits": [
+      {
+        "source": "src/third_party/mmeffect/src/mme_host.cpp",
+        "object": "00-mme_host.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmhack/mmhack_registry.cpp",
+        "object": "01-mmhack_registry.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmhack/mmhack_material.cpp",
+        "object": "02-mmhack_material.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmhack/mmhack_material_table.cpp",
+        "object": "03-mmhack_material_table.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmhack/mmhack_lightmatrix.cpp",
+        "object": "04-mmhack_lightmatrix.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+        "object": "05-mmhack_getters.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/anime_texture.cpp",
+        "object": "06-anime_texture.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/callbacks.cpp",
+        "object": "07-callbacks.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+        "object": "08-effect_engine.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+        "object": "09-emm_manager.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/ini_file.cpp",
+        "object": "10-ini_file.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/material_bind.cpp",
+        "object": "11-material_bind.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/mme_context.cpp",
+        "object": "12-mme_context.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/mme_globals.cpp",
+        "object": "13-mme_globals.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/mme_log.cpp",
+        "object": "14-mme_log.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/mme_util.cpp",
+        "object": "15-mme_util.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/model_data.cpp",
+        "object": "16-model_data.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+        "object": "17-pass_planner.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/render_snapshot.cpp",
+        "object": "18-render_snapshot.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/sas_exec.cpp",
+        "object": "19-sas_exec.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+        "object": "20-sas_interpreter.o",
+        "validationInstrumentation": true
+      },
+      {
+        "source": "validation_only/headless_ui_seam.cpp",
+        "object": "21-headless_ui_seam.o",
+        "validationInstrumentation": false
+      },
+      {
+        "source": "src/third_party/mmeffect/src/mda_mme_bridge_v1.cpp",
+        "object": "22-mda_mme_bridge_v1.o",
+        "validationInstrumentation": false
+      }
+    ],
+    "archiveMemberCount": 23,
+    "staticArchiveName": "MMEffectResearch.a",
+    "validationOnlyExternalImplementation": "validation_only/no_ui.cpp",
+    "linkDependenciesForFinalValidationHost": [
+      "d3dx9_43",
+      "d3d9",
+      "user32",
+      "gdi32",
+      "gdiplus",
+      "shell32",
+      "ole32",
+      "winmm",
+      "shlwapi",
+      "advapi32"
+    ],
+    "otherExternalRequirements": [
+      "MMD Exp* adapters implemented by final host",
+      "Same-bitness C++/COM ABI and checked opaque64 snapshot bridge",
+      "No validation-only counters are product diagnostics"
+    ]
+  },
+  "overlayPolicy": "Preserve upstream original bytes and ALTERED separately. Build merges both into an output-local source tree before compiling every unit so quoted includes see altered headers.",
+  "validationScope": "Copied from the finite external lifecycle/material probes; this source bundle has not been built, linked, or GPU-executed. Runtime ABI loading and production engine integration remain subsequent work.",
+  "localSourceLicensing": "Project-owned source additions are retained for local integration; this bundle does not assign a new public license to them. The pinned upstream and its derived portions retain MIT notice."
+}

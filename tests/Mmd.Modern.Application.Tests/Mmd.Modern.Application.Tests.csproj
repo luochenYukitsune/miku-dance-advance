@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mmd.Modern.Application/Mmd.Modern.Application.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <None Include="../Mmd.Modern.Formats.Tests/Fixtures/rich-w1-uv4.pmx" Link="fixtures/rich-w1-uv4.pmx" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/pmm-v1-one-model.pmm" Link="fixtures/pmm-v1-one-model.pmm" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Fixtures/original-camera-main.json" />
+  </ItemGroup>
+</Project>

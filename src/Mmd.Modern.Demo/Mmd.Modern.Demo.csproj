@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><ApplicationManifest>../Mmd.Modern.App/app.manifest</ApplicationManifest></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Mmd.Modern.App/Mmd.Modern.App.csproj" /></ItemGroup>
+</Project>

@@ -1,0 +1,33 @@
+# Build outputs; keep third_party/saba/src/Saba/Model/OBJ source visible.
+/bin/
+/obj/
+/src/**/bin/
+/src/**/obj/
+/tests/**/bin/
+/tests/**/obj/
+/tools/**/bin/
+/tools/**/obj/
+/scripts/**/bin/
+/scripts/**/obj/
+/examples/**/bin/
+/examples/**/obj/
+/artifacts/
+/dist/
+/.dev-cache/
+/deliverables/
+TestResults/
+*.binlog
+*.dmp
+__pycache__/
+*.pyc
+
+# Local IDE state and handoff/credential files.
+.vs/
+.idea/
+*.user
+*.suo
+/api.txt
+/handoff.json
+.env
+.env.*
+!.env.example

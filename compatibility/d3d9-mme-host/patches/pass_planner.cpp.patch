@@ -1,0 +1,10 @@
+--- upstream/third_party/mmeffect/src/mmeffect/pass_planner.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/pass_planner.cpp
+@@ -335,6 +335,7 @@
+         static_cast<D3DPRIMITIVETYPE>(rec->primitiveType),
+         rec->baseVertexIndex, rec->minVertexIndex, rec->vertexCount,
+         rec->startIndex, rec->primitiveCount);
++    MdaProbeEffectPassResult(hr,passIndex);
+     if (FAILED(hr)) {
+         return hr;   // no EndPass/End after a failed draw, like the original
+     }

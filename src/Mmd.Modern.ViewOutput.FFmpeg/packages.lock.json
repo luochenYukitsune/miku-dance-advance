@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "SharpZipLib": {
+        "type": "Transitive",
+        "resolved": "1.4.2",
+        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
+      },
+      "mmd.modern.animation": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Core": "[1.0.0, )"
+        }
+      },
+      "mmd.modern.application": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Animation": "[1.0.0, )",
+          "Mmd.Modern.Core": "[1.0.0, )",
+          "Mmd.Modern.Formats": "[1.0.0, )",
+          "Mmd.Modern.Physics": "[1.0.0, )"
+        }
+      },
+      "mmd.modern.core": {
+        "type": "Project"
+      },
+      "mmd.modern.formats": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Core": "[1.0.0, )",
+          "SharpZipLib": "[1.4.2, )"
+        }
+      },
+      "mmd.modern.physics": {
+        "type": "Project"
+      },
+      "mmd.modern.viewoutput": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Application": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

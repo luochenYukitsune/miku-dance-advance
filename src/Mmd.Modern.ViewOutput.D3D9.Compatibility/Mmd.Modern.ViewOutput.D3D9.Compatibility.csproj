@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.ViewOutput/Mmd.Modern.ViewOutput.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.D3D9.Compatibility/Mmd.Modern.Rendering.D3D9.Compatibility.csproj" />
+    <InternalsVisibleTo Include="Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests" />
+  </ItemGroup>
+</Project>

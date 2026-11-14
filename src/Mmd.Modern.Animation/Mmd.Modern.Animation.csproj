@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <InternalsVisibleTo Include="Mmd.Modern.Tests" />
+    <InternalsVisibleTo Include="Mmd.Modern.Application" />
+    <None Update="LICENSE.BabylonMmd.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

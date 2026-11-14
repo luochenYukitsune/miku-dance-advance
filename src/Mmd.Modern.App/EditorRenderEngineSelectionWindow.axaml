@@ -1,0 +1,111 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Mmd.Modern.App.EditorRenderEngineSelectionWindow" x:ClassModifier="internal"
+        Title="{DynamicResource Mda.Text.RenderEngineSelection.Title}"
+        Width="600" Height="460" MinWidth="480" MinHeight="420"
+        Icon="avares://Mmd.Modern.App/Assets/Branding/mda.ico"
+        WindowStartupLocation="CenterOwner" CanMinimize="False" CanMaximize="False"
+        Background="{DynamicResource SelectionSurface}" Foreground="{DynamicResource SelectionText}"
+        FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
+        UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
+  <Window.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="SelectionFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="SelectionSurface">#0C0E11</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionText">#F2F2F2</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionMuted">#B0B0B0</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionDisabled">#707070</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionBorder">#2E3B48</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionHover">#202D39</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionSelected">#182633</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionAccent">#7995AB</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionInput">#18222C</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="SelectionSurface">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionText">#171717</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionMuted">#555555</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionDisabled">#8A8A8A</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionBorder">#D8E0E7</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionHover">#F0F4F7</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionSelected">#E3ECF3</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionAccent">#516F88</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionInput">#F3F6F8</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Window.Styles>
+    <StyleInclude Source="avares://SukiUI/Theme/Index.xaml" />
+    <Style Selector="TemplatedControl">
+      <Setter Property="FontFamily" Value="{DynamicResource SelectionFont}" />
+      <Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource SelectionText}" />
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="{DynamicResource SelectionFont}" />
+      <Setter Property="FontSize" Value="14" /><Setter Property="LineHeight" Value="20" />
+      <Setter Property="Foreground" Value="{DynamicResource SelectionText}" /><Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="FontWeight" Value="Normal" />
+    </Style>
+    <Style Selector="TextBlock.engineName"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LineHeight" Value="22" /></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /></Style>
+    <Style Selector="ListBox">
+      <Setter Property="Background" Value="{DynamicResource SelectionSurface}" /><Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" />
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="12" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="MinHeight" Value="76" />
+      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionBorder}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter Background="Transparent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource SelectionHover}" /></Style>
+    <Style Selector="ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /><Setter Property="Foreground" Value="{DynamicResource SelectionText}" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionAccent}" /><Setter Property="BorderThickness" Value="2,0,0,1" /></Style>
+    <Style Selector="ListBoxItem:selected TextBlock.engineName"><Setter Property="Foreground" Value="{DynamicResource SelectionText}" /></Style>
+    <Style Selector="ListBoxItem:selected TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
+    <Style Selector="ListBoxItem:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="ListBoxItem:disabled"><Setter Property="Opacity" Value="1" /></Style>
+    <Style Selector="ListBoxItem:disabled TextBlock.engineName"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="32" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="14,0" />
+      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource SelectionSurface}" />
+      <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="Button.action"><Setter Property="Background" Value="{DynamicResource SelectionInput}" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource SelectionHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource SelectionDisabled}" /></Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+    <TextBlock Name="RenderEngineSelectionPrompt" Text="{DynamicResource Mda.Text.RenderEngineSelection.Prompt}" Margin="0,0,0,20" />
+    <Grid Grid.Row="1">
+      <ListBox Name="RenderEngineChoices" SelectionMode="Single"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+               AutomationProperties.Name="{DynamicResource Mda.Text.RenderEngineSelection.Title}" />
+      <TextBlock Name="RenderEngineSelectionEmpty" Text="{DynamicResource Mda.Text.RenderEngineSelection.Empty}"
+                 Classes="muted" IsVisible="False" Margin="12" />
+    </Grid>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,20,0,0">
+      <Button Name="CancelRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Cancel}" MinWidth="80" IsCancel="True" Click="CancelSelection" />
+      <Button Name="ConfirmRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Confirm}" MinWidth="104" IsDefault="True" Classes="action" Click="ConfirmSelection" />
+    </StackPanel>
+  </Grid>
+</Window>

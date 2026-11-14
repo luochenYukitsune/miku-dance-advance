@@ -1,0 +1,58 @@
+--- upstream/third_party/mmeffect/src/mmhack/mmhack_getters.cpp
++++ ALTERED/third_party/mmeffect/src/mmhack/mmhack_getters.cpp
+@@ -5,8 +5,7 @@
+ #include "mmhack_state.h"
+ #include "mmhack_api.h"
+ 
+-// Host accessory layout: direct-read view for GetAcsAttachedPmd (+0x240/+0x244).
+-#include "mikudancestudio/accessory_layout.hpp"
++#include "mda_mme_bridge_v1.h"
+ 
+ MmhState g_mmh;
+ 
+@@ -16,38 +15,13 @@
+ BOOL __cdecl GetAcsAttachedPmd(unsigned long long accessory_id,
+                                unsigned long long* model_id, int* bone_index)
+ {
+-    // Original data flow: [0x1800012ea] for an id absent from the objData map, sub_18000F2B0
+-    // directly returns a1 at [0x18000f331], treating the id as a host accessory pointer. Then
+-    // [0x1800012ef] mov ecx,[rax+240h] / [0x1800012f5] mov ebp,[rax+244h] read
+-    // the attached model index (+0x240, -1 = unattached, AccessoryRecord::parentModel on the host) and
+-    // attached bone index (+0x244 =
+-    // AccessoryRecord::parentBone) directly from that object's current memory. The original ObjData never writes these fields
+-    // (MMHack.dll has no +0x240 writes anywhere, only this function's read); the direct read is
+-    // the sole real data source. Object ids in this project are also host accessory pointers (ExpGetAcsID returns
+-    // AccessoryRecord*, no longer truncated to 32 bits on x64), so read the host object directly on every
+-    // call as well.
+-    // [0x1800012fd] Only exactly -1 means unattached; otherwise [0x180001306] keeps ecx as
+-    // attachPmdIndex and calls ExpGetPmdID (slot enumeration failure returns 0 and also yields FALSE).
+-    // [0x18000130c] mov eax,eax zero-extends the value before writing the 64-bit model id output; [0x18000131e]
+-    // writes the 32-bit bone output (the original writes both outputs unconditionally; on FALSE, the model id is 0).
+-    // [0x180001325] setnz returns (PmdID != 0).
+-    int pmdIndex = -1;
+-    int boneIndex = 0;
+-    if (accessory_id != 0) {
+-        const mikudancestudio::mdl::AccessoryRecord* acs =
+-            mikudancestudio::mdl::Accessory(
+-                reinterpret_cast<const void*>(accessory_id));
+-        pmdIndex = acs->parentModel;    // +0x240
+-        boneIndex = acs->parentBone;    // +0x244
+-    }
+-    unsigned long long modelId = 0;
+-    if (pmdIndex != -1)
+-        modelId = (unsigned long long)(uintptr_t)ExpGetPmdID(pmdIndex);
+-    if (model_id)
+-        *model_id = modelId;
+-    if (bone_index)
+-        *bone_index = boneIndex;
+-    return modelId != 0 ? TRUE : FALSE;
++    // This legacy BOOL cannot distinguish an unattached object from a host
++    // callback failure. Failures are latched for the host to reject the frame.
++    MdaMmeParentV1 parent{sizeof(MdaMmeParentV1), MDA_MME_BRIDGE_VERSION, 0, 0, 0};
++    const int32_t status = MdaMmeQueryParentV1(accessory_id, &parent);
++    if (model_id) *model_id = status == MDA_MME_OK ? parent.model_id : 0;
++    if (bone_index) *bone_index = status == MDA_MME_OK ? parent.bone_index : 0;
++    return status == MDA_MME_OK && parent.attached ? TRUE : FALSE;
+ }
+ 
+ // --- ordinal 2 [0x1800012c0 GetBlendMode; DAT_18006e7b8] --------------------

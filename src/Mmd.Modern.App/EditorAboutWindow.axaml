@@ -1,0 +1,130 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Mmd.Modern.App.EditorAboutWindow" x:ClassModifier="internal"
+        Title="{DynamicResource Mda.Text.About.Title}"
+        Width="560" Height="520" MinWidth="480" MinHeight="440"
+        Icon="avares://Mmd.Modern.App/Assets/Branding/mda.ico"
+        WindowStartupLocation="CenterOwner" CanMinimize="False" CanMaximize="False"
+        Background="{DynamicResource AboutSurface}" Foreground="{DynamicResource AboutText}"
+        FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
+        UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
+  <Window.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="AboutFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="AboutSurface">#0C0E11</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutText">#F2F2F2</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutMuted">#B0B0B0</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutBorder">#2E3B48</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutHover">#202D39</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutSelected">#182633</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutInput">#18222C</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="AboutSurface">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutText">#171717</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutMuted">#555555</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutBorder">#D8E0E7</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutHover">#F0F4F7</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutSelected">#E3ECF3</SolidColorBrush>
+          <SolidColorBrush x:Key="AboutInput">#F3F6F8</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Window.Styles>
+    <Style Selector="TemplatedControl">
+      <Setter Property="FontFamily" Value="{DynamicResource AboutFont}" />
+      <Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource AboutText}" />
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="{DynamicResource AboutFont}" />
+      <Setter Property="FontSize" Value="14" /><Setter Property="LineHeight" Value="21" />
+      <Setter Property="Foreground" Value="{DynamicResource AboutText}" /><Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="FontWeight" Value="Normal" />
+    </Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource AboutMuted}" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="{DynamicResource AboutMuted}" /><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /></Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="32" /><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="14,0" />
+      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="Button.action"><Setter Property="Background" Value="{DynamicResource AboutInput}" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource AboutHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource AboutSelected}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource AboutText}" /></Style>
+    <Style Selector="ComboBox">
+      <Setter Property="Background" Value="{DynamicResource AboutInput}" /><Setter Property="BorderBrush" Value="{DynamicResource AboutBorder}" />
+      <Setter Property="Padding" Value="8,6" /><Setter Property="MinHeight" Value="34" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="ComboBoxItem">
+      <Setter Property="Background" Value="{DynamicResource AboutSurface}" /><Setter Property="Padding" Value="8,6" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" ClipToBounds="True">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource AboutHover}" /></Style>
+    <Style Selector="ComboBoxItem:selected"><Setter Property="Background" Value="{DynamicResource AboutSelected}" /><Setter Property="Foreground" Value="{DynamicResource AboutText}" /></Style>
+    <Style Selector="SelectableTextBlock">
+      <Setter Property="FontFamily" Value="{DynamicResource AboutFont}" /><Setter Property="FontSize" Value="13" />
+      <Setter Property="LineHeight" Value="20" /><Setter Property="Foreground" Value="{DynamicResource AboutText}" />
+      <Setter Property="SelectionBrush" Value="{DynamicResource AboutSelected}" /><Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24,16,24,20">
+    <Canvas Width="228" Height="100" HorizontalAlignment="Left" ClipToBounds="True">
+      <Image Name="AboutBrandImage" Source="avares://Mmd.Modern.App/Assets/Branding/mda-logo-transparent.png"
+             Width="228" Height="228" Canvas.Top="-61" AutomationProperties.Name="MDA · MikuDance Advance" />
+    </Canvas>
+    <Border Grid.Row="1" Height="1" Background="{DynamicResource AboutBorder}" Margin="0,12,0,18" />
+    <Grid Grid.Row="2">
+      <ScrollViewer Name="AboutOverview" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="4" Margin="0,0,10,0">
+          <TextBlock Name="AboutVersion" FontSize="15" FontWeight="Medium" LineHeight="23" />
+          <TextBlock Name="AboutBuild" Classes="caption" />
+          <TextBlock Name="AboutRuntime" Classes="caption" />
+          <TextBlock Name="AboutIntro" Text="{DynamicResource Mda.Text.About.Intro}" Margin="0,12,0,0" />
+          <TextBlock Name="AboutAuthor" Margin="0,12,0,0" />
+          <TextBlock Name="AboutCopyright" Text="{DynamicResource Mda.Text.About.Copyright}" />
+          <TextBlock Text="{DynamicResource Mda.Text.About.ReferencesTitle}" Classes="section" Margin="0,16,0,0" />
+          <TextBlock Name="AboutReferences" Text="{DynamicResource Mda.Text.About.References}" />
+          <TextBlock Name="AboutCompatStatus" Text="{DynamicResource Mda.Text.About.CompatStatus}" Classes="caption" Margin="0,4,0,0" />
+          <TextBlock Text="{DynamicResource Mda.Text.About.ThirdPartyTitle}" Classes="section" Margin="0,12,0,0" />
+          <TextBlock Name="AboutLegal" Text="{DynamicResource Mda.Text.About.Legal}" Classes="muted" />
+          <TextBlock Text="{DynamicResource Mda.Text.About.FontTitle}" Classes="section" Margin="0,12,0,0" />
+          <TextBlock Name="AboutFontNotice" Text="{DynamicResource Mda.Text.About.FontNotice}" Classes="caption" />
+          <TextBlock Name="AboutFontCopyright" Text="{DynamicResource Mda.Text.About.FontCopyright}" Classes="caption" />
+        </StackPanel>
+      </ScrollViewer>
+      <Grid Name="AboutLicensesPane" IsVisible="False" RowDefinitions="Auto,Auto,*,Auto">
+        <TextBlock Text="{DynamicResource Mda.Text.About.LocalLicenses}" Classes="muted" Margin="0,0,0,10" />
+        <ComboBox Name="AboutLicenseFiles" Grid.Row="1" SelectionChanged="SelectLicense" Margin="0,0,0,12"
+                  AutomationProperties.Name="{DynamicResource Mda.Text.About.Licenses}" />
+        <ScrollViewer Name="AboutLicenseScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <SelectableTextBlock Name="AboutLicenseText" Margin="0,0,10,0" />
+        </ScrollViewer>
+        <Button Name="AboutOpenOriginalButton" Grid.Row="3" Content="{DynamicResource Mda.Text.About.OpenOriginal}"
+                IsVisible="False" HorizontalAlignment="Left" Margin="0,12,0,0" Classes="action" Click="OpenOriginalLicense" />
+      </Grid>
+    </Grid>
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,20,0,0">
+      <Button Name="AboutLicensesButton" Content="{DynamicResource Mda.Text.About.Licenses}" HorizontalAlignment="Left" Click="ToggleLicenses" />
+      <Button Name="AboutOkButton" Grid.Column="1" Content="{DynamicResource Mda.Text.About.Ok}" MinWidth="88" Classes="action"
+              IsDefault="True" IsCancel="True" Click="CloseAbout" />
+    </Grid>
+  </Grid>
+</Window>

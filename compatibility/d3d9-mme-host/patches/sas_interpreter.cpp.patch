@@ -1,0 +1,603 @@
+--- upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp
+@@ -1,3 +1,5 @@
++// ALTERED package resources: resolve all annotations from the top-level FX;
++// keep the legacy CWD path and shader flags unchanged when no map is bound.
+ // sas_interpreter.cpp - the MMEffect SAS interpreter: STANDARDSGLOBAL scan,
+ // parameter/semantic validation, texture resource objects and the
+ // technique/pass model.
+@@ -6,13 +8,15 @@
+ //   FUN_18000c470 [0x18000c470]  STANDARDSGLOBAL scan + parameter validation
+ //                                (the two .rdata validation tables at
+ //                                0x1800B2FA0 / 0x1800B36A0 are transcribed
+-//                                below as kSemanticTable / kNameTable)
++//                                in mda_effect_dependency_semantics.hpp)
+ //   FUN_18000f3a0 [0x18000f3a0]  semantic-id -> resource-object dispatch
+ //   FUN_180011960 [0x180011960]  resource object build from annotations
+ //   FUN_1800143d0 [0x1800143d0]  texture creation + capability checks
+ //   FUN_1800169d0 [0x1800169d0]  technique scan (MmdPass/Use*/Subset/Script)
+ //   FUN_180017a80 [0x180017a80]  pass scan (shader version mix, PSIZE15)
+ #include "sas_exec.h"
++#include "mda_resource_paths.hpp"
++#include "mda_effect_dependency.hpp"
+ 
+ #include "anime_texture.h"   // MmeAnimeConstruct*/RegisterParsed (0x2D parse)
+ #include "mme_globals.h"   // g_skipValidation (DAT_1800d99d9 - the selector's
+@@ -29,74 +33,27 @@
+ 
+ namespace mme {
+ 
+-// ===========================================================================
+-// Static validation tables transcribed from the original binary
+-// ===========================================================================
+-
+-// [0x1800B2FA0..0x1800B36A0] semantic table, 56 entries of 32 bytes:
+-// { u32 id; char* name; u64 (class=lo32, type=hi32); u64 (rows*cols=lo32) }.
+-// The c470 walk [0x18000e449-0x18000e4df] scans exactly 0x38 (56) entries
+-// ending at id 0x4E (GroundShadowTarget) - "matWorld" lives only in the
+-// name table B at 0x1800B36A0.
+-// D3DXPARAMETER_CLASS: 0=SCALAR 1=VECTOR 2=MATRIX_ROWS 3=MATRIX_COLUMNS
+-// D3DXPARAMETER_TYPE:  0=VOID 1=BOOL 2=INT 3=FLOAT 5=TEXTURE 7=TEXTURE2D
+-struct SasSemanticEntry {
+-    int         id;
+-    const char* name;
+-    int         cls;
+-    int         type;
+-    int         count;  // expected Rows*Columns (255 = "any")
+-};
+-
+-const SasSemanticEntry kSemanticTable[] = {
+-    {0x00, "World", 2, 3, 16}, {0x01, "WorldInverse", 2, 3, 16},
+-    {0x02, "WorldTranspose", 2, 3, 16}, {0x03, "WorldInverseTranspose", 2, 3, 16},
+-    {0x04, "View", 2, 3, 16}, {0x05, "ViewInverse", 2, 3, 16},
+-    {0x06, "ViewTranspose", 2, 3, 16}, {0x07, "ViewInverseTranspose", 2, 3, 16},
+-    {0x08, "Projection", 2, 3, 16}, {0x09, "ProjectionInverse", 2, 3, 16},
+-    {0x0A, "ProjectionTranspose", 2, 3, 16}, {0x0B, "ProjectionInverseTranspose", 2, 3, 16},
+-    {0x0C, "WorldView", 2, 3, 16}, {0x0D, "WorldViewInverse", 2, 3, 16},
+-    {0x0E, "WorldViewTranspose", 2, 3, 16}, {0x0F, "WorldViewInverseTranspose", 2, 3, 16},
+-    {0x10, "ViewProjection", 2, 3, 16}, {0x11, "ViewProjectionInverse", 2, 3, 16},
+-    {0x12, "ViewProjectionTranspose", 2, 3, 16}, {0x13, "ViewProjectionInverseTranspose", 2, 3, 16},
+-    {0x14, "WorldViewProjection", 2, 3, 16}, {0x15, "WorldViewProjectionInverse", 2, 3, 16},
+-    {0x16, "WorldViewProjectionTranspose", 2, 3, 16},
+-    {0x17, "WorldViewProjectionInverseTranspose", 2, 3, 16},
+-    {0x18, "Diffuse", 1, 3, 4}, {0x19, "Ambient", 1, 3, 4},
+-    {0x1A, "Emissive", 1, 3, 4}, {0x1B, "Specular", 1, 3, 4},
+-    {0x1F, "Position", 1, 3, 4}, {0x20, "Direction", 1, 3, 4},
+-    {0x1C, "ToonColor", 1, 3, 4}, {0x1D, "EdgeColor", 1, 3, 4},
+-    {0x1E, "SpecularPower", 1, 3, 255}, {0x21, "ViewportPixelSize", 1, 3, 2},
+-    {0x22, "Time", 0, 3, 1}, {0x23, "ElapsedTime", 0, 3, 1},
+-    {0x24, "Time2", 0, 3, 1}, {0x25, "ElapsedTime2", 0, 3, 1},
+-    {0x26, "RenderColorTarget", 4, 5, 0}, {0x27, "RenderDepthStencilTarget", 4, 5, 0},
+-    {0x28, "ControlObject", 1, 3, 255}, {0x29, "MaterialTexture", 4, 5, 0},
+-    {0x2A, "MaterialSphereMap", 4, 5, 0}, {0x2B, "MaterialToonTexture", 4, 5, 0},
+-    {0x2F, "MousePosition", 1, 3, 2}, {0x30, "LeftMouseDown", 1, 3, 4},
+-    {0x31, "MiddleMouseDown", 1, 3, 4}, {0x32, "RightMouseDown", 1, 3, 4},
+-    {0x2D, "AnimatedTexture", 4, 5, 0}, {0x2E, "OffScreenRenderTarget", 4, 5, 0},
+-    {0x33, "TextureValue", 1, 3, 4},
+-    {0x4A, "AddingTexture", 1, 3, 4}, {0x4B, "MultiplyingTexture", 1, 3, 4},
+-    {0x4C, "AddingSphereTexture", 1, 3, 4}, {0x4D, "MultiplyingSphereTexture", 1, 3, 4},
+-    {0x4E, "GroundShadowColor", 1, 3, 4}
+-};
+-
+-// [0x1800B36A0..0x1800B39A8] parameter-name table, 24 entries of 32 bytes
+-// (matWorld..SphCMul): matched by _stricmp against D3DXPARAMETER_DESC.Name.
+-const SasSemanticEntry kNameTable[] = {
+-    {0x34, "matWorld", 2, 3, 16}, {0x14, "matWorldViewProj", 2, 3, 16},
+-    {0x35, "matLightViewProj", 2, 3, 16}, {0x36, "matRotate", 2, 3, 16},
+-    {0x39, "EgColor", 1, 3, 4}, {0x1C, "ToonColor", 1, 3, 4},
+-    {0x37, "LightDir", 1, 3, 4}, {0x3A, "SpcColor", 1, 3, 4},
+-    {0x38, "Place", 1, 3, 4}, {0x3B, "DifColor", 1, 3, 4},
+-    {0x3C, "parthf", 0, 1, 1}, {0x3D, "spadd", 0, 1, 1},
+-    {0x3E, "transp", 0, 1, 1}, {0x3F, "use_texture", 0, 1, 1},
+-    {0x40, "use_spheremap", 0, 1, 1}, {0x41, "use_subtexture", 0, 1, 1},
+-    {0x42, "use_toon", 0, 1, 1}, {0x43, "VertexCount", 0, 2, 1},
+-    {0x44, "SubsetCount", 0, 2, 1}, {0x45, "opadd", 0, 1, 1},
+-    {0x46, "TexCAdd", 1, 3, 4}, {0x47, "TexCMul", 1, 3, 4},
+-    {0x48, "SphCAdd", 1, 3, 4}, {0x49, "SphCMul", 1, 3, 4}
+-};
++static bool SasResolveResourcePath(SasEffect* sas, const std::string& requested,
++                                   std::string& result) {
++    result.clear();
++    if (MdaMmeMappedResourcesV1()) {
++        std::string error;
++        if (!MdaMappedResourcePath(sas->path, requested, result, error)) {
++            SasLogFormat(sas, "Error: %s\n", error.c_str());
++            return false;
++        }
++        if (GetFileAttributesA(result.c_str()) != INVALID_FILE_ATTRIBUTES) return true;
++        result.clear();
++        return false;
++    }
++    char absolute[MAX_PATH] = { 0 };
++    if (_fullpath(absolute, requested.c_str(), sizeof(absolute)) != nullptr &&
++        GetFileAttributesA(absolute) != INVALID_FILE_ATTRIBUTES) {
++        result = absolute;
++        return true;
++    }
++    return false;
++}
+ 
+ // ===========================================================================
+ // Small helpers
+@@ -111,22 +68,6 @@
+         out[i] = static_cast<char>(tolower(static_cast<unsigned char>(out[i])));
+     }
+     return out;
+-}
+-
+-// [sub_180011800] trim " \t\v\r\n" (strchr set 0x1800B4168; no \f) from both
+-// ends of `s`. Used by the DefaultEffect row parser for both the key and the
+-// value text.
+-static std::string SasTrimWhitespace(const std::string& s) {
+-    static const char* kWs = " \t\v\r\n";
+-    size_t begin = 0;
+-    while (begin < s.size() && strchr(kWs, s[begin]) != nullptr) {
+-        ++begin;
+-    }
+-    size_t end = s.size();
+-    while (end > begin && strchr(kWs, s[end - 1]) != nullptr) {
+-        --end;
+-    }
+-    return s.substr(begin, end - begin);
+ }
+ 
+ // ===========================================================================
+@@ -294,17 +235,6 @@
+ //   0x26 RenderColorTarget: rejects TEXTURE3D (8)
+ //   0x27 RenderDepthStencilTarget: rejects TEXTURE3D (8) / TEXTURECUBE (9)
+ //   0x2E OffScreenRenderTarget: rejects TEXTURE3D (8) / TEXTURECUBE (9)
+-static bool SasIsTextureTypeAllowed(int semanticId, int textureType) {
+-    if (semanticId == 0x26 && textureType == 8) {
+-        return false;
+-    }
+-    if ((semanticId == 0x27 || semanticId == 0x2E) &&
+-        (textureType == 8 || textureType == 9)) {
+-        return false;
+-    }
+-    return true;
+-}
+-
+ // The FUN_180011960 record build. semanticId: 0x26/0x27/0x2C/0x2E (the
+ // semantics sub_18000F3A0 routes into sub_180011960) plus the two INLINE
+ // semantics 0x2D (ANIMATEDTEXTURE) and 0x33 (TEXTUREVALUE), which the
+@@ -329,7 +259,7 @@
+     // annotations at all returns immediately: no resource object is built,
+     // nothing is registered and no warning is logged. Every 0x26/0x27/0x2C/
+     // 0x2E parameter reaching this function takes this early exit.
+-    if (pd.Annotations == 0 && (pd.Flags & 1) != 0) {
++    if (MdaEffectDependencySkipsUnannotatedLiteral(pd.Annotations, pd.Flags)) {
+         return 2;  // = the original's plain 0: skipped, no error flag
+     }
+ 
+@@ -363,8 +293,8 @@
+     // sets - see the notes in anime_texture.h) skips everything.
+     // =========================================================================
+     if (semanticId == 0x2D) {
+-        if (SasFindAnnotation(effect, param, "ResourceName") == nullptr &&
+-            (pd.Flags & 1) != 0) {
++        if (MdaEffectDependencySkipsAnimatedLiteral(
++                SasFindAnnotation(effect, param, "ResourceName") != nullptr, pd.Flags)) {
+             return 2;   // literal parameter without the annotation: skip
+         }
+         std::string resourceName;
+@@ -378,12 +308,7 @@
+         // and the empty result is a silent hard error (no second line).
+         std::string resolved;
+         {
+-            char absolute[MAX_PATH] = { 0 };
+-            if (_fullpath(absolute, resourceName.c_str(),
+-                          sizeof(absolute)) != nullptr &&
+-                GetFileAttributesA(absolute) != INVALID_FILE_ATTRIBUTES) {
+-                resolved = absolute;
+-            } else {
++            if (!SasResolveResourcePath(sas, resourceName, resolved)) {
+                 SasLogFormat(sas,
+                              "Error: failed to open file: %s (parameter: %s)\n",
+                              resourceName.c_str(), pd.Name);
+@@ -394,11 +319,9 @@
+         // [0x180010119 / 0x1800B4048] length < 4 or an extension other than
+         // ".png"/".gif" (lowercased last 4 chars of the RAW annotation):
+         // "Error: unsupported file type: %s (parameter: '%s')\n".
+-        std::string ext;
+-        if (resourceName.size() >= 4) {
+-            ext = ToLowerAscii(resourceName.substr(resourceName.size() - 4));
+-        }
+-        if (resourceName.size() < 4 || (ext != ".png" && ext != ".gif")) {
++        const MdaEffectDependencyAnimatedType animatedType =
++            MdaClassifyEffectAnimatedDependency(resourceName);
++        if (animatedType == MdaEffectDependencyAnimatedType::None) {
+             SasLogFormat(sas,
+                          "Error: unsupported file type: %s (parameter: '%s')\n",
+                          resourceName.c_str(), pd.Name);
+@@ -411,10 +334,9 @@
+         SasLogFormat(sas, "Loading texture file: %s\n", resolved.c_str());
+         std::string ctorError;
+         void* animeObject =
+-            (ext == ".png") ? MmeAnimeConstructPng(sas->device,
+-                                                   resolved.c_str(), &ctorError)
+-                            : MmeAnimeConstructGif(sas->device,
+-                                                   resolved.c_str(), &ctorError);
++            (animatedType == MdaEffectDependencyAnimatedType::Png)
++                ? MmeAnimeConstructPng(sas->device, resolved.c_str(), &ctorError)
++                : MmeAnimeConstructGif(sas->device, resolved.c_str(), &ctorError);
+         if (animeObject == nullptr || !ctorError.empty()) {
+             // [sub_180023440] the ctor's error string is appended verbatim
+             // ("failed to open '<path>'\n" family) and the load FAILS.
+@@ -559,15 +481,11 @@
+     // overrides the declared type and must not conflict with it.
+     std::string resourceType;
+     if (SasGetAnnotationString(effect, param, "ResourceType", 0, &resourceType, sas)) {
+-        const std::string lower = ToLowerAscii(resourceType);
+         int resolved = res.textureType;
+-        if (lower == "2d") {
+-            resolved = 7;
+-        } else if (lower == "3d") {
+-            resolved = 8;
+-        } else if (lower == "cube") {
+-            resolved = 9;
+-        } else {
++        const MdaEffectDependencyResourceTypeStatus status =
++            MdaResolveEffectDependencyTextureType(res.textureType, resourceType,
++                                                  resolved);
++        if (status == MdaEffectDependencyResourceTypeStatus::InvalidValue) {
+             SasLogFormat(sas,
+                          "Error: value of annotation 'ResourceType' is invalid: %s  "
+                          "(parameter: %s)\n",
+@@ -575,7 +493,7 @@
+             sas->hasErrors = true;
+             return 1;
+         }
+-        if (res.textureType != 5 && res.textureType != resolved) {
++        if (status == MdaEffectDependencyResourceTypeStatus::Conflict) {
+             SasLogFormat(sas,
+                          "Error: annotation 'ResourceType' conflicts with type of "
+                          "parameter.  (parameter: %s)\n",
+@@ -587,7 +505,7 @@
+     }
+ 
+     // [L15457+] per-semantic texture-type checks.
+-    if (!SasIsTextureTypeAllowed(semanticId, res.textureType)) {
++    if (!MdaEffectDependencyTextureTypeAllowed(semanticId, res.textureType)) {
+         SasLogFormat(sas, "Error: invalid texture type.  (parameter: %s)\n", pd.Name);
+         sas->hasErrors = true;
+         return 1;
+@@ -912,44 +830,25 @@
+             // pair). A path that cannot be opened fails the whole load - the
+             // original destroys the offscreen record and returns failure
+             // (0x180013652) after the resolver logged the line below.
+-            size_t cursor = 0;
+-            while (cursor <= res.defaultEffect.size()) {
+-                size_t semi = res.defaultEffect.find(';', cursor);
+-                size_t end = (semi == std::string::npos)
+-                                 ? res.defaultEffect.size()
+-                                 : semi;
+-                std::string token = res.defaultEffect.substr(cursor, end - cursor);
+-                cursor = (semi == std::string::npos)
+-                             ? res.defaultEffect.size() + 1
+-                             : semi + 1;
+-                const size_t eq = token.find('=');
+-                if (eq == std::string::npos &&
+-                    SasTrimWhitespace(token).empty()) {
+-                    continue;   // blank token: skipped, no error
+-                }
+-                const std::string key = SasTrimWhitespace(token.substr(0, eq));
+-                if (eq == std::string::npos || key.empty()) {
++            MdaDefaultEffectCursor cursor;
++            MdaDefaultEffectRow row;
++            for (;;) {
++                const MdaDefaultEffectTokenStatus status =
++                    MdaParseDefaultEffectRow(res.defaultEffect, cursor, row);
++                if (status == MdaDefaultEffectTokenStatus::End) break;
++                if (status == MdaDefaultEffectTokenStatus::Blank) continue;
++                if (status == MdaDefaultEffectTokenStatus::SyntaxError) {
+                     SasLogFormat(sas,
+                                  "Error: 'DefaultEffect' syntax error: %s  "
+                                  "(parameter: %s)\n",
+-                                 token.c_str(), pd.Name);
++                                 row.rawToken.c_str(), pd.Name);
+                     sas->hasErrors = true;
+                     return 1;
+                 }
+-                std::string value = SasTrimWhitespace(token.substr(eq + 1));
+-                const std::string lowered = ToLowerAscii(value);
+-                if (lowered.empty() || lowered == "none") {
+-                    value = "none";
+-                } else if (lowered == "hide") {
+-                    value = "hide";
+-                } else if (lowered == "main_default") {
+-                    value = "main_default";
+-                } else {
+-                    char absolute[MAX_PATH] = { 0 };
+-                    if (_fullpath(absolute, value.c_str(),
+-                                  sizeof(absolute)) == nullptr ||
+-                        GetFileAttributesA(absolute) ==
+-                            INVALID_FILE_ATTRIBUTES) {
++                std::string value = row.value;
++                if (row.kind == MdaDefaultEffectKind::Path) {
++                    std::string resolved;
++                    if (!SasResolveResourcePath(sas, value, resolved)) {
+                         SasLogFormat(sas,
+                                      "Error: failed to open file: %s "
+                                      "(parameter: %s)\n",
+@@ -957,9 +856,9 @@
+                         sas->hasErrors = true;
+                         return 1;
+                     }
+-                    value = absolute;
++                    value = resolved;
+                 }
+-                res.defaultEffectMap.push_back(std::make_pair(key, value));
++                res.defaultEffectMap.push_back(std::make_pair(row.key, value));
+             }
+         }
+         // [0x1800B43A8] "Info: new OffScreen RenderTarget: "
+@@ -1047,17 +946,11 @@
+     // (that path only runs when the annotation is ABSENT and the record
+     // string stays ""). The record keeps the RESOLVED absolute path and
+     // sub_1800143D0 loads that.
+-    if (semanticId == 0x26 || semanticId == 0x27 || semanticId == 0x2C ||
+-        semanticId == 0x2E) {
++    if (MdaEffectDependencyConsumesResourceName(semanticId)) {
+         std::string resourceName;
+         if (SasGetAnnotationString(effect, param, "ResourceName", 0,
+                                    &resourceName, sas)) {
+-            char absolute[MAX_PATH] = { 0 };
+-            if (_fullpath(absolute, resourceName.c_str(),
+-                          sizeof(absolute)) != nullptr &&
+-                GetFileAttributesA(absolute) != INVALID_FILE_ATTRIBUTES) {
+-                res.resourceName = absolute;
+-            } else {
++            if (!SasResolveResourcePath(sas, resourceName, res.resourceName)) {
+                 SasLogFormat(sas,
+                              "Error: failed to open file: %s (parameter: %s)\n",
+                              resourceName.c_str(), pd.Name);
+@@ -1082,10 +975,9 @@
+     SasGetAnnotationString(effect, param, "Function", 0, &function, sas);
+     res.functionName = function;
+     std::string target;
+-    if (!SasGetAnnotationString(effect, param, "Target", 0, &target, sas)) {
+-        target = "tx_1_0";
+-    }
+-    res.functionTarget = target;
++    const bool targetValid =
++        SasGetAnnotationString(effect, param, "Target", 0, &target, sas);
++    res.functionTarget = MdaEffectDependencyFunctionTarget(targetValid, target);
+ 
+     // [LABEL_278, 0x180012FE0-0x1800130B9] 0x2C with neither ResourceName
+     // nor Function: log "Warning: texture '<name>' is not available.\n"
+@@ -1138,92 +1030,21 @@
+ // FUN_18000c470 - the parse core
+ // ===========================================================================
+ 
+-// Shared validation helper for one table entry vs a parameter desc. The
+-// decompile shapes (L12441-12506 for the semantic table, L12580-12627 for the
+-// name table) reduce to these rules:
+-//   - MATRIX_COLUMNS normalizes to MATRIX_ROWS
+-//   - matrix needs Rows==4, vector needs Rows==1
+-//   - class/type/count mismatches carry per-semantic exceptions (table A);
+-//     the name table (B) is strict - verified 2026-09: the B branch
+-//     (LABEL_458) is class/type/count + Rows shape only, no exception and
+-//     no Elements/Flags gate
+-//   - arrays (Elements != 0) are rejected except TextureValue (0x33) -
+-//     table A path only [0x18000e66c]
+-static bool SasValidateAgainstEntry(const SasSemanticEntry& e,
+-                                    const D3DXPARAMETER_DESC& pd, bool strict) {
+-    int cls = static_cast<int>(pd.Class);
+-    if (cls == 3) {
+-        cls = 2;
+-    }
+-    int type = static_cast<int>(pd.Type);
+-    int count = static_cast<int>(pd.Rows) * static_cast<int>(pd.Columns);
+-
+-    // Shape check (matrix 4 rows, vector 1 row).
+-    if (cls == 2 && pd.Rows != 4) {
+-        return false;
+-    }
+-    if (cls == 1 && pd.Rows != 1) {
+-        return false;
+-    }
+-
+-    // Class check with per-semantic exceptions (skipped when strict).
+-    if (e.cls != cls && !strict) {
+-        bool ok = false;
+-        if (e.id == 0x1E) {            // SpecularPower: scalar accepted
+-            ok = (cls == 0);
+-        } else if (e.id == 0x28) {     // ControlObject: scalar or matrix
+-            ok = (cls == 0 || cls == 2);
+-        } else if (e.cls == 0 && cls == 1) {  // 1-element vector as scalar
+-            ok = (count == 1);
+-        }
+-        if (!ok) {
+-            return false;
+-        }
+-    } else if (e.cls != cls) {
+-        return false;
+-    }
+-
+-    // Type check: TEXTURE accepts TEXTURE2D; ControlObject accepts BOOL.
+-    if (e.type != type) {
+-        bool ok = (e.type == 5 && type == 7);
+-        if (!ok && !strict && e.id == 0x28 && type == 1 && pd.Columns == 1) {
+-            ok = true;
+-        }
+-        if (!ok) {
+-            return false;
+-        }
+-    }
+-
+-    // Element-count check with per-semantic exceptions (skipped when strict).
+-    if (e.count != 255 && e.count != count) {
+-        bool ok = false;
+-        if (!strict) {
+-            unsigned int ucount = static_cast<unsigned int>(count);
+-            if (e.id == 0x1E) {
+-                ok = ((ucount - 1u) <= 3u) && count != 2;  // {1,3,4}
+-            } else if (e.id == 0x28) {
+-                ok = ((ucount - 1u) <= 3u) && count != 2 && count != 16;
+-            } else if (e.id == 0x18 || e.id == 0x19 || e.id == 0x1A ||
+-                       e.id == 0x1B || e.id == 0x1F || e.id == 0x20 ||
+-                       e.id == 0x1C || e.id == 0x1D) {
+-                ok = (e.count == 4 && count == 3);  // float3 for float4
+-            } else if (e.id == 0x30 || e.id == 0x31 || e.id == 0x32) {
+-                ok = true;  // mouse-button vectors accept any size
+-            }
+-        }
+-        if (!ok) {
+-            return false;
+-        }
+-    }
+-
+-    // Arrays are invalid except TextureValue - TABLE A ONLY [0x18000e66c:
+-    // cmp [desc+0x20 = Elements],0 then id!=0x33 feeds the semantic-table
+-    // error flag]. The name-table B branch (LABEL_458, 0x18000e88d-0x18000e9e4)
+-    // has no Elements/Flags gate at all: class/type/count + Rows shape only.
+-    if (!strict && pd.Elements != 0 && e.id != 0x33) {
+-        return false;
+-    }
+-    return true;
++// The shared descriptor-only contract owns table matching and validation;
++// this bridge copies reflection data without depending on a device.
++static MdaEffectDependencyParameterDesc SasDependencyDescriptor(
++    const D3DXPARAMETER_DESC& pd) {
++    MdaEffectDependencyParameterDesc descriptor;
++    descriptor.name = pd.Name != nullptr ? pd.Name : "(null)";
++    descriptor.semantic = pd.Semantic != nullptr ? pd.Semantic : "";
++    descriptor.parameterClass = static_cast<unsigned int>(pd.Class);
++    descriptor.parameterType = static_cast<unsigned int>(pd.Type);
++    descriptor.rows = pd.Rows;
++    descriptor.columns = pd.Columns;
++    descriptor.elements = pd.Elements;
++    descriptor.annotationCount = pd.Annotations;
++    descriptor.flags = pd.Flags;
++    return descriptor;
+ }
+ 
+ // [FUN_18000c470 L12284-12306 + L19885-19917] script normalization:
+@@ -1386,85 +1207,26 @@
+             continue;
+         }
+         const char* name = (pd.Name != nullptr) ? pd.Name : "(null)";
+-        const char* semantic = (pd.Semantic != nullptr) ? pd.Semantic : "";
+-
+-        bool matched = false;
+-        bool invalid = false;
+-        int semanticId = 0;
+-
+-        // Table A: semantic match (_stricmp) [L12434-12438].  The semantic
+-        // table carries the per-semantic exceptions (float3 for float4,
+-        // scalar/matrix ControlObject, ...) - SasValidateAgainstEntry runs
+-        // non-strict here, strict=false.
+-        for (size_t k = 0; k < sizeof(kSemanticTable) / sizeof(kSemanticTable[0]); ++k) {
+-            if (_stricmp(semantic, kSemanticTable[k].name) != 0) {
+-                continue;
+-            }
+-            // [0x18000e4e9-0x18000e52c] Class==D3DXPC_OBJECT with one of
+-            // DIFFUSE/AMBIENT/EMISSIVE/SPECULAR/SPECULARPOWER/POSITION/
+-            // DIRECTION skips the table A validation entirely (NO error)
+-            // and falls through to the name table B walk below.
+-            if (pd.Class == D3DXPC_OBJECT &&
+-                (kSemanticTable[k].id == 0x18 || kSemanticTable[k].id == 0x19 ||
+-                 kSemanticTable[k].id == 0x1A || kSemanticTable[k].id == 0x1B ||
+-                 kSemanticTable[k].id == 0x1E || kSemanticTable[k].id == 0x1F ||
+-                 kSemanticTable[k].id == 0x20)) {
+-                break;  // leave matched=false -> table B runs
+-            }
+-            matched = true;
+-            semanticId = kSemanticTable[k].id;
+-            if (!SasValidateAgainstEntry(kSemanticTable[k], pd, false)) {
+-                invalid = true;
+-                // [L12508-12515] "Error: type of parameter '%s' is invalid
+-                // (semantic: %s).\n"
+-                SasLogFormat(sas,
+-                             "Error: type of parameter '%s' is invalid (semantic: %s).\n",
+-                             name, kSemanticTable[k].name);
+-            } else if (SasRegisterSemantic(sas, semanticId, param) != 0) {
+-                invalid = true;
+-            }
+-            break;
+-        }
+-
+-        // Table B: name match [L12559-12576]; strict, no exceptions
+-        // (strict=true - the decompile shows no exception branches here).
+-        // [0x18000e8ef-0x18000e901] a strict-validation failure is graded:
+-        // ids 0x3F-0x42 (use_texture/use_spheremap/use_subtexture/use_toon)
+-        // record "Error: type of parameter '%s' is invalid.\n" and the
+-        // error flag; EVERY other name-table entry fails SILENTLY and
+-        // drops to the generic texture-typed check below (loc_18000E9E6).
+-        if (!matched) {
+-            for (size_t k = 0; k < sizeof(kNameTable) / sizeof(kNameTable[0]); ++k) {
+-                if (_stricmp(name, kNameTable[k].name) != 0) {
+-                    continue;
+-                }
+-                if (SasValidateAgainstEntry(kNameTable[k], pd, true)) {
+-                    matched = true;
+-                    semanticId = kNameTable[k].id;
+-                    if (SasRegisterSemantic(sas, semanticId, param) != 0) {
+-                        invalid = true;
+-                    }
+-                } else if (kNameTable[k].id >= 0x3F && kNameTable[k].id <= 0x42) {
+-                    // [L12593-12596] "Error: type of parameter '%s' is
+-                    // invalid.\n" - the flag is set and the parameter is
+-                    // dropped (no texture fallback for these four).
+-                    invalid = true;
+-                    SasLogFormat(sas, "Error: type of parameter '%s' is invalid.\n", name);
+-                }
+-                // else: silent skip -> unmatched, the texture check below runs
+-                break;  // the name matched a table B entry; stop scanning
+-            }
+-        }
+-
+-        // Unmatched texture-typed parameters -> generic resource (0x2C)
+-        // [L12629-12637].
+-        if (!matched) {
+-            int t = static_cast<int>(pd.Type);
+-            if (t == 5 || t == 7 || t == 8 || t == 9) {
+-                if (SasRegisterSemantic(sas, 0x2C, param) != 0) {
+-                    invalid = true;
+-                }
+-            }
++        // The CPU inspector uses this same descriptor-only dispatcher. Keep
++        // logging and resource creation here, in their existing host order.
++        const MdaEffectDependencySemanticResolution resolution =
++            MdaResolveEffectDependencySemantic(SasDependencyDescriptor(pd));
++        const bool matched = resolution.matched;
++        const int semanticId = resolution.semanticId;
++        bool invalid = resolution.invalid;
++        if (resolution.invalidSemanticName != nullptr) {
++            SasLogFormat(sas,
++                         "Error: type of parameter '%s' is invalid (semantic: %s).\n",
++                         name, resolution.invalidSemanticName);
++        }
++        if (resolution.invalidName) {
++            SasLogFormat(sas, "Error: type of parameter '%s' is invalid.\n", name);
++        }
++        // A name-table validation error can still reach the existing generic
++        // texture fallback. A semantic-table error never registers a resource.
++        if (semanticId >= 0 && resolution.invalidSemanticName == nullptr &&
++            SasRegisterSemantic(sas, semanticId, param) != 0) {
++            invalid = true;
+         }
+ 
+         // CONTROLOBJECT (semantic 0x28) [sub_18000F3A0 case 0x28]: collect
+@@ -1701,12 +1463,19 @@
+     // LABEL_275 -> LABEL_276 -> LABEL_278 and report through the shared
+     // "Error: failed to create texture ..." line. All failures reject the
+     // effect (FUN_180011960 returns the hr).
+-    if (res->semanticId == 0x2C && !res->functionName.empty()) {
++    if (MdaEffectTextureFunctionDependencyRequired(
++            res->semanticId, !res->resourceName.empty(), res->functionName)) {
+         ID3DXBuffer* shaderCode = nullptr;
+         ID3DXBuffer* errors = nullptr;
++        MdaPackageInclude packageInclude(sas->path);
++        ID3DXInclude* include = MdaMmeMappedResourcesV1() ? &packageInclude : nullptr;
+         HRESULT hr = D3DXCompileShaderFromFileA(
+-            sas->path.c_str(), nullptr, nullptr, res->functionName.c_str(),
++            sas->path.c_str(), nullptr, include, res->functionName.c_str(),
+             res->functionTarget.c_str(), 0, &shaderCode, &errors, nullptr);
++        if (!packageInclude.ErrorText().empty()) {
++            if (SUCCEEDED(hr)) hr = E_FAIL;
++            SasLogFormat(sas, "Error: %s\n", packageInclude.ErrorText().c_str());
++        }
+         if (FAILED(hr)) {
+             if (errors != nullptr && errors->GetBufferSize() != 0) {
+                 // [0x1800152B7-0x18001534E] the error buffer's content (the

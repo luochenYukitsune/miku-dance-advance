@@ -1,0 +1,174 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Mmd.Modern.App"
+             x:Class="Mmd.Modern.App.EditorModelBrowser"
+             x:DataType="local:EditorModelBrowserViewModel"
+             Background="{DynamicResource EditorPanelSurface}">
+  <UserControl.Styles>
+    <Style Selector="ListBox.models ListBoxItem">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="12,3" />
+    </Style>
+    <Style Selector="ToggleButton.browserDisclosure">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="10,0" /><Setter Property="FontSize" Value="13" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
+      <Setter Property="BorderThickness" Value="0,1,0,1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+          <Grid ColumnDefinitions="16,*">
+            <PathIcon Data="{StaticResource Phosphor.caret-right}" Width="12" Height="12"
+                      Foreground="{DynamicResource EditorMuted}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" Margin="6,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.browserDisclosure:checked">
+      <Setter Property="Background" Value="{DynamicResource EditorChrome}" />
+    </Style>
+    <Style Selector="ToggleButton.browserDisclosure:checked /template/ PathIcon">
+      <Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter>
+    </Style>
+    <Style Selector="ToggleButton.browserDisclosure:pointerover">
+      <Setter Property="Background" Value="{DynamicResource EditorHover}" />
+    </Style>
+    <Style Selector="ToggleButton.browserDisclosure:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" />
+    </Style>
+    <Style Selector="TreeView.animationTree">
+      <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" /><Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="4,0,4,8" /><Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+    </Style>
+    <Style Selector="TreeView.animationTree TreeViewItem">
+      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="Padding" Value="2,0,6,0" />
+      <Setter Property="IsExpanded" Value="{ReflectionBinding IsExpanded, Mode=TwoWay}" />
+      <Setter Property="Template"><ControlTemplate>
+        <StackPanel>
+          <Border Name="BrowserHeaderSurface" Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <Grid Name="PART_Header" ColumnDefinitions="20,*" MinHeight="28">
+              <ToggleButton Name="PART_ExpandCollapseChevron" Classes="browserExpand" Focusable="False"
+                            IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}"
+                            IsVisible="{ReflectionBinding IsGroup}" />
+              <ContentPresenter Name="PART_HeaderPresenter" Grid.Column="1" Padding="{TemplateBinding Padding}"
+                                Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                HorizontalContentAlignment="Stretch" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"
+                          Margin="14,0,0,0" IsVisible="{TemplateBinding IsExpanded}" />
+        </StackPanel>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="TreeView.animationTree TreeViewItem /template/ Border#BrowserHeaderSurface:pointerover">
+      <Setter Property="Background" Value="{DynamicResource EditorHover}" />
+    </Style>
+    <Style Selector="TreeView.animationTree TreeViewItem:selected /template/ Border#BrowserHeaderSurface">
+      <Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" />
+    </Style>
+    <Style Selector="TreeView.animationTree TreeViewItem:focus-visible /template/ Border#BrowserHeaderSurface">
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" />
+    </Style>
+    <Style Selector="TreeView.animationTree TextBlock">
+      <Setter Property="FontSize" Value="13" /><Setter Property="LineHeight" Value="20" />
+    </Style>
+    <Style Selector="TreeView.animationTree TextBlock.browserGroup"><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="TreeView.animationTree TextBlock.caption"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
+    <Style Selector="ToggleButton.browserExpand">
+      <Setter Property="Width" Value="20" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="2" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="Transparent">
+          <PathIcon Data="{StaticResource Phosphor.caret-right}" Width="12" Height="12"
+                    Foreground="{DynamicResource EditorMuted}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.browserExpand:checked /template/ PathIcon">
+      <Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter>
+    </Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="36,Auto,*">
+    <Border Classes="panelHeader" Padding="10,0">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" Classes="section" VerticalAlignment="Center" />
+        <Button Name="LoadModelButton" Grid.Column="1" Content="{DynamicResource Mda.Text.f716b5f91e72}" Command="{Binding ImportModelCommand}"
+                IsEnabled="{Binding CanImportModel}" ToolTip.Tip="{DynamicResource Mda.Text.983b233844c2}" />
+        <Button Name="ReplaceModelButton" Grid.Column="2" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
+                Command="{Binding ReplaceModelCommand}" IsEnabled="{Binding CanReplaceModel}"
+                ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" MinHeight="30" MaxHeight="150">
+      <TextBlock Text="{DynamicResource Mda.Text.3c8827b3336c}" Classes="caption" Margin="12,6"
+                 IsVisible="{Binding NoModels}" />
+      <ListBox Name="ModelList" Classes="scene models" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
+               IsVisible="{Binding HasModels}" SelectionMode="Single" KeyDown="ModelListKeyDown"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorModelItem">
+          <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding SourcePath}">
+            <Grid.ContextMenu><ContextMenu>
+              <MenuItem Header="{DynamicResource Mda.Text.Context.ReplaceModel.Action}"
+                        CommandParameter="{Binding}" Click="ReplaceModelFromContext" />
+              <MenuItem Header="{DynamicResource Mda.Text.6135d4159e89}" InputGesture="Delete"
+                        CommandParameter="{Binding}" Click="RemoveModelFromContext" />
+            </ContextMenu></Grid.ContextMenu>
+            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding RoleLabel}" Classes="caption" Margin="8,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+        </DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding HasModels}">
+      <ToggleButton Name="AnimationElementsExpander" Classes="browserDisclosure" Content="{Binding HierarchyLabel}"
+                    IsChecked="{Binding IsHierarchyExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+      <TabControl Grid.Row="1" Name="AnimationElements" SelectedIndex="{Binding HierarchyTab, Mode=TwoWay}"
+                  IsVisible="{Binding IsHierarchyExpanded}">
+        <TabItem Header="{DynamicResource Mda.Text.7fbaf8247802}">
+          <Grid RowDefinitions="44,*">
+            <TextBox Name="BoneSearchBox" Classes="editorSearch" Margin="10,8" Watermark="{DynamicResource Mda.Text.d66190d341ec}"
+                     Text="{Binding BoneSearchText, Mode=TwoWay}" IsEnabled="{Binding HasSelectedModel}"
+                     ToolTip.Tip="{DynamicResource Mda.Text.f761ebd685c1}" />
+            <Grid Grid.Row="1">
+              <TreeView Name="BoneTree" Classes="animationTree" ItemsSource="{Binding BoneGroups}"
+                        SelectedItem="{Binding SelectedBoneNode, Mode=OneWay}" SelectionChanged="BoneSelectionChanged"
+                        SelectionMode="Single" AutoScrollToSelectedItem="True">
+                <TreeView.ItemTemplate><TreeDataTemplate x:DataType="local:EditorElementNode" ItemsSource="{Binding Children}">
+                  <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding ToolTip}">
+                    <TextBlock Text="{Binding DisplayName}" Classes.browserGroup="{Binding IsGroup}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding GroupCount}" Classes="caption" Margin="8,0,0,0" VerticalAlignment="Center" />
+                  </Grid>
+                </TreeDataTemplate></TreeView.ItemTemplate>
+              </TreeView>
+              <TextBlock Text="{Binding BoneEmptyPrompt}" Classes="caption" IsVisible="{Binding HasNoBoneResults}"
+                         Margin="12,5,12,0" VerticalAlignment="Top" TextWrapping="Wrap" IsHitTestVisible="False" />
+            </Grid>
+          </Grid>
+        </TabItem>
+        <TabItem Header="{DynamicResource Mda.Text.c762ed73d49b}">
+          <Grid RowDefinitions="44,*">
+            <TextBox Name="MorphSearchBox" Classes="editorSearch" Margin="10,8" Watermark="{DynamicResource Mda.Text.273531987365}"
+                     Text="{Binding MorphSearchText, Mode=TwoWay}" IsEnabled="{Binding HasSelectedModel}"
+                     ToolTip.Tip="{DynamicResource Mda.Text.35dad6691a0e}" />
+            <Grid Grid.Row="1">
+              <TreeView Name="MorphTree" Classes="animationTree" ItemsSource="{Binding MorphGroups}"
+                        SelectedItem="{Binding SelectedMorphNode, Mode=OneWay}" SelectionChanged="MorphSelectionChanged"
+                        SelectionMode="Single" AutoScrollToSelectedItem="True">
+                <TreeView.ItemTemplate><TreeDataTemplate x:DataType="local:EditorElementNode" ItemsSource="{Binding Children}">
+                  <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding ToolTip}">
+                    <TextBlock Text="{Binding DisplayName}" Classes.browserGroup="{Binding IsGroup}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding GroupCount}" Classes="caption" Margin="8,0,0,0" VerticalAlignment="Center" />
+                  </Grid>
+                </TreeDataTemplate></TreeView.ItemTemplate>
+              </TreeView>
+              <TextBlock Text="{Binding MorphEmptyPrompt}" Classes="caption" IsVisible="{Binding HasNoMorphResults}"
+                         Margin="12,5,12,0" VerticalAlignment="Top" TextWrapping="Wrap" IsHitTestVisible="False" />
+            </Grid>
+          </Grid>
+        </TabItem>
+      </TabControl>
+    </Grid>
+  </Grid>
+</UserControl>

@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Formats/Mmd.Modern.Formats.csproj" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics.Bepu/Mmd.Modern.Physics.Bepu.csproj" />
+    <None Include="../../fixtures/humanoid.pmd" Link="fixtures/humanoid.pmd" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

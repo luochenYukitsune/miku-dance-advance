@@ -1,0 +1,12 @@
+{
+  "project": "MikkTSpace",
+  "repository": "https://github.com/mmikk/MikkTSpace",
+  "commit": "3e895b49d05ea07e4c2133156cfa94369e19e409",
+  "files": {
+    "upstream/mikktspace.h": "17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0",
+    "upstream/mikktspace.c": "de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288"
+  },
+  "modifications": "None to upstream files. MDA independently authored the small ABI bridge and build script.",
+  "generatorRevision": "mikk-3e895b49-abi1-source-local-v1",
+  "license": "LICENSE.MikkTSpace.txt; unmodified notices also retained in both upstream sources"
+}

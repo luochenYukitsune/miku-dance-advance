@@ -1,0 +1,120 @@
+#ifndef MDA_MME_BRIDGE_V1_H
+#define MDA_MME_BRIDGE_V1_H
+#include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* Single device/render thread. No concurrent or reentrant registration, queries,
+   destruction or snapshot mutation. All IDs are opaque nonzero 64-bit values;
+   never dereference them, and use the same values as the existing ExpGet*ID
+   adapter and MMHack calls. Callbacks must not throw across the C ABI. Structs
+   use fixed-width scalar fields, but pointer fields and alignment are native
+   process ABI: host and adapter must have the same bitness/compiler ABI.
+   IDs must be unique across both object kinds and
+   must not be recycled while an old scene/cache entry can still be visible.
+   The Exp* pointer-shaped declarations require a separate, checked mapping on
+   32-bit hosts. This prototype does not change that ABI. */
+enum { MDA_MME_BRIDGE_VERSION = 1, MDA_MME_MODEL = 1, MDA_MME_ACCESSORY = 2 };
+enum { MDA_MME_OK = 0, MDA_MME_MISSING = -1, MDA_MME_CALLBACK_FAILED = -2,
+       MDA_MME_INVALID = -3, MDA_MME_ALREADY_BOUND = -4 };
+enum { MDA_MME_QUERY_NONE = 0, MDA_MME_QUERY_GEOMETRY = 1, MDA_MME_QUERY_PARENT = 2,
+       MDA_MME_QUERY_OBJECT_FX = 3 };
+/* All result structures are initialized by the caller, with size/version set.
+   Callback may only write fields covered by size and must return 0 on success;
+   nonzero is an error, never an unattached or missing-object sentinel. */
+typedef struct MdaMmeGeometryV1 {
+    uint32_t size, version;
+    uint64_t identity; /* nonzero generation token; changes for every replacement */
+    void* borrowed_iunknown; /* IUnknown* for VB or mesh; non-null */
+} MdaMmeGeometryV1;
+typedef struct MdaMmeParentV1 {
+    uint32_t size, version;
+    uint32_t attached; /* exactly 0 or 1 */
+    int32_t bone_index;
+    uint64_t model_id; /* attached: nonzero existing candidate model ID; else 0 */
+} MdaMmeParentV1;
+typedef int32_t (__cdecl *MdaMmeGeometryFn)(void* context, uint32_t kind,
+    uint64_t object_id, MdaMmeGeometryV1* result);
+typedef int32_t (__cdecl *MdaMmeParentFn)(void* context, uint64_t accessory_id,
+    MdaMmeParentV1* result);
+typedef struct MdaMmeCallbacksV1 {
+    uint32_t size, version;
+    void* context; /* borrowed, remains alive until MmeHostDestroyDevice returns */
+    MdaMmeGeometryFn geometry;
+    MdaMmeParentFn parent;
+} MdaMmeCallbacksV1;
+typedef struct MdaMmeErrorV1 {
+    uint32_t size, version;
+    int32_t status, callback_status;
+    uint32_t query, reserved;
+    uint64_t object_id;
+} MdaMmeErrorV1;
+/* Registration copies this table, borrows context and code pointers; exactly one
+   successful binding until device destruction. Call before BeginScene. The host
+   supplies an already-evaluated immutable current-frame snapshot for the entire
+   BeginScene/draw/EndScene transaction. Parent is queried on each getter call.
+   Geometry IUnknown is borrowed and kept alive by the host through BeginScene;
+   consumer AddRefs on the same render thread before caching and Releases on
+   invalidation/device destruction. Tokens identify a generation, not a COM
+   pointer, and cannot be reused for that object while an old entry exists.
+   No strings cross this new ABI; existing path callbacks retain their own contract.
+   Caller must inspect first-error latch after BeginScene and after every operation
+   that may invoke a getter, reject the frame on error, and balance an already
+   started device scene. The getter's legacy BOOL cannot represent an error.
+   BeginScene clears the prior latch before querying. */
+int32_t __cdecl MdaMmeBindV1(const MdaMmeCallbacksV1* callbacks);
+int32_t __cdecl MdaMmeGetErrorV1(MdaMmeErrorV1* error);
+/* Separate optional explicit-assignment policy. Existing callbacks layout stays
+   fixed. apply runs once per frame after object registration and before plan.
+   It must not throw; return zero only when every assignment is fully usable. */
+typedef int32_t (__cdecl *MdaMmeObjectFxFn)(void* context);
+typedef struct MdaMmeObjectFxCallbacksV1 {
+    uint32_t size, version;
+    void* context;
+    MdaMmeObjectFxFn apply;
+} MdaMmeObjectFxCallbacksV1;
+int32_t __cdecl MdaMmeBindObjectFxV1(const MdaMmeObjectFxCallbacksV1* callbacks);
+int32_t __cdecl MdaMmeApplyObjectFxV1(void);
+/* An explicit assignment callback is bound in either finite-object or scene
+   mode. Scene mode changes admission/planning only, not callback ownership. */
+int32_t __cdecl MdaMmeExplicitObjectFxV1(void);
+int32_t __cdecl MdaMmeSceneFxV1(void);
+/* Optional immutable package resolver, independent of the existing tables.
+   Strings use the process ACP. The callback table is copied; context/code and
+   mapped read-share leases remain alive until successful host destruction.
+   A size query has output == NULL and capacity == 0. required includes NUL,
+   is at most 32768, and must be identical for the following fill call.
+   Only mapped materialized local files may succeed; never consult CWD or
+   reopen an original-name alias. No callback exception crosses this ABI. */
+typedef int32_t (__cdecl *MdaMmeResolveResourceFn)(void* context,
+    const char* baseFileAnsi, const char* requestedAnsi, char* output,
+    uint32_t capacity, uint32_t* required);
+typedef struct MdaMmeResourceCallbacksV1 {
+    uint32_t size, version;
+    void* context;
+    MdaMmeResolveResourceFn resolve;
+} MdaMmeResourceCallbacksV1;
+int32_t __cdecl MdaMmeBindResourcesV1(const MdaMmeResourceCallbacksV1* callbacks);
+/* Transactional package configuration: geometry must already be bound and
+   neither optional policy may be bound. A failure leaves both unchanged. */
+int32_t __cdecl MdaMmeBindPackageObjectFxV1(const MdaMmeObjectFxCallbacksV1* objectFx,
+    const MdaMmeResourceCallbacksV1* resources);
+/* The same transaction opts into the existing general SAS scene/offscreen/
+   repeat execution. All compiled files and resources remain package-mapped.
+   No existing callback layout or finite-object policy is widened. */
+int32_t __cdecl MdaMmeBindPackageSceneFxV1(const MdaMmeObjectFxCallbacksV1* objectFx,
+    const MdaMmeResourceCallbacksV1* resources);
+int32_t __cdecl MdaMmeMappedResourcesV1(void);
+int32_t __cdecl MdaMmeResolveResourceV1(const char* baseFileAnsi,
+    const char* requestedAnsi, char* output, uint32_t capacity, uint32_t* required);
+/* Internal seam, included here to make the adapter independently linkable. */
+void __cdecl MdaMmeBeginFrameV1(void);
+int32_t __cdecl MdaMmeRequireBoundV1(void);
+void __cdecl MdaMmeUnbindV1(void);
+int32_t __cdecl MdaMmeQueryGeometryV1(uint32_t kind, uint64_t id, MdaMmeGeometryV1* result);
+int32_t __cdecl MdaMmeQueryParentV1(uint64_t id, MdaMmeParentV1* result);
+void __cdecl MdaMmeRecordErrorV1(int32_t status, int32_t callback_status, uint32_t query, uint64_t id);
+#ifdef __cplusplus
+}
+#endif
+#endif

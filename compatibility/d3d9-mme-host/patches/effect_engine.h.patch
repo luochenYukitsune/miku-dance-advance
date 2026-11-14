@@ -1,0 +1,39 @@
+--- upstream/third_party/mmeffect/src/mmeffect/effect_engine.h
++++ ALTERED/third_party/mmeffect/src/mmeffect/effect_engine.h
+@@ -1,3 +1,4 @@
++// ALTERED reset244: retain live effect source identity across device loss.
+ // effect_engine.h - the D3DX effect engine integration of MMEffect.dll.
+ //
+ // Evidence (subsystems.md section 3, 0x18000A000-0x18000C000):
+@@ -49,6 +50,7 @@
+     // non-shared render targets belong to this instance alone.
+     std::shared_ptr<LoadedEffect> source;
+     bool assigned = false;  // first assignment uses the freshly compiled instance
++    bool objectFxRejected = false; // opt-in finite policy rejection, never a legacy compile error
+     ID3DXEffect*  effect = nullptr;   // created by D3DXCreateEffectFromFileA/W
+     std::string   path;               // narrow (CP 0) path as requested
+     std::string   errorText;          // last load error (logged by the apply path)
+@@ -92,6 +94,9 @@
+ // engine containers (the pool/surface COM releases stay at the call sites,
+ // matching the original's Cleanup/Initialize order).
+ void MmeEngineTerm();
++// Explicit object-FX sessions rebuild assignments every generation. Retire
++// expired weak instance bookkeeping once per frame, without touching live COM.
++void MmeEnginePruneExpiredInstances();
+ 
+ // [0x18005e640] FUN_18005e640: device-dependent resource release (the
+ // OnLostDevice half): ID3DXEffect::OnLostDevice for every cached effect and
+@@ -140,6 +145,13 @@
+ // compensated by explicit erase on unload, preserving observable behavior (reload on changes, clear all on Reload All).
+ void MmeEngineClearCaches();
+ 
++// Device-loss cleanup, distinct from explicit unload/reload invalidation.
++// Call on the owning device thread after MmeEngineOnLostDevice returns:
++// erase cache-exclusive effects, retain source identity for live assignments,
++// and release the texture cache. The preceding lost walk releases DEFAULT
++// resources/stateblocks; this function creates or reacquires no GPU resource.
++void MmeEngineClearLostDeviceCaches();
++
+ // Texture-cache probe (the DXTextureCache half). Returns the cached texture or
+ // nullptr when the file is not cached; loading lives with the SAS resource
+ // machinery (Phase 3) - Phase 2 registers/unregisters cache entries only.

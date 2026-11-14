@@ -1,0 +1,19 @@
+# Keep existing source encodings and line endings byte-for-byte.
+# This project includes UTF-8 documents and binary compatibility fixtures.
+* -text
+* whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pmx binary
+*.pmd binary
+*.vmd binary
+*.pmm binary
+*.zip binary
+
+# Preserve pinned upstream bytes, including their original whitespace.
+native/Mmd.Modern.Mikktspace/upstream/* -whitespace
+compatibility/d3d9-mme-host/upstream/** -whitespace
+compatibility/d3d9-mme-host/patches/*.patch -whitespace
+src/Mmd.Modern.App/Assets/Fonts/LICENSE_Fonts -whitespace

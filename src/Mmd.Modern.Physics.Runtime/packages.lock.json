@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "BepuPhysics": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "Ck/BJgSQrBqYrj0T9jGljDdHNILBP5kTPTylc7N/hCzR1XJJc7p6ORzwtjTfjgoYkkdajvLHxEQv6BRC8kaysQ==",
+        "dependencies": {
+          "BepuUtilities": "2.4.0"
+        }
+      },
+      "BepuUtilities": {
+        "type": "Transitive",
+        "resolved": "2.4.0",
+        "contentHash": "KNMxkzKLHAvV7jRtErxs3rPv71fHToqo/WN96HlT6iomWuwL97tohEbt0B1WA8A6sO5t6PP+qF08d4T9A8k2uA=="
+      },
+      "SharpZipLib": {
+        "type": "Transitive",
+        "resolved": "1.4.2",
+        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
+      },
+      "mmd.modern.animation": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Core": "[1.0.0, )"
+        }
+      },
+      "mmd.modern.application": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Animation": "[1.0.0, )",
+          "Mmd.Modern.Core": "[1.0.0, )",
+          "Mmd.Modern.Formats": "[1.0.0, )",
+          "Mmd.Modern.Physics": "[1.0.0, )"
+        }
+      },
+      "mmd.modern.core": {
+        "type": "Project"
+      },
+      "mmd.modern.formats": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Core": "[1.0.0, )",
+          "SharpZipLib": "[1.4.2, )"
+        }
+      },
+      "mmd.modern.physics": {
+        "type": "Project"
+      },
+      "mmd.modern.physics.bepu": {
+        "type": "Project",
+        "dependencies": {
+          "BepuPhysics": "[2.4.0, )",
+          "Mmd.Modern.Core": "[1.0.0, )",
+          "Mmd.Modern.Physics": "[1.0.0, )"
+        }
+      },
+      "mmd.modern.physics.bullet": {
+        "type": "Project",
+        "dependencies": {
+          "Mmd.Modern.Physics": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

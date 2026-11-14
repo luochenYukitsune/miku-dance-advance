@@ -1,0 +1,71 @@
+--- upstream/third_party/mmeffect/src/mmeffect/emm_manager.h
++++ ALTERED/third_party/mmeffect/src/mmeffect/emm_manager.h
+@@ -1,3 +1,5 @@
++// ALTERED emm518: share legacy parsed EMM application with explicit current-registry
++// identities and caller-frozen root decisions. Upstream MIT notices retained.
+ // emm_manager.h - the EMM/EMD effect-mapping manager of MMEffect.dll.
+ //
+ // Byte-level EMM format, re-verified against the original x64 binary
+@@ -354,6 +356,62 @@
+ // two evidenced MessageBox reports are emitted along the way).
+ bool MmeEmmLoad(const char* path);
+ 
++// Internal C++ boundary; no containers or pointers cross the public C ABI.
++// kind is the transport kind: 1 = model, 2 = accessory. Apply validates against
++// the original registered host kind (OnCreateModel): 1 = model, 0 = accessory.
++struct EmmMappedObject {
++    unsigned long long objectId = 0;
++    int kind = 1;
++};
++
++// Required for EVERY live object, including objects absent from [Object].
++// effectPath is a resolved local file or empty/"none" for a frozen no-effect
++// decision. An absent whole row uses this value; explicit "none" suppresses it.
++struct EmmRootSeed {
++    int kind = 1;
++    std::string effectPath;
++};
++
++enum class EmmApplyPhase { Validation, Root, Subset, Owner };
++enum class EmmApplyFailure {
++    NoContext, NoOwnerManager, InvalidIdentity, UnknownObject, KindMismatch,
++    DuplicateObject, MissingRootSeed, UnknownKey, UnknownOwner, InvalidSubset,
++    InvalidSection, DuplicateSection, UnknownParent, OwnerCycle,
++    EffectBindingFailed, OwnerBindingUnresolved, OwnerTargetUnresolved,
++    ParentUnresolved
++};
++
++struct EmmApplyDiagnostic {
++    EmmApplyPhase phase = EmmApplyPhase::Validation;
++    EmmApplyFailure code = EmmApplyFailure::InvalidIdentity;
++    std::string sectionName;
++    std::string key;
++    unsigned long long objectId = 0;
++    int subsetIndex = -1;
++    std::string detail;
++};
++
++struct EmmApplyResult {
++    // Validation errors never mutate. Once true, errors require caller fail-stop
++    // destruction/recreation; applying a GPU/owner graph has no rollback.
++    bool mutated = false;
++    std::vector<EmmApplyDiagnostic> diagnostics;
++    bool succeeded() const { return diagnostics.empty(); }
++};
++
++// Inputs are accepted parser/transport metadata: canonical unique Pmd<N>/Acs<N>
++// keys and assignment entries, valid section name/baseName pairs, and all real
++// file values already materialized by the caller. Grammar and row uniqueness
++// are the caller's responsibility; this layer validates runtime identities,
++// actual subsets and owner topology. This call performs no path matching, disk
++// discovery, _access checks, or slot/order-based identity inference. Objects,
++// bindings, SAS resources and turns are looked up anew on each call. No native
++// pointer is retained in these inputs across geometry replacement or reset.
++EmmApplyResult MmeEmmApplyMapped(
++    const std::vector<EmmEffectSection>& sections,
++    const std::map<std::string, EmmMappedObject>& objects,
++    const std::map<unsigned long long, EmmRootSeed>& rootSeeds);
++
+ // [FUN_1800315F0] save the live assignments to an .emm file (absolute
+ // object/effect paths, "none" sentinels, "key = value" rows).
+ bool MmeEmmSave(const char* path);

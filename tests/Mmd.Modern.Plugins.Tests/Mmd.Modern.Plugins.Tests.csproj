@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <PluginFixtureOutput>$(ModernCacheRoot)/bin/Mmd.Modern.PluginFixture/$(Configuration)/$(TargetFramework)/</PluginFixtureOutput>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mmd.Modern.Plugins/Mmd.Modern.Plugins.csproj" />
+    <ProjectReference Include="../Mmd.Modern.PluginFixture/Mmd.Modern.PluginFixture.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../examples/Mda.HelloPlugin/Mda.HelloPlugin.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+  </ItemGroup>
+  <Target Name="CopyPluginFixture" AfterTargets="Build">
+    <Error Condition="!Exists('$(PluginFixtureOutput)Mmd.Modern.PluginFixture.dll')" Text="The actual plugin fixture was not built." />
+    <ItemGroup>
+      <PluginFixtureFiles Include="$(PluginFixtureOutput)*.dll;$(PluginFixtureOutput)*.deps.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PluginFixtureFiles)" DestinationFolder="$(TargetDir)PluginFixtures" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="CopyExamplePlugin" AfterTargets="Build">
+    <ItemGroup><ExamplePluginFiles Include="$(ModernCacheRoot)/bin/Mda.HelloPlugin/$(Configuration)/$(TargetFramework)/*.dll;$(ModernCacheRoot)/bin/Mda.HelloPlugin/$(Configuration)/$(TargetFramework)/*.deps.json;$(ModernCacheRoot)/bin/Mda.HelloPlugin/$(Configuration)/$(TargetFramework)/mda-plugin.json" /></ItemGroup>
+    <Copy SourceFiles="@(ExamplePluginFiles)" DestinationFolder="$(TargetDir)ExamplePlugin" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,33 @@
+{
+  "source": "https://github.com/openharmony/resources",
+  "revision": "0d79cad76b37ba0f3ccb1323c83833c78e0860de",
+  "license": "HarmonyOS Sans Fonts License Agreement (LICENSE_Fonts); not MIT or OFL",
+  "copyright": "Copyright 2021 Huawei Device Co., Ltd.",
+  "use": "Unmodified full TTF fonts embedded with MDA software; the About dialog identifies HarmonyOS Sans. No standalone font product, subsetting, conversion or renaming.",
+  "files": [
+    {
+      "path": "HarmonyOS_Sans_SC_Regular.ttf",
+      "bytes": 8261060,
+      "sha256": "2deabf97eaf17958dc24746b922779d9913008526daf1c853903547505a8f9ca",
+      "url": "https://raw.githubusercontent.com/openharmony/resources/0d79cad76b37ba0f3ccb1323c83833c78e0860de/fonts/HarmonyOS_Sans_SC_Regular.ttf"
+    },
+    {
+      "path": "HarmonyOS_Sans_SC_Medium.ttf",
+      "bytes": 8227216,
+      "sha256": "564b0d89943402e4b90fe764bc5726fee12ddbd7d4f681f5150b5b8271e685e8",
+      "url": "https://raw.githubusercontent.com/openharmony/resources/0d79cad76b37ba0f3ccb1323c83833c78e0860de/fonts/HarmonyOS_Sans_SC_Medium.ttf"
+    },
+    {
+      "path": "HarmonyOS_Sans_SC_Bold.ttf",
+      "bytes": 8158924,
+      "sha256": "9aa37f5edd6bf15af8b8b1655b8455753cd61abaf5d53454d4966261923b6c61",
+      "url": "https://raw.githubusercontent.com/openharmony/resources/0d79cad76b37ba0f3ccb1323c83833c78e0860de/fonts/HarmonyOS_Sans_SC_Bold.ttf"
+    },
+    {
+      "path": "LICENSE_Fonts",
+      "bytes": 3352,
+      "sha256": "327e0147d4a3ca2d89e81abce45b210576b0f9fe2b29d900f64b58039f12a102",
+      "url": "https://raw.githubusercontent.com/openharmony/resources/0d79cad76b37ba0f3ccb1323c83833c78e0860de/LICENSE_Fonts"
+    }
+  ]
+}

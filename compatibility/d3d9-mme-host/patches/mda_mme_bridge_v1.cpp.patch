@@ -1,0 +1,131 @@
+--- /dev/null
++++ ALTERED/third_party/mmeffect/src/mda_mme_bridge_v1.cpp
+@@ -0,0 +1,128 @@
++#include "mda_mme_bridge_v1.h"
++namespace {
++MdaMmeCallbacksV1 callbacks{};
++MdaMmeErrorV1 error{sizeof(MdaMmeErrorV1), MDA_MME_BRIDGE_VERSION, 0, 0, 0, 0, 0};
++bool bound = false;
++MdaMmeObjectFxCallbacksV1 objectFx{};
++bool objectFxBound = false;
++MdaMmeResourceCallbacksV1 resources{};
++bool resourcesBound = false;
++bool sceneFx = false;
++bool ValidResourceString(const char* value) {
++    if (!value || !value[0]) return false;
++    for (uint32_t i = 1; i < 32768; ++i) if (!value[i]) return true;
++    return false;
++}
++int32_t BindPackageFx(const MdaMmeObjectFxCallbacksV1* fx,
++    const MdaMmeResourceCallbacksV1* res, bool scene) {
++    if (objectFxBound || resourcesBound) return MDA_MME_ALREADY_BOUND;
++    if (!bound) return MDA_MME_MISSING;
++    if (!fx || fx->size < sizeof(*fx) || fx->version != MDA_MME_BRIDGE_VERSION || !fx->apply ||
++        !res || res->size < sizeof(*res) || res->version != MDA_MME_BRIDGE_VERSION || !res->resolve)
++        return MDA_MME_INVALID;
++    // Trivial table copies cannot throw. Publish both flags only after copying
++    // both tables, without invoking callbacks or altering the geometry binding.
++    const MdaMmeObjectFxCallbacksV1 fxCopy = *fx;
++    const MdaMmeResourceCallbacksV1 resCopy = *res;
++    objectFx = fxCopy; resources = resCopy;
++    objectFxBound = true; resourcesBound = true;
++    sceneFx = scene;
++    return MDA_MME_OK;
++}
++}
++extern "C" {
++int32_t __cdecl MdaMmeBindPackageObjectFxV1(const MdaMmeObjectFxCallbacksV1* fx,
++    const MdaMmeResourceCallbacksV1* res) {
++    return BindPackageFx(fx, res, false);
++}
++int32_t __cdecl MdaMmeBindPackageSceneFxV1(const MdaMmeObjectFxCallbacksV1* fx,
++    const MdaMmeResourceCallbacksV1* res) {
++    return BindPackageFx(fx, res, true);
++}
++int32_t __cdecl MdaMmeBindResourcesV1(const MdaMmeResourceCallbacksV1* c) {
++    if (resourcesBound) return MDA_MME_ALREADY_BOUND;
++    if (!c || c->size < sizeof(*c) || c->version != MDA_MME_BRIDGE_VERSION || !c->resolve)
++        return MDA_MME_INVALID;
++    resources = *c; resourcesBound = true; return MDA_MME_OK;
++}
++int32_t __cdecl MdaMmeMappedResourcesV1(void) { return resourcesBound ? 1 : 0; }
++int32_t __cdecl MdaMmeResolveResourceV1(const char* base, const char* request,
++    char* output, uint32_t capacity, uint32_t* required) {
++    if (required) *required = 0;
++    if (output && capacity) output[0] = 0;
++    if (!required || !ValidResourceString(base) || !ValidResourceString(request) ||
++        (!output && capacity) || (output && !capacity)) return MDA_MME_INVALID;
++    if (!resourcesBound || !resources.resolve) return MDA_MME_MISSING;
++    try {
++        const int32_t rc = resources.resolve(resources.context, base, request,
++                                               output, capacity, required);
++        if (rc != MDA_MME_OK) { *required = 0; if (output) output[0] = 0; return rc; }
++        if (*required < 2 || *required > 32768 ||
++            (output && (*required > capacity || output[*required - 1] != 0))) {
++            *required = 0; if (output) output[0] = 0; return MDA_MME_INVALID;
++        }
++        if (output) {
++            for (uint32_t i = 0; i + 1 < *required; ++i) if (!output[i]) {
++                *required = 0; output[0] = 0; return MDA_MME_INVALID;
++            }
++        }
++        return MDA_MME_OK;
++    } catch (...) {
++        *required = 0; if (output) output[0] = 0; return MDA_MME_CALLBACK_FAILED;
++    }
++}
++int32_t __cdecl MdaMmeBindObjectFxV1(const MdaMmeObjectFxCallbacksV1* c) {
++    if (objectFxBound) return MDA_MME_ALREADY_BOUND;
++    if (!c || c->size < sizeof(*c) || c->version != MDA_MME_BRIDGE_VERSION || !c->apply)
++        return MDA_MME_INVALID;
++    objectFx = *c; objectFxBound = true; return MDA_MME_OK;
++}
++int32_t __cdecl MdaMmeApplyObjectFxV1(void) {
++    if (!objectFxBound) return MDA_MME_OK;
++    const int32_t result = objectFx.apply(objectFx.context);
++    if (!result) return MDA_MME_OK;
++    MdaMmeRecordErrorV1(MDA_MME_CALLBACK_FAILED, result, MDA_MME_QUERY_OBJECT_FX, 0);
++    return MDA_MME_CALLBACK_FAILED;
++}
++int32_t __cdecl MdaMmeExplicitObjectFxV1(void) { return objectFxBound ? 1 : 0; }
++int32_t __cdecl MdaMmeSceneFxV1(void) { return sceneFx ? 1 : 0; }
++int32_t __cdecl MdaMmeBindV1(const MdaMmeCallbacksV1* c) {
++    if (bound) return MDA_MME_ALREADY_BOUND;
++    if (!c || c->size < sizeof(MdaMmeCallbacksV1) || c->version != MDA_MME_BRIDGE_VERSION || !c->geometry || !c->parent)
++        return MDA_MME_INVALID;
++    callbacks = *c; bound = true; return MDA_MME_OK;
++}
++void __cdecl MdaMmeRecordErrorV1(int32_t status, int32_t cb, uint32_t query, uint64_t id) {
++    if (error.status == MDA_MME_OK) { error.status = status; error.callback_status = cb; error.query = query; error.object_id = id; }
++}
++int32_t __cdecl MdaMmeRequireBoundV1(void) {
++    if (!bound) { MdaMmeRecordErrorV1(MDA_MME_MISSING, 0, MDA_MME_QUERY_NONE, 0); return MDA_MME_MISSING; }
++    return MDA_MME_OK;
++}
++void __cdecl MdaMmeBeginFrameV1(void) {
++    error = {sizeof(MdaMmeErrorV1), MDA_MME_BRIDGE_VERSION, 0, 0, 0, 0, 0};
++}
++int32_t __cdecl MdaMmeGetErrorV1(MdaMmeErrorV1* out) {
++    if (!out || out->size < sizeof(MdaMmeErrorV1) || out->version != MDA_MME_BRIDGE_VERSION) return MDA_MME_INVALID;
++    *out = error; return MDA_MME_OK;
++}
++void __cdecl MdaMmeUnbindV1(void) { callbacks = {}; bound = false; objectFx = {}; objectFxBound = false; resources = {}; resourcesBound = false; sceneFx = false; }
++int32_t __cdecl MdaMmeQueryGeometryV1(uint32_t kind, uint64_t id, MdaMmeGeometryV1* out) {
++    if (!bound || !callbacks.geometry) { MdaMmeRecordErrorV1(MDA_MME_MISSING, 0, MDA_MME_QUERY_GEOMETRY, id); return MDA_MME_MISSING; }
++    if (!out || out->size < sizeof(*out) || out->version != MDA_MME_BRIDGE_VERSION || !id || (kind != MDA_MME_MODEL && kind != MDA_MME_ACCESSORY)) { MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_GEOMETRY, id); return MDA_MME_INVALID; }
++    *out = {sizeof(*out), MDA_MME_BRIDGE_VERSION, 0, nullptr};
++    const int32_t rc = callbacks.geometry(callbacks.context, kind, id, out);
++    if (rc) { MdaMmeRecordErrorV1(MDA_MME_CALLBACK_FAILED, rc, MDA_MME_QUERY_GEOMETRY, id); return MDA_MME_CALLBACK_FAILED; }
++    if (out->size < sizeof(*out) || out->version != MDA_MME_BRIDGE_VERSION || !out->identity || !out->borrowed_iunknown) { MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_GEOMETRY, id); return MDA_MME_INVALID; }
++    return MDA_MME_OK;
++}
++int32_t __cdecl MdaMmeQueryParentV1(uint64_t id, MdaMmeParentV1* out) {
++    if (!bound || !callbacks.parent) { MdaMmeRecordErrorV1(MDA_MME_MISSING, 0, MDA_MME_QUERY_PARENT, id); return MDA_MME_MISSING; }
++    if (!out || out->size < sizeof(*out) || out->version != MDA_MME_BRIDGE_VERSION || !id) { MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_PARENT, id); return MDA_MME_INVALID; }
++    *out = {sizeof(*out), MDA_MME_BRIDGE_VERSION, 0, 0, 0};
++    const int32_t rc = callbacks.parent(callbacks.context, id, out);
++    if (rc) { MdaMmeRecordErrorV1(MDA_MME_CALLBACK_FAILED, rc, MDA_MME_QUERY_PARENT, id); return MDA_MME_CALLBACK_FAILED; }
++    if (out->size < sizeof(*out) || out->version != MDA_MME_BRIDGE_VERSION || out->attached > 1 || (out->attached ? !out->model_id : out->model_id != 0)) { MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_PARENT, id); return MDA_MME_INVALID; }
++    return MDA_MME_OK;
++}
++}

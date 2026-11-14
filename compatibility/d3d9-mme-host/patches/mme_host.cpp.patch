@@ -1,0 +1,317 @@
+--- upstream/third_party/mmeffect/src/mme_host.cpp
++++ ALTERED/third_party/mmeffect/src/mme_host.cpp
+@@ -1,3 +1,5 @@
++// ALTERED reset244: release DEFAULT geometry ownership on lost device,
++// retaining logical model/effect bindings until safe post-reset reacquisition.
+ // mme_host.cpp - MmeHost* integration layer: rehost the original MMHack.dll device interception logic
+ // without hooks.
+ //
+@@ -21,11 +23,11 @@
+ #include "mmeffect/mme_ui.h"
+ #include "mmeffect/mme_util.h"
+ #include "mmeffect/mme_context.h"
++#include "mmeffect/mme_globals.h"
+ #include "mmeffect/model_data.h"
+ #include "mmeffect/device_initialization.h"
+ #include "mmeffect/host_object_cache.h"
+-#include "mikudancestudio/model_layout.hpp"
+-#include "mikudancestudio/accessory_layout.hpp"
++#include "mda_mme_bridge_v1.h"
+ 
+ extern "C" void __cdecl MmeHostInitializeRuntime(HINSTANCE instance) {
+     mme::MmeUiInitializeRuntime(instance);
+@@ -56,12 +58,35 @@
+     IDirect3DSurface9* trackedRT = nullptr;       // Wrapper +0x20 (borrowed pointer)
+     int currentObject = 0;                        // Wrapper +0x28
+     int endSceneFired = 0;                        // Wrapper +0x2c
++    // A successful BeginScene is not evidence of a successful D3D9 Reset:
++    // lost devices may silently accept rendering calls. Only OnResetDevice
++    // after a successful reset may reopen scene admission.
++    bool awaitingSuccessfulReset = false;
+     std::list<MmhCachedObject*> objectList;       // Wrapper +0x58 node table
+     std::unordered_map<unsigned long long, MmhCachedObject*> objectById;   // +0x30
++    std::unordered_map<unsigned long long, uint64_t> geometryIdentities;
+     std::map<int, MmhCachedObject*> objectByOrder;                          // +0x60
+ };
+ 
+ MmeHostDeviceState g_host;
++
++// These captures and filename entries borrow caller textures; they never own a
++// COM reference. After loss the caller must register surviving/rebuilt textures
++// again before drawing. Do not dereference old captures or Release them here.
++void MmhClearBorrowedTextureState()
++{
++    g_mmh.baseTexture = nullptr;
++    g_mmh.sphereTexture = nullptr;
++    g_mmh.texCache.clear();
++    g_mmh.texUsed = 0;
++    g_mmh.sphereUsed = 0;
++    g_mmh.subTexUsed = 0;
++    g_mmh.diffuseFlag = 0;
++    g_mmh.sphereAdd = 0;
++    g_mmh.toonUsed = false;
++    g_mmh.toonAvailable = false;
++}
++
+ 
+ // [FUN_180002de0 creation path, lines 4936-4943] Per-object data for newly detected objects. Materials are
+ // parsed directly from the model file by FUN_18000e020 (embedded PMX names / PMD "<model>.txt" lines and
+@@ -83,11 +108,7 @@
+         // as the output.
+         MmhMaterialTableLoadFromFile(d.modelName.c_str(), &d.mats);
+     }
+-    // Attachment information (+0x240/+0x244): original ObjData never writes these fields, nor does host population
+-    // snapshot them. GetAcsAttachedPmd [0x1800012d0] directly reads the host accessory object on each call through sub_18000F2B0's
+-    // borrowed-data branch [0x18000f331] (equivalent implementation in this project:
+-    // mmhack_getters.cpp, AccessoryRecord::parentModel/parentBone), keeping keyframe-driven
+-    // attachment changes immediately visible. Retain construction defaults -1/0 here only as layout anchors.
++    // Current-frame attachment comes from the host callback, not this cache.
+     d.attachPmdIndex = -1;
+     d.attachBoneIndex = 0;
+ }
+@@ -221,6 +242,40 @@
+ // [0x180002de0] Device BeginScene slot 41 - frame-start state machine.
+ HRESULT __cdecl MmeHostBeginScene(IDirect3DDevice9* device, int not_edit_mode)
+ {
++    // Validate all snapshot geometry before starting a real D3D scene or mutating
++    // the cache. Host keeps this snapshot and borrowed resources stable throughout.
++    MdaMmeBeginFrameV1();
++    if (g_host.awaitingSuccessfulReset)
++        return D3DERR_DEVICELOST;
++    if (MdaMmeRequireBoundV1() != MDA_MME_OK) return E_FAIL;
++    const int pmdNum = ExpGetPmdNum();
++    const int acsNum = ExpGetAcsNum();
++    if (pmdNum < 0 || acsNum < 0) {
++        MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_NONE, 0);
++        return E_FAIL;
++    }
++    struct LiveGeometry { uint64_t identity; IUnknown* resource; uint32_t kind; int materials; };
++    std::map<unsigned long long, LiveGeometry> liveGeometry;
++    for (int kind = MDA_MME_MODEL; kind <= MDA_MME_ACCESSORY; ++kind) {
++        const int count = kind == MDA_MME_MODEL ? pmdNum : acsNum;
++        for (int i = 0; i < count; ++i) {
++            const auto id = static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(
++                kind == MDA_MME_MODEL ? ExpGetPmdID(i) : ExpGetAcsID(i)));
++            MdaMmeGeometryV1 result{sizeof(MdaMmeGeometryV1), MDA_MME_BRIDGE_VERSION, 0, nullptr};
++            if (MdaMmeQueryGeometryV1(kind, id, &result) != MDA_MME_OK) return E_FAIL;
++            const int materials = MdaMmeExplicitObjectFxV1()
++                ? (kind == MDA_MME_MODEL ? ExpGetPmdMatNum(i) : ExpGetAcsMatNum(i)) : 0;
++            if (MdaMmeExplicitObjectFxV1() && materials < 0) {
++                MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_OBJECT_FX, id);
++                return E_FAIL;
++            }
++            if (!liveGeometry.emplace(id, LiveGeometry{result.identity,
++                    static_cast<IUnknown*>(result.borrowed_iunknown), static_cast<uint32_t>(kind), materials}).second) {
++                MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_GEOMETRY, id);
++                return E_FAIL;
++            }
++        }
++    }
+     g_host.endSceneFired = 0;                    // +0x2c = 0
+     g_mmh.notEditMode = not_edit_mode;           // DAT_18006e796 (semantics supplied by host,
+                                                  // replacing MmhProbeEditMode's
+@@ -235,30 +290,14 @@
+                 ? "Initialize Error"
+                 : "Initialize Error: failed to load default effect file. "
+                   "Please check video card capability.";
+-            MessageBoxA(g_mmh.mainWindow, msg, "MikuMikuEffect", MB_ICONERROR);
++            MdaProbeMessageBoxA(g_mmh.mainWindow, msg, "MikuMikuEffect", MB_ICONERROR);
+             g_mmh.effectsDisabled = 1;           // DAT_18006e794
+         }))
+-        return S_OK; // Original failure returns 0 without real BeginScene.
++        return E_FAIL; // External probe: failure must never masquerade as a begun scene.
+ 
+     HRESULT hr = device->BeginScene();           // Real slot 41 (+0x148)
+     if (hr != 0)
+         return hr;
+-
+-    // Keep an owned geometry reference in each cache record so an unloaded
+-    // resource's address cannot be reused while that record still exists.
+-    int pmdNum = ExpGetPmdNum();
+-    int acsNum = ExpGetAcsNum();
+-    std::map<unsigned long long, IUnknown*> liveGeometry;
+-    for (int i = 0; i < pmdNum; i++) {
+-        auto* model = static_cast<mikudancestudio::mdl::ModelRecord*>(ExpGetPmdID(i));
+-        liveGeometry[(unsigned long long)(uintptr_t)model] =
+-            model ? static_cast<IUnknown*>(model->vertexBuffer) : nullptr;
+-    }
+-    for (int i = 0; i < acsNum; i++) {
+-        auto* accessory = static_cast<mikudancestudio::mdl::AccessoryRecord*>(ExpGetAcsID(i));
+-        liveGeometry[(unsigned long long)(uintptr_t)accessory] =
+-            accessory ? static_cast<IUnknown*>(accessory->mesh) : nullptr;
+-    }
+ 
+     // Original MMHack RVA 0x31B3..0x31E1 also checks geometry lifetime: a PMM
+     // reload may replace a model/accessory at the same address between frames.
+@@ -266,15 +305,47 @@
+     // geometry directly because unwrapped D3D resources may also be retained
+     // by the device's previous stream binding or a captured state block.
+     mme::RemoveStaleHostObjects(g_host.objectList, g_host.objectById,
+-        liveGeometry, [](MmhCachedObject* obj, IUnknown* geometry) {
+-            return obj->geometryRef == geometry;
++        liveGeometry, [](MmhCachedObject* obj, const LiveGeometry& geometry) {
++            const auto token = g_host.geometryIdentities.find(obj->id);
++            // A null owned reference is an object detached by OnLostDevice,
++            // not a deleted model. Keep its material/EMM bindings when the same
++            // opaque model ID and object kind survive the device reset. Ordinary
++            // live references retain the original generation+pointer checks.
++            const bool sameKind = (obj->isPmd != 0) == (geometry.kind == MDA_MME_MODEL);
++            if (MdaMmeExplicitObjectFxV1()) {
++                // FRM1 hidden objects intentionally have no material payload.
++                // After Reset, a detached owner must be rebuilt on a hidden/
++                // revealed range change rather than retaining a stale table.
++                const auto* context = mme::g_context;
++                if (!context) return false;
++                const auto found = context->modelRegistry.find(obj->id);
++                if (found == context->modelRegistry.end() || !found->second ||
++                    found->second->materialCount() != geometry.materials) return false;
++            }
++            return token != g_host.geometryIdentities.end() && sameKind &&
++                   (obj->geometryRef == nullptr ||
++                    (token->second == geometry.identity && obj->geometryRef == geometry.resource));
+         }, [device](MmhCachedObject* obj) {
+             OnDeleteModel(device, obj->id);
+             if (obj->geometryRef != nullptr)
+                 obj->geometryRef->Release();
+             g_mmh.objData.erase(obj->id);
++            g_host.geometryIdentities.erase(obj->id);
+             delete obj;
+         });
++
++    // Reacquire detached geometry only after full snapshot validation and a
++    // successful real BeginScene. Failed Reset/query attempts must leave the
++    // cache detached and must not re-pin a stale DEFAULT resource. Stale IDs
++    // were removed above; every surviving entry has a checked live geometry.
++    for (MmhCachedObject* obj : g_host.objectList) {
++        if (obj->geometryRef != nullptr)
++            continue;
++        const auto& geometry = liveGeometry.at(obj->id);
++        geometry.resource->AddRef();
++        obj->geometryRef = geometry.resource;
++        g_host.geometryIdentities.at(obj->id) = geometry.identity;
++    }
+ 
+     // --- Stage 3: cache new objects (OnCreateModel) ----------------------------------------------
+     for (int i = 0; i < pmdNum; i++) {
+@@ -286,7 +357,8 @@
+         obj->isPmd = 1;
+         // Original RVA 0x35C0/0x35D7 captures the first registered geometry
+         // wrapper in the host record and retains it until deletion.
+-        obj->geometryRef = liveGeometry.at(id);
++        obj->geometryRef = liveGeometry.at(id).resource;
++        g_host.geometryIdentities[id] = liveGeometry.at(id).identity;
+         if (obj->geometryRef)
+             obj->geometryRef->AddRef();
+         // The embedded engine uses the Windows ANSI code page for paths,
+@@ -319,7 +391,8 @@
+         obj->id = id;
+         obj->isPmd = 0;
+         // Accessory counterpart: original RVA 0x377D/0x3795.
+-        obj->geometryRef = liveGeometry.at(id);
++        obj->geometryRef = liveGeometry.at(id).resource;
++        g_host.geometryIdentities[id] = liveGeometry.at(id).identity;
+         if (obj->geometryRef)
+             obj->geometryRef->AddRef();
+         // The embedded engine uses the Windows ANSI code page for paths,
+@@ -376,7 +449,32 @@
+     g_mmh.currentSubsetIndex = -1;               // DAT_18006ccc0 = -1
+     g_host.currentObject = 0;                    // +0x28 = 0
+ 
++    if (MdaMmeExplicitObjectFxV1()) {
++        // Reset the previous frame before assignment/planning. General mode
++        // starts at the original host's one-turn sentinel; the existing
++        // planner may request N+1 turns, consumed by the adapter as N..0.
++        // Finite-object mode preserves its existing main-scene turn zero.
++        ExpSetRenderRepeatCount(MdaMmeSceneFxV1() ? 1 : 0);
++        if (MdaMmeApplyObjectFxV1() != MDA_MME_OK) {
++            // BeginScene already succeeded. The caller cannot mark started
++            // until this function returns; balance the actual scene here.
++            g_host.endSceneFired = 1;
++            device->EndScene();
++            return E_FAIL;
++        }
++    }
+     OnBeginScene(device);                        // DAT_18006e800
++    if (MdaMmeExplicitObjectFxV1() && !MdaMmeSceneFxV1()) {
++        const auto* context = mme::g_context;
++        if (!context || !context->passPlanA.empty() || !context->passPlanB.empty() ||
++            !context->renderPassList.empty() || ExpGetRenderRepeatCount() != 0 ||
++            context->lastRepeatCount != 1) {
++            MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_OBJECT_FX, 0);
++            g_host.endSceneFired = 1;
++            device->EndScene();
++            return E_FAIL;
++        }
++    }
+     return 0;
+ }
+ 
+@@ -596,16 +694,34 @@
+ // ---------------------------------------------------------------------------
+ void __cdecl MmeHostOnLostDevice(IDirect3DDevice9* device)
+ {
++    g_host.awaitingSuccessfulReset = true;
++    MmhClearBorrowedTextureState();
+     if (!g_host.initialization.IsReady())
+         return;
+     OnLostDevice(device);
++    // Effects/stateblocks release their own GPU references first. The host's
++    // per-model reference is separate ownership and would otherwise prevent
++    // IDirect3DDevice9::Reset for DEFAULT-pool vertex buffers. Keep the logical
++    // cached object and generation record: OnDelete/Create would erase authored
++    // EMM/material/visibility overrides. Null means detached until a checked
++    // post-reset BeginScene; repeated lost notifications remain idempotent.
++    for (MmhCachedObject* obj : g_host.objectList) {
++        if (obj->geometryRef == nullptr)
++            continue;
++        obj->geometryRef->Release();
++        obj->geometryRef = nullptr;
++    }
+ }
+ 
+ void __cdecl MmeHostOnResetDevice(IDirect3DDevice9* device)
+ {
+-    if (!g_host.initialization.IsReady())
++    // Caller invokes this only after a real successful Reset, on the owning
++    // device thread. Guard failed-reset/lost devices before any effect calls.
++    if (device == nullptr || device->TestCooperativeLevel() != D3D_OK)
+         return;
+-    OnResetDevice(device);
++    if (g_host.initialization.IsReady())
++        OnResetDevice(device);
++    g_host.awaitingSuccessfulReset = false;
+ }
+ 
+ // [FUN_180001db0 + FUN_180001c90] Device destruction bookkeeping: MMEffect!Cleanup, release geometry references
+@@ -623,9 +739,30 @@
+     }
+     g_host.objectList.clear();
+     g_host.objectById.clear();
++    g_host.geometryIdentities.clear();
+     g_host.objectByOrder.clear();
+     g_host.currentObject = 0;
+     g_host.initialization.Reset();
+     g_host.endSceneFired = 0;
++    g_host.awaitingSuccessfulReset = false;
+     g_host.trackedRT = nullptr;
+-}
++    // Cleanup above can still read the caller-owned standard effect. Only now
++    // drop borrowed pointers/handles: the caller releases its COM owners later.
++    g_mmh.currentEffect = nullptr;
++    g_mmh.tecCache.clear();
++    mme::g_currentEffect = nullptr;
++    for (auto& handle : mme::g_paramHandles)
++        handle = nullptr;
++    MmhClearBorrowedTextureState();
++    g_mmh.objData.clear();
++    g_mmh.currentModelID = 0;
++    g_mmh.currentDrawType = 0;
++    g_mmh.currentObjectKind = 0;
++    g_mmh.currentObjectIndex = 0;
++    g_mmh.currentSubsetIndex = -1;
++    g_mmh.effectFileUsed = false;
++    g_mmh.effectsDisabled = false;
++    g_mmh.blendMode = 0;
++    g_mmh.zbufferUsed = false;
++    MdaMmeUnbindV1();
++}

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
+    <InternalsVisibleTo Include="Mmd.Modern.Plugins.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,174 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Mmd.Modern.App"
+        xmlns:controls="using:Mmd.Modern.App.Controls"
+        x:Class="Mmd.Modern.App.ExportRenderStatusWindow"
+        x:DataType="local:ExportRenderStatusViewModel"
+        Title="{DynamicResource Mda.Text.ExportStatus.Title}"
+        Width="720" Height="720" MinWidth="620" MinHeight="550"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="True"
+        Background="{DynamicResource StatusSurface}" Foreground="{DynamicResource StatusText}"
+        FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
+        UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
+  <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="StatusSurface" Color="#0C0E11" />
+          <SolidColorBrush x:Key="StatusText" Color="#F2F2F2" />
+          <SolidColorBrush x:Key="StatusMuted" Color="#B0B0B0" />
+          <SolidColorBrush x:Key="StatusDisabled" Color="#707070" />
+          <SolidColorBrush x:Key="StatusBorder" Color="#2E3B48" />
+          <SolidColorBrush x:Key="StatusInput" Color="#18222C" />
+          <SolidColorBrush x:Key="StatusHover" Color="#202D39" />
+          <SolidColorBrush x:Key="StatusSelected" Color="#182633" />
+          <SolidColorBrush x:Key="StatusProgress" Color="#94B3CB" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="StatusSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="StatusText" Color="#171717" />
+          <SolidColorBrush x:Key="StatusMuted" Color="#555555" />
+          <SolidColorBrush x:Key="StatusDisabled" Color="#8A8A8A" />
+          <SolidColorBrush x:Key="StatusBorder" Color="#D8E0E7" />
+          <SolidColorBrush x:Key="StatusInput" Color="#F3F6F8" />
+          <SolidColorBrush x:Key="StatusHover" Color="#F0F4F7" />
+          <SolidColorBrush x:Key="StatusSelected" Color="#E3ECF3" />
+          <SolidColorBrush x:Key="StatusProgress" Color="#3F607C" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Window.Styles>
+    <StyleInclude Source="avares://SukiUI/Theme/Index.xaml" />
+    <Style Selector="TemplatedControl">
+      <Setter Property="FontFamily" Value="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" />
+      <Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource StatusText}" />
+    </Style>
+    <Style Selector="TextBlock">
+      <Setter Property="FontFamily" Value="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" /><Setter Property="FontSize" Value="14" />
+      <Setter Property="LineHeight" Value="20" /><Setter Property="Foreground" Value="{DynamicResource StatusText}" />
+    </Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="{DynamicResource StatusMuted}" /></Style>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Foreground" Value="{DynamicResource StatusMuted}" /><Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="18" /><Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
+      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource StatusInput}" />
+      <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource StatusHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource StatusSelected}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource StatusText}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource StatusDisabled}" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource StatusDisabled}" /></Style>
+    <Style Selector="ProgressBar">
+      <Setter Property="Foreground" Value="{DynamicResource StatusProgress}" /><Setter Property="Background" Value="{DynamicResource StatusBorder}" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template"><ControlTemplate>
+        <Border Background="{TemplateBinding Background}" CornerRadius="2" ClipToBounds="True">
+          <Panel>
+            <Border Name="PART_Indicator" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left"
+                    IsVisible="{Binding !IsIndeterminate, RelativeSource={RelativeSource TemplatedParent}}" />
+            <Border Name="PART_IndeterminateIndicator" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left"
+                    IsVisible="{Binding IsIndeterminate, RelativeSource={RelativeSource TemplatedParent}}" />
+          </Panel>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ProgressBar:horizontal"><Setter Property="MinHeight" Value="4" /></Style>
+    <Style Selector="ProgressBar:horizontal:indeterminate /template/ Border#PART_IndeterminateIndicator">
+      <Setter Property="Width" Value="{Binding TemplateSettings.ContainerWidth, RelativeSource={RelativeSource TemplatedParent}}" />
+      <Style.Animations>
+        <Animation Duration="0:0:2" Easing="LinearEasing" IterationCount="Infinite">
+          <KeyFrame Cue="0%"><Setter Property="TranslateTransform.X" Value="{Binding $parent[ProgressBar].TemplateSettings.IndeterminateStartingOffset}" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="TranslateTransform.X" Value="{Binding $parent[ProgressBar].TemplateSettings.IndeterminateEndingOffset}" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="*,Auto">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="24,22,24,20" Spacing="0">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <TextBlock Name="StageText" Text="{Binding StageText}" Classes="section" TextWrapping="Wrap" VerticalAlignment="Center" />
+          <controls:LoadingDots Name="RenderLoadingDots" Grid.Column="1" Width="64" Height="12"
+                                IsActive="{Binding IsRunning}" IsVisible="{Binding IsRunning}"
+                                ActivationDelay="0:0:0.2" Foreground="{DynamicResource StatusProgress}"
+                                VerticalAlignment="Center" />
+        </Grid>
+        <TextBlock Text="{Binding Destination}" Classes="caption" Margin="0,6,0,0" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Destination}" />
+        <Grid ColumnDefinitions="*,Auto" Margin="0,20,0,8">
+          <TextBlock Name="FrameCount" Text="{Binding FrameText}" />
+          <TextBlock Grid.Column="1" Text="{Binding ProgressText}" />
+        </Grid>
+        <ProgressBar Name="RenderProgress" Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" IsIndeterminate="{Binding IsProgressIndeterminate}" Height="4" />
+        <Grid ColumnDefinitions="Auto,*,Auto,*" Margin="0,16,0,0">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Elapsed}" Classes="label" />
+          <TextBlock Grid.Column="1" Text="{Binding ElapsedText}" Margin="14,0,24,0" />
+          <TextBlock Grid.Column="2" Text="{DynamicResource Mda.Text.ExportStatus.Remaining}" Classes="label" />
+          <TextBlock Grid.Column="3" Text="{Binding RemainingText}" Margin="14,0,0,0" />
+        </Grid>
+
+        <Border BorderBrush="{DynamicResource StatusBorder}" BorderThickness="0,1,0,0" Margin="0,22,0,18" />
+        <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Resources}" Classes="section" />
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,12,0,0" RowSpacing="8" ColumnSpacing="24">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Cpu}" Classes="label" />
+          <TextBlock Grid.Column="1" Text="{Binding CpuText}" ToolTip.Tip="{Binding CpuUnavailableReason}" />
+          <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.Memory}" Classes="label" />
+          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding WorkingSetText}" ToolTip.Tip="{Binding MemoryUnavailableReason}" />
+          <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ExportStatus.MemoryPeak}" Classes="label" />
+          <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PeakWorkingSetText}" />
+          <TextBlock Grid.Row="3" Text="{DynamicResource Mda.Text.ExportStatus.Adapter}" Classes="label" />
+          <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AdapterText}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ExportStatus.Gpu}" Classes="label" />
+          <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding GpuText}" ToolTip.Tip="{Binding GpuUnavailableReason}" />
+          <TextBlock Grid.Row="5" Text="{DynamicResource Mda.Text.ExportStatus.VideoMemory}" Classes="label" />
+          <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding VideoMemoryText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
+          <TextBlock Grid.Row="6" Text="{DynamicResource Mda.Text.ExportStatus.VideoBudget}" Classes="label" />
+          <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding VideoMemoryBudgetText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
+          <TextBlock Grid.Row="7" Text="{DynamicResource Mda.Text.ExportStatus.VideoPeak}" Classes="label" />
+          <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding PeakVideoMemoryText}" />
+        </Grid>
+        <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Scope}" Classes="caption" Margin="0,14,0,0" />
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" Margin="0,8,0,0">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.SampleTime}" Classes="caption" />
+          <TextBlock Grid.Column="1" Text="{Binding SampleTimeText}" Classes="caption" />
+          <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.VideoSampleTime}" Classes="caption" />
+          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding VideoMemorySampleTimeText}" Classes="caption" />
+        </Grid>
+        <StackPanel IsVisible="{Binding HasError}" Margin="0,20,0,0" Spacing="8">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Error}" Classes="section" />
+          <Border Background="{DynamicResource StatusInput}" Padding="10" BorderBrush="{DynamicResource StatusBorder}" BorderThickness="1">
+            <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <SelectableTextBlock Name="ErrorDetails" Text="{Binding ErrorText}" TextWrapping="Wrap" FontSize="12" />
+            </ScrollViewer>
+          </Border>
+        </StackPanel>
+        <StackPanel IsVisible="{Binding HasDiagnostics}" Margin="0,20,0,0" Spacing="8">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.LogPath}" Classes="section" />
+          <SelectableTextBlock Name="DiagnosticLogPath" Text="{Binding DiagnosticLogPath}" TextWrapping="Wrap" FontSize="12" />
+          <Button Name="CopyErrorButton" Content="{DynamicResource Mda.Text.ExportStatus.CopyLog}" Click="CopyError" HorizontalAlignment="Left" />
+          <TextBlock Name="LogAiHint" Text="{DynamicResource Mda.Text.ExportStatus.LogAiHint}" Classes="caption" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="1" BorderBrush="{DynamicResource StatusBorder}" BorderThickness="0,1,0,0" Padding="24,14">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <TextBlock Text="{Binding FooterText}" Classes="caption" VerticalAlignment="Center" Margin="0,0,16,0" />
+        <Button Name="CancelRenderButton" Grid.Column="1" Content="{Binding CancelText}" IsEnabled="{Binding CanCancel}" IsVisible="{Binding IsRunning}" Click="CancelExport" />
+        <Button Name="CloseStatusButton" Grid.Column="2" Content="{DynamicResource Mda.Text.ExportStatus.Close}" IsEnabled="{Binding CanClose}" Click="CloseStatus" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

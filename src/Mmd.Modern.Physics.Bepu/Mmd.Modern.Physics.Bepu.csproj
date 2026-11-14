@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" />
+    <PackageReference Include="BepuPhysics" Version="2.4.0" />
+  </ItemGroup>
+</Project>

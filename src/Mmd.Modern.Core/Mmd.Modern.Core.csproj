@@ -1,0 +1,6 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mmd.Modern.Application" />
+    <InternalsVisibleTo Include="Mmd.Modern.Rendering.D3D12" />
+  </ItemGroup>
+</Project>

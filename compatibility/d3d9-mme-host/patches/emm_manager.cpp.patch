@@ -1,0 +1,570 @@
+--- upstream/third_party/mmeffect/src/mmeffect/emm_manager.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/emm_manager.cpp
+@@ -1,3 +1,6 @@
++// ALTERED emm518: explicit EMM identity/root-seed application reuses the legacy
++// parsed-state apply and assignment-local owner resolver. Upstream MIT notices retained.
++// ALTERED kind613: validate transport kinds against the original 0/1 host kinds.
+ // emm_manager.cpp - see emm_manager.h for the byte-verified format contract.
+ #include "emm_manager.h"
+ 
+@@ -6,6 +9,7 @@
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
++#include <functional>
+ #include <io.h>
+ #include <map>
+ #include <regex>
+@@ -20,6 +24,7 @@
+ #include "mme_globals.h"
+ #include "mme_log.h"
+ #include "mme_util.h"
++#include "mda_effect_root_discovery.hpp"
+ #include "model_data.h"
+ #include "sas_exec.h"
+ 
+@@ -597,8 +602,35 @@
+     ModelData *model;
+ };
+ 
++void AddApplyDiagnostic(EmmApplyResult* result, EmmApplyPhase phase,
++                        EmmApplyFailure code, const std::string& section,
++                        const std::string& key, unsigned long long objectId,
++                        int subset, const std::string& detail)
++{
++    if (!result) return;
++    EmmApplyDiagnostic diagnostic;
++    diagnostic.phase = phase;
++    diagnostic.code = code;
++    diagnostic.sectionName = section;
++    diagnostic.key = key;
++    diagnostic.objectId = objectId;
++    diagnostic.subsetIndex = subset;
++    diagnostic.detail = detail;
++    result->diagnostics.push_back(std::move(diagnostic));
++}
++
++// Exact map lookup avoids an active offscreen turn's MmeFindMaterialBinding
++// shortcut when verifying a newly applied base assignment.
++MaterialBinding* FindBaseBinding(ModelData* model, int subset)
++{
++    if (!g_ownerManager) return nullptr;
++    const auto it = g_ownerManager->bindings.find({0, model, subset});
++    return it == g_ownerManager->bindings.end() ? nullptr : it->second;
++}
++
+ void ApplyOwnerSections(const std::vector<EmmEffectSection> &sections,
+-                        const std::map<std::string, ModelData *> &byKey)
++                        const std::map<std::string, ModelData *> &byKey,
++                        EmmApplyResult* result)
+ {
+     struct OwnerTarget
+     {
+@@ -608,6 +640,7 @@
+     };
+     std::map<std::string, OwnerTarget> owners;
+     std::set<const EmmEffectSection *> applied;
++    std::map<const EmmEffectSection*, EmmApplyFailure> unresolved;
+     bool progressed;
+     do
+     {
+@@ -619,8 +652,10 @@
+             if (applied.count(&section))
+                 continue;
+             const auto owner = byKey.find(section.ownerKey);
+-            if (owner == byKey.end() || !owner->second)
++            if (owner == byKey.end() || !owner->second) {
++                unresolved[&section] = EmmApplyFailure::UnknownOwner;
+                 continue;
++            }
+             MaterialBinding *binding = nullptr;
+             if (section.ownerMaterialName.empty())
+             {
+@@ -629,14 +664,19 @@
+             else
+             {
+                 const auto parent = owners.find(section.ownerMaterialName);
+-                if (parent == owners.end())
++                if (parent == owners.end()) {
++                    unresolved[&section] = EmmApplyFailure::ParentUnresolved;
+                     continue;
++                }
+                 binding = MmeResolveTurnEffectBinding(parent->second.turn, *parent->second.resource,
+                                                       parent->second.model, owner->second,
+                                                       section.ownerSubsetIndex);
+             }
+-            if (!binding || !binding->sas)
++            if (!binding || !binding->sas || !g_ownerManager) {
++                unresolved[&section] = EmmApplyFailure::OwnerBindingUnresolved;
+                 continue;
++            }
++            unresolved[&section] = EmmApplyFailure::OwnerTargetUnresolved;
+             for (auto &resource : binding->sas->resources)
+             {
+                 if (resource.semanticId != 0x2E || resource.name != section.baseName)
+@@ -668,6 +708,114 @@
+             }
+         }
+     } while (progressed);
++
++    // Legacy Load deliberately ignores this result. The mapped API cannot
++    // present a partially resolved Owner graph as a successful application.
++    for (const auto& section : sections) {
++        if (section.isDefault() || applied.count(&section)) continue;
++        const auto owner = byKey.find(section.ownerKey);
++        const auto code = unresolved.find(&section);
++        AddApplyDiagnostic(result, EmmApplyPhase::Owner,
++            code == unresolved.end() ? EmmApplyFailure::OwnerBindingUnresolved : code->second,
++            section.name, section.ownerKey,
++            owner == byKey.end() || !owner->second ? 0 : owner->second->objectId(),
++            section.ownerSubsetIndex,
++            "Owner assignment, parent target or declared OFFSCREENRENDERTARGET did not resolve");
++    }
++}
++
++// The shared destructive tail of MmeEmmLoad. Only the legacy caller supplies
++// discovery; the mapped caller supplies a lookup into already frozen decisions.
++void ApplyParsedSections(const std::vector<EmmEffectSection>& sections,
++                         const std::map<std::string, ModelData*>& byKey,
++                         const std::function<std::string(ModelData*)>& rootSeed,
++                         std::vector<std::string>* assignedPaths,
++                         EmmApplyResult* result)
++{
++    for (const auto& section : sections) {
++        if (!section.isDefault()) continue;
++        MmeEmmSetDefaultEffect(section.defaultPath == kNone ? std::string() : section.defaultPath);
++        break;
++    }
++    if (result) result->mutated = true;
++    MmeContext* ctx = g_context;
++    if (!ctx) return;
++
++    // Replace every object's working map, including hidden and unmatched
++    // objects. Deleting every assignment also deletes its private overrides.
++    for (ModelData* model : ctx->models) {
++        if (!model) continue;
++        model->clearSubsetEffects();
++        MmeEmmClearSubsetShows(model);
++        model->resetShown();
++        ApplyEffectToModel(model, std::string());
++    }
++    if (result && g_ownerManager) {
++        g_ownerManager->turnOwners.clear();
++        g_ownerManager->planDirty = true;
++    }
++
++    std::map<ModelData*, std::string> basePaths;
++    std::map<ModelData*, std::string> objectKeys;
++    for (const auto& row : byKey) objectKeys[row.second] = row.first;
++    for (const auto& section : sections) {
++        if (!section.isDefault()) continue;
++        for (const auto& entry : section.entries) {
++            const auto object = byKey.find(entry.key);
++            if (object != byKey.end() && object->second && !entry.effectPath.empty())
++                basePaths[object->second] = entry.effectPath;
++        }
++    }
++    // Establish all roots before any subset or nested-owner compilation.
++    // A subset-only row leaves the root absent and therefore uses its seed.
++    for (ModelData* model : ctx->models) {
++        if (!model) continue;
++        const auto explicitRoot = basePaths.find(model);
++        std::string effectPath = explicitRoot == basePaths.end()
++            ? rootSeed(model) : explicitRoot->second;
++        if (effectPath == kNone) effectPath.clear();
++        ApplyEffectToModel(model, effectPath);
++        if (result && !effectPath.empty()) {
++            const auto* binding = FindBaseBinding(model, -1);
++            if (!binding || !binding->effect || binding->effectPath != effectPath)
++                AddApplyDiagnostic(result, EmmApplyPhase::Root, EmmApplyFailure::EffectBindingFailed,
++                    "Effect", objectKeys[model], model->objectId(), -1,
++                    "Root effect compilation or assignment-local instance creation failed");
++        }
++    }
++    if (result && !result->succeeded()) return;
++
++    for (const auto& section : sections) {
++        if (!section.isDefault()) continue;
++        for (const auto& entry : section.entries) {
++            const auto object = byKey.find(entry.key);
++            if (object == byKey.end() || !object->second) continue;
++            ModelData* model = object->second;
++            if (assignedPaths && !entry.effectPath.empty() && entry.effectPath != kNone)
++                assignedPaths->push_back(entry.effectPath);
++            if (entry.hasShow) model->setShown(entry.shown);
++            for (const auto& row : entry.subsetPaths) {
++                // The legacy loader historically records even an out-of-range
++                // effect row; mapped prevalidation rejects it before mutation.
++                ApplySubsetEffectToModel(model, row.first, row.second);
++                if (assignedPaths && !row.second.empty() && row.second != kNone)
++                    assignedPaths->push_back(row.second);
++                if (result && !row.second.empty() && row.second != kNone) {
++                    const auto* binding = FindBaseBinding(model, row.first);
++                    if (!binding || !binding->effect || binding->effectPath != row.second)
++                        AddApplyDiagnostic(result, EmmApplyPhase::Subset,
++                            EmmApplyFailure::EffectBindingFailed, section.name, entry.key,
++                            model->objectId(), row.first,
++                            "Subset effect compilation or assignment-local instance creation failed");
++                }
++            }
++            for (const auto& row : entry.subsetShows)
++                if (row.first >= 0 && row.first < model->materialCount())
++                    MmeEmmSetSubsetShown(model, row.first, row.second);
++        }
++    }
++    if (result && !result->succeeded()) return;
++    ApplyOwnerSections(sections, byKey, result);
+ }
+ 
+ std::vector<EmmEffectSection> CollectOwnerSections(const std::vector<EmmSaveObject> &rows)
+@@ -1228,6 +1376,196 @@
+     SubsetShowRegistry().erase(model->objectId());
+ }
+ 
++EmmApplyResult MmeEmmApplyMapped(
++    const std::vector<EmmEffectSection>& sections,
++    const std::map<std::string, EmmMappedObject>& objects,
++    const std::map<unsigned long long, EmmRootSeed>& rootSeeds)
++{
++    EmmApplyResult result;
++    // The transport uses 1=model/2=accessory; OnCreateModel and ModelData retain
++    // the original MME ABI's 1=model/0=accessory. Reject every other pairing.
++    const auto kindMatches = [](int transportKind, int hostKind) {
++        return (transportKind == 1 && hostKind == 1) ||
++               (transportKind == 2 && hostKind == 0);
++    };
++    const auto fail = [&](EmmApplyFailure code, const std::string& section,
++                          const std::string& key, unsigned long long id,
++                          int subset, const std::string& detail) {
++        AddApplyDiagnostic(&result, EmmApplyPhase::Validation, code,
++                           section, key, id, subset, detail);
++    };
++    MmeContext* ctx = g_context;
++    if (!ctx) {
++        fail(EmmApplyFailure::NoContext, "", "", 0, -1, "No current MME context");
++        return result;
++    }
++    if (!g_ownerManager) {
++        fail(EmmApplyFailure::NoOwnerManager, "", "", 0, -1, "No current assignment owner manager");
++        return result;
++    }
++
++    // Never retain any of these pointers in the logical configuration. The
++    // host may have replaced the geometry and ModelData since the last call.
++    std::map<unsigned long long, ModelData*> live;
++    for (ModelData* model : ctx->models) {
++        if (!model) continue;
++        const auto id = model->objectId();
++        const auto current = ctx->modelRegistry.find(id);
++        if (!id || current == ctx->modelRegistry.end() || current->second != model) {
++            fail(EmmApplyFailure::UnknownObject, "", "", id, -1,
++                 "Live object is not the current registry object");
++            continue;
++        }
++        if (!live.emplace(id, model).second)
++            fail(EmmApplyFailure::DuplicateObject, "", "", id, -1,
++                 "Live object identity occurs more than once");
++    }
++    for (const auto& row : ctx->modelRegistry) {
++        if (row.second && live.find(row.first) == live.end())
++            fail(EmmApplyFailure::UnknownObject, "", "", row.first, -1,
++                 "Current registry object is absent from the live object list");
++    }
++
++    std::map<std::string, ModelData*> byKey;
++    std::set<unsigned long long> mappedIds;
++    for (const auto& row : objects) {
++        const auto id = row.second.objectId;
++        const auto current = live.find(id);
++        if (!id || (row.second.kind != 1 && row.second.kind != 2)) {
++            fail(EmmApplyFailure::InvalidIdentity, "", row.first, id, -1,
++                 "Mapped identity must be nonzero and kind must be 1 or 2");
++            continue;
++        }
++        if (current == live.end()) {
++            fail(EmmApplyFailure::UnknownObject, "", row.first, id, -1,
++                 "Mapped identity is absent from the current registry");
++            continue;
++        }
++        const bool keyKindMatches = row.second.kind == 1
++            ? row.first.compare(0, 3, "Pmd") == 0 : row.first.compare(0, 3, "Acs") == 0;
++        if (!kindMatches(row.second.kind, current->second->kind()) || !keyKindMatches) {
++            fail(EmmApplyFailure::KindMismatch, "", row.first, id, -1,
++                 "Record key, declared kind and current object kind disagree");
++            continue;
++        }
++        if (!mappedIds.insert(id).second) {
++            fail(EmmApplyFailure::DuplicateObject, "", row.first, id, -1,
++                 "Two record keys map to the same live object");
++            continue;
++        }
++        byKey.emplace(row.first, current->second);
++    }
++    for (const auto& row : live) {
++        const auto seed = rootSeeds.find(row.first);
++        if (seed == rootSeeds.end()) {
++            fail(EmmApplyFailure::MissingRootSeed, "Effect", "", row.first, -1,
++                 "Every live object requires a frozen root decision");
++        } else if ((seed->second.kind != 1 && seed->second.kind != 2) ||
++                   !kindMatches(seed->second.kind, row.second->kind())) {
++            fail(EmmApplyFailure::KindMismatch, "Effect", "", row.first, -1,
++                 "Frozen root kind disagrees with current object kind");
++        }
++    }
++    for (const auto& seed : rootSeeds) {
++        if (!seed.first || live.find(seed.first) == live.end())
++            fail(EmmApplyFailure::UnknownObject, "Effect", "", seed.first, -1,
++                 "Frozen root identity is absent from the current registry");
++    }
++
++    std::map<std::string, const EmmEffectSection*> labels;
++    unsigned defaultCount = 0;
++    for (const auto& section : sections) {
++        if (section.isDefault()) {
++            ++defaultCount;
++            if (section.name != "Effect" || section.defaultPath.empty())
++                fail(EmmApplyFailure::InvalidSection, section.name, "", 0, -1,
++                     "Default section must be Effect and have a Default row");
++        } else {
++            if (section.name.compare(0, 7, "Effect@") != 0 || section.name.size() == 7) {
++                fail(EmmApplyFailure::InvalidSection, section.name, section.ownerKey, 0,
++                     section.ownerSubsetIndex, "Named section has no Effect@ label");
++            } else if (!labels.emplace(section.name.substr(7), &section).second) {
++                fail(EmmApplyFailure::DuplicateSection, section.name, section.ownerKey, 0,
++                     section.ownerSubsetIndex, "Named section label occurs more than once");
++            }
++            const auto owner = byKey.find(section.ownerKey);
++            if (owner == byKey.end()) {
++                fail(EmmApplyFailure::UnknownOwner, section.name, section.ownerKey, 0,
++                     section.ownerSubsetIndex, "Owner record key has no current mapped object");
++            } else if (section.ownerSubsetIndex < -1 ||
++                       section.ownerSubsetIndex >= owner->second->materialCount()) {
++                fail(EmmApplyFailure::InvalidSubset, section.name, section.ownerKey,
++                     owner->second->objectId(), section.ownerSubsetIndex,
++                     "Owner subset is outside the actual current material table");
++            }
++        }
++        for (const auto& entry : section.entries) {
++            const auto object = byKey.find(entry.key);
++            if (object == byKey.end()) {
++                fail(EmmApplyFailure::UnknownKey, section.name, entry.key, 0, -1,
++                     "Assignment record key has no current mapped object");
++                continue;
++            }
++            const auto validateSubset = [&](int subset) {
++                if (subset < 0 || subset >= object->second->materialCount())
++                    fail(EmmApplyFailure::InvalidSubset, section.name, entry.key,
++                         object->second->objectId(), subset,
++                         "Assignment subset is outside the actual current material table");
++            };
++            for (const auto& row : entry.subsetPaths) validateSubset(row.first);
++            for (const auto& row : entry.subsetShows) validateSubset(row.first);
++        }
++    }
++    if (defaultCount != 1)
++        fail(EmmApplyFailure::InvalidSection, "Effect", "", 0, -1,
++             "Exactly one default Effect section is required");
++
++    // Parent labels are the exact saved label, including a possible suffix.
++    // This validates topology without constructing or retaining native turns.
++    for (const auto& label : labels) {
++        const auto* section = label.second;
++        if (!section->ownerMaterialName.empty() &&
++            labels.find(section->ownerMaterialName) == labels.end()) {
++            fail(EmmApplyFailure::UnknownParent, section->name, section->ownerKey, 0,
++                 section->ownerSubsetIndex, "Owner parent label is absent from this configuration");
++        }
++    }
++    // Each label has one parent. Memoize completed chains so a valid long
++    // chain is visited once, rather than once per descendant (quadratic).
++    // Keep this iterative: accepted packages may contain tens of thousands
++    // of labels, too many for a recursive DFS on the render-owner stack.
++    std::map<std::string, unsigned char> colors;
++    for (const auto& label : labels) {
++        if (colors[label.first] == 2) continue;
++        std::vector<std::string> chain;
++        auto cursor = labels.find(label.first);
++        for (;;) {
++            auto& color = colors[cursor->first];
++            if (color == 2) break;
++            if (color == 1) {
++                const auto* section = cursor->second;
++                fail(EmmApplyFailure::OwnerCycle, section->name, section->ownerKey, 0,
++                     section->ownerSubsetIndex, "Owner parent chain contains a cycle");
++                break;
++            }
++            color = 1;
++            chain.push_back(cursor->first);
++            const auto& parent = cursor->second->ownerMaterialName;
++            if (parent.empty()) break;
++            const auto next = labels.find(parent);
++            if (next == labels.end()) break;
++            cursor = next;
++        }
++        for (const auto& key : chain) colors[key] = 2;
++    }
++    if (!result.succeeded()) return result;
++
++    ApplyParsedSections(sections, byKey, [&](ModelData* model) {
++        return rootSeeds.find(model->objectId())->second.effectPath;
++    }, nullptr, &result);
++    return result;
++}
++
+ bool MmeEmmLoad(const char* path)
+ {
+     EmmFile emm;
+@@ -1242,19 +1580,6 @@
+     MmeContext* ctx = g_context;
+     if (ctx == nullptr) {
+         return true;
+-    }
+-
+-    // RVA 2E8D0 commits a replacement working map through 2DF80, which
+-    // clears manager+0x30 before copying the parsed assignments. Rows absent
+-    // from the new file must not retain old subset effects or visibility.
+-    for (ModelData* model : ctx->models) {
+-        if (model == nullptr) {
+-            continue;
+-        }
+-        model->clearSubsetEffects();
+-        MmeEmmClearSubsetShows(model);
+-        model->resetShown();
+-        ApplyEffectToModel(model, std::string());
+     }
+ 
+     // --- live objects (the host enumeration FUN_18002E8D0 walks) -----------
+@@ -1367,79 +1692,13 @@
+         MmeLogWrite((std::string(path) + "\n" + kErrFailedMapping + list).c_str(), 1);
+     }
+ 
+-    // Apply base assignments first, then resolve owner-scoped rows against
+-    // their declaring offscreen resources. An Owner line alone assigns no path.
++    // Reuse the same parsed-state apply as the strict mapped entry. The
++    // legacy boundary alone retains on-disk matching/discovery and its
++    // historical best-effort (unresolved Owner/invalid subset) behavior.
+     std::vector<std::string> assignedPaths;
+-    const std::vector<EmmEffectSection>& sections = emm.effectSections();
+-    std::map<ModelData*, std::string> basePaths;
+-    for (const EmmEffectSection& section : sections) {
+-        if (!section.isDefault()) continue;
+-        for (const EmmEffectEntry& entry : section.entries) {
+-            const auto it = byKey.find(entry.key);
+-            if (it != byKey.end() && it->second != nullptr && !entry.effectPath.empty())
+-                basePaths[it->second] = entry.effectPath;
+-        }
+-    }
+-    for (ModelData* model : ctx->models) {
+-        if (model == nullptr) continue;
+-        const auto it = basePaths.find(model);
+-        // Native 2DF80 invalidates assignment records; 2CA80 then fills an
+-        // absent path via 2ACE0 (same-name .fx, embedded name, EMM default).
+-        // This is essential for scene carriers: 30590 deliberately omits
+-        // their paths when saving. Explicit "none" suppresses discovery.
+-        // Resolve roots before subsets/Owner rows so their resources exist.
+-        const std::string effectPath = it == basePaths.end()
+-            ? MmeFindEffectFileForModel(model)
+-            : it->second == kNone ? std::string() : it->second;
+-        ApplyEffectToModel(model, effectPath);
+-    }
+-    for (size_t s = 0; s < sections.size(); ++s) {
+-        const EmmEffectSection& section = sections[s];
+-        // Named rows belong to an offscreen resource, never to the base
+-        // scene's (turn 0, object, subset) assignments (RVA 2E8D0).
+-        if (!section.isDefault()) continue;
+-        for (size_t e = 0; e < section.entries.size(); ++e) {
+-            const EmmEffectEntry& entry = section.entries[e];
+-            std::map<std::string, ModelData*>::const_iterator it = byKey.find(entry.key);
+-            if (it == byKey.end() || it->second == nullptr) {
+-                continue;
+-            }
+-            ModelData* model = it->second;
+-            if (!entry.effectPath.empty()) {
+-                // "none" = the row exists but unassigns; "" = no row at all.
+-                const std::string effectPath = entry.effectPath == kNone
+-                                                   ? std::string()
+-                                                   : entry.effectPath;
+-                if (!effectPath.empty()) {
+-                    assignedPaths.push_back(effectPath);
+-                }
+-            }
+-            if (entry.hasShow) {
+-                model->setShown(entry.shown);
+-            }
+-            for (std::map<int, std::string>::const_iterator sit = entry.subsetPaths.begin();
+-                 sit != entry.subsetPaths.end(); ++sit) {
+-                ApplySubsetEffectToModel(model, sit->first, sit->second);
+-                if (sit->second != kNone && !sit->second.empty()) {
+-                    assignedPaths.push_back(sit->second);
+-                }
+-            }
+-            // [FUN_18002E8D0 at 0x18002fe7c-0x18002ffa9] Apply "[n].show" lines in the same loop as path lines:
+-            // subsets containing only a show line (without a path line) also find or create
+-            // a working node (hasShow=+1, value=+0x30). The iteration bound is the object's material count
+-            // (*(object+0x38)); ignore an entire line if n is out of range. Runtime behavior is in
+-            // MmeEmmEffectiveSubsetShown (draw-gate integration).
+-            const int emmShowCount = model->materialCount();
+-            for (std::map<int, bool>::const_iterator sit = entry.subsetShows.begin();
+-                 sit != entry.subsetShows.end(); ++sit) {
+-                if (sit->first >= 0 && sit->first < emmShowCount) {
+-                    MmeEmmSetSubsetShown(model, sit->first, sit->second);
+-                }
+-            }
+-        }
+-    }
+-
+-    ApplyOwnerSections(sections, byKey);
++    ApplyParsedSections(emm.effectSections(), byKey, [](ModelData* model) {
++        return MmeFindEffectFileForModel(model);
++    }, &assignedPaths, nullptr);
+ 
+     // [0x1800B4DA0] MessageBoxA(0x30): distinct assigned paths that do not
+     // exist, sorted and deduplicated like FUN_18003D0C0/FUN_18003D250.
+@@ -1904,45 +2163,8 @@
+     if (model == nullptr || model->filename() == nullptr) {
+         return std::string();
+     }
+-    const std::string filename = model->filename();
+-
+-    char drive[3] = { 0 };
+-    char dir[0x100] = { 0 };
+-    char base[0x100] = { 0 };
+-    char ext[0x40] = { 0 };
+-    if (_splitpath_s(filename.c_str(), drive, sizeof(drive), dir, sizeof(dir),
+-                     base, sizeof(base), ext, sizeof(ext)) != 0) {
+-        return std::string();
+-    }
+-
+-    // (1) <dir><base>.fx beside the model file.
+-    char candidate[0x104];
+-    if (_makepath_s(candidate, sizeof(candidate), drive, dir, base, ".fx") == 0 &&
+-        _access_s(candidate, 4) == 0) {
+-        return std::string(candidate);
+-    }
+-
+-    // (2) the embedded convention: "<name>[<fx>].<ext>" -> <dir><fx>.
+-    const std::string baseName(base);
+-    size_t open = baseName.find('[');
+-    if (open != std::string::npos) {
+-        size_t close = baseName.find(']', open);
+-        if (close != std::string::npos && close > open + 1) {
+-            std::string embedded = baseName.substr(open + 1, close - open - 1);
+-            if (_makepath_s(candidate, sizeof(candidate), drive, dir,
+-                            embedded.c_str(), nullptr) == 0 &&
+-                _access_s(candidate, 4) == 0) {
+-                return std::string(candidate);
+-            }
+-        }
+-    }
+-
+-    // (3) the EMM default row (only when the file exists; "" = none).
+-    const std::string& fallback = DefaultEffectRef();
+-    if (!fallback.empty() && _access_s(fallback.c_str(), 4) == 0) {
+-        return fallback;
+-    }
+-    return std::string();
++    return MdaFindEffectRoot(model->filename(), DefaultEffectRef(),
++        [](const char* candidate) { return _access_s(candidate, 4) == 0; }).path;
+ }
+ 
+ void MmeAutoSaveEmmForPmm(const wchar_t* pmmPath)

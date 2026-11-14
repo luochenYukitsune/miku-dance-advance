@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK",
+  "commit": "60f4ea81909200d8542eca14dccb2628b763a9a3",
+  "scope": "C ABI layout reference for explicit optional D3D12 runtime; no vendor DLL included",
+  "licenseDocument": {
+    "source": "docs/license.md",
+    "path": "LICENSE.md",
+    "sha256": "6757f2fec461238da6f84f83536ec195e8c036b1773a06f6f34301b9ed8c0963"
+  },
+  "headers": [
+    {
+      "path": "Kits/FidelityFX/api/include/ffx_api_types.h",
+      "sha256": "cc0adc0ffc804dd7cd03c39c15581b575e416383177ffe95060201d52cc0fc49"
+    }
+  ]
+}

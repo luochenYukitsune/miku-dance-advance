@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "component": "MDA D3D9 ordinary-surface native session",
+  "scope": "Source identity only; verification is finite and recorded separately.",
+  "files": [
+    {
+      "path": "UPSTREAM.json",
+      "bytes": 7925,
+      "sha256": "15a16956f1972e8584f77ddca06e7b621caed25e9dce894d8b694255ab21c8c6"
+    },
+    {
+      "path": "build.py",
+      "bytes": 11285,
+      "sha256": "95e1bc9ca22f5150ba6dc9c04d4a56a83474b17af33476ab552bb22561b6be3a"
+    },
+    {
+      "path": "dependency.cpp",
+      "bytes": 32540,
+      "sha256": "86e916496174fc7eb3277895c5a815be49cb43fd845eba7da5ef8d7f16290818"
+    },
+    {
+      "path": "dependency_compiler_api.hpp",
+      "bytes": 10106,
+      "sha256": "72406e099b77b54dada7cb7656f0b2307dbe6554fa945cdf5b1cc96ec8ff0cd3"
+    },
+    {
+      "path": "dependency_roots.cpp",
+      "bytes": 7136,
+      "sha256": "664556051b360c3e3fe4a76268cf6fb408028bcc74162d5d0ba0c9d1d9fdeb46"
+    },
+    {
+      "path": "effect_resource_map.hpp",
+      "bytes": 4206,
+      "sha256": "7377a60d9e8008f2b01d60168e4a585ca6fe86d71155ff45a5ff158bc16e0c0f"
+    },
+    {
+      "path": "emm_configuration.hpp",
+      "bytes": 10270,
+      "sha256": "b75dfd61d949e3d1547c5454502e7d2f19a5ead6e81c35210619c04f711b6973"
+    },
+    {
+      "path": "frame_packet.hpp",
+      "bytes": 21111,
+      "sha256": "6a568ea999c5d472e0fe0b078690d0f39f6f91b47a297d8468787647a82d9477"
+    },
+    {
+      "path": "mda_d3d9_dependency.h",
+      "bytes": 8052,
+      "sha256": "9d6ae9c02395152e34c74d5829a367800f9b4b7e32be2ebd16baa3fe4afc2a88"
+    },
+    {
+      "path": "mda_d3d9_dependency_roots.h",
+      "bytes": 2271,
+      "sha256": "4f1dbec4be83d55a7e8638aef79e86034a96bfc2450ab21150a640de50773efc"
+    },
+    {
+      "path": "mda_d3d9_session.h",
+      "bytes": 20143,
+      "sha256": "504cbbae98008da5ad8bef11057eede51b2480ee159796cdb8a423406201c62e"
+    },
+    {
+      "path": "object_fx.hpp",
+      "bytes": 2223,
+      "sha256": "9214fd930d9565e781ae4f4e97aef829661f2a26abb2eafb8ce8d530b60d61fe"
+    },
+    {
+      "path": "owner_window.hpp",
+      "bytes": 1485,
+      "sha256": "b4d8c7e5060cc7e6c07c1ae7f42d15408f75aba561110a8b3be87006a7f12611"
+    },
+    {
+      "path": "session.cpp",
+      "bytes": 146596,
+      "sha256": "5056b4a84254579b9f0d472682946aecb107ccc49179d7c00fc6aa2f39420a20"
+    },
+    {
+      "path": "surface.fx",
+      "bytes": 11048,
+      "sha256": "441307058ca4adbb04117b46bb422f3cbd9a5e4e8dd917eaa2d90e624dd34fa9"
+    },
+    {
+      "path": "visual_packet.hpp",
+      "bytes": 4319,
+      "sha256": "e05a3a7a22121654abeb004477ae6a2750686f94691b965a3a87c02e1222b8c2"
+    }
+  ]
+}

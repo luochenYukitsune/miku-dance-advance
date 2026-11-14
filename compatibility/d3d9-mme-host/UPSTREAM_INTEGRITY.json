@@ -1,0 +1,503 @@
+{
+  "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+  "sourceFiles": 62,
+  "allMatch": true,
+  "files": [
+    {
+      "path": "cmake/D3dxRuntime.cmake",
+      "bytes": 1911,
+      "sha256": "94ee08e0d56cac41cccfe670e4322320eaf1ce9341117cf33cc21451d60db436",
+      "gitBlob": "4b19860d0a7db6de4c2182b8dbe86c3aa33f612e",
+      "treeBlob": "4b19860d0a7db6de4c2182b8dbe86c3aa33f612e",
+      "matchesTree": true
+    },
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 55779,
+      "sha256": "e73f10eb896929c546aa1798280b98ac516012939df3dd193137c27e60c26045",
+      "gitBlob": "0d4d81222d782e4bc1be0e2012dd68bc90f82fe5",
+      "treeBlob": "0d4d81222d782e4bc1be0e2012dd68bc90f82fe5",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/accessory_layout.hpp",
+      "bytes": 5959,
+      "sha256": "b14d6d8ee7054a27bb76f9bf2cccd2a529ca3c47d67bac4a5f7752796d3791cf",
+      "gitBlob": "33936216263d5e36dbaab73f8c323570658cb69e",
+      "treeBlob": "33936216263d5e36dbaab73f8c323570658cb69e",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/bone_binding.hpp",
+      "bytes": 1506,
+      "sha256": "fafaf19804925860e2a37443ab557dc43242b26cd6f5d1b0842bdcdd8815fa87",
+      "gitBlob": "518ee5a85dd892774689f56dcffddad02bcb287b",
+      "treeBlob": "518ee5a85dd892774689f56dcffddad02bcb287b",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/bone_key_layout.hpp",
+      "bytes": 1119,
+      "sha256": "114f7f0dd8c471ac7f89d1acc74426c8d31713534f67cacdf60ef1409c48c340",
+      "gitBlob": "635b61fbd70d33f2a0a438c17a6e6ac2baae7825",
+      "treeBlob": "635b61fbd70d33f2a0a438c17a6e6ac2baae7825",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/d3dx_api.hpp",
+      "bytes": 9929,
+      "sha256": "0b6e6b300bc5663e9f29fccd9f42acc45a87c9339ad3d4cfcb14690df96e2dd3",
+      "gitBlob": "f713a234d61a71375c78c506c44fdf1731938fe8",
+      "treeBlob": "f713a234d61a71375c78c506c44fdf1731938fe8",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/model_layout.hpp",
+      "bytes": 26124,
+      "sha256": "9fbe6941002023c270fd97c9d9d0cdbf75b5ba7d9e1373a4d8803844dd455aef",
+      "gitBlob": "b736c95c1bc1ce84114f0cbe8d4cc59c6585613f",
+      "treeBlob": "b736c95c1bc1ce84114f0cbe8d4cc59c6585613f",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/raw_pad.hpp",
+      "bytes": 1026,
+      "sha256": "4b96f1f7c5916f78836d6094e8af20a3cd0d53fdd1823f18e4c3241b6e977128",
+      "gitBlob": "3608b10a95c17a0d43f37d18c5945710b000d078",
+      "treeBlob": "3608b10a95c17a0d43f37d18c5945710b000d078",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/skeleton_tracking.hpp",
+      "bytes": 7240,
+      "sha256": "31899e912406e9e397aed443b37c9887ff73add39e4c83e1a3a4911840631db1",
+      "gitBlob": "9c0a7c7aa92dcbb8e8f7242a7abceb9c1b278723",
+      "treeBlob": "9c0a7c7aa92dcbb8e8f7242a7abceb9c1b278723",
+      "matchesTree": true
+    },
+    {
+      "path": "include/mikudancestudio/undo_layout.hpp",
+      "bytes": 2762,
+      "sha256": "a353657a7ab95f967f57aed78d5e1f4af07d44e1f8fe3869167a7d916da8a22d",
+      "gitBlob": "1228e3db6de703c860632d1f5418bb7e1f69a516",
+      "treeBlob": "1228e3db6de703c860632d1f5418bb7e1f69a516",
+      "matchesTree": true
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1085,
+      "sha256": "d808f870fd8fe49e6d1e34f763d9f2590bb619a10f009f934257e2ff7c968dfc",
+      "gitBlob": "6f1e25e05cc49d29650007cc383a58b267986fec",
+      "treeBlob": "6f1e25e05cc49d29650007cc383a58b267986fec",
+      "matchesTree": true
+    },
+    {
+      "path": "scripts/gen_d3dx_imports.py",
+      "bytes": 3410,
+      "sha256": "8d9727b96506b9acc22676e2b63915b4bba1c08b83734910bfb25b42905bda39",
+      "gitBlob": "66c76c115c86c216bed2dd7aa073ef1fedde2e6e",
+      "treeBlob": "66c76c115c86c216bed2dd7aa073ef1fedde2e6e",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/d3dx9.h",
+      "bytes": 32515,
+      "sha256": "6f53cc442526ba184ab1fe3bed55422d7222f45837b46754eec40d32ea407d61",
+      "gitBlob": "10d5049decd7ae1c88b38db583228e91557c738a",
+      "treeBlob": "10d5049decd7ae1c88b38db583228e91557c738a",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/MMDExport.h",
+      "bytes": 6073,
+      "sha256": "69589771bce1607627655fc47d283c571cebfd00fe3783d08999fde12f14d1b0",
+      "gitBlob": "7a9ad0f5ddd502b175597f80acc6df0a936ee32f",
+      "treeBlob": "7a9ad0f5ddd502b175597f80acc6df0a936ee32f",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mme_abi.h",
+      "bytes": 4558,
+      "sha256": "ef468765a56f372fc3ba93ff4d2b01a245de0c28641e3197ee622253e5a139da",
+      "gitBlob": "563fa5e2c199f0e210d31710ddf05458f2e4ab1a",
+      "treeBlob": "563fa5e2c199f0e210d31710ddf05458f2e4ab1a",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mme_host_api.h",
+      "bytes": 7764,
+      "sha256": "379dbb883d3a8263bf5c83744408a65a24bb02dfee103c8e74512c9fc0a1817d",
+      "gitBlob": "10d3fd35375b350e27b7d81659f00601877ecc02",
+      "treeBlob": "10d3fd35375b350e27b7d81659f00601877ecc02",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mme_resources.h",
+      "bytes": 490,
+      "sha256": "fe6b60f186a9fdea92f229c8788932873fda6c0252165e36eebc0dd7c9a44169",
+      "gitBlob": "757ef3aec95af5ba4a9c1d5cd293a1c4c3200313",
+      "treeBlob": "757ef3aec95af5ba4a9c1d5cd293a1c4c3200313",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mmeffect/device_initialization.h",
+      "bytes": 799,
+      "sha256": "4855fc6fe47beec304ba2dc0eefd9cc75b86d15ae568301fd5c5b412127904e8",
+      "gitBlob": "5f5bd6fe422830839e8de7fda33e19b1c21f02b5",
+      "treeBlob": "5f5bd6fe422830839e8de7fda33e19b1c21f02b5",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mmeffect/host_object_cache.h",
+      "bytes": 847,
+      "sha256": "3653e9b1cc231cad4d82a2e9da51f8dbe3a8a429a3017b8ca561c16c68d49a46",
+      "gitBlob": "16d4a2e8fa32b27e0f8c01e984dfa29d7f64ee36",
+      "treeBlob": "16d4a2e8fa32b27e0f8c01e984dfa29d7f64ee36",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/include/mmhack_api.h",
+      "bytes": 3017,
+      "sha256": "3026e700b3eb7c051f68db074d9ea989056d237f474e91d4ebd657430db8e2b5",
+      "gitBlob": "614ce495f637d5aa0dca8a81643686820be425eb",
+      "treeBlob": "614ce495f637d5aa0dca8a81643686820be425eb",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mme_host.cpp",
+      "bytes": 28590,
+      "sha256": "fe20e46e699ad30a08f8b67bd290cf2e6ff21b81d9cad827b84ca241ff498851",
+      "gitBlob": "ad513e292b3c2cbdc730ca7f658e8f00dd9b00c4",
+      "treeBlob": "ad513e292b3c2cbdc730ca7f658e8f00dd9b00c4",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/anime_texture.cpp",
+      "bytes": 59657,
+      "sha256": "5a5ac00bb2fbd017f66c6c54deecd13c461bdc23b84723a2027b39678dfc1409",
+      "gitBlob": "0bd655473461280d5dad810cedd818189b9fd500",
+      "treeBlob": "0bd655473461280d5dad810cedd818189b9fd500",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/anime_texture.h",
+      "bytes": 8125,
+      "sha256": "12cf52e5a709d0f18b6745c8143c160f39d1ff3211c1f6685f84da4279eb6389",
+      "gitBlob": "3f8a1f125da9c84c4c3df32b579e1c6d4160e842",
+      "treeBlob": "3f8a1f125da9c84c4c3df32b579e1c6d4160e842",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/callbacks.cpp",
+      "bytes": 43534,
+      "sha256": "7b46181a21f16f6891e8910ed45018d3d9902dd80178b711b71419670fb4aa02",
+      "gitBlob": "bc544c1c3d4c5cc936b60dd0573412bd9925d4be",
+      "treeBlob": "bc544c1c3d4c5cc936b60dd0573412bd9925d4be",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+      "bytes": 26441,
+      "sha256": "292a1ab3e11edf624d37fc2cae36120e3e314de2c7d4da9e15502046c9a498d2",
+      "gitBlob": "6ca860066c8a0e44e4bab3b9e377a68dc9dd72d6",
+      "treeBlob": "6ca860066c8a0e44e4bab3b9e377a68dc9dd72d6",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/effect_engine.h",
+      "bytes": 9565,
+      "sha256": "a7e28cf819afa28d3882b687771a7703236a9a8eacbc73647e00231e183fa350",
+      "gitBlob": "9342893ce166919eb076634c41d661d2454df5a0",
+      "treeBlob": "9342893ce166919eb076634c41d661d2454df5a0",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+      "bytes": 80701,
+      "sha256": "537218a8fc71a04f2237e6e90e027e008577f73f761f5bee4140a47bdd9500b6",
+      "gitBlob": "62435a68da945ec509c2b5402301c0d87600ca6e",
+      "treeBlob": "62435a68da945ec509c2b5402301c0d87600ca6e",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/emm_manager.h",
+      "bytes": 28019,
+      "sha256": "c0cd12f63507824608ca036ee47261ea3d4b8d9cc0e8695cd2a9b890139fbbba",
+      "gitBlob": "c72fc4a3086f212679d7a218f3e136fd533999a0",
+      "treeBlob": "c72fc4a3086f212679d7a218f3e136fd533999a0",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/ini_file.cpp",
+      "bytes": 9009,
+      "sha256": "cd0b6c149e9a7413bc6219a9eb206aaa2016f27ac262dd749a92a77dd88ac78e",
+      "gitBlob": "d3f1f0a094b4e9422b40f9822e64786f6276930f",
+      "treeBlob": "d3f1f0a094b4e9422b40f9822e64786f6276930f",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/ini_file.h",
+      "bytes": 3729,
+      "sha256": "9af66b558080c26cc2a37b346fc6f8520c0227e748a9ce14d0c9689ecc1d3f9d",
+      "gitBlob": "9f56a47a8897cff7297a96de7b0e62cfd42cb0dc",
+      "treeBlob": "9f56a47a8897cff7297a96de7b0e62cfd42cb0dc",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/material_bind.cpp",
+      "bytes": 109643,
+      "sha256": "43c1b6b61430d31e718f0f76d0a64e79835e790fb3c78c0e458faab8aa80fa88",
+      "gitBlob": "d3027eac8e4da31c3ab62699ac2201f54b91eef1",
+      "treeBlob": "d3027eac8e4da31c3ab62699ac2201f54b91eef1",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/material_bind.h",
+      "bytes": 16914,
+      "sha256": "8111f8cec3058a075934bc7edf5793cee078bd2afa013e5e4e9635d5938747a1",
+      "gitBlob": "2b3047b6556507f081b962624bcd9a81e7ea4c7a",
+      "treeBlob": "2b3047b6556507f081b962624bcd9a81e7ea4c7a",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_context.cpp",
+      "bytes": 21889,
+      "sha256": "dd2044feffcb3c0bb9985ae014bc0dd062095d5eed94dd37d91e566233451992",
+      "gitBlob": "0b2feebfd21c7154ef5af024659b5e71665c2d9b",
+      "treeBlob": "0b2feebfd21c7154ef5af024659b5e71665c2d9b",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_context.h",
+      "bytes": 22945,
+      "sha256": "3d7b49665e94181e1947685bf0e7aa281f0ac476215a7fdf4862fcb80a01b803",
+      "gitBlob": "955998d2e99ebf187b889956f3d10c514157006a",
+      "treeBlob": "955998d2e99ebf187b889956f3d10c514157006a",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_dlg.cpp",
+      "bytes": 87974,
+      "sha256": "0efa0697d7a98d52b32851594084da40dad9caf20933af9cd13115287572bf17",
+      "gitBlob": "8dd5bd2b76496ad8124b70ca79c718f34b8c6583",
+      "treeBlob": "8dd5bd2b76496ad8124b70ca79c718f34b8c6583",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_dlg.h",
+      "bytes": 1067,
+      "sha256": "130f7dd5b10023a4073e1aa08c701e0fc4dfbdd4ea93a68732f027ce611a747e",
+      "gitBlob": "d05aa74ccbaa22cb2a21237f1e4a056254bd3a8d",
+      "treeBlob": "d05aa74ccbaa22cb2a21237f1e4a056254bd3a8d",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_globals.cpp",
+      "bytes": 8306,
+      "sha256": "73e8a50b0359f3ad8aecb0aaf4d8607168dc0f0f72bf068e54c3938157f7409f",
+      "gitBlob": "d300b4bfad2f769844089db7ac0345075912e147",
+      "treeBlob": "d300b4bfad2f769844089db7ac0345075912e147",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_globals.h",
+      "bytes": 8197,
+      "sha256": "694a8217ea47dec36881bfec83482cb3e61f850be275ab8576105fab10608f23",
+      "gitBlob": "15979559e63378ed114319b84e94de267a79be8d",
+      "treeBlob": "15979559e63378ed114319b84e94de267a79be8d",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_log.cpp",
+      "bytes": 5248,
+      "sha256": "df9bf7f88e7155f7d10a12286ec6112c3c0551a958e6577add78cbb232e5652e",
+      "gitBlob": "aed1a29bc54d747a8ea16d65f0d24450970ed84a",
+      "treeBlob": "aed1a29bc54d747a8ea16d65f0d24450970ed84a",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_log.h",
+      "bytes": 3600,
+      "sha256": "153e50a05fde846f1b8aa8073bb5d4302ac00c77ee6027f1a383cc35d7b85ac9",
+      "gitBlob": "1a5e3d1a0522b53b8558b7ab95db15d03f032917",
+      "treeBlob": "1a5e3d1a0522b53b8558b7ab95db15d03f032917",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_ui.cpp",
+      "bytes": 32494,
+      "sha256": "b46c0459fad6337943e26f1c999194e7f9fedc1b347f84da515d7300733a15e3",
+      "gitBlob": "9941b30b9ebb68ad60ca7b86888b977e8f1ea2a3",
+      "treeBlob": "9941b30b9ebb68ad60ca7b86888b977e8f1ea2a3",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_ui.h",
+      "bytes": 2459,
+      "sha256": "028de3a2b146a6452439bbe5768c6326a3725d5867b0657326dcf4fb8ce630fb",
+      "gitBlob": "abecbccdb3b1e91f7da25b54615f6ebd2990a532",
+      "treeBlob": "abecbccdb3b1e91f7da25b54615f6ebd2990a532",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_util.cpp",
+      "bytes": 2188,
+      "sha256": "340a2f7f63e0611442c73ee421171f20f20c38b466bdea4d4d4216c29d4a5474",
+      "gitBlob": "5372154ce6fdc87e6e993c1cc53a713b027868ba",
+      "treeBlob": "5372154ce6fdc87e6e993c1cc53a713b027868ba",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/mme_util.h",
+      "bytes": 916,
+      "sha256": "1f5db9a8f0e43fd85f88d82d74dbc1301c100d68be7ab7f4b0b9a0fb27b929fc",
+      "gitBlob": "2b553a757b1e88741d18d651ddbf627f8438e995",
+      "treeBlob": "2b553a757b1e88741d18d651ddbf627f8438e995",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/model_data.cpp",
+      "bytes": 8967,
+      "sha256": "38a23a60cd683844273c0b8eb04cc38782d6b459006d73ff27a30ae2ffedef52",
+      "gitBlob": "8d321df82e270409cf72086b51763416d2b551c6",
+      "treeBlob": "8d321df82e270409cf72086b51763416d2b551c6",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/model_data.h",
+      "bytes": 12389,
+      "sha256": "d15116aadd1ff678210bdadeb82b00e3a535727085197acd4aac763a258fa8ca",
+      "gitBlob": "513b094393dd64e189e802ad5a169aa34fac3422",
+      "treeBlob": "513b094393dd64e189e802ad5a169aa34fac3422",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/model_name_registry.h",
+      "bytes": 2125,
+      "sha256": "c1fe9bfe86d700435f09069b81c75b1533ed073e4cb0fdd17fa6b24d19b720a0",
+      "gitBlob": "eaad9e516f9890e50ecd08e40b2de77051c8fe1f",
+      "treeBlob": "eaad9e516f9890e50ecd08e40b2de77051c8fe1f",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/object_plan_state.h",
+      "bytes": 532,
+      "sha256": "743aa001a0b05cfd6ab746d593fce91299c02feeb0ff73c2b0ab42c4236da8c7",
+      "gitBlob": "d1b9c19f5909294968837da6570636ae232da5b9",
+      "treeBlob": "d1b9c19f5909294968837da6570636ae232da5b9",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+      "bytes": 122216,
+      "sha256": "347c6275ecce08fbf86811f2e8cc4f4e2f73a6c51f386b4ee75b4fc04c3222cc",
+      "gitBlob": "f7fe29c84cdbc4b87f0a45f95e5b7332c3ea6716",
+      "treeBlob": "f7fe29c84cdbc4b87f0a45f95e5b7332c3ea6716",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/pass_planner.h",
+      "bytes": 7040,
+      "sha256": "330971d5d523517f759c28028427bfd874b7c0430383cd21de10936c0c7d396f",
+      "gitBlob": "b0d547df30af3e8067e986b77d8a21051d0b33ab",
+      "treeBlob": "b0d547df30af3e8067e986b77d8a21051d0b33ab",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/render_snapshot.cpp",
+      "bytes": 10981,
+      "sha256": "127b03d7b5578cbc611388817d74a1d1ab43516d25bf3d8bf743aea1be70888a",
+      "gitBlob": "0128143cd2c4ee24b01e28c19a4c41a04ef25d53",
+      "treeBlob": "0128143cd2c4ee24b01e28c19a4c41a04ef25d53",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/render_snapshot.h",
+      "bytes": 8689,
+      "sha256": "ed40989910f7766eb811ac4c09f33f05da49b4ac95083dad063843fc8322a6bd",
+      "gitBlob": "d55ec75d85ab5a4fa3c3f109a3d698213620b933",
+      "treeBlob": "d55ec75d85ab5a4fa3c3f109a3d698213620b933",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/sas_exec.cpp",
+      "bytes": 70206,
+      "sha256": "31866b4ee68129a4ea68119250d3a0e33933b9af426f4f3b37cc4cbe78a75d48",
+      "gitBlob": "ad3692436b6f918fd11c74973a85024798a1652f",
+      "treeBlob": "ad3692436b6f918fd11c74973a85024798a1652f",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/sas_exec.h",
+      "bytes": 30444,
+      "sha256": "73479757f4b2b8a8f41881060330ce1c341f49a819ab6dac356dd546270ad92c",
+      "gitBlob": "42539d102adb5cb7d410152204537941ef7bee44",
+      "treeBlob": "42539d102adb5cb7d410152204537941ef7bee44",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+      "bytes": 138715,
+      "sha256": "d2f490494e86c9b1aceb176caf9e3370c4f01f25a61d8cf513ea71639d56a3cb",
+      "gitBlob": "88282271ae4903aa5b6e5dfe0754a62297090c80",
+      "treeBlob": "88282271ae4903aa5b6e5dfe0754a62297090c80",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmeffect/sas_interpreter.h",
+      "bytes": 12110,
+      "sha256": "bfb713258143d255e29e959da0b91f4eb94aa09d8328977289d0f83cf47276c8",
+      "gitBlob": "3857e2e038bedb86c229025007345d2131b60fe1",
+      "treeBlob": "3857e2e038bedb86c229025007345d2131b60fe1",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+      "bytes": 7757,
+      "sha256": "84c67b98a2860d1cbd840b9ce114f2c1b77d00cd898de41717dbaf2d5c3bfaa1",
+      "gitBlob": "9c25e116f4a3cb21c563638c0529b28d0de75d44",
+      "treeBlob": "9c25e116f4a3cb21c563638c0529b28d0de75d44",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_lightmatrix.cpp",
+      "bytes": 5405,
+      "sha256": "e17548955ea206d77bd1a7c0f53755d93e1c65566e940e30f8f9c416ebe26f33",
+      "gitBlob": "f5471447a65cf964d9a8b7b4a54d13cef9d93df4",
+      "treeBlob": "f5471447a65cf964d9a8b7b4a54d13cef9d93df4",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_material.cpp",
+      "bytes": 1312,
+      "sha256": "5ec6342f0bba8af2713eae7de569c566aba7cff04245d231c8670e6a65c57cea",
+      "gitBlob": "80e1e133aec1ff52b55fd816159500c4d09779b4",
+      "treeBlob": "80e1e133aec1ff52b55fd816159500c4d09779b4",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_material_table.cpp",
+      "bytes": 19020,
+      "sha256": "f79c3e5c2f1cfc960d6e317dcb8e45ac49f11e90924c3837feecc8e769007092",
+      "gitBlob": "fa2cbe4447c3eb38a60b44eec249381a39524786",
+      "treeBlob": "fa2cbe4447c3eb38a60b44eec249381a39524786",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_registry.cpp",
+      "bytes": 9470,
+      "sha256": "8f04c5db908e58f88973436344ff95347fc1f3a02479cbc65946b144faf34aba",
+      "gitBlob": "f8032413fd564022ccb7e4e92c5be53a2cde5725",
+      "treeBlob": "f8032413fd564022ccb7e4e92c5be53a2cde5725",
+      "matchesTree": true
+    },
+    {
+      "path": "third_party/mmeffect/src/mmhack/mmhack_state.h",
+      "bytes": 9525,
+      "sha256": "d27487380599e3816de94c89e1135942c8f13e4bbb31421a6926a103d50a68da",
+      "gitBlob": "92ebe6dee604c756cf8c27a5be5ebea0921fbee0",
+      "treeBlob": "92ebe6dee604c756cf8c27a5be5ebea0921fbee0",
+      "matchesTree": true
+    }
+  ]
+}

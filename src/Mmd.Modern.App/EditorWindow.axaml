@@ -1,0 +1,756 @@
+<Window xmlns:validated="using:Mmd.Modern.App.Controls" xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Mmd.Modern.App"
+        xmlns:controls="using:Mmd.Modern.App.Controls"
+        x:Class="Mmd.Modern.App.EditorWindow"
+        x:DataType="local:EditorShellViewModel"
+        Title="MDA · MikuDance Advance" Width="1480" Height="940"
+        Icon="avares://Mmd.Modern.App/Assets/Branding/mda.ico"
+        MinWidth="1100" MinHeight="720" WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource EditorSurface}" Foreground="{DynamicResource EditorText}"
+        FontFamily="{DynamicResource EditorFont}" FontSize="{DynamicResource EditorBodySize}"
+        RenderOptions.TextRenderingMode="Antialias" UseLayoutRounding="True" RequestedThemeVariant="Dark">
+  <Window.Styles>
+    <StyleInclude Source="avares://SukiUI/Theme/Index.xaml" />
+    <Style Selector="TemplatedControl"><Setter Property="FontFamily" Value="{DynamicResource EditorFont}" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{DynamicResource EditorFont}" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="LineHeight" Value="20" /><Setter Property="FontWeight" Value="Normal" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <Style Selector="AccessText"><Setter Property="FontFamily" Value="{DynamicResource EditorFont}" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="FontWeight" Value="Normal" /></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /><Setter Property="LineHeight" Value="16" /></Style>
+    <Style Selector="TextBlock.projectTitle"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="FontSize" Value="{DynamicResource EditorTitleSize}" /><Setter Property="LineHeight" Value="22" /></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="FontSize" Value="{DynamicResource EditorTitleSize}" /><Setter Property="LineHeight" Value="22" /></Style>
+    <Style Selector="TextBlock.group"><Setter Property="FontWeight" Value="Medium" /><Setter Property="FontSize" Value="13" /><Setter Property="LineHeight" Value="20" /></Style>
+    <Style Selector="TextBlock.axis"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /><Setter Property="LineHeight" Value="16" /><Setter Property="Margin" Value="1,0,0,4" /></Style>
+    <Style Selector="TextBlock.number"><Setter Property="HorizontalAlignment" Value="Right" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+    <Style Selector="PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="Width" Value="16" /><Setter Property="Height" Value="16" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="20" /><Setter Property="Margin" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Padding" Value="9,0" /><Setter Property="CornerRadius" Value="2" />
+      <Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" /><Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.tool"><Setter Property="Width" Value="104" /></Style>
+    <Style Selector="Button.action"><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="HorizontalContentAlignment" Value="Center" /><Setter Property="Height" Value="28" /></Style>
+    <Style Selector="Button.action:disabled"><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="Button.transport"><Setter Property="Width" Value="32" /><Setter Property="Padding" Value="7,0" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource EditorHover}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorMuted}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button.previewTipAction">
+      <Setter Property="Height" Value="30" /><Setter Property="Padding" Value="12,0" />
+      <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorMuted}" /><Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.previewTipAction:pointerover"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button.previewTipAction:pressed"><Setter Property="Background" Value="{DynamicResource EditorHover}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button.previewTipAction:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Button:disabled PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="ToggleButton.guide">
+      <Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="20" /><Setter Property="Margin" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
+      <Setter Property="Padding" Value="8,0" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="GuideSurface" Background="{TemplateBinding Background}" BorderThickness="{TemplateBinding BorderThickness}"
+                  BorderBrush="{TemplateBinding BorderBrush}" CornerRadius="2" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton.guide:checked"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="ToggleButton.guide:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="ToggleButton.guide:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="ToggleButton.guide PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /></Style>
+    <Style Selector="ToggleButton.guide:checked PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <Style Selector="ToggleButton.guide.icon"><Setter Property="Width" Value="28" /><Setter Property="Padding" Value="5,0" /></Style>
+    <Style Selector="ToggleButton.guide:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="ToggleButton.guide TextBlock"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
+    <Style Selector="ToggleButton.guide AccessText"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
+    <!-- Compact template follows Avalonia 11.3.22 Simple TextBox named parts; Suki 5.3.0 adds an extra 5 px outer inset. -->
+    <Style Selector="TextBox">
+      <Setter Property="CaretBrush" Value="{DynamicResource EditorText}" /><Setter Property="SelectionBrush" Value="{DynamicResource EditorSelectedSurface}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Name="EditorInputBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+          <DockPanel Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                     VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+            <TextBlock Name="floatingWatermark" DockPanel.Dock="Top" Text="{TemplateBinding Watermark}" Foreground="{DynamicResource EditorMuted}">
+              <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="UseFloatingWatermark" RelativeSource="{RelativeSource TemplatedParent}" />
+                <Binding Path="Text" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+              </MultiBinding></TextBlock.IsVisible>
+            </TextBlock>
+            <DataValidationErrors>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <ContentPresenter Content="{TemplateBinding InnerLeftContent}" />
+                <ScrollViewer Name="PART_ScrollViewer" Grid.Column="1" AllowAutoHide="{TemplateBinding (ScrollViewer.AllowAutoHide)}"
+                              BringIntoViewOnFocusChange="{TemplateBinding (ScrollViewer.BringIntoViewOnFocusChange)}"
+                              HorizontalScrollBarVisibility="{TemplateBinding (ScrollViewer.HorizontalScrollBarVisibility)}"
+                              VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
+                              IsScrollChainingEnabled="{TemplateBinding (ScrollViewer.IsScrollChainingEnabled)}">
+                  <Panel>
+                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{TemplateBinding Foreground}"
+                               FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}"
+                               TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}"
+                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+                      <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding ElementName="PART_TextPresenter" Path="PreeditText" Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                        <Binding Path="Text" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                      </MultiBinding></TextBlock.IsVisible>
+                    </TextBlock>
+                    <TextPresenter Name="PART_TextPresenter" CaretBlinkInterval="{TemplateBinding CaretBlinkInterval}"
+                                   CaretBrush="{TemplateBinding CaretBrush}" CaretIndex="{TemplateBinding CaretIndex}"
+                                   LineHeight="{TemplateBinding LineHeight}" LetterSpacing="{TemplateBinding LetterSpacing}"
+                                   PasswordChar="{TemplateBinding PasswordChar}" RevealPassword="{TemplateBinding RevealPassword}"
+                                   SelectionBrush="{TemplateBinding SelectionBrush}" SelectionForegroundBrush="{TemplateBinding SelectionForegroundBrush}"
+                                   SelectionStart="{TemplateBinding SelectionStart}" SelectionEnd="{TemplateBinding SelectionEnd}"
+                                   Text="{TemplateBinding Text, Mode=TwoWay}" TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}" />
+                  </Panel>
+                </ScrollViewer>
+                <ContentPresenter Grid.Column="2" Content="{TemplateBinding InnerRightContent}" />
+              </Grid>
+            </DataValidationErrors>
+          </DockPanel>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="TextBox.editorSearch"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="8,2" /><Setter Property="FontSize" Value="13" /><Setter Property="CornerRadius" Value="2" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="TextBox.editorSearch:focus"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="TextBox.editorSearch:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="TextBox.timelineRangeNumber"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="7,2" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="TextAlignment" Value="Right" /><Setter Property="CornerRadius" Value="2" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="TextBox.timelineRangeNumber:focus"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="TextBox.timelineRangeNumber:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="NumericUpDown.editorNumber">
+      <Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Margin" Value="0" />
+      <Setter Property="Padding" Value="7,2" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" />
+      <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" /><Setter Property="ShowButtonSpinner" Value="False" />
+      <Setter Property="TextAlignment" Value="Right" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template"><ControlTemplate>
+        <ButtonSpinner Name="PART_Spinner" AllowSpin="{TemplateBinding AllowSpin}" ShowButtonSpinner="False" HorizontalContentAlignment="Stretch" Padding="0">
+          <ButtonSpinner.Template><ControlTemplate><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" /></ControlTemplate></ButtonSpinner.Template>
+        <TextBox Name="PART_TextBox" Text="{TemplateBinding Text}" Watermark="{TemplateBinding Watermark}"
+                 IsReadOnly="{TemplateBinding IsReadOnly}" TextAlignment="{TemplateBinding TextAlignment}"
+                 FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}"
+                 Height="28" MinHeight="28" Padding="{TemplateBinding Padding}" VerticalContentAlignment="Center"
+                 Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                 BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" />
+        </ButtonSpinner>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="NumericUpDown.editorNumber:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="NumericUpDown.editorNumber:focus-within"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="NumericUpDown.editorNumber:disabled /template/ TextBox#PART_TextBox"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <!-- Compact choice control: same 28 px height, 2 px radius and Editor tokens as the numeric and search inputs.
+         Mirrors the compact ComboBox template already proven in EditorLightingWindow so Avalonia 11.3.22 selection,
+         popup, editable and keyboard named parts stay intact instead of inheriting the SukiUI 5.3.0 outer inset. -->
+    <Style Selector="ComboBox">
+      <Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
+      <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" /><Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" />
+      <Setter Property="PlaceholderForeground" Value="{DynamicResource EditorMuted}" />
+      <Setter Property="Template"><ControlTemplate>
+        <Border Name="EditorComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+          <Grid ColumnDefinitions="*,24">
+            <TextBlock Name="PlaceholderTextBlock" Margin="{TemplateBinding Padding}" Foreground="{TemplateBinding PlaceholderForeground}"
+                       Text="{TemplateBinding PlaceholderText}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+              <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="SelectionBoxItem" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static ObjectConverters.IsNull}" />
+                <Binding Path="!IsEditable" RelativeSource="{RelativeSource TemplatedParent}" />
+              </MultiBinding></TextBlock.IsVisible>
+            </TextBlock>
+            <ContentControl Margin="{TemplateBinding Padding}" Content="{TemplateBinding SelectionBoxItem}"
+                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Foreground="{TemplateBinding Foreground}"
+                            FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            IsVisible="{TemplateBinding IsEditable, Converter={x:Static BoolConverters.Not}}" />
+            <TextBox Name="PART_EditableTextBox" Height="NaN" MinHeight="0" Padding="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}"
+                     Background="Transparent" BorderThickness="0" Text="{TemplateBinding Text, Mode=TwoWay}" IsVisible="{TemplateBinding IsEditable}" />
+            <ToggleButton Name="toggle" Grid.Column="1" Width="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0"
+                          Background="Transparent" BorderThickness="0" Focusable="False" ClickMode="Press"
+                          IsChecked="{TemplateBinding IsDropDownOpen, Mode=TwoWay}">
+              <ToggleButton.Template><ControlTemplate><Border Background="{TemplateBinding Background}"><ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></ToggleButton.Template>
+              <!-- A TemplateBinding here resolves against the ComboBox rather than the enclosing toggle (native-verified),
+                   so the chevron owns its brush and the :disabled style below overrides it by part name. -->
+              <Path Name="Chevron" Width="8" Height="4" Stretch="Uniform" Fill="{DynamicResource EditorMuted}"
+                    Data="F1 M 301.14,-189.041L 311.57,-189.041L 306.355,-182.942L 301.14,-189.041 Z" />
+            </ToggleButton>
+            <Popup Name="PART_Popup" MinWidth="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}"
+                   MaxHeight="{TemplateBinding MaxDropDownHeight}" IsLightDismissEnabled="True"
+                   IsOpen="{TemplateBinding IsDropDownOpen, Mode=TwoWay}" PlacementTarget="{TemplateBinding}" InheritsTransform="True">
+              <Border Background="{DynamicResource EditorSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1"
+                      RenderOptions.TextRenderingMode="Antialias" UseLayoutRounding="True">
+                <ScrollViewer HorizontalScrollBarVisibility="{TemplateBinding (ScrollViewer.HorizontalScrollBarVisibility)}"
+                              VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
+                              IsDeferredScrollingEnabled="{TemplateBinding (ScrollViewer.IsDeferredScrollingEnabled)}" IsScrollChainingEnabled="False">
+                  <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ComboBox:focus-within"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="ComboBox:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <!-- The selection text is a TextBlock from the item template (or generated by the ContentPresenter for plain
+         strings), and the window's own "TextBlock" style sets Foreground=EditorText at Style priority, so :disabled
+         restates it explicitly. The chevron keeps EditorMuted as its template value and is overridden by part name only
+         while disabled: a TemplateBinding inside the nested toggle template resolves against the ComboBox, so the
+         earlier Foreground-bound arrow followed ComboBox.Foreground and stayed black after re-enabling (native probe). -->
+    <Style Selector="ComboBox:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="ComboBox:disabled /template/ Path#Chevron"><Setter Property="Fill" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="ComboBoxItem">
+      <Setter Property="FontFamily" Value="{DynamicResource EditorFont}" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" />
+      <Setter Property="Padding" Value="10,4" /><Setter Property="MinHeight" Value="30" /><Setter Property="Background" Value="{DynamicResource EditorSurface}" />
+      <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+      <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" RenderOptions.TextRenderingMode="Antialias" UseLayoutRounding="True"><ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" VerticalAlignment="Center" /></Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="ComboBoxItem:selected"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="ComboBoxItem:selected:pointerover"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="CheckBox">
+      <Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="FontSize" Value="13" /><Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="8,0,0,0" /><Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="CheckBox /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <!-- Avalonia resolves a style setter at BindingPriority.StyleTrigger when its selector has an activator (a
+         pseudo-class) and at BindingPriority.Style otherwise; template values sit at BindingPriority.Template, which
+         outranks Style. SukiUI 5.3.0's CheckBox template writes 20x20 / CornerRadius 6 / BorderBrush and its white
+         9x9 check mark as template values, so an unconditional "/template/" setter cannot replace them. Every box and
+         mark value below is therefore set through the ToggleButton state pseudo-classes declared in Avalonia 11.3.22
+         (:checked / :unchecked / :indeterminate, one of which is always active), keeping the same named parts and the
+         template's hard-coded 1 px BorderThickness. -->
+    <Style Selector="CheckBox:unchecked /template/ Border#border, CheckBox:checked /template/ Border#border, CheckBox:indeterminate /template/ Border#border">
+      <Setter Property="Width" Value="18" /><Setter Property="Height" Value="18" /><Setter Property="CornerRadius" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+    </Style>
+    <Style Selector="CheckBox:unchecked /template/ Border#border"><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="CheckBox:checked /template/ Border#border, CheckBox:indeterminate /template/ Border#border"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="CheckBox:unchecked:pointerover /template/ Border#border"><Setter Property="Background" Value="{DynamicResource EditorHover}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /></Style>
+    <Style Selector="CheckBox:checked:pointerover /template/ Border#border, CheckBox:indeterminate:pointerover /template/ Border#border"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /></Style>
+    <Style Selector="CheckBox:unchecked /template/ Path#checkMark, CheckBox:checked /template/ Path#checkMark">
+      <Setter Property="Width" Value="10" /><Setter Property="Height" Value="10" /><Setter Property="Margin" Value="0" />
+      <Setter Property="Fill" Value="{DynamicResource EditorText}" />
+    </Style>
+    <!-- SukiUI 5.3.0 styles Rectangle#indeterminateMark but never declares that part in its template, so a three-state box
+         would draw as an empty unchecked square. The already-loaded check glyph becomes the shared short dash instead. -->
+    <Style Selector="CheckBox:indeterminate /template/ Path#checkMark">
+      <Setter Property="Width" Value="10" /><Setter Property="Height" Value="10" /><Setter Property="Margin" Value="0" />
+      <Setter Property="IsVisible" Value="True" /><Setter Property="Fill" Value="{DynamicResource EditorText}" />
+      <Setter Property="Data"><RectangleGeometry Rect="0,4,10,2" /></Setter>
+    </Style>
+    <Style Selector="CheckBox:focus-visible /template/ Border#border"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="CheckBox:disabled"><Setter Property="Opacity" Value="1" /></Style>
+    <Style Selector="CheckBox:disabled /template/ Border#border"><Setter Property="Opacity" Value="1" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /></Style>
+    <Style Selector="CheckBox:disabled /template/ Path#checkMark"><Setter Property="Fill" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="CheckBox:disabled /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Expander.editorAdvanced:down">
+      <Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="ContentTransition" Value="{x:Null}" />
+      <Setter Property="Template"><ControlTemplate><Grid RowDefinitions="Auto,Auto">
+        <ToggleButton Name="PART_toggle" Classes="editorDisclosure" Content="{TemplateBinding Header}" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+        <ContentPresenter Name="PART_ContentPresenter" Grid.Row="1" Margin="0,10,0,0" Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch"
+                          Foreground="{TemplateBinding Foreground}" IsVisible="{TemplateBinding IsExpanded}" />
+      </Grid></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.editorDisclosure">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" /><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
+      <Setter Property="Background" Value="Transparent" /><Setter Property="Padding" Value="0" />
+      <Setter Property="Template"><ControlTemplate><Border Name="DisclosureSurface" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1">
+        <Grid ColumnDefinitions="20,*">
+          <PathIcon Data="{StaticResource Phosphor.caret-right}" Width="12" Height="12" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+        </Grid>
+      </Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.editorDisclosure:checked /template/ PathIcon"><Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter></Style>
+    <Style Selector="ToggleButton.editorDisclosure:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="ToggleButton.editorDisclosure:focus-visible /template/ Border#DisclosureSurface"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="TabControl">
+      <Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
+      <Setter Property="ItemsPanel"><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></Setter>
+      <Setter Property="Template"><ControlTemplate>
+        <Grid RowDefinitions="32,*" Background="{TemplateBinding Background}">
+          <Border Background="{DynamicResource EditorChrome}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
+            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+          </Border>
+          <ContentPresenter Name="PART_SelectedContentHost" Grid.Row="1" Content="{TemplateBinding SelectedContent}" ContentTemplate="{TemplateBinding SelectedContentTemplate}"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+        </Grid>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /><Setter Property="Height" Value="32" />
+      <Setter Property="MinHeight" Value="26" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="12,0" />
+      <Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="Background" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="TabSurface" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                              Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="Background" Value="{DynamicResource EditorChromeActive}" /></Style>
+    <Style Selector="TabItem /template/ TextBlock"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="TabItem /template/ AccessText"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="TabItem:selected /template/ Border#TabSurface"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="TabItem:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="TabItem:focus-visible /template/ Border#TabSurface"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <!-- Compact right-rail pages: four text tabs must fit a 260 px column without clipping localized labels. -->
+    <Style Selector="TabControl.inspectorPages TabItem">
+      <Setter Property="Padding" Value="6,0" /><Setter Property="FontSize" Value="12" /><Setter Property="Height" Value="32" />
+      <Setter Property="HeaderTemplate">
+        <DataTemplate x:CompileBindings="False">
+          <TextBlock Text="{Binding}" FontSize="12" FontWeight="Medium"
+                     Foreground="{Binding $parent[TabItem].Foreground}" />
+        </DataTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="TabControl.inspectorPages TabItem:pointerover"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <Style Selector="ListBox.scene"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" /></Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Height" Value="34" /><Setter Property="MinHeight" Value="26" /><Setter Property="Margin" Value="0" />
+      <Setter Property="Padding" Value="12,0" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="SceneItemSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Name="SceneItemContent" Background="Transparent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="ListBoxItem:selected TextBlock.caption"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="FontWeight" Value="Normal" /></Style>
+    <Style Selector="ListBoxItem /template/ ContentPresenter#SceneItemContent"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#SceneItemContent"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#SceneItemContent"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="ListBoxItem:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="ListBox#SceneObjects ListBoxItem"><Setter Property="Height" Value="28" /></Style>
+    <Style Selector="FlyoutPresenter"><Setter Property="Background" Value="{DynamicResource EditorSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" /><Setter Property="Padding" Value="16" /></Style>
+    <Style Selector="GridSplitter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="GridSplitter:pointerover"><Setter Property="Background" Value="{DynamicResource EditorMuted}" /></Style>
+    <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource EditorBorder}" /><Setter Property="Margin" Value="0,6" /></Style>
+    <Style Selector="MenuItem"><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="Normal" /><Setter Property="Padding" Value="12,4" /></Style>
+    <Style Selector="Border.panel"><Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" /></Style>
+    <Style Selector="Border.panelHeader"><Setter Property="Background" Value="{DynamicResource EditorChrome}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="Padding" Value="12,0" /></Style>
+    <Style Selector="Border.menuBar"><Setter Property="Background" Value="{DynamicResource EditorMenuSurface}" /></Style>
+    <Style Selector="Border.projectBar"><Setter Property="Background" Value="{DynamicResource EditorChromeActive}" /></Style>
+    <Style Selector="Border.viewportBar"><Setter Property="Background" Value="{DynamicResource EditorMenuSurface}" /></Style>
+    <Style Selector="Border.secondaryBar"><Setter Property="Background" Value="{DynamicResource EditorSubtleSurface}" /></Style>
+    <Style Selector="Border.parameterHeader"><Setter Property="Background" Value="{DynamicResource EditorSubtleSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSectionRule}" /><Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="Padding" Value="8,2" /><Setter Property="Margin" Value="-4,0,-4,0" /></Style>
+    <Style Selector="Border.rulerCell"><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1,0,0,0" /><Setter Property="Padding" Value="6,0,0,0" /></Style>
+    <Style Selector="Border.timeColumn"><Setter Property="BorderBrush" Value="{DynamicResource EditorTimelineGrid}" /><Setter Property="BorderThickness" Value="1,0,0,0" /></Style>
+    <!-- Background feedback stays on small controls. Text, focus borders, layout
+         and the native viewport remain immediate and never move. -->
+    <Style Selector="Button, ToggleButton.guide, ToggleButton.editorDisclosure, TabItem, ComboBox, ComboBoxItem, ListBoxItem, TreeViewItem">
+      <Setter Property="local:EditorMotion.Feedback" Value="True" />
+    </Style>
+    <Style Selector="controls|LoadingDots#BusyLoadingDots">
+      <Setter Property="ActivationDelay" Value="0:0:0.12" />
+    </Style>
+    <StyleInclude Source="avares://Mmd.Modern.App/EditorPopupStyles.axaml" />
+  </Window.Styles>
+  <Window.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="EditorFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
+      <x:Double x:Key="EditorBodySize">14</x:Double><x:Double x:Key="EditorTitleSize">15</x:Double><x:Double x:Key="EditorMetadataSize">12</x:Double>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="EditorSurface" Color="#0C0E11" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#13171C" /><SolidColorBrush x:Key="EditorText" Color="#F2F2F2" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#B0B0B0" /><SolidColorBrush x:Key="EditorDisabledText" Color="#707070" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#2E3B48" /><SolidColorBrush x:Key="EditorSelection" Color="#A9BDCA" />
+          <SolidColorBrush x:Key="EditorHover" Color="#202D39" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#182633" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#1D252D" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#18222C" />
+          <SolidColorBrush x:Key="EditorLoadingAccent" Color="#45C6B0" />
+          <SolidColorBrush x:Key="EditorErrorAccent" Color="#E3A19A" />
+          <SolidColorBrush x:Key="EditorMenuSurface" Color="#13171C" /><SolidColorBrush x:Key="EditorChrome" Color="#1B232B" /><SolidColorBrush x:Key="EditorChromeActive" Color="#202D39" />
+          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#13171C" /><SolidColorBrush x:Key="EditorSectionRule" Color="#25313D" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="EditorSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="EditorText" Color="#171717" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#555555" /><SolidColorBrush x:Key="EditorDisabledText" Color="#8A8A8A" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#CFDAE3" /><SolidColorBrush x:Key="EditorSelection" Color="#4E6B80" />
+          <SolidColorBrush x:Key="EditorHover" Color="#F0F4F7" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#E3ECF3" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#ECF1F5" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#F3F6F8" />
+          <SolidColorBrush x:Key="EditorLoadingAccent" Color="#117A6D" />
+          <SolidColorBrush x:Key="EditorErrorAccent" Color="#9E4F49" />
+          <SolidColorBrush x:Key="EditorMenuSurface" Color="#F4F7F9" /><SolidColorBrush x:Key="EditorChrome" Color="#EAF0F5" /><SolidColorBrush x:Key="EditorChromeActive" Color="#DEE8F0" />
+          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#F3F6F8" /><SolidColorBrush x:Key="EditorSectionRule" Color="#DCE5EC" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <ResourceDictionary.MergedDictionaries><ResourceInclude Source="avares://Mmd.Modern.App/Assets/Icons/PhosphorRegular.axaml" /></ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Grid RowDefinitions="32,40,*,30">
+    <Border Classes="panelHeader menuBar" Padding="0">
+      <DockPanel>
+        <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="{DynamicResource Mda.Text.df3d58c7d84b}" Margin="6,0" Click="OpenPreferences" ToolTip.Tip="{DynamicResource Mda.Text.3adabe75a1eb}" />
+        <Menu Background="Transparent" RenderOptions.TextRenderingMode="Antialias" IsEnabled="{Binding CanEditWorkspace}">
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.39932f24fe11}" /></MenuItem.Header>
+            <MenuItem Header="{DynamicResource Mda.Text.36c3ca51b182}" Command="{Binding NewProjectCommand}" /><MenuItem Header="{DynamicResource Mda.Text.7490115b7a71}" Command="{Binding OpenProjectCommand}" /><Separator />
+            <MenuItem Header="{DynamicResource Mda.Text.b6ab3d8870aa}" Command="{Binding ImportModelCommand}" /><MenuItem Header="{DynamicResource Mda.Text.25aed4b73b5c}" Command="{Binding ImportMotionCommand}" /><MenuItem Header="{DynamicResource Mda.Text.ae7f218be0f9}" Click="ImportPose" /><Separator />
+            <MenuItem Header="{DynamicResource Mda.Text.8bdf49fb2914}" Command="{Binding SaveProjectCommand}" /><MenuItem Header="{DynamicResource Mda.Text.9016c463977d}" Command="{Binding SaveAsCommand}" /><MenuItem Header="{DynamicResource Mda.Text.9837932b374e}" Click="SavePmm" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.23d7044e6320}" Click="ExportMotion" /><MenuItem Header="{DynamicResource Mda.Text.409eb92cb153}" Click="ExportPose" />
+          </MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.051836569928}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.926a50b98ece}" Command="{Binding UndoCommand}" /><MenuItem Header="{DynamicResource Mda.Text.03717b6f1070}" Command="{Binding RedoCommand}" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.c61bade89d5a}" Command="{Binding Animation.CopyKeyframesCommand}" /><MenuItem Header="{DynamicResource Mda.Text.c2449cd74350}" Command="{Binding Animation.PasteKeyframesCommand}" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}" Click="OpenModelProperties" /><MenuItem Header="{DynamicResource Mda.Text.a0e377b3005d}" Click="OpenModelProperties" /><MenuItem Header="{DynamicResource Mda.Text.df725de98db0}" Click="OpenRigSettings" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.b15435ced2c9}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /><MenuItem Header="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding Animation.RegisterKeyframeCommand}" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.1c5c06713870}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.cafed7fda215}" Click="OpenPreviewSettings" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.fb04addb4c26}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.a90bdbd27e6b}" Click="OpenOutputSettings" /><MenuItem Header="{DynamicResource Mda.Text.99d3d2fcb2bb}" Click="OpenOutputSettings" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.a57cfcb8428d}" /></MenuItem.Header><MenuItem Name="PluginsMenuItem" Header="{DynamicResource Mda.Text.Plugins.Title}" Click="OpenPlugins" /><MenuItem Header="{DynamicResource Mda.Text.b6e77060db53}" Click="ShowShortcuts" /><MenuItem Header="{DynamicResource Mda.Text.1e767fbe8e32}" Click="ShowAbout" /></MenuItem>
+        </Menu>
+      </DockPanel>
+    </Border>
+    <Border Name="ProjectHeaderBar" Grid.Row="1" Classes="panelHeader projectBar" Padding="12,0">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Text="{Binding ProjectTitle}" Classes="projectTitle" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ProjectTitle}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="12,0,20,0" VerticalAlignment="Center" IsVisible="{Binding IsLoading}">
+          <Border Width="1" Height="16" Margin="4,0,6,0" Background="{DynamicResource EditorBorder}" />
+          <controls:LoadingDots Name="BusyLoadingDots" IsActive="{Binding IsLoading}" Foreground="{DynamicResource EditorLoadingAccent}" Width="70" Height="12" />
+          <TextBlock Text="{Binding LoadingStatus}" Classes="caption" MaxWidth="260" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip.Tip="{Binding LoadingStatus}" />
+          <Button Name="CancelOperationButton" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelOperation" IsVisible="{Binding IsBusy}" IsEnabled="{Binding CanCancelOperation}" MinWidth="48" FontSize="12" ToolTip.Tip="{Binding CancelOperationHint}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{DynamicResource Mda.Text.a7084fcb218d}" />
+        </StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" ToolTip.Tip="{Binding UnavailableReason}">
+          <!-- Width=NaN is Avalonia's auto (a double cannot be "Auto"): this localized caption ("Save project" / "プロジェクトを保存") sizes to its content; MinWidth keeps the 104 px toolbar rhythm; OutputSettingsButton keeps the fixed tool width. -->
+          <Button Name="SaveProjectButton" Classes="tool" Width="NaN" MinWidth="104" Command="{Binding SaveProjectCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.floppy-disk}" /><TextBlock Text="{DynamicResource Mda.Text.8bdf49fb2914}" /></StackPanel></Button>
+          <Button Name="OutputSettingsButton" Classes="tool" Click="OpenOutputSettings" ToolTip.Tip="{DynamicResource Mda.Text.57d1d3974734}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.export}" /><TextBlock Text="{DynamicResource Mda.Text.76420433f22d}" /></StackPanel></Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="2" RowDefinitions="*,4,220" IsEnabled="{Binding CanEditWorkspace}">
+      <Grid ColumnDefinitions="220,4,*,4,292">
+        <Border Classes="panel" MinWidth="190">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <Grid RowDefinitions="Auto,Auto,*">
+            <local:EditorModelBrowser Name="ModelBrowserSurface" DataContext="{Binding Browser}" MaxHeight="360" />
+            <Border Grid.Row="1" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,1,0,0">
+              <Grid RowDefinitions="28,Auto">
+                <Border Classes="panelHeader secondaryBar"><TextBlock Text="{DynamicResource Mda.Text.7f72f06a8877}" Classes="group" VerticalAlignment="Center" /></Border>
+                <ListBox Name="SceneObjects" Grid.Row="1" Classes="scene" SelectedIndex="{Binding SceneSelectionIndex}" SelectionMode="Single">
+                  <ListBoxItem><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.33650a369521}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.f4b669c55756}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
+                  <ListBoxItem><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.dacf07026026}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.844b8cc8dff7}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
+                  <ListBoxItem><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.39ec490c5cd8}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.f23a01a41c32}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
+                </ListBox>
+              </Grid>
+            </Border>
+          </Grid>
+          </ScrollViewer>
+        </Border>
+        <Border Grid.Column="1" Width="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Grid.Column="1" ResizeDirection="Columns" HorizontalAlignment="Stretch" />
+        <Border Grid.Column="2" Classes="panel" MinWidth="380">
+          <Grid RowDefinitions="36,Auto,*">
+            <Border Classes="panelHeader viewportBar">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                  <Button Name="ViewportLightingButton" Click="OpenSceneLighting" IsEnabled="{Binding HasProject}" ToolTip.Tip="{DynamicResource Mda.Text.b0b5621643a6}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Data="{StaticResource Phosphor.lightbulb}" /><TextBlock Text="{DynamicResource Mda.Text.3b579010a041}" /></StackPanel></Button>
+                  <Button Name="AddViewportLightButton" Content="{DynamicResource Mda.Text.8ffd49a5b1b9}" IsEnabled="{Binding HasProject}" ToolTip.Tip="{DynamicResource Mda.Text.b0b5621643a6}">
+                    <Button.Flyout><MenuFlyout>
+                      <MenuItem Header="{DynamicResource Mda.Text.dcf867d64ba7}" Click="AddDirectionalLight" />
+                      <MenuItem Header="{DynamicResource Mda.Text.164901accbd4}" Click="AddPointLight" />
+                      <MenuItem Header="{DynamicResource Mda.Text.5af0185beb3e}" Click="AddSpotLight" />
+                    </MenuFlyout></Button.Flyout>
+                  </Button>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="8,0,0,0">
+                  <StackPanel Orientation="Horizontal" Spacing="2">
+                    <ToggleButton Name="WorldGuidesToggle" Content="{DynamicResource Mda.Text.69989de99333}" IsChecked="{Binding ShowWorldGuides}" Classes="guide" ToolTip.Tip="{DynamicResource Mda.Text.3e9198d067de}" />
+                  </StackPanel>
+                  <Border Width="1" Height="16" Background="{DynamicResource EditorBorder}" />
+                  <StackPanel Orientation="Horizontal" Spacing="2">
+                    <ToggleButton Name="SelectionBoundsToggle" Classes="guide icon" Click="ToggleSelectionBounds" ToolTip.Tip="{DynamicResource Mda.Text.84ee97e9c4d8}" AutomationProperties.Name="{DynamicResource Mda.Text.84ee97e9c4d8}"><PathIcon Data="{StaticResource Phosphor.bounding-box}" /></ToggleButton>
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </Border>
+            <Grid Grid.Row="1">
+            <Border Name="BoneToolsContainer">
+            <Border Name="BoneToolsBar" Classes="panelHeader secondaryBar" IsVisible="{Binding Browser.HasSelectedModel}" Height="34" BorderThickness="0,0,0,1">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <ToggleButton Name="BoneGuidesToggle" Classes="guide" IsChecked="True" Click="ToggleBoneGuides" ToolTip.Tip="{DynamicResource Mda.Text.4ffb9f9932d0}"><StackPanel Orientation="Horizontal" Spacing="6"><PathIcon Data="{StaticResource Phosphor.bone}" /><TextBlock Text="{DynamicResource Mda.Text.7fbaf8247802}" /></StackPanel></ToggleButton>
+                  <Border Width="1" Height="16" Margin="7,0" Background="{DynamicResource EditorBorder}" />
+                    <ToggleButton Name="BoneSelectMode" Classes="guide" Content="{DynamicResource Mda.Text.c11330b85234}" IsChecked="True" Click="SelectBoneSelection" />
+                    <ToggleButton Name="BoneMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" Click="SelectBoneMove" IsEnabled="{Binding Animation.CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.4dd8ed2692ec}" />
+                  <ToggleButton Name="BoneRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="ToggleBoneRotation" IsEnabled="{Binding Animation.CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.029793bce021}" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding Animation.SelectionName}" Classes="caption" Margin="12,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  <Button Grid.Column="2" Name="ViewportRegisterKeyframeButton" Content="{DynamicResource Mda.Text.3cf1e4dc9adc}" Command="{Binding Animation.RegisterKeyframeCommand}" ToolTip.Tip="{DynamicResource Mda.Text.fc0944b65640}" />
+              </Grid>
+            </Border>
+            </Border>
+            <Border Name="LightToolsBar" Classes="panelHeader secondaryBar" IsVisible="False" Height="34" BorderThickness="0,0,0,1">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                  <ToggleButton Name="LightMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" IsChecked="True" Click="SelectLightMove" ToolTip.Tip="{DynamicResource Mda.Text.6a4888adf1ac}" />
+                  <ToggleButton Name="LightRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="SelectLightRotate" ToolTip.Tip="{DynamicResource Mda.Text.b1109aa379f8}" />
+                </StackPanel>
+                <TextBlock Name="SelectedLightName" Grid.Column="1" Classes="caption" Margin="12,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <Button Name="DeleteLightButton" Grid.Column="2" Content="{DynamicResource Mda.Text.6135d4159e89}" Click="DeleteViewportLight" ToolTip.Tip="{DynamicResource Mda.Text.42c4c5ec0f58}" />
+              </Grid>
+            </Border>
+            </Grid>
+            <Border Grid.Row="2" Background="White" ClipToBounds="True"><local:EditorViewportHost Name="SceneViewport" /></Border>
+          </Grid>
+        </Border>
+        <Border Grid.Column="3" Width="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Grid.Column="3" ResizeDirection="Columns" HorizontalAlignment="Stretch" />
+        <Border Grid.Column="4" Classes="panel" MinWidth="260">
+          <Grid RowDefinitions="Auto,Auto,*">
+            <Border Classes="panelHeader secondaryBar" Padding="10,8" MinHeight="68">
+              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                <TextBlock Text="{DynamicResource Mda.Text.Context.ReplaceModel.Current}" Classes="caption" Margin="0,0,0,5" />
+                <Button Name="InspectorModelPropertiesButton" Grid.Column="1" Content="{DynamicResource Mda.Text.814c34f6f2d1}"
+                        Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}" FontSize="12" Padding="4,0" MinHeight="20" />
+                <ComboBox Name="CurrentModelSelector" Grid.Row="1" ItemsSource="{Binding Browser.Models}"
+                          SelectedItem="{Binding Browser.SelectedModel, Mode=TwoWay}" IsEnabled="{Binding Browser.HasModels}"
+                          HorizontalAlignment="Stretch" MinWidth="0" ToolTip.Tip="{Binding Browser.SelectedModel.SourcePath}"
+                          AutomationProperties.Name="{DynamicResource Mda.Text.Context.ReplaceModel.Current}">
+                  <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorModelItem">
+                    <TextBlock Text="{Binding SelectionLabel}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourcePath}" />
+                  </DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Name="InspectorReplaceModelButton" Grid.Row="1" Grid.Column="1" Margin="6,0,0,0"
+                        Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}" Command="{Binding Browser.ReplaceModelCommand}"
+                        IsEnabled="{Binding Browser.CanReplaceModel}" ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
+              </Grid>
+            </Border>
+            <!-- Four compact text pages. The page is independent user intent: selection, frame, theme and
+                 language refreshes update page content but never change the selected page. -->
+            <TabControl Name="InspectorPageTabs" Grid.Row="1" Classes="inspectorPages" Height="32" MinHeight="0" SelectedIndex="{Binding RightInspectorPageIndex, Mode=OneWay}"
+                        SelectionChanged="SelectInspectorPage"
+                        AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.TabGroup}">
+              <TabItem Header="{DynamicResource Mda.Text.Context.Inspector.Tab.Animation}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Tab.Animation}" ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Tab.Animation}" />
+              <TabItem Header="{DynamicResource Mda.Text.Context.Inspector.Tab.Style}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Tab.Style}" ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Tab.Style}" />
+              <TabItem Header="{DynamicResource Mda.Text.Context.Inspector.Tab.Material}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Tab.Material}" ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Tab.Material}" />
+              <TabItem Header="{DynamicResource Mda.Text.Context.Inspector.Tab.Lighting}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Tab.Lighting}" ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Tab.Lighting}" />
+            </TabControl>
+            <Grid Grid.Row="2">
+              <!-- Page 0: existing bone/morph/camera authoring. Legacy container name retained for host probes. -->
+              <Grid Name="StandardSelectionInspector" RowDefinitions="36,*" IsVisible="{Binding IsAnimationPage}">
+                <Border Classes="panelHeader"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="InspectorTitle" Text="{Binding InspectorTitle}" Classes="section" VerticalAlignment="Center" /><Button Grid.Column="1" Content="{DynamicResource Mda.Text.c6550984b1e3}" Command="{Binding SelectAnimationContextCommand}" IsVisible="{Binding IsSceneInspector}" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" /></Grid></Border>
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <Grid Margin="12,12,12,16">
+                    <Border IsVisible="{Binding IsAnimationInspector}"><local:EditorAnimationInspector Name="AnimationInspector" DataContext="{Binding Animation}" /></Border>
+                    <Border IsVisible="{Binding IsSceneInspector}"><local:EditorSceneInspector DataContext="{Binding SceneInspector}" /></Border>
+                  </Grid>
+                </ScrollViewer>
+              </Grid>
+              <!-- Page 1: project-default style; only explicit selection commits, inherited models only. -->
+              <ScrollViewer Name="StyleInspectorPage" IsVisible="{Binding IsStylePage}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="12,12,12,16" Spacing="12">
+                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Title}" Classes="group" /></Border>
+                  <ComboBox Name="ProjectDefaultStyleBox" ItemsSource="{Binding StyleInspector.Options}"
+                            SelectedItem="{Binding StyleInspector.SelectedChoice, Mode=TwoWay}"
+                            SelectionChanged="CommitProjectDefaultStyle" IsEnabled="{Binding StyleInspector.CanEdit}"
+                            AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Style.Title}">
+                    <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorStyleInspectorChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Hint}" Classes="caption" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasNotice}" />
+                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.ModelScope}" Classes="group" /></Border>
+                  <TextBlock Text="{Binding StyleInspector.ModelStatus}" TextWrapping="Wrap" />
+                  <Button Name="StyleModelPropertiesButton" Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenModelProperties}"
+                          Click="OpenModelProperties" IsEnabled="{Binding StyleInspector.HasSelectedModel}" HorizontalAlignment="Stretch" />
+                  <Button Name="RestoreUnownedModelDataButton" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Unowned}"
+                          Click="RestoreUnownedModelData" IsEnabled="{Binding Browser.HasSelectedModel}" HorizontalAlignment="Stretch" />
+                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.77ccdb7ba817}" Classes="group" /></Border>
+                  <Button Name="StylePreviewQualityButton" Content="{DynamicResource Mda.Text.Context.Inspector.Style.PreviewQuality}"
+                          Click="OpenPreviewSettings" HorizontalAlignment="Stretch" />
+                  <TextBlock Text="{Binding StyleInspector.Status}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasStatus}" />
+                </StackPanel>
+              </ScrollViewer>
+              <!-- Page 2: selected-model materials. Read-only projection; editing opens the existing dialog. -->
+              <ScrollViewer Name="MaterialInspectorPage" IsVisible="{Binding IsMaterialPage}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="12,12,12,16" Spacing="12">
+                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Title}" Classes="group" /></Border>
+                  <TextBlock Text="{Binding MaterialInspector.ModelSummary}" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasModel}" />
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoModel}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasNoModel}" />
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoMaterials}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.NeedsMaterialData}" />
+                  <StackPanel Spacing="8" IsVisible="{Binding MaterialInspector.HasMaterials}">
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}" Classes="caption" />
+                    <ListBox Name="InspectorMaterialList" ItemsSource="{Binding MaterialInspector.Materials}"
+                             SelectedItem="{Binding MaterialInspector.SelectedMaterial, Mode=TwoWay}" MaxHeight="220"
+                             Background="Transparent" BorderThickness="0" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}">
+                      <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Selected}" Classes="group" /></Border>
+                    <TextBlock Text="{Binding MaterialInspector.SelectedMaterialMapping}" Classes="caption" TextWrapping="Wrap" />
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.MappingSummary}" Classes="group" /></Border>
+                    <TextBlock Text="{Binding MaterialInspector.ProfileSummary}" Classes="caption" TextWrapping="Wrap" />
+                    <Button Name="EditMaterialButton" Content="{DynamicResource Mda.Text.Context.Inspector.Material.EditAction}"
+                            Click="EditSelectedMaterial" IsEnabled="{Binding MaterialInspector.CanEdit}" HorizontalAlignment="Stretch" />
+                  </StackPanel>
+                </StackPanel>
+              </ScrollViewer>
+              <!-- Page 3: real main light plus existing additional-lights inspector. Legacy container name retained. -->
+              <Grid Name="NativeLightInspectorArea" RowDefinitions="32,*" IsVisible="{Binding IsLightingPage}">
+                <Border Classes="panelHeader" BorderThickness="0,0,0,1"><Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{DynamicResource Mda.Text.3b579010a041}" Classes="section" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Content="{DynamicResource Mda.Text.c6550984b1e3}" Click="CloseSceneLighting" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" />
+                </Grid></Border>
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <StackPanel Margin="12,12,12,16" Spacing="12">
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Lighting.NoProject}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding !HasProject}" />
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Lighting.MainLight}" Classes="group" /></Border>
+                    <Border IsEnabled="{Binding HasProject}"><local:EditorMainLightInspector DataContext="{Binding SceneInspector}" /></Border>
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Lighting.AdditionalLights}" Classes="group" /></Border>
+                    <Border IsEnabled="{Binding HasProject}"><local:EditorLightInspector Name="NativeLightInspector" /></Border>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </Grid>
+          </Grid>
+        </Border>
+      </Grid>
+      <Border Grid.Row="1" Height="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Grid.Row="1" ResizeDirection="Rows" VerticalAlignment="Stretch" />
+      <Border Grid.Row="2" Classes="panel" MinHeight="150">
+        <Grid RowDefinitions="36,Auto,*,40">
+          <Border Classes="panelHeader">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+              <TextBlock Text="{DynamicResource Mda.Text.1de9cb58bf0b}" Classes="section" VerticalAlignment="Center" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" Margin="14,0,0,0" VerticalAlignment="Center">
+                <ToggleButton Name="TimelineFollowSelectionToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.FollowSelection}"
+                    IsChecked="{Binding Animation.IsTimelineFollowSelection, Mode=OneWay}" IsEnabled="{Binding Animation.HasActor}"
+                    Click="SelectTimelineFollowSelection" ToolTip.Tip="{DynamicResource Mda.Text.Context.Timeline.FollowSelectionTip}" />
+                <ToggleButton Name="TimelineAllTracksToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.AllTracks}"
+                    IsChecked="{Binding Animation.IsTimelineAllTracks, Mode=OneWay}" IsEnabled="{Binding Animation.HasActor}"
+                    Click="SelectTimelineAllTracks" ToolTip.Tip="{DynamicResource Mda.Text.Context.Timeline.AllTracksTip}" />
+                <TextBlock Text="{Binding Animation.HiddenSelectionSummary}" Classes="caption" Margin="10,0,0,0" VerticalAlignment="Center"
+                    IsVisible="{Binding Animation.HasHiddenSelectedKeyframes}" ToolTip.Tip="{DynamicResource Mda.Text.Context.Timeline.HiddenSelectionTip}" />
+              </StackPanel>
+              <TextBlock Grid.Column="2" Text="{Binding AnimationSelectionLabel}" Classes="caption" Margin="14,0,0,0" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding AnimationSelectionLabel}" />
+              <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <Button Name="LoadMotionButton" Content="{DynamicResource Mda.Text.f85f287978ca}" Command="{Binding ImportMotionCommand}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><TextBlock Text="{DynamicResource Mda.Text.2f6caef5e275}" Classes="caption" VerticalAlignment="Center" /><validated:EditorNumericUpDown Name="CurrentFrameInput" ParsingNumberStyle="Integer" Classes="editorNumber" Width="68" Value="{Binding CurrentFrame, Mode=TwoWay}" Minimum="0" Maximum="2147483647" Increment="1" FormatString="0" ToolTip.Tip="{DynamicResource Mda.Text.b17d7d734bbb}" /></StackPanel>
+                <Button Content="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /><Button Name="RegisterKeyframeButton" Content="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding Animation.RegisterKeyframeCommand}" />
+              </StackPanel>
+            </Grid>
+          </Border>
+          <Border Grid.Row="1" Name="TimelineBatchTools" Padding="12,0" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
+            <StackPanel>
+              <WrapPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,3,12,3">
+                  <TextBlock Text="{DynamicResource Mda.Text.TimelineBatch.Start}" Classes="caption" VerticalAlignment="Center" />
+                  <TextBox Name="TimelineRangeStartInput" Classes="timelineRangeNumber" Width="76"
+                      Text="{Binding Animation.TimelineRangeStartText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
+                      AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.Start}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,3,12,3">
+                  <TextBlock Text="{DynamicResource Mda.Text.TimelineBatch.End}" Classes="caption" VerticalAlignment="Center" />
+                  <TextBox Name="TimelineRangeEndInput" Classes="timelineRangeNumber" Width="76"
+                      Text="{Binding Animation.TimelineRangeEndText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
+                      AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.End}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,3,16,3">
+                  <Button Name="SelectTimelineRangeButton" Content="{DynamicResource Mda.Text.TimelineBatch.SelectRange}"
+                      Command="{Binding Animation.SelectTimelineRangeCommand}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
+                  <Button Name="ClearTimelineSelectionButton" Content="{DynamicResource Mda.Text.TimelineBatch.ClearSelection}"
+                      Command="{Binding Animation.ClearTimelineSelectionCommand}" />
+                </StackPanel>
+                <TextBlock Text="{Binding Animation.TimelineSelectionSummary}" Classes="caption" VerticalAlignment="Center"
+                    Margin="0,3,18,3" MaxWidth="240" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Animation.TimelineSelectionSummary}" />
+                <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,3">
+                  <Button Name="CopyTimelineKeysButton" Content="{DynamicResource Mda.Text.63d90d977348}" Command="{Binding Animation.CopyKeyframesCommand}" />
+                  <Button Name="PasteTimelineKeysButton" Content="{DynamicResource Mda.Text.335179267471}" Command="{Binding Animation.PasteKeyframesCommand}" />
+                  <Button Name="DeleteTimelineKeysButton" Content="{DynamicResource Mda.Text.2f9daa828907}" Command="{Binding Animation.DeleteKeyframesCommand}" />
+                </StackPanel>
+              </WrapPanel>
+              <TextBlock Text="{Binding Animation.TimelineRangeValidationMessage}" Classes="caption" TextWrapping="Wrap"
+                  Foreground="{DynamicResource EditorErrorAccent}" Margin="0,0,0,5"
+                  IsVisible="{Binding Animation.TimelineRangeValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+          </Border>
+          <Grid Grid.Row="2">
+            <controls:EditorTimeline Name="FrameTimeline" CurrentFrame="{Binding CurrentFrame}"
+                PixelsPerFrame="{Binding PixelsPerFrame}" FirstVisibleFrame="{Binding FirstVisibleFrame}"
+                TrackHeaderWidth="220" Tracks="{Binding Animation.VisibleTracks}" FullTracks="{Binding Animation.Tracks}"
+                Groups="{Binding Animation.TimelineGroups}"
+                HasTracks="{Binding Animation.HasVisibleTracks}" FocusRow="{Binding Animation.TimelineFocusRow}"
+                SelectedKeyframes="{Binding Animation.SelectedKeyframes, Mode=TwoWay}" KeyframeSelectionChanged="SelectTimelineKeys" KeysMoveRequested="MoveTimelineKeys"
+                Background="{DynamicResource EditorPanelSurface}" Foreground="{DynamicResource EditorMuted}"
+                GridBrush="{DynamicResource EditorBorder}" PlayheadBrush="{DynamicResource EditorSelection}"
+                FontFamily="{DynamicResource EditorFont}" FontSize="12"
+                ToolTip.Tip="{DynamicResource Mda.Text.401d419cc09d}" />
+            <Border IsHitTestVisible="False" IsVisible="{Binding Animation.ShowTimelineEmptyHint}"
+                VerticalAlignment="Top" HorizontalAlignment="Left" Margin="232,36,12,0">
+              <TextBlock Text="{Binding Animation.TimelineEmptyHint}" Classes="caption" MaxWidth="520" TextWrapping="Wrap" />
+            </Border>
+          </Grid>
+          <Border Grid.Row="3" Classes="panelHeader secondaryBar" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto,*">
+              <TextBlock Text="{Binding MotionLabel}" Classes="caption" VerticalAlignment="Center" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <Button Name="GoToStartButton" Classes="transport" Command="{Binding GoToStartCommand}" ToolTip.Tip="{DynamicResource Mda.Text.c8acd431ade6}"><PathIcon Data="{StaticResource Phosphor.skip-back}" /></Button>
+                <Button Name="PreviousFrameButton" Classes="transport" Command="{Binding PreviousFrameCommand}" ToolTip.Tip="{DynamicResource Mda.Text.55f98f45f7f4}"><PathIcon Data="{StaticResource Phosphor.caret-left}" /></Button>
+                <Button Name="PlayAnimationButton" Command="{Binding PlayCommand}" Width="76" Margin="6,0"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.play}" /><TextBlock Text="{Binding PlayLabel}" /></StackPanel></Button>
+                <Button Name="NextFrameButton" Classes="transport" Command="{Binding NextFrameCommand}" ToolTip.Tip="{DynamicResource Mda.Text.84ff91c1d6d4}"><PathIcon Data="{StaticResource Phosphor.caret-right}" /></Button>
+                <Button Name="GoToEndButton" Classes="transport" Command="{Binding GoToEndCommand}" ToolTip.Tip="{DynamicResource Mda.Text.3e341db5d6a3}"><PathIcon Data="{StaticResource Phosphor.skip-forward}" /></Button>
+              </StackPanel>
+              <TextBlock Grid.Column="2" Text="{Binding Animation.KeyframeSummary}" Classes="caption" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </Grid>
+      </Border>
+    </Grid>
+    <Border Grid.Row="3" Classes="panelHeader menuBar" Padding="3,0,12,0" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
+        <Button x:Name="ThemeToggle" Click="ToggleTheme" ToolTip.Tip="{DynamicResource Mda.Text.92ff7e1d7af1}"><TextBlock Text="{Binding ThemeLabel}" Classes="caption" /></Button>
+        <PathIcon Name="OperationStatusIcon" Grid.Column="1" Data="{StaticResource Phosphor.circle}" Width="12" Height="12" Margin="12,0,0,0" />
+        <TextBlock Name="OperationStatusText" Grid.Column="2" Text="{Binding ActivitySummary}" Classes="caption" TextTrimming="CharacterEllipsis" Margin="8,0" VerticalAlignment="Center" ToolTip.Tip="{Binding ActivitySummary}" />
+        <Button Name="OperationDetailsButton" Grid.Column="3" Content="{DynamicResource Mda.Text.a748cc074f78}" Click="ViewOperationDetails" IsVisible="{Binding HasActivityDetails}" FontSize="12" />
+        <TextBlock Name="PreviewSamplingStatus" Grid.Column="4" Text="{Binding PreviewSamplingSummary}" IsVisible="{Binding HasPreviewSamplingAdjustment}" ToolTip.Tip="{Binding PreviewSamplingHint}" Classes="caption" Margin="12,0" VerticalAlignment="Center" />
+        <TextBlock Name="PreviewFrameRateStatus" Grid.Column="5" Text="{Binding PreviewFrameRateSummary}" IsVisible="{Binding HasPreviewFrameRate}"
+                   ToolTip.Tip="{Binding PreviewFrameRateHint}" Classes="caption" MinWidth="90" Margin="12,0" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="6" Text="{Binding Animation.FrameSummary}" Classes="caption" Margin="12,0" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="7" Text="MikuDance Advance" Classes="caption" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+    <Popup Name="LowPreviewFrameRatePopup" IsOpen="{Binding HasLowPreviewFrameRateWarning, Mode=OneWay}"
+           PlacementTarget="{Binding #ProjectHeaderBar}" Placement="BottomEdgeAlignedRight" HorizontalOffset="-12" VerticalOffset="8"
+           IsLightDismissEnabled="False" ShouldUseOverlayLayer="False" WindowManagerAddShadowHint="False"
+           TakesFocusFromNativeControl="False">
+      <Border Name="LowPreviewFrameRateReminder" Width="300" Padding="12" CornerRadius="2"
+              Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="6">
+          <PathIcon Data="{StaticResource Phosphor.warning-circle}" Width="14" Height="14"
+                    Foreground="{DynamicResource EditorMuted}" VerticalAlignment="Top" Margin="0,2,0,0" />
+          <TextBlock Name="LowPreviewFrameRateMessage" Grid.Column="1" Text="{DynamicResource Mda.Text.Preview.LowFrameRate}"
+                     FontSize="13" LineHeight="18" TextWrapping="Wrap" />
+          <Button Name="DismissLowPreviewFrameRateButton" Grid.Column="2" Classes="previewTipAction"
+                  Content="{DynamicResource Mda.Text.3fd47edce45b}" Height="24" Padding="6,0" FontSize="12"
+                  ToolTip.Tip="{DynamicResource Mda.Text.Preview.DismissLowFrameRate}"
+                  Click="DismissLowPreviewFrameRate" />
+          <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{DynamicResource Mda.Text.Preview.LowFrameRateHint}"
+                     Classes="caption" TextWrapping="Wrap" />
+          <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Name="LowPreviewFrameRateSettingsButton" Classes="previewTipAction" Content="{DynamicResource Mda.Text.Preview.AdjustQuality}"
+                    Click="OpenPreviewSettings" Height="28" FontSize="12" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Popup>
+  </Grid>
+</Window>

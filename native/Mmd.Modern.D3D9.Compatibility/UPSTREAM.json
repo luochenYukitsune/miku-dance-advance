@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "component": "MDA D3D9 ordinary-surface native session",
+  "status": "experimental-loadable-offscreen-session-not-registered-product-backend",
+  "abiVersion": 1,
+  "sourceOwnership": "Project-authored bridge, parsers, shader and build entry. This metadata does not relicense the project.",
+  "host": {
+    "directory": "../../compatibility/d3d9-mme-host",
+    "manifestSha256": "31326c0df052d1f7da8f21e8560ee647bc1627da4c482cd51f65a292e26655c9",
+    "upstreamRepository": "https://github.com/jstzwj/MikuDanceStudio",
+    "upstreamRevision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+    "upstreamLicense": "MIT; original notice preserved by the host bundle",
+    "description": "Third-party behavioral reconstruction, not original MMD/MMEffect author source; host remains globally single-device."
+  },
+  "projectResearchOrigins": [
+    {
+      "path": "G:/MDA-CompatValidation/20261103/visual225/native/probe.cpp",
+      "sha256": "a2b16e78f4d472d5e8d5ef1702c26b0b1e96298dbdf6ccdc58e1581db179307e",
+      "relationship": "Session material loop, host Exp adapters and surface math adapted; probe main and file output removed."
+    },
+    {
+      "path": "G:/MDA-CompatValidation/20261103/visual225/native/frame_packet.hpp",
+      "sha256": "91f4c6b9ede4d01c2c6e8366d6f24a0c5579ce769e67f0e9bf3d517240b0da04",
+      "relationship": "Parser adapted to frozen in-memory spans."
+    },
+    {
+      "path": "G:/MDA-CompatValidation/20261103/visual225/native/visual_packet.hpp",
+      "sha256": "ba187c6f7a1610d16e22924e1bef5b3093bf428ac4083f3e1e6750d77b9252b4",
+      "relationship": "Parser adapted to span-bound SHA256."
+    },
+    {
+      "path": "G:/MDA-CompatValidation/20261103/visual225/native/surface.fx",
+      "sha256": "b0482baeaf48100e380a7b237b23ca64d05c1f31f688f747505e1bd39927f396",
+      "relationship": "Project-authored surface shader adapted and embedded; four accessory Diffuse techniques use fixed-function passes, model shader paths remain."
+    }
+  ],
+  "contract": {
+    "header": "mda_d3d9_session.h",
+    "target": "Windows x64, cdecl, native alignment",
+    "exports": [
+      "MdaD3D9QueryAbiV1",
+      "MdaD3D9CreateV1",
+      "MdaD3D9CaptureV1",
+      "MdaD3D9ResizeV1",
+      "MdaD3D9DestroyV1",
+      "MdaD3D9CreatePreviewV1",
+      "MdaD3D9PresentV1",
+      "MdaD3D9PresentV2",
+      "MdaD3D9ConfigureObjectFxV1",
+      "MdaD3D9ConfigureObjectFxV2",
+      "MdaD3D9ConfigureSceneFxV1",
+      "MdaD3D9ConfigureEmmV1",
+      "MdaD3D9InspectDependenciesV1",
+      "MdaD3D9DependencyInfoV1",
+      "MdaD3D9DependencyProfileV1",
+      "MdaD3D9DependencyParameterV1",
+      "MdaD3D9DependencyAnnotationV1",
+      "MdaD3D9DependencyIncludeV1",
+      "MdaD3D9DependencyReferenceV1",
+      "MdaD3D9DependencyDiagnosticV1",
+      "MdaD3D9DestroyDependencyInspectionV1",
+      "MdaD3D9DiscoverDependencyRootV1"
+    ],
+    "ownership": "One live session per DLL; all session calls on creating OS thread; no concurrent or reentrant calls; Destroy before FreeLibrary.",
+    "ownerWindow": "Project-owned hidden focus window; idle owner dispatches Windows messages, WM_CLOSE does not bypass device cleanup, explicit owner-thread Destroy releases the device before the window.",
+    "input": "Frozen FRM1 v1/v2 model packets or explicit typed FRM1 v3 with independent accessory feature16 and optional full UV trailer; scope4-only FRM1 v4/feature2048 adds complete hidden-model material metadata with zero drawing geometry. SHA-bound VIS1 v2/v3, typed VIS1 v4 or exactly paired VIS1 v5. No animation or physics advancement.",
+    "additionalUvValidation": "Transport/parser CPU contracts are verified separately; SubTexture SM3 sampling and legacy pixel equality still require real GPU verification before product registration.",
+    "output": "Caller-owned top-down RGBA8 with validated stride/capacity; opaque background only.",
+    "scope": "Isolated scope1 retains synthetic path metadata. Opt-in configured scope2/scope3/scope4 expose frozen real model/accessory metadata. Scope4 applies copied EMM mappings; effect autodiscovery remains disabled.",
+    "exceptionIsolation": "A C++ exception escaping host BeginScene poisons the session; later Capture/Resize are refused, only owner-thread Destroy is allowed. This adapter cannot guarantee arbitrary host OOM rollback or leak freedom.",
+    "optionalExports": [
+      "MdaD3D9CreatePreviewV1",
+      "MdaD3D9PresentV1",
+      "MdaD3D9PresentV2",
+      "MdaD3D9ConfigureObjectFxV1"
+    ],
+    "editorOverlay": "Preview-only feature16384; PresentV2 appends bounded copied editor primitives to the V1 prefix. Depth-aware guides are drawn before MME post-processing and composited afterward; Capture and accessory screen inputs exclude editor overlays.",
+    "objectFx": "Opt-in internal OBJECT_FX=256/scope2; copied immutable object/subset map; root FX read-share leases; caller freezes all transitive dependencies until Destroy. Actual D3DX/SAS object/standard admission only; no scene, offscreen, controls, ScriptExternal, feedback or repeated render turns; no full MME/EMM claim.",
+    "packageResources": "Optional copied origin/materialized path map, immutable leases, no source or CWD fallback; old V1 preserved. Feature512 required before session creation; same scope2 frame format.",
+    "sceneFx": "Opt-in scope3/feature1024; copied V2 package resource map, existing host scene/offscreen and descending repeat execution; one frozen sample per frame. Failed scene execution requires Destroy. Runtime acceptance is separately recorded, not implied by source/build.",
+    "accessories": "Typed independent 64-bit identities, original raw split and exposed signed order (including original model0 sentinel), immutable local X geometry plus sampled world once, native-name parent and separate source tables, stored D3D9 material conversion, fixed texture cascade and original alpha test. Source implementation and GPU acceptance are separate; screen-media/shadow/outline passes are not silently approximated.",
+    "emm": "Explicit scope4/feature4096 copied EMM sections, independent whole/subset visibility presence, exact opaque64 record bindings and all-live frozen root decisions. Reuses existing host apply; all mapped FILE values compile under the leased package resolver. Optional independent feature2048 FRM4/VIS5 preserves real hidden-model materials/textures without dummy geometry; old scopes reject these packets. Runtime failures require Destroy; input validation does not mutate policy. Public ViewOutput adaptation is opt-in and is not editor production integration.",
+    "dependencyInspector": "CPU-only, no-session official D3DX compiler/reflection over callback-frozen sources; both fixed mip profiles plus metadata-required Function compilation. Shared fixed host metadata semantics. Source graph, not portability replay/PMC/App completion."
+  },
+  "notImplemented": [
+    "Automatic FX/include/media dependency closure, complete accessory persistence and editor production EMM integration",
+    "Requested shadow/outline passes and accessory screen-media textures",
+    "Transparent-background capture",
+    "Production traditional-engine enablement and optional installer component",
+    "General tiled export or complete playback performance closure"
+  ],
+  "runtimeDependencies": {
+    "d3dx9_43": "Imported by this DLL; deployment/license packaging not validated or bundled.",
+    "d3d9": "Windows HAL required; hidden capture only."
+  },
+  "build": {
+    "entry": "build.py",
+    "requires": "Existing exact verified host archive and pinned Zig; verifies host manifest/tool/archive before compiling.",
+    "doesNot": "Download, install, register, run target code, or imply GPU validation."
+  },
+  "evidence": "G:/MDA-CompatValidation/20261103/session253/; each run binds actual source and DLL hashes."
+}

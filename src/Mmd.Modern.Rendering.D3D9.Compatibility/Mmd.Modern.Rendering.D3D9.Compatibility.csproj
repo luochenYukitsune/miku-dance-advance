@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Mmd.Modern.Formats/Mmd.Modern.Formats.csproj" /></ItemGroup>
+  <ItemGroup><None Update="LICENSE.*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="Mmd.Modern.Rendering.D3D9.Compatibility.Tests" /></ItemGroup>
+</Project>

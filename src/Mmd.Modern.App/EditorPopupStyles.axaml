@@ -1,0 +1,134 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Mmd.Modern.App">
+  <!-- SukiUI 5.3.0 includes SimpleTheme and gives ThemeBackgroundBrush a fixed light
+       value. Its MenuFlyoutPresenter and ToolTip therefore need the same explicit
+       palette as the editor text. Keep the existing templates and popup behavior. -->
+  <Styles.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="EditorFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
+      <!-- Output* dialogs use the same palette. These fallbacks allow them to share
+           the popup styles; EditorWindow's own resources remain authoritative. -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="EditorSurface" Color="#0C0E11" />
+          <SolidColorBrush x:Key="EditorPanelSurface" Color="#13171C" />
+          <SolidColorBrush x:Key="EditorText" Color="#F2F2F2" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#B0B0B0" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#707070" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#2E3B48" />
+          <SolidColorBrush x:Key="EditorSelection" Color="#A9BDCA" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#18222C" />
+          <SolidColorBrush x:Key="EditorHover" Color="#202D39" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#182633" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="EditorSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="EditorPanelSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="EditorText" Color="#171717" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#555555" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#8A8A8A" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#CFDAE3" />
+          <SolidColorBrush x:Key="EditorSelection" Color="#4E6B80" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#F3F6F8" />
+          <SolidColorBrush x:Key="EditorHover" Color="#F0F4F7" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#E3ECF3" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <Style Selector="MenuFlyoutPresenter, ContextMenu, ToolTip">
+    <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+    <Setter Property="FontFamily" Value="{DynamicResource EditorFont}" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+  <Style Selector="ToolTip TextBlock, ToolTip AccessText">
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+  </Style>
+  <Style Selector="MenuItem">
+    <Setter Property="local:EditorMotion.Feedback" Value="True" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+  </Style>
+  <Style Selector="MenuItem /template/ Border#root">
+    <Setter Property="local:EditorMotion.Feedback" Value="True" />
+  </Style>
+  <Style Selector="MenuItem TextBlock, MenuItem AccessText">
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+  </Style>
+  <Style Selector="MenuItem:pointerover">
+    <Setter Property="Background" Value="{DynamicResource EditorHover}" />
+  </Style>
+  <Style Selector="MenuItem:selected /template/ Border#root">
+    <Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+  <Style Selector="MenuItem:selected:pointerover /template/ Border#root">
+    <Setter Property="Background" Value="{DynamicResource EditorHover}" />
+  </Style>
+  <!-- Suki's submenu border and glyphs have template-priority resource values.
+       Use the real :open/:disabled state so these overrides outrank the template. -->
+  <Style Selector="MenuItem:open /template/ Popup#PART_Popup > Border">
+    <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+  </Style>
+  <Style Selector="MenuItem:not(:empty) /template/ Path#rightArrow, MenuItem:checked /template/ Path#check">
+    <Setter Property="Fill" Value="{DynamicResource EditorText}" />
+  </Style>
+  <Style Selector="MenuItem:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="MenuItem:disabled TextBlock, MenuItem:disabled AccessText">
+    <Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" />
+  </Style>
+  <Style Selector="MenuItem:disabled /template/ ContentPresenter#PART_HeaderPresenter">
+    <Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" />
+  </Style>
+  <Style Selector="MenuItem:disabled /template/ Path#rightArrow, MenuItem:disabled /template/ Path#check">
+    <Setter Property="Fill" Value="{DynamicResource EditorDisabledText}" />
+  </Style>
+
+  <!-- The code-created recovery picker shares the editor palette and the quiet
+       row selection rather than inheriting Fluent's bright accent surface. -->
+  <Style Selector="ListBox.recoveryCopies">
+    <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+    <Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ListBox.recoveryCopies ListBoxItem">
+    <Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+    <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Template"><ControlTemplate>
+      <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+        <ContentPresenter Background="Transparent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                          Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" />
+      </Border>
+    </ControlTemplate></Setter>
+  </Style>
+  <Style Selector="ListBox.recoveryCopies ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+  <Style Selector="ListBox.recoveryCopies ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+  <Style Selector="ListBox.recoveryCopies ListBoxItem:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+  <Style Selector="Button.recoveryAction">
+    <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+    <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="12,5" /><Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Template"><ControlTemplate>
+      <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+        <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                          Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+    </ControlTemplate></Setter>
+  </Style>
+  <Style Selector="Button.recoveryAction:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+  <Style Selector="Button.recoveryAction:pressed"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+  <Style Selector="Button.recoveryAction:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+  <Style Selector="Button.recoveryAction:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+</Styles>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.ViewOutput/Mmd.Modern.ViewOutput.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+  </ItemGroup>
+</Project>

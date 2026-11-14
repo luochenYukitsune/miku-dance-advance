@@ -1,0 +1,27 @@
+--- upstream/third_party/mmeffect/src/mmeffect/mme_context.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/mme_context.cpp
+@@ -1,5 +1,6 @@
+ // mme_context.cpp - see mme_context.h
+ #include "mme_context.h"
++#include "mda_mme_bridge_v1.h"
+ 
+ #include <algorithm>
+ #include <cstring>
+@@ -365,9 +366,14 @@
+     // log belongs to the EMM autoload (FUN_1800570D0, pass planner), so the
+     // Phase 1 "AutoLoading: " log here was a divergence and is removed. The
+     // assignment loads the effect through the engine ("Loading effect file: ").
+-    std::string effectFile = MmeFindEffectFileForModel(model);
+-    if (!effectFile.empty()) {
+-        MmeAssignEffect(objectId, -1, effectFile);
++    // ALTERED: both explicit object/subset and scene sessions own their map.
++    // Do not discover/compile an unconfigured sibling/[fx]/EMM effect before
++    // the checked frame hook has a chance to apply that immutable map.
++    if (!MdaMmeExplicitObjectFxV1()) {
++        std::string effectFile = MmeFindEffectFileForModel(model);
++        if (!effectFile.empty()) {
++            MmeAssignEffect(objectId, -1, effectFile);
++        }
+     }
+ }
+ 

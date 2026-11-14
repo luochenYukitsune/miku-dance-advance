@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Formats/Mmd.Modern.Formats.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Animation/Mmd.Modern.Animation.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Application/Mmd.Modern.Application.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics.Bepu/Mmd.Modern.Physics.Bepu.csproj" />
+  </ItemGroup>
+</Project>

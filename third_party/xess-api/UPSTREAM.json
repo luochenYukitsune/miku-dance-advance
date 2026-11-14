@@ -1,0 +1,11 @@
+﻿{
+    "name":  "Intel XeSS optional runtime API interoperability",
+    "repository":  "https://github.com/intel/xess",
+    "commit":  "de0fb9c1c510661c571164e1418ceca8101dab69",
+    "sdkRelease":  "3.0.2",
+    "license":  "Intel Simplified Software License for optional runtime; MIT for SDK headers",
+    "runtimeBundled":  false,
+    "runtimeSha256":  "251659dd84a3e84de67c886a4186e01f3eca49b00641906fe38bb6b807e5d5b7",
+    "licenseSha256":  "784be42c39a4a4d03cf85d88e15e59d75828fca773ce45b8dbfffbd7eaf208df",
+    "implementation":  "Independently authored C# ABI and GPU representation conversion; user explicitly supplies the official libxess.dll; no Intel upscaling implementation source copied."
+}

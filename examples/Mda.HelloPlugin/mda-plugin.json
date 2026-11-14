@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.hello",
+  "name": "示例插件",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.HelloPlugin.dll",
+  "entryType": "Mda.HelloPlugin.HelloPlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": ["editor.commands"]
+}

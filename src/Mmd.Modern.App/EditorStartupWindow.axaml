@@ -1,0 +1,229 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:Mmd.Modern.App.Controls"
+        x:Class="Mmd.Modern.App.EditorStartupWindow"
+        Title="MDA · MikuDance Advance" Width="440" Height="284"
+        Icon="avares://Mmd.Modern.App/Assets/Branding/mda.ico"
+        WindowStartupLocation="CenterScreen" SystemDecorations="None"
+        CanResize="False" CanMinimize="False" CanMaximize="False"
+        Background="{DynamicResource EditorSurface}" Foreground="{DynamicResource EditorText}"
+        FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
+        UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
+  <Window.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="EditorSurface">#0C0E11</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorText">#F2F2F2</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorMuted">#B0B0B0</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorDisabledText">#707070</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorMenuSurface">#13171C</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorBorder">#2E3B48</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorHover">#202D39</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorSelection">#A9BDCA</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorSelectedSurface">#182633</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorInputSurface">#18222C</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorLoadingAccent">#45C6B0</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="EditorSurface">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorText">#171717</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorMuted">#555555</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorDisabledText">#8A8A8A</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorMenuSurface">#F4F7F9</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorBorder">#CFDAE3</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorHover">#F0F4F7</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorSelection">#4E6B80</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorSelectedSurface">#E3ECF3</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorInputSurface">#F3F6F8</SolidColorBrush>
+          <SolidColorBrush x:Key="EditorLoadingAccent">#117A6D</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button:pointerover">
+      <Setter Property="Background" Value="{DynamicResource EditorHover}" />
+      <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+    </Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Button.secondary">
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
+      <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
+    </Style>
+    <Style Selector="Expander.details">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <StackPanel Spacing="6">
+            <ToggleButton Name="PART_toggle" Classes="disclosure" Content="{TemplateBinding Header}"
+                          IsChecked="{ReflectionBinding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                          HorizontalAlignment="Left" />
+            <ContentPresenter IsVisible="{TemplateBinding IsExpanded}" Content="{TemplateBinding Content}" />
+          </StackPanel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton.disclosure">
+      <Setter Property="Foreground" Value="{DynamicResource EditorSelection}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="0,0,4,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2" Padding="{TemplateBinding Padding}">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <Path Name="DisclosureArrow" Data="M 1,1 L 5,5 L 1,9" Width="6" Height="10"
+                    Stroke="{TemplateBinding Foreground}" StrokeThickness="1" RenderTransformOrigin="50%,50%" />
+              <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
+                                VerticalAlignment="Center" />
+            </StackPanel>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton.disclosure:checked /template/ Path#DisclosureArrow">
+      <Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter>
+    </Style>
+    <Style Selector="ToggleButton.disclosure:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
+    <Style Selector="ToggleButton.disclosure:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+  </Window.Styles>
+  <Border Background="{DynamicResource EditorSurface}" CornerRadius="2" ClipToBounds="True">
+    <Panel>
+      <Grid RowDefinitions="32,*,30">
+        <Border Grid.Row="0" Background="{DynamicResource EditorMenuSurface}"
+                BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
+          <Grid ColumnDefinitions="*,Auto">
+            <Border Background="Transparent" PointerPressed="TitleBarPointerPressed">
+              <TextBlock Text="MDA · MikuDance Advance" Classes="caption" Margin="12,0,0,0"
+                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </Border>
+            <Button Name="CloseStartup" Grid.Column="1" Content="{DynamicResource Mda.Text.3fd47edce45b}"
+                    Click="CloseClicked" MinWidth="48" Margin="0,0,6,0" />
+          </Grid>
+        </Border>
+        <Panel Grid.Row="1">
+          <StackPanel Name="BrandContent" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Border Name="BrandLogo" Width="300" Height="138" AutomationProperties.Name="MDA · MikuDance Advance">
+              <Border.Background>
+                <!-- Preserve the original asset and its existing transparent-margin crop. -->
+                <ImageBrush Source="avares://Mmd.Modern.App/Assets/Branding/mda-logo-transparent.png"
+                            SourceRect="0%,25%,100%,46%" Stretch="Uniform" />
+              </Border.Background>
+            </Border>
+          </StackPanel>
+          <Grid Name="StartupUpdateContent" IsVisible="False" Margin="20,16" RowDefinitions="Auto,Auto,*,Auto">
+            <TextBlock Name="StartupUpdateTitle" Text="{DynamicResource Mda.Text.Update.Title}"
+                       FontSize="18" LineHeight="24" FontWeight="SemiBold"
+                       Foreground="{DynamicResource EditorText}" TextWrapping="Wrap" />
+            <TextBlock Name="StartupUpdateVersion" Grid.Row="1" Margin="0,4,0,0" Classes="caption"
+                       TextWrapping="Wrap" Foreground="{DynamicResource EditorText}" />
+            <ScrollViewer Name="StartupUpdateNotesScroll" Grid.Row="2" Margin="0,16,0,12"
+                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <!-- Release notes are untrusted plain text, never markup or navigable content. -->
+              <SelectableTextBlock Name="StartupUpdateNotes" FontSize="13" LineHeight="20" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource EditorText}"
+                                   SelectionBrush="{DynamicResource EditorSelectedSurface}" />
+            </ScrollViewer>
+            <StackPanel Grid.Row="3" Spacing="10">
+              <TextBlock Name="StartupUpdateMessage" IsVisible="False" Classes="caption" TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="*,Auto,Auto">
+                <Button Name="StartupUpdateContinue" HorizontalAlignment="Left" Height="30" MinHeight="30"
+                        Content="{DynamicResource Mda.Text.Update.Continue}" Click="ContinueStartupUpdateClicked" />
+                <Button Name="StartupUpdateSkip" Grid.Column="1" Classes="secondary" Height="30" MinHeight="30"
+                        Margin="8,0" Content="{DynamicResource Mda.Text.Update.Skip}" Click="SkipStartupUpdateClicked" />
+                <Button Name="StartupUpdateUpgrade" Grid.Column="2" Classes="primary" Height="30" MinHeight="30"
+                        Content="{DynamicResource Mda.Text.Update.Upgrade}" Click="UpgradeStartupUpdateClicked" />
+              </Grid>
+            </StackPanel>
+          </Grid>
+          <StackPanel Name="FailureContent" IsVisible="False" Margin="20,0" Spacing="8" VerticalAlignment="Center">
+            <TextBlock Name="FailureTitle" Text="{DynamicResource Mda.Text.0b8f4e683ce7}"
+                       FontSize="18" LineHeight="24" FontWeight="SemiBold"
+                       Foreground="{DynamicResource EditorText}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Name="FailureMessage" Text="{DynamicResource Mda.Text.91cb43b44b53}"
+                       Classes="caption" TextWrapping="Wrap" MaxLines="2" MaxHeight="32"
+                       TextTrimming="CharacterEllipsis" />
+            <Expander Name="FailureDetailsExpander" Header="{DynamicResource Mda.Text.c26fb419db3c}"
+                      Classes="details" IsExpanded="False">
+              <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}"
+                      BorderThickness="1" Padding="8,6" Height="66" MaxHeight="72">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock Name="FailureDetails" FontSize="11" LineHeight="16" TextWrapping="NoWrap"
+                                       FontFamily="Consolas, Cascadia Mono, monospace"
+                                       Foreground="{DynamicResource EditorMuted}"
+                                       SelectionBrush="{DynamicResource EditorSelectedSurface}" />
+                </ScrollViewer>
+              </Border>
+            </Expander>
+          </StackPanel>
+        </Panel>
+        <Border Grid.Row="2" Background="{DynamicResource EditorMenuSurface}"
+                BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,1,0,0">
+          <Panel>
+            <Grid Name="NormalRail" ColumnDefinitions="70,10,*,Auto" Margin="12,0">
+              <controls:LoadingDots Name="StartupDots" IsActive="True" Width="70" Height="12"
+                                    Foreground="{DynamicResource EditorLoadingAccent}" VerticalAlignment="Center" />
+              <TextBlock Name="StartupStatus" Grid.Column="2" Text="{DynamicResource Mda.Text.380bd4398b9e}"
+                         Classes="caption" Foreground="{DynamicResource EditorText}"
+                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+              <TextBlock Name="EscapeHint" Grid.Column="3" Text="{DynamicResource Mda.Text.412bd6bd4b88}"
+                         Classes="caption" VerticalAlignment="Center" />
+            </Grid>
+            <Grid Name="FailureActions" IsVisible="False" ColumnDefinitions="*,Auto,Auto" Margin="12,0">
+              <TextBlock Name="StartupStopped" Text="{DynamicResource Mda.Text.6ed4c4b1d712}"
+                         Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+              <Button Name="CopyFailureDetails" Grid.Column="1" Classes="secondary" MinWidth="76" Margin="8,0"
+                      Content="{DynamicResource Mda.Text.347aa91cd870}" Click="CopyDetailsClicked" />
+              <Button Name="FailureClose" Grid.Column="2" Classes="primary" MinWidth="64" Click="CloseClicked"
+                      Content="{DynamicResource Mda.Text.3fd47edce45b}" />
+            </Grid>
+          </Panel>
+        </Border>
+      </Grid>
+      <!-- Overlay the outline so the 32/222/30 content geometry stays exact. -->
+      <Border BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" IsHitTestVisible="False" />
+    </Panel>
+  </Border>
+</Window>

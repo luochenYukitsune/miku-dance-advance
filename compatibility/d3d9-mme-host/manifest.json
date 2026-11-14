@@ -1,0 +1,1345 @@
+{
+  "schemaVersion": 1,
+  "scope": "Static research foundation; all source inputs pinned, no runtime/product claim",
+  "upstreamRevision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+  "files": [
+    {
+      "path": "ALTERED/third_party/mmeffect/include/mda_mme_bridge_v1.h",
+      "bytes": 6890,
+      "sha256": "44b96d097da5bc77d7da6b69c7f5a6f82d4537e552de319379b6ab87044b9fb8",
+      "category": "project-owned-bridge",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\native212\\ALTERED\\third_party\\mmeffect\\include\\mda_mme_bridge_v1.h"
+      },
+      "modification": "project-owned experimental same-bitness ABI; single render-thread and immutable snapshot contracts",
+      "reuseLicense": "Project-owned local integration source; no third-party license grant asserted",
+      "licensePath": null
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mda_mme_bridge_v1.cpp",
+      "bytes": 7370,
+      "sha256": "3dd82064e099a93d683a40ea0ab61c207e3ea09e4f4ece6e1fe0eb22a5d74ca6",
+      "category": "project-owned-bridge",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\native212\\ALTERED\\third_party\\mmeffect\\src\\mda_mme_bridge_v1.cpp"
+      },
+      "modification": "project-owned checked snapshot bridge, first-error latch and borrowed COM callback adapter",
+      "reuseLicense": "Project-owned local integration source; no third-party license grant asserted",
+      "licensePath": null
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mme_host.cpp",
+      "bytes": 36217,
+      "sha256": "657f250a348f85b2868ec7fff294f2432306acaaf102b6a49bc476dca5b1b395",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\reset244\\ALTERED\\third_party\\mmeffect\\src\\mme_host.cpp"
+      },
+      "modification": "opaque64 geometry adapter; original-aligned normal material; tracked clear; Lost/Reset admission and reborrow; Destroy cache cleanup; validation-only no-UI diagnostic",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mme_host.cpp",
+        "sha256": "fe20e46e699ad30a08f8b67bd290cf2e6ff21b81d9cad827b84ca241ff498851"
+      }
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/callbacks.cpp",
+      "bytes": 44900,
+      "sha256": "e89db268cdb8aaccba4467448c4dc5ccf8f21d8e18b4cea20e003cde2c501a8d",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\reset244\\ALTERED\\third_party\\mmeffect\\src\\mmeffect\\callbacks.cpp"
+      },
+      "modification": "validation-only dispatch/fallback counters; device texture cleanup on Lost/Destroy",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/callbacks.cpp",
+        "sha256": "7b46181a21f16f6891e8910ed45018d3d9902dd80178b711b71419670fb4aa02"
+      }
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+      "bytes": 30971,
+      "sha256": "ba495c175a037e78c94f75c3b21fd442031b9a85525bb8b512e4892f28ca8c25",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\reset244\\ALTERED\\third_party\\mmeffect\\src\\mmeffect\\effect_engine.cpp"
+      },
+      "modification": "device-owned effect texture-cache invalidation and standard-effect lifetime cleanup",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+        "sha256": "292a1ab3e11edf624d37fc2cae36120e3e314de2c7d4da9e15502046c9a498d2"
+      }
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/effect_engine.h",
+      "bytes": 10356,
+      "sha256": "164fe1feab4adb60f180e211335e9c0a70a5df315f853f3095d9b6eae7a51b64",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\reset244\\ALTERED\\third_party\\mmeffect\\src\\mmeffect\\effect_engine.h"
+      },
+      "modification": "declarations for the device-owned effect cache cleanup",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/effect_engine.h",
+        "sha256": "a7e28cf819afa28d3882b687771a7703236a9a8eacbc73647e00231e183fa350"
+      }
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261106/emm518",
+        "incrementalEvidencePath": "G:/MDA-Work/compat/20261112/kind613"
+      },
+      "modification": "Reuse existing parsed EMM apply with explicit stable identities and frozen roots; retain legacy file-load matching and discovery; kind613 explicitly validates transport 1/2 kinds against original MME host 1/0 kinds",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+        "sha256": "537218a8fc71a04f2237e6e90e027e008577f73f761f5bee4140a47bdd9500b6"
+      },
+      "bytes": 92115,
+      "sha256": "8511855fd8d678e95b2e8a0d5abc69b70b192930aa110ed273f0983fe50a0070"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/emm_manager.h",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261106/emm518",
+        "incrementalEvidencePath": "G:/MDA-Work/compat/20261112/kind613"
+      },
+      "modification": "Reuse existing parsed EMM apply with explicit stable identities and frozen roots; retain legacy file-load matching and discovery; kind613 explicitly validates transport 1/2 kinds against original MME host 1/0 kinds",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/emm_manager.h",
+        "sha256": "c0cd12f63507824608ca036ee47261ea3d4b8d9cc0e8695cd2a9b890139fbbba"
+      },
+      "bytes": 30663,
+      "sha256": "a01789830de4077efa98d54185c8d502200b4cdbb52252b252ecc16612da976f"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mda_effect_dependency.hpp",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-Work\\compat\\20261106\\dependency544\\implementation-review.json"
+      },
+      "modification": "Shared pure resource metadata classification extracted from the fixed MIT host; no FX source parser or GPU resource construction",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+        "sha256": "d2f490494e86c9b1aceb176caf9e3370c4f01f25a61d8cf513ea71639d56a3cb"
+      },
+      "bytes": 12389,
+      "sha256": "d7eb9fd0a0dcd5dc48a8b558e5d3d51652d21a252679fed05d36321a34eca719"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mda_effect_dependency_semantics.hpp",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-Work\\compat\\20261106\\dependency544\\implementation-review.json"
+      },
+      "modification": "Shared pure resource metadata classification extracted from the fixed MIT host; no FX source parser or GPU resource construction",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+        "sha256": "d2f490494e86c9b1aceb176caf9e3370c4f01f25a61d8cf513ea71639d56a3cb"
+      },
+      "bytes": 10400,
+      "sha256": "c6f20d30b6fb0821e7c65f4bb1c31416bda7ec638ee45655f542cfd0b7e9a83b"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mda_effect_root_discovery.hpp",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-Work\\compat\\20261106\\dependency554\\implementation.json"
+      },
+      "modification": "Shared exact CRT optional source-root selection extracted from existing host; no device/global mutations",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+        "sha256": "537218a8fc71a04f2237e6e90e027e008577f73f761f5bee4140a47bdd9500b6"
+      },
+      "bytes": 2410,
+      "sha256": "164cc339e5f2f5ca074864f6108cbae429f4fb3363747ba9b4ed8c123e75da9d"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mda_object_fx_policy.hpp",
+      "category": "project-owned-bridge",
+      "origin": {
+        "kind": "project-owned-object-fx-integration"
+      },
+      "modification": "Finite explicit object/subset FX; upstream original bytes preserved",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 5687,
+      "sha256": "080ee6f35ec81077206dfce9b9916e20c20c3edd2a4f932fac041b6a3ce9519a"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mda_resource_paths.hpp",
+      "category": "project-owned-bridge",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261105/resources460"
+      },
+      "modification": "Bounded immutable package resource resolution; upstream file remains unchanged",
+      "reuseLicense": "Project-owned local integration source",
+      "licensePath": null,
+      "bytes": 10281,
+      "sha256": "1c647c9e0d423d42c5ee0ab9205bf398769b18ce43724e16457481bd1487d8fd"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/mme_context.cpp",
+      "category": "altered-upstream",
+      "origin": {
+        "kind": "project-owned-object-fx-integration"
+      },
+      "modification": "Finite explicit object/subset FX; upstream original bytes preserved",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/mme_context.cpp",
+        "sha256": "dd2044feffcb3c0bb9985ae014bc0dd062095d5eed94dd37d91e566233451992"
+      },
+      "bytes": 22209,
+      "sha256": "26d994ad143e095107deeed50ff65c793950efb922841e8a21150d6c803c7155"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+      "bytes": 124761,
+      "sha256": "f60e1518557c63116c83bb9ca8c088af744ff1b32bdd8453b91f853a4570ba9f",
+      "category": "validation-only-instrumentation-overlay",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\visual225\\native\\runs\\20261103T025823Z-b8329b77\\pass-planner-metrics.cpp"
+      },
+      "modification": "Exactly one added MdaProbeEffectPassResult(hr,passIndex) call; declarations supplied by forced no_ui.h; no rendering logic change",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+        "sha256": "347c6275ecce08fbf86811f2e8cc4f4e2f73a6c51f386b4ee75b4fc04c3222cc"
+      },
+      "reuseLicense": "MIT (upstream portions); project-owned validation instrumentation",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261105/resources460"
+      },
+      "modification": "Preserve existing host SAS behavior while sharing metadata classification and ordered DefaultEffect tokenization with CPU discovery",
+      "reuseLicense": "MIT (upstream portions); project-owned modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+        "sha256": "d2f490494e86c9b1aceb176caf9e3370c4f01f25a61d8cf513ea71639d56a3cb"
+      },
+      "bytes": 128312,
+      "sha256": "0a7a3512f721d6c0d2dd8e3241d658842fb26cbb251a46ac1c4c1ad9aebe5966"
+    },
+    {
+      "path": "ALTERED/third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+      "bytes": 6405,
+      "sha256": "bc7dc8fc6d665e6fb56e11ea23c3f099a007fb3fcb8a2ac74468bf881ce67a90",
+      "category": "altered-upstream",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\native212\\ALTERED\\third_party\\mmeffect\\src\\mmhack\\mmhack_getters.cpp"
+      },
+      "modification": "opaque non-address 64-bit accessory parent callback; first-error latch",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "basis": {
+        "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+        "sha256": "84c67b98a2860d1cbd840b9ce114f2c1b77d00cd898de41717dbaf2d5c3bfaa1"
+      }
+    },
+    {
+      "path": "UPSTREAM.json",
+      "bytes": 6850,
+      "sha256": "43143fc0d8b80ea64eefe57f1010877286ba9b98dc9e8a3d2e1a2f66ea453504",
+      "category": "local-build-metadata",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "UPSTREAM_INTEGRITY.json",
+      "bytes": 21087,
+      "sha256": "3e9447f4b782934e010a3dc60817a10ab83901d420b8a5018194c716aac8314b",
+      "category": "local-build-metadata",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "build.py",
+      "bytes": 9682,
+      "sha256": "2e7109ce82bf23ba0789b909edd99e001bbc1ebb3ed735ccddfc1cef0a8a1840",
+      "category": "local-build-metadata",
+      "origin": {
+        "kind": "project-owned-build-script"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/callbacks.cpp.patch",
+      "bytes": 2960,
+      "sha256": "9291bb4e5a75d443d61fa39b3964c4cbfc59bfe2f28523110eb4dc804f50ded2",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/effect_engine.cpp.patch",
+      "bytes": 9598,
+      "sha256": "f62732a5f9fb42133a08ffc5882c9d8d0a3fccdac6c50e194ac6ec4ded35fffd",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/effect_engine.h.patch",
+      "bytes": 2310,
+      "sha256": "96b76e74a28159a4f712a642920c766a0c434b82d0f0d6b19fb98d1aa3e0130b",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/emm_manager.cpp.patch",
+      "category": "patch",
+      "reuseLicense": "MIT (upstream context); project-owned modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 27409,
+      "sha256": "9576a30fe5d15612e6257ec355291716edbf633fc212298187fcc3bb094369e2"
+    },
+    {
+      "path": "patches/emm_manager.h.patch",
+      "category": "patch",
+      "reuseLicense": "MIT (upstream context); project-owned modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 3353,
+      "sha256": "7b5480d3a0c8f2b4a37e6dfefc7210d888817dfa3167e66f76d107b1fe727900"
+    },
+    {
+      "path": "patches/mda_mme_bridge_v1.cpp.patch",
+      "bytes": 7461,
+      "sha256": "8a94ed667219acd8fc8983c42aac280fbf4de968c58e8258d273e576043b2d65",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/mda_mme_bridge_v1.h.patch",
+      "bytes": 6983,
+      "sha256": "619c33e9e2b3838e8b211bfa9aa8da4b4f2f8034ad88c25f3bd7147d59afd4df",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/mda_object_fx_policy.hpp.patch",
+      "category": "source-diff",
+      "origin": {
+        "kind": "project-owned-object-fx-integration"
+      },
+      "modification": "Finite explicit object/subset FX; upstream original bytes preserved",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 5886,
+      "sha256": "cba9f690c6950d13c83f3de83261a24a713fb1e28119419f87156aecd6be20e2"
+    },
+    {
+      "path": "patches/mda_resource_paths.hpp.patch",
+      "category": "altered-upstream-diff",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261105/resources460"
+      },
+      "reuseLicense": "Project-owned local integration source",
+      "licensePath": null,
+      "bytes": 10584,
+      "sha256": "40188e9c1c5cd935cd57f01d05a9a625862863f1cedf03f31c52b8d59b3dd758"
+    },
+    {
+      "path": "patches/mme_context.cpp.patch",
+      "category": "source-diff",
+      "origin": {
+        "kind": "project-owned-object-fx-integration"
+      },
+      "modification": "Finite explicit object/subset FX; upstream original bytes preserved",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 1144,
+      "sha256": "d04be12d52bcd17a25b4af2905018b800cfd3dfccdbb47d66a2b769eb6d7432e"
+    },
+    {
+      "path": "patches/mme_host.cpp.patch",
+      "bytes": 15576,
+      "sha256": "f17243afff31cd12e070e7715300cff8c6004680f0727c7e1c60407fc27b97f7",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/mmhack_getters.cpp.patch",
+      "bytes": 3178,
+      "sha256": "21a098733017ad37700a2215ec33468de194676beca17ff3874c4cf95c53a4f1",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/pass_planner.cpp.patch",
+      "bytes": 479,
+      "sha256": "6f1658c9c1160a9b43358d6b55a1bc290e9c136e0e233f9a7bfd589ea7f50c76",
+      "category": "source-diff",
+      "origin": {
+        "kind": "local-generated-metadata"
+      },
+      "reuseLicense": "Project-owned integration metadata; upstream portions in diffs retain MIT"
+    },
+    {
+      "path": "patches/sas_interpreter.cpp.patch",
+      "category": "altered-upstream-diff",
+      "origin": {
+        "evidencePath": "G:/MDA-Work/compat/20261105/resources460"
+      },
+      "reuseLicense": "MIT (upstream portions); project-owned modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 30624,
+      "sha256": "ae99f633f277a7106ad3ea5b84016c60f2a4620e54dc7c4dbcae20ab839f1602"
+    },
+    {
+      "path": "upstream/CMakeLists.txt",
+      "bytes": 55779,
+      "sha256": "e73f10eb896929c546aa1798280b98ac516012939df3dd193137c27e60c26045",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "CMakeLists.txt",
+        "gitBlob": "0d4d81222d782e4bc1be0e2012dd68bc90f82fe5"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/LICENSE",
+      "bytes": 1085,
+      "sha256": "d808f870fd8fe49e6d1e34f763d9f2590bb619a10f009f934257e2ff7c968dfc",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "LICENSE",
+        "gitBlob": "6f1e25e05cc49d29650007cc383a58b267986fec"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/cmake/D3dxRuntime.cmake",
+      "bytes": 1911,
+      "sha256": "94ee08e0d56cac41cccfe670e4322320eaf1ce9341117cf33cc21451d60db436",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "cmake/D3dxRuntime.cmake",
+        "gitBlob": "4b19860d0a7db6de4c2182b8dbe86c3aa33f612e"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/accessory_layout.hpp",
+      "bytes": 5959,
+      "sha256": "b14d6d8ee7054a27bb76f9bf2cccd2a529ca3c47d67bac4a5f7752796d3791cf",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/accessory_layout.hpp",
+        "gitBlob": "33936216263d5e36dbaab73f8c323570658cb69e"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/bone_binding.hpp",
+      "bytes": 1506,
+      "sha256": "fafaf19804925860e2a37443ab557dc43242b26cd6f5d1b0842bdcdd8815fa87",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/bone_binding.hpp",
+        "gitBlob": "518ee5a85dd892774689f56dcffddad02bcb287b"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/bone_key_layout.hpp",
+      "bytes": 1119,
+      "sha256": "114f7f0dd8c471ac7f89d1acc74426c8d31713534f67cacdf60ef1409c48c340",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/bone_key_layout.hpp",
+        "gitBlob": "635b61fbd70d33f2a0a438c17a6e6ac2baae7825"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/d3dx_api.hpp",
+      "bytes": 9929,
+      "sha256": "0b6e6b300bc5663e9f29fccd9f42acc45a87c9339ad3d4cfcb14690df96e2dd3",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/d3dx_api.hpp",
+        "gitBlob": "f713a234d61a71375c78c506c44fdf1731938fe8"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/model_layout.hpp",
+      "bytes": 26124,
+      "sha256": "9fbe6941002023c270fd97c9d9d0cdbf75b5ba7d9e1373a4d8803844dd455aef",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/model_layout.hpp",
+        "gitBlob": "b736c95c1bc1ce84114f0cbe8d4cc59c6585613f"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/raw_pad.hpp",
+      "bytes": 1026,
+      "sha256": "4b96f1f7c5916f78836d6094e8af20a3cd0d53fdd1823f18e4c3241b6e977128",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/raw_pad.hpp",
+        "gitBlob": "3608b10a95c17a0d43f37d18c5945710b000d078"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/skeleton_tracking.hpp",
+      "bytes": 7240,
+      "sha256": "31899e912406e9e397aed443b37c9887ff73add39e4c83e1a3a4911840631db1",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/skeleton_tracking.hpp",
+        "gitBlob": "9c0a7c7aa92dcbb8e8f7242a7abceb9c1b278723"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/include/mikudancestudio/undo_layout.hpp",
+      "bytes": 2762,
+      "sha256": "a353657a7ab95f967f57aed78d5e1f4af07d44e1f8fe3869167a7d916da8a22d",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "include/mikudancestudio/undo_layout.hpp",
+        "gitBlob": "1228e3db6de703c860632d1f5418bb7e1f69a516"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/scripts/gen_d3dx_imports.py",
+      "bytes": 3410,
+      "sha256": "8d9727b96506b9acc22676e2b63915b4bba1c08b83734910bfb25b42905bda39",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "scripts/gen_d3dx_imports.py",
+        "gitBlob": "66c76c115c86c216bed2dd7aa073ef1fedde2e6e"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/MMDExport.h",
+      "bytes": 6073,
+      "sha256": "69589771bce1607627655fc47d283c571cebfd00fe3783d08999fde12f14d1b0",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/MMDExport.h",
+        "gitBlob": "7a9ad0f5ddd502b175597f80acc6df0a936ee32f"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/d3dx9.h",
+      "bytes": 32515,
+      "sha256": "6f53cc442526ba184ab1fe3bed55422d7222f45837b46754eec40d32ea407d61",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/d3dx9.h",
+        "gitBlob": "10d5049decd7ae1c88b38db583228e91557c738a"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mme_abi.h",
+      "bytes": 4558,
+      "sha256": "ef468765a56f372fc3ba93ff4d2b01a245de0c28641e3197ee622253e5a139da",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mme_abi.h",
+        "gitBlob": "563fa5e2c199f0e210d31710ddf05458f2e4ab1a"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mme_host_api.h",
+      "bytes": 7764,
+      "sha256": "379dbb883d3a8263bf5c83744408a65a24bb02dfee103c8e74512c9fc0a1817d",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mme_host_api.h",
+        "gitBlob": "10d3fd35375b350e27b7d81659f00601877ecc02"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mme_resources.h",
+      "bytes": 490,
+      "sha256": "fe6b60f186a9fdea92f229c8788932873fda6c0252165e36eebc0dd7c9a44169",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mme_resources.h",
+        "gitBlob": "757ef3aec95af5ba4a9c1d5cd293a1c4c3200313"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mmeffect/device_initialization.h",
+      "bytes": 799,
+      "sha256": "4855fc6fe47beec304ba2dc0eefd9cc75b86d15ae568301fd5c5b412127904e8",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mmeffect/device_initialization.h",
+        "gitBlob": "5f5bd6fe422830839e8de7fda33e19b1c21f02b5"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mmeffect/host_object_cache.h",
+      "bytes": 847,
+      "sha256": "3653e9b1cc231cad4d82a2e9da51f8dbe3a8a429a3017b8ca561c16c68d49a46",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mmeffect/host_object_cache.h",
+        "gitBlob": "16d4a2e8fa32b27e0f8c01e984dfa29d7f64ee36"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/include/mmhack_api.h",
+      "bytes": 3017,
+      "sha256": "3026e700b3eb7c051f68db074d9ea989056d237f474e91d4ebd657430db8e2b5",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/include/mmhack_api.h",
+        "gitBlob": "614ce495f637d5aa0dca8a81643686820be425eb"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mme_host.cpp",
+      "bytes": 28590,
+      "sha256": "fe20e46e699ad30a08f8b67bd290cf2e6ff21b81d9cad827b84ca241ff498851",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mme_host.cpp",
+        "gitBlob": "ad513e292b3c2cbdc730ca7f658e8f00dd9b00c4"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/anime_texture.cpp",
+      "bytes": 59657,
+      "sha256": "5a5ac00bb2fbd017f66c6c54deecd13c461bdc23b84723a2027b39678dfc1409",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/anime_texture.cpp",
+        "gitBlob": "0bd655473461280d5dad810cedd818189b9fd500"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/anime_texture.h",
+      "bytes": 8125,
+      "sha256": "12cf52e5a709d0f18b6745c8143c160f39d1ff3211c1f6685f84da4279eb6389",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/anime_texture.h",
+        "gitBlob": "3f8a1f125da9c84c4c3df32b579e1c6d4160e842"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/callbacks.cpp",
+      "bytes": 43534,
+      "sha256": "7b46181a21f16f6891e8910ed45018d3d9902dd80178b711b71419670fb4aa02",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/callbacks.cpp",
+        "gitBlob": "bc544c1c3d4c5cc936b60dd0573412bd9925d4be"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+      "bytes": 26441,
+      "sha256": "292a1ab3e11edf624d37fc2cae36120e3e314de2c7d4da9e15502046c9a498d2",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/effect_engine.cpp",
+        "gitBlob": "6ca860066c8a0e44e4bab3b9e377a68dc9dd72d6"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/effect_engine.h",
+      "bytes": 9565,
+      "sha256": "a7e28cf819afa28d3882b687771a7703236a9a8eacbc73647e00231e183fa350",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/effect_engine.h",
+        "gitBlob": "9342893ce166919eb076634c41d661d2454df5a0"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+      "bytes": 80701,
+      "sha256": "537218a8fc71a04f2237e6e90e027e008577f73f761f5bee4140a47bdd9500b6",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/emm_manager.cpp",
+        "gitBlob": "62435a68da945ec509c2b5402301c0d87600ca6e"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/emm_manager.h",
+      "bytes": 28019,
+      "sha256": "c0cd12f63507824608ca036ee47261ea3d4b8d9cc0e8695cd2a9b890139fbbba",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/emm_manager.h",
+        "gitBlob": "c72fc4a3086f212679d7a218f3e136fd533999a0"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/ini_file.cpp",
+      "bytes": 9009,
+      "sha256": "cd0b6c149e9a7413bc6219a9eb206aaa2016f27ac262dd749a92a77dd88ac78e",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/ini_file.cpp",
+        "gitBlob": "d3f1f0a094b4e9422b40f9822e64786f6276930f"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/ini_file.h",
+      "bytes": 3729,
+      "sha256": "9af66b558080c26cc2a37b346fc6f8520c0227e748a9ce14d0c9689ecc1d3f9d",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/ini_file.h",
+        "gitBlob": "9f56a47a8897cff7297a96de7b0e62cfd42cb0dc"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/material_bind.cpp",
+      "bytes": 109643,
+      "sha256": "43c1b6b61430d31e718f0f76d0a64e79835e790fb3c78c0e458faab8aa80fa88",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/material_bind.cpp",
+        "gitBlob": "d3027eac8e4da31c3ab62699ac2201f54b91eef1"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/material_bind.h",
+      "bytes": 16914,
+      "sha256": "8111f8cec3058a075934bc7edf5793cee078bd2afa013e5e4e9635d5938747a1",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/material_bind.h",
+        "gitBlob": "2b3047b6556507f081b962624bcd9a81e7ea4c7a"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_context.cpp",
+      "bytes": 21889,
+      "sha256": "dd2044feffcb3c0bb9985ae014bc0dd062095d5eed94dd37d91e566233451992",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_context.cpp",
+        "gitBlob": "0b2feebfd21c7154ef5af024659b5e71665c2d9b"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_context.h",
+      "bytes": 22945,
+      "sha256": "3d7b49665e94181e1947685bf0e7aa281f0ac476215a7fdf4862fcb80a01b803",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_context.h",
+        "gitBlob": "955998d2e99ebf187b889956f3d10c514157006a"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_dlg.cpp",
+      "bytes": 87974,
+      "sha256": "0efa0697d7a98d52b32851594084da40dad9caf20933af9cd13115287572bf17",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_dlg.cpp",
+        "gitBlob": "8dd5bd2b76496ad8124b70ca79c718f34b8c6583"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_dlg.h",
+      "bytes": 1067,
+      "sha256": "130f7dd5b10023a4073e1aa08c701e0fc4dfbdd4ea93a68732f027ce611a747e",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_dlg.h",
+        "gitBlob": "d05aa74ccbaa22cb2a21237f1e4a056254bd3a8d"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_globals.cpp",
+      "bytes": 8306,
+      "sha256": "73e8a50b0359f3ad8aecb0aaf4d8607168dc0f0f72bf068e54c3938157f7409f",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_globals.cpp",
+        "gitBlob": "d300b4bfad2f769844089db7ac0345075912e147"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_globals.h",
+      "bytes": 8197,
+      "sha256": "694a8217ea47dec36881bfec83482cb3e61f850be275ab8576105fab10608f23",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_globals.h",
+        "gitBlob": "15979559e63378ed114319b84e94de267a79be8d"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_log.cpp",
+      "bytes": 5248,
+      "sha256": "df9bf7f88e7155f7d10a12286ec6112c3c0551a958e6577add78cbb232e5652e",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_log.cpp",
+        "gitBlob": "aed1a29bc54d747a8ea16d65f0d24450970ed84a"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_log.h",
+      "bytes": 3600,
+      "sha256": "153e50a05fde846f1b8aa8073bb5d4302ac00c77ee6027f1a383cc35d7b85ac9",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_log.h",
+        "gitBlob": "1a5e3d1a0522b53b8558b7ab95db15d03f032917"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_ui.cpp",
+      "bytes": 32494,
+      "sha256": "b46c0459fad6337943e26f1c999194e7f9fedc1b347f84da515d7300733a15e3",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_ui.cpp",
+        "gitBlob": "9941b30b9ebb68ad60ca7b86888b977e8f1ea2a3"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_ui.h",
+      "bytes": 2459,
+      "sha256": "028de3a2b146a6452439bbe5768c6326a3725d5867b0657326dcf4fb8ce630fb",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_ui.h",
+        "gitBlob": "abecbccdb3b1e91f7da25b54615f6ebd2990a532"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_util.cpp",
+      "bytes": 2188,
+      "sha256": "340a2f7f63e0611442c73ee421171f20f20c38b466bdea4d4d4216c29d4a5474",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_util.cpp",
+        "gitBlob": "5372154ce6fdc87e6e993c1cc53a713b027868ba"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/mme_util.h",
+      "bytes": 916,
+      "sha256": "1f5db9a8f0e43fd85f88d82d74dbc1301c100d68be7ab7f4b0b9a0fb27b929fc",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/mme_util.h",
+        "gitBlob": "2b553a757b1e88741d18d651ddbf627f8438e995"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/model_data.cpp",
+      "bytes": 8967,
+      "sha256": "38a23a60cd683844273c0b8eb04cc38782d6b459006d73ff27a30ae2ffedef52",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/model_data.cpp",
+        "gitBlob": "8d321df82e270409cf72086b51763416d2b551c6"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/model_data.h",
+      "bytes": 12389,
+      "sha256": "d15116aadd1ff678210bdadeb82b00e3a535727085197acd4aac763a258fa8ca",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/model_data.h",
+        "gitBlob": "513b094393dd64e189e802ad5a169aa34fac3422"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/model_name_registry.h",
+      "bytes": 2125,
+      "sha256": "c1fe9bfe86d700435f09069b81c75b1533ed073e4cb0fdd17fa6b24d19b720a0",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/model_name_registry.h",
+        "gitBlob": "eaad9e516f9890e50ecd08e40b2de77051c8fe1f"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/object_plan_state.h",
+      "bytes": 532,
+      "sha256": "743aa001a0b05cfd6ab746d593fce91299c02feeb0ff73c2b0ab42c4236da8c7",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/object_plan_state.h",
+        "gitBlob": "d1b9c19f5909294968837da6570636ae232da5b9"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+      "bytes": 122216,
+      "sha256": "347c6275ecce08fbf86811f2e8cc4f4e2f73a6c51f386b4ee75b4fc04c3222cc",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/pass_planner.cpp",
+        "gitBlob": "f7fe29c84cdbc4b87f0a45f95e5b7332c3ea6716"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/pass_planner.h",
+      "bytes": 7040,
+      "sha256": "330971d5d523517f759c28028427bfd874b7c0430383cd21de10936c0c7d396f",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/pass_planner.h",
+        "gitBlob": "b0d547df30af3e8067e986b77d8a21051d0b33ab"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/render_snapshot.cpp",
+      "bytes": 10981,
+      "sha256": "127b03d7b5578cbc611388817d74a1d1ab43516d25bf3d8bf743aea1be70888a",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/render_snapshot.cpp",
+        "gitBlob": "0128143cd2c4ee24b01e28c19a4c41a04ef25d53"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/render_snapshot.h",
+      "bytes": 8689,
+      "sha256": "ed40989910f7766eb811ac4c09f33f05da49b4ac95083dad063843fc8322a6bd",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/render_snapshot.h",
+        "gitBlob": "d55ec75d85ab5a4fa3c3f109a3d698213620b933"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/sas_exec.cpp",
+      "bytes": 70206,
+      "sha256": "31866b4ee68129a4ea68119250d3a0e33933b9af426f4f3b37cc4cbe78a75d48",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/sas_exec.cpp",
+        "gitBlob": "ad3692436b6f918fd11c74973a85024798a1652f"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/sas_exec.h",
+      "bytes": 30444,
+      "sha256": "73479757f4b2b8a8f41881060330ce1c341f49a819ab6dac356dd546270ad92c",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/sas_exec.h",
+        "gitBlob": "42539d102adb5cb7d410152204537941ef7bee44"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+      "bytes": 138715,
+      "sha256": "d2f490494e86c9b1aceb176caf9e3370c4f01f25a61d8cf513ea71639d56a3cb",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/sas_interpreter.cpp",
+        "gitBlob": "88282271ae4903aa5b6e5dfe0754a62297090c80"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmeffect/sas_interpreter.h",
+      "bytes": 12110,
+      "sha256": "bfb713258143d255e29e959da0b91f4eb94aa09d8328977289d0f83cf47276c8",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmeffect/sas_interpreter.h",
+        "gitBlob": "3857e2e038bedb86c229025007345d2131b60fe1"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+      "bytes": 7757,
+      "sha256": "84c67b98a2860d1cbd840b9ce114f2c1b77d00cd898de41717dbaf2d5c3bfaa1",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_getters.cpp",
+        "gitBlob": "9c25e116f4a3cb21c563638c0529b28d0de75d44"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_lightmatrix.cpp",
+      "bytes": 5405,
+      "sha256": "e17548955ea206d77bd1a7c0f53755d93e1c65566e940e30f8f9c416ebe26f33",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_lightmatrix.cpp",
+        "gitBlob": "f5471447a65cf964d9a8b7b4a54d13cef9d93df4"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_material.cpp",
+      "bytes": 1312,
+      "sha256": "5ec6342f0bba8af2713eae7de569c566aba7cff04245d231c8670e6a65c57cea",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_material.cpp",
+        "gitBlob": "80e1e133aec1ff52b55fd816159500c4d09779b4"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_material_table.cpp",
+      "bytes": 19020,
+      "sha256": "f79c3e5c2f1cfc960d6e317dcb8e45ac49f11e90924c3837feecc8e769007092",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_material_table.cpp",
+        "gitBlob": "fa2cbe4447c3eb38a60b44eec249381a39524786"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_registry.cpp",
+      "bytes": 9470,
+      "sha256": "8f04c5db908e58f88973436344ff95347fc1f3a02479cbc65946b144faf34aba",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_registry.cpp",
+        "gitBlob": "f8032413fd564022ccb7e4e92c5be53a2cde5725"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "upstream/third_party/mmeffect/src/mmhack/mmhack_state.h",
+      "bytes": 9525,
+      "sha256": "d27487380599e3816de94c89e1135942c8f13e4bbb31421a6926a103d50a68da",
+      "category": "fixed-upstream-unmodified",
+      "origin": {
+        "repository": "https://github.com/jstzwj/MikuDanceStudio",
+        "revision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
+        "path": "third_party/mmeffect/src/mmhack/mmhack_state.h",
+        "gitBlob": "92ebe6dee604c756cf8c27a5be5ebea0921fbee0"
+      },
+      "reuseLicense": "MIT",
+      "licensePath": "upstream/LICENSE"
+    },
+    {
+      "path": "validation_only/headless_ui_seam.cpp",
+      "bytes": 886,
+      "sha256": "dad6a05b5b49d8213d123bdaa10ce75e5f13305dffc908f30825140f4df1f95d",
+      "category": "validation-only-support",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\native205\\headless_ui_seam.cpp"
+      },
+      "reuseLicense": "Project-owned local validation source; no third-party license grant asserted"
+    },
+    {
+      "path": "validation_only/no_ui.cpp",
+      "bytes": 781,
+      "sha256": "a714f676ad703fce181f81726e337826e2c803ea328cde7893c37f9f2e56cb1f",
+      "category": "validation-only-support",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\visual225\\native\\no_ui.cpp"
+      },
+      "reuseLicense": "Project-owned local validation source; no third-party license grant asserted"
+    },
+    {
+      "path": "validation_only/no_ui.h",
+      "bytes": 176,
+      "sha256": "d4dff22e7f0c597a81a53105fed338ee394363d7d75e7970dcaaec7602d1d027",
+      "category": "validation-only-support",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\visual225\\native\\no_ui.h"
+      },
+      "reuseLicense": "Project-owned local validation source; no third-party license grant asserted"
+    },
+    {
+      "path": "validation_only/probe_metrics.h",
+      "bytes": 285,
+      "sha256": "3ced8e496d3a00f1e91b33bf664ba5eebf57c514627fa4f9b42a3c3b186b7895",
+      "category": "validation-only-support",
+      "origin": {
+        "evidencePath": "G:\\MDA-CompatValidation\\20261103\\visual225\\native\\probe_metrics.h"
+      },
+      "reuseLicense": "Project-owned local validation source; no third-party license grant asserted"
+    }
+  ]
+}

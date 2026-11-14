@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
+    <ProjectReference Include="../Mmd.Modern.PluginFixture.PrivateDependency/Mmd.Modern.PluginFixture.PrivateDependency.csproj" />
+  </ItemGroup>
+</Project>

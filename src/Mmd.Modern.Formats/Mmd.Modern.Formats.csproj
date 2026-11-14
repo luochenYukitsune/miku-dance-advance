@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="SharpZipLib" Version="1.4.2" /></ItemGroup>
+  <ItemGroup><None Update="LICENSE.*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Resources/cp932-duplicates.bin" LogicalName="Mmd.Modern.Formats.cp932-duplicates.bin" /></ItemGroup>
+</Project>

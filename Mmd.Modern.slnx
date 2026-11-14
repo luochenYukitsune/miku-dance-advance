@@ -1,0 +1,54 @@
+<Solution>
+  <Folder Name="/MmdCore/">
+    <Project Path="src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj" />
+    <Project Path="src/Mmd.Modern.Application/Mmd.Modern.Application.csproj" />
+    <Project Path="src/Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <Project Path="src/Mmd.Modern.Formats/Mmd.Modern.Formats.csproj" />
+    <Project Path="src/Mmd.Modern.Physics.Bepu/Mmd.Modern.Physics.Bepu.csproj" />
+    <Project Path="src/Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
+    <Project Path="src/Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" />
+    <Project Path="src/Mmd.Modern.Physics.Runtime/Mmd.Modern.Physics.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/ModernRendering/">
+    <Project Path="src/Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+    <Project Path="src/Mmd.Modern.Scheduling/Mmd.Modern.Scheduling.csproj" />
+  </Folder>
+  <Folder Name="/Compatibility/">
+    <Project Path="src/Mmd.Modern.Effects/Mmd.Modern.Effects.csproj" />
+    <Project Path="src/Mmd.Modern.Rendering.D3D9.Compatibility/Mmd.Modern.Rendering.D3D9.Compatibility.csproj" />
+    <Project Path="src/Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />
+  </Folder>
+  <Folder Name="/Gui/">
+    <Project Path="src/Mmd.Modern.App/Mmd.Modern.App.csproj" />
+    <Project Path="src/Mmd.Modern.Demo/Mmd.Modern.Demo.csproj" />
+  </Folder>
+  <Folder Name="/Plugins/">
+    <Project Path="src/Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
+    <Project Path="src/Mmd.Modern.Plugins/Mmd.Modern.Plugins.csproj" />
+    <Project Path="examples/Mda.HelloPlugin/Mda.HelloPlugin.csproj" />
+  </Folder>
+  <Folder Name="/ViewOutput/">
+    <Project Path="src/Mmd.Modern.ViewOutput/Mmd.Modern.ViewOutput.csproj" />
+    <Project Path="src/Mmd.Modern.ViewOutput.D3D9.Compatibility/Mmd.Modern.ViewOutput.D3D9.Compatibility.csproj" />
+    <Project Path="src/Mmd.Modern.ViewOutput.FFmpeg/Mmd.Modern.ViewOutput.FFmpeg.csproj" />
+    <Project Path="src/Mmd.Modern.ViewOutput.D3D12/Mmd.Modern.ViewOutput.D3D12.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Mmd.Modern.ViewOutput.Stage/Mmd.Modern.ViewOutput.Stage.csproj" />
+    <Project Path="src/Mmd.Modern.Smoke/Mmd.Modern.Smoke.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mmd.Modern.PluginFixture/Mmd.Modern.PluginFixture.csproj" />
+    <Project Path="tests/Mmd.Modern.PluginFixture.PrivateDependency/Mmd.Modern.PluginFixture.PrivateDependency.csproj" />
+    <Project Path="tests/Mmd.Modern.Plugins.Tests/Mmd.Modern.Plugins.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests/Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.Rendering.D3D9.Compatibility.Tests/Mmd.Modern.Rendering.D3D9.Compatibility.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.ViewOutput.Tests/Mmd.Modern.ViewOutput.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.ViewOutput.FFmpeg.Tests/Mmd.Modern.ViewOutput.FFmpeg.Tests.csproj" />
+
+    <Project Path="tests/Mmd.Modern.Application.Tests/Mmd.Modern.Application.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.Formats.Tests/Mmd.Modern.Formats.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.Scheduling.Tests/Mmd.Modern.Scheduling.Tests.csproj" />
+    <Project Path="tests/Mmd.Modern.Tests/Mmd.Modern.Tests.csproj" />
+  </Folder>
+</Solution>

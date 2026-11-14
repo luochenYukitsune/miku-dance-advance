@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <MikktspaceNativeLibrary Condition="'$(MikktspaceNativeLibrary)' == '' and Exists('$(MSBuildThisFileDirectory)../../../.dev-cache/mikktspace-native/mmd_mikktspace.dll')">$(MSBuildThisFileDirectory)../../../.dev-cache/mikktspace-native/mmd_mikktspace.dll</MikktspaceNativeLibrary>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <PackageReference Include="Vortice.Direct3D12" Version="2.3.0" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="2.3.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MikktspaceNativeLibrary)" Link="mmd_mikktspace.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="'$(MikktspaceNativeLibrary)' != ''" />
+    <None Include="../../native/Mmd.Modern.Mikktspace/LICENSE.MikkTSpace.txt" Link="LICENSE.MikkTSpace.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../native/Mmd.Modern.Mikktspace/UPSTREAM.json" Link="MikkTSpace.UPSTREAM.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../third_party/fsr1/ffx_a.h" LogicalName="Fsr1.ffx_a.h" />
+    <EmbeddedResource Include="../../third_party/fsr1/ffx_fsr1.h" LogicalName="Fsr1.ffx_fsr1.h" />
+    <EmbeddedResource Include="../../third_party/fsr1/LICENSE.txt" LogicalName="Fsr1.LICENSE.txt" />
+    <None Include="../../third_party/fsr1/LICENSE.txt" Link="LICENSE.FSR1.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../third_party/fsr-api/LICENSE.md" Link="LICENSE.FidelityFXApi.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../third_party/xess-api/LICENSE.txt" Link="LICENSE.XeSS.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../third_party/dlss-api/LICENSE.txt" Link="LICENSE.DLSS.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../third_party/smaa/SMAA.hlsl" LogicalName="Smaa.SMAA.hlsl" />
+    <EmbeddedResource Include="../../third_party/smaa/Textures/AreaTex.h" LogicalName="Smaa.AreaTex.h" />
+    <EmbeddedResource Include="../../third_party/smaa/Textures/SearchTex.h" LogicalName="Smaa.SearchTex.h" />
+    <EmbeddedResource Include="../../third_party/smaa/LICENSE.txt" LogicalName="Smaa.LICENSE.txt" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <BulletNativeLibrary Condition="'$(BulletNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-cluster-bounds-20261114/rigid/mmd_bullet.dll</BulletNativeLibrary>
+    <SoftBodyNativeLibrary Condition="'$(SoftBodyNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-cluster-bounds-20261114/soft/mmd_bullet_soft.dll</SoftBodyNativeLibrary>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" /></ItemGroup>
+  <ItemGroup>
+    <None Update="LICENSE.*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(BulletNativeLibrary)')">
+    <None Include="$(BulletNativeLibrary)" Link="mmd_bullet.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(SoftBodyNativeLibrary)')">
+    <None Include="$(SoftBodyNativeLibrary)" Link="mmd_bullet_soft.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

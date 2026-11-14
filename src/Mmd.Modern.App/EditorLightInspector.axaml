@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Mmd.Modern.App"
+             xmlns:validated="using:Mmd.Modern.App.Controls"
+             x:Class="Mmd.Modern.App.EditorLightInspector"
+             x:DataType="local:EditorLightingViewModel">
+  <StackPanel Spacing="12">
+    <ComboBox Name="LightChoice" ItemsSource="{Binding Lights}" SelectedItem="{Binding SelectedLight, Mode=TwoWay}"
+              HorizontalAlignment="Stretch" AutomationProperties.Name="{DynamicResource Mda.Text.58da4654116f}">
+      <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorNativeLightItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+    </ComboBox>
+    <TextBlock Name="EmptyLightPrompt" Text="{DynamicResource Mda.Text.d6bf33235c3e}" Classes="caption" TextWrapping="Wrap" />
+    <ItemsControl ItemsSource="{Binding Lights}">
+      <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EditorNativeLightItem">
+        <StackPanel Spacing="12" IsVisible="{Binding IsSelected}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{DynamicResource Mda.Text.7cb9050d7b72}" Classes="group" />
+            <TextBox Name="LightNameInput" Classes="editorSearch" Text="{Binding Name, Mode=TwoWay}" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.7cb9050d7b72}" />
+            <CheckBox Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" />
+          </StackPanel>
+          <StackPanel Spacing="8">
+            <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.44ba8282f5e5}" Classes="group" /></Border>
+            <Grid ColumnDefinitions="36,8,*">
+              <Border Name="LightColorSwatch" Width="36" Height="28" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" />
+              <TextBox Grid.Column="2" Name="LightHexColor" Classes="editorSearch" LostFocus="CommitHexColor" AutomationProperties.Name="{DynamicResource Mda.Text.2582a5c98b76}" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Width="24" Height="24" Padding="3" Tag="#FFFFFF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.f56e7eff58bf}" AutomationProperties.Name="{DynamicResource Mda.Text.f56e7eff58bf}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#FFFFFF" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#FFE7C7" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.966c66b331ea}" AutomationProperties.Name="{DynamicResource Mda.Text.966c66b331ea}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#FFE7C7" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#FFBD78" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.b5159bb8082c}" AutomationProperties.Name="{DynamicResource Mda.Text.b5159bb8082c}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#FFBD78" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#CDE5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.0ef411a8a875}" AutomationProperties.Name="{DynamicResource Mda.Text.0ef411a8a875}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#CDE5FF" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#82B5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.67035e6b7f82}" AutomationProperties.Name="{DynamicResource Mda.Text.67035e6b7f82}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#82B5FF" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#FFC7DB" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.dbd379b39f0d}" AutomationProperties.Name="{DynamicResource Mda.Text.dbd379b39f0d}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#FFC7DB" /></Button>
+              <Button Width="24" Height="24" Padding="3" Tag="#D6C7FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.2ed9c6fabac2}" AutomationProperties.Name="{DynamicResource Mda.Text.2ed9c6fabac2}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" Background="#D6C7FF" /></Button>
+            </StackPanel>
+          </StackPanel>
+          <Grid ColumnDefinitions="*,100">
+            <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" VerticalAlignment="Center" />
+            <validated:EditorNumericUpDown Name="InlineLightIntensity" Grid.Column="1" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Minimum="0" Increment="0.25" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c56114268030}" />
+          </Grid>
+          <Expander Name="InlineLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.d6e61888b078}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="12" Margin="0,10,0,0">
+              <CheckBox Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />
+              <Grid ColumnDefinitions="*,100" IsVisible="{Binding HasRange}">
+                <TextBlock Text="{DynamicResource Mda.Text.3a76ebfb6233}" VerticalAlignment="Center" />
+                <validated:EditorNumericUpDown Name="InlineLightRange" Grid.Column="1" Classes="editorNumber" Value="{Binding Range, Mode=TwoWay}" Increment="0.5" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.0999a174c82d}" />
+              </Grid>
+              <StackPanel Spacing="6" IsVisible="{Binding HasCone}">
+                <TextBlock Text="{DynamicResource Mda.Text.3466d127a0db}" Classes="group" />
+                <Grid ColumnDefinitions="*,8,*" RowDefinitions="20,28">
+                  <TextBlock Text="{DynamicResource Mda.Text.aab9919ac9dc}" Classes="caption" /><TextBlock Grid.Column="2" Text="{DynamicResource Mda.Text.08ba4adfa930}" Classes="caption" />
+                  <validated:EditorNumericUpDown Name="InlineLightInnerCone" Grid.Row="1" Classes="editorNumber" Value="{Binding InnerConeDegrees, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.473225888625}" />
+                  <validated:EditorNumericUpDown Name="InlineLightOuterCone" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Value="{Binding OuterConeDegrees, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.bf2c5326647a}" />
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Text="{DynamicResource Mda.Text.1fb4d574da92}" Classes="group" />
+                <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+                  <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
+                  <validated:EditorNumericUpDown Name="InlineLightPositionX" Grid.Row="1" Classes="editorNumber" Value="{Binding PositionX, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c794c85eb233}" />
+                  <validated:EditorNumericUpDown Name="InlineLightPositionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Value="{Binding PositionY, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.d231a265df1d}" />
+                  <validated:EditorNumericUpDown Name="InlineLightPositionZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Value="{Binding PositionZ, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.47f6738046c7}" />
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="6" IsVisible="{Binding HasDirection}">
+                <TextBlock Text="{DynamicResource Mda.Text.bab4c7dc2948}" Classes="group" />
+                <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+                  <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
+                  <validated:EditorNumericUpDown Name="InlineLightRotationX" Grid.Row="1" Classes="editorNumber" Value="{Binding RotationX, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.fc879178fcc2}" />
+                  <validated:EditorNumericUpDown Name="InlineLightRotationY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Value="{Binding RotationY, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.e4bf72774482}" />
+                  <validated:EditorNumericUpDown Name="InlineLightRotationZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Value="{Binding RotationZ, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.69ba1a47f9f4}" />
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Text="{DynamicResource Mda.Text.10c74b677a3f}" Classes="group" />
+                <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+                  <TextBlock Text="R" Classes="axis" /><TextBlock Grid.Column="2" Text="G" Classes="axis" /><TextBlock Grid.Column="4" Text="B" Classes="axis" />
+                  <validated:EditorNumericUpDown Name="InlineLightRed" Grid.Row="1" Classes="editorNumber" Value="{Binding Red, Mode=TwoWay}" Minimum="0" Increment="0.05" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.8a05eccbaa40}" />
+                  <validated:EditorNumericUpDown Name="InlineLightGreen" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Value="{Binding Green, Mode=TwoWay}" Minimum="0" Increment="0.05" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.5afec3ccb732}" />
+                  <validated:EditorNumericUpDown Name="InlineLightBlue" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Value="{Binding Blue, Mode=TwoWay}" Minimum="0" Increment="0.05" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.32c648ad3cf5}" />
+                </Grid>
+              </StackPanel>
+            </StackPanel>
+          </Expander>
+        </StackPanel>
+      </DataTemplate></ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" Classes="caption" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="{DynamicResource Mda.Text.20a423f97da8}" Classes="caption" TextWrapping="Wrap" />
+  </StackPanel>
+</UserControl>

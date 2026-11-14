@@ -1,0 +1,98 @@
+{
+  "version": "2.75",
+  "archiveUrl": "https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/bullet/bullet-2.75.zip",
+  "archiveSha256": "fe2e369593b034c00a1245676edd8417a58c8030a94e061220f0c228ca61fe8f",
+  "license": "zlib; see LICENSE.Bullet.txt",
+  "unmodifiedFiles": [
+    {
+      "path": "upstream/BulletSoftBody/btSoftBody.cpp",
+      "bytes": 69912,
+      "sha256": "e34b914cb57b3297c3749c766c785b7a5e9877951085391cf5f06ffbd970fe0f"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBody.h",
+      "bytes": 28650,
+      "sha256": "104b466349ee54c345e1ad99bd6224f07854b346a86c1a436722f8f0c9437aaf"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyConcaveCollisionAlgorithm.cpp",
+      "bytes": 13199,
+      "sha256": "327fee91287a89d04707d88d411eb74cda97feeb614e04337ff28260af23e673"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyConcaveCollisionAlgorithm.h",
+      "bytes": 5452,
+      "sha256": "a8e348ebe08a37cfb3b8cf7c3911ab1574068939b1979c9bea52b41e7e23c605"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyHelpers.cpp",
+      "bytes": 27981,
+      "sha256": "9735e277cda92c1c278bb4192d561f8cf0515e3b1cdc28335b61152347528102"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyHelpers.h",
+      "bytes": 4625,
+      "sha256": "39fbfcb460f9a0e4f2a042bf207632a5a73a931df70a80bd69fd5d1d98b904d5"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyInternals.h",
+      "bytes": 25665,
+      "sha256": "d1bea38c90ce9709f9cd9199dcc7b96dd5f11f4f666a038d7ab82512db39435c"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.cpp",
+      "bytes": 5551,
+      "sha256": "d91a758977758915d6fee4cd7ccf513b65dfab5db870fdbc7a27759ddf14dc11"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.h",
+      "bytes": 2314,
+      "sha256": "54f31a8e5fb8d2e141edca4f8bf4a1e4c81ba316173406ca50c335aae22de8fb"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftRigidCollisionAlgorithm.cpp",
+      "bytes": 3003,
+      "sha256": "633968fbad1112291e0e8d33919932f1b8f1f7acc37e9ccbce2130e056df8081"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftRigidCollisionAlgorithm.h",
+      "bytes": 3082,
+      "sha256": "f3c8423b1167046ebf845652ca30baf076baa1fcd4e723b09d7e0098dd144607"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftRigidDynamicsWorld.cpp",
+      "bytes": 4386,
+      "sha256": "d270c8c2c5e6e21d13dc023f79a798a16b33ea1e4f104c76d1dac2c849ffedd6"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftRigidDynamicsWorld.h",
+      "bytes": 2790,
+      "sha256": "990df50e572e90b1b6b9c6a99ae30ff85e36f72c04a9d62142f855fb54b07fc7"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftSoftCollisionAlgorithm.cpp",
+      "bytes": 2147,
+      "sha256": "6f3c7b9242dabb39a0760d56aa8b1d8d47cdf79e416c0f051bf071a1011809ec"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSoftSoftCollisionAlgorithm.h",
+      "bytes": 2893,
+      "sha256": "add661ed32f96d65e12eebba564a6e0e5289f7459c6557679b01f74683235098"
+    },
+    {
+      "path": "upstream/BulletSoftBody/btSparseSDF.h",
+      "bytes": 7243,
+      "sha256": "6e4dd637691d85f4dcaa222a0d86c4ad3f03a6488ce4585efdae1435fb86f956"
+    },
+    {
+      "path": "upstream/BulletSoftBody/CMakeLists.txt",
+      "bytes": 1679,
+      "sha256": "2f6e7fd25c819bfab540956be0c165ff28e3451bc128128986328634288cd48d"
+    },
+    {
+      "path": "upstream/BulletSoftBody/Jamfile",
+      "bytes": 217,
+      "sha256": "a70e97b4e109a626a9f2c4494a0b32de2a988590e464c1f296c9258397f553e6"
+    }
+  ]
+}

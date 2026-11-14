@@ -1,0 +1,58 @@
+--- upstream/third_party/mmeffect/src/mmeffect/callbacks.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/callbacks.cpp
+@@ -1,3 +1,4 @@
++// ALTERED reset244: retain live effect source identity across device loss.
+ // callbacks.cpp - the 11 MMEffect.dll exports (ABI: include/mme_abi.h,
+ // export table: src/MMEffect/MMEffect.def, ordinals 1..11 alphabetical).
+ //
+@@ -73,7 +74,8 @@
+         }
+         if (device != nullptr) {
+             // device slot 0x290 = DrawIndexedPrimitive pass-through [L49].
+-            device->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type),
++            MdaProbeFallbackDraw();
++                    device->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type),
+                                          baseVertexIndex, minVertexIndex,
+                                          vertexCount, startIndex, primitiveCount);
+         }
+@@ -90,7 +92,8 @@
+                 return;
+             }
+             if (device != nullptr) {
+-                device->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type),
++                MdaProbeFallbackDraw();
++                    device->DrawIndexedPrimitive(static_cast<D3DPRIMITIVETYPE>(type),
+                                              baseVertexIndex, minVertexIndex,
+                                              vertexCount, startIndex, primitiveCount);
+             }
+@@ -290,6 +293,7 @@
+                         drawRecord.startIndex = startIndex;
+                         drawRecord.primitiveCount = primitiveCount;
+                         SasSetHostDrawRecord(&drawRecord);
++                        MdaProbeEffectDispatch();
+                         SasExecuteTechnique(binding->sas, device, techIndex,
+                                             snap.subset_index);
+                         SasSetHostDrawRecord(nullptr);
+@@ -307,6 +311,7 @@
+                 // is what the original does and what keeps the viewport from
+                 // going blank while effects are enabled.
+                 if (device != nullptr) {
++                    MdaProbeFallbackDraw();
+                     device->DrawIndexedPrimitive(
+                         static_cast<D3DPRIMITIVETYPE>(type),
+                         baseVertexIndex, minVertexIndex, vertexCount,
+@@ -848,9 +853,11 @@
+         g_context->ReleaseBackgroundFixedVbs();
+     }
+ 
+-    // [L41] FUN_18000a990 clears the effect and texture caches. Running
+-    // pass bookkeeping here would reacquire saved targets during reset.
+-    MmeEngineClearCaches();
++    // Device-loss cleanup retains source identity for live assignments after
++    // releasing their GPU resources above. Full explicit reload/unload keeps
++    // MmeEngineClearCaches semantics; replacing an owner here would erase
++    // authored offscreen overrides on the first post-reset frame.
++    MmeEngineClearLostDeviceCaches();
+ 
+     // [L42-45] release the offscreen render-target surface.
+     if (g_offscreenSurface != nullptr) {

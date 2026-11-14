@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Mmd.Modern.App"
+             xmlns:validated="using:Mmd.Modern.App.Controls"
+             x:Class="Mmd.Modern.App.EditorMainLightInspector"
+             x:DataType="local:EditorSceneInspectorViewModel">
+  <!-- The main VMD light owns direction/color/intensity and its registration contract.
+       It is hosted by the right-rail Lighting page; camera/world stay in EditorSceneInspector. -->
+  <StackPanel Spacing="16">
+    <StackPanel Spacing="6" IsEnabled="{Binding CanEdit}">
+      <validated:EditorLightDirectionPad Name="MainLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=TwoWay}" Height="128"
+                   ToolTip.Tip="{DynamicResource Mda.Text.9ab4d3b625f0}" />
+      <TextBlock Text="{DynamicResource Mda.Text.e44934d4150a}" Classes="caption" HorizontalAlignment="Center" />
+    </StackPanel>
+    <Grid ColumnDefinitions="*,10,*" IsEnabled="{Binding CanEdit}">
+      <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
+      <validated:EditorNumericUpDown Name="LightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
+    </Grid>
+    <Grid ColumnDefinitions="*,Auto" IsEnabled="{Binding CanEdit}">
+      <TextBlock Text="{DynamicResource Mda.Text.8d044de8374c}" Classes="caption" VerticalAlignment="Center" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+        <Button Width="28" Height="26" Padding="4" Tag="#FFFFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.052c09cf906e}" AutomationProperties.Name="{DynamicResource Mda.Text.052c09cf906e}"><Border Background="#FFFFFF" Width="16" Height="14" /></Button>
+        <Button Width="28" Height="26" Padding="4" Tag="#FFE2BE" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.2d96508a2884}" AutomationProperties.Name="{DynamicResource Mda.Text.2d96508a2884}"><Border Background="#FFE2BE" Width="16" Height="14" /></Button>
+        <Button Width="28" Height="26" Padding="4" Tag="#CEDFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.bce15f0bc671}" AutomationProperties.Name="{DynamicResource Mda.Text.bce15f0bc671}"><Border Background="#CEDFFF" Width="16" Height="14" /></Button>
+      </StackPanel>
+    </Grid>
+    <Expander Name="MainLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.4db33ee938e5}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+      <StackPanel Spacing="12" IsEnabled="{Binding CanEdit}">
+        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+          <TextBlock Text="R" Classes="axis" /><TextBlock Grid.Column="2" Text="G" Classes="axis" /><TextBlock Grid.Column="4" Text="B" Classes="axis" />
+          <validated:EditorNumericUpDown Name="LightColorR" Grid.Row="1" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorR, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.0e3dc4e4702b}" />
+          <validated:EditorNumericUpDown Name="LightColorG" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorG, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.c2cd977aedb7}" />
+          <validated:EditorNumericUpDown Name="LightColorB" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorB, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.f405daeb6e23}" />
+        </Grid>
+        <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+          <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.704b81765878}" Classes="group" /></Border>
+          <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+            <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
+            <validated:EditorNumericUpDown Name="LightDirectionX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.bdaee3e1a863}" />
+            <validated:EditorNumericUpDown Name="LightDirectionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.d24d0eadb9f7}" />
+            <validated:EditorNumericUpDown Name="LightDirectionZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.80db92699158}" />
+          </Grid>
+        </StackPanel>
+      </StackPanel>
+    </Expander>
+    <TextBlock Text="{Binding LightValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasLightValidation}" />
+    <Grid ColumnDefinitions="*,8,Auto">
+      <Button Name="RegisterLightKeyframeButton" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}" Command="{Binding RegisterLightKeyframeCommand}" HorizontalAlignment="Stretch" />
+      <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
+    </Grid>
+    <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
+  </StackPanel>
+</UserControl>

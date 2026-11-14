@@ -1,0 +1,12 @@
+﻿{
+    "name":  "NVIDIA DLSS optional NGX API interoperability",
+    "repository":  "https://github.com/NVIDIA/DLSS",
+    "commit":  "9981c6350dc58c0ce21f024fd65e31e851c31689",
+    "runtimeBundled":  false,
+    "license":  "NVIDIA RTX SDK LICENSE; retain official LICENSE.txt; not a permissive open-source DLSS algorithm",
+    "componentSha256":  "d00b5b0ab29c3ca101b70c3a5ecb3a01b7ef33766a3383a28a18623083e6123e",
+    "staticSdkLibrarySha256":  "bc43df9ec032004fde681d3e3afd01cde239e03a0125b822e88674c84287f99c",
+    "licenseSha256":  "d4216e39ebef5f9b50a6712ebb37beeb5379862a67733a9999c651f21592aaf0",
+    "implementation":  "Independently authored thin NGX C ABI bridge and managed D3D12 adapter. Official headers/static library/runtime live in explicitly installed external cache; no DLSS algorithm source copied.",
+    "verification":  "Managed code build/ABI pending consolidated verification. Native bridge and GPU execution require Microsoft ABI compiler; installation was blocked by automatic policy review. Do not advertise product DLSS availability."
+}

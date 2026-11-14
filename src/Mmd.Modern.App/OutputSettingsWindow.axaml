@@ -1,0 +1,349 @@
+<Window xmlns:validated="using:Mmd.Modern.App.Controls" xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Mmd.Modern.App"
+        x:Class="Mmd.Modern.App.OutputSettingsWindow"
+        x:DataType="local:OutputSettingsViewModel"
+        Title="{DynamicResource Mda.Text.1ccc12c2adf3}" Width="920" Height="640" MinWidth="800" MinHeight="540"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource OutputSurface}" Foreground="{DynamicResource OutputText}"
+        FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
+        UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type local:OutputSettingsChoice}" x:DataType="local:OutputSettingsChoice">
+      <TextBlock Text="{Binding Label}" />
+    </DataTemplate>
+  </Window.DataTemplates>
+  <Window.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="OutputFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="OutputSurface" Color="#0C0E11" /><SolidColorBrush x:Key="OutputText" Color="#F2F2F2" />
+          <SolidColorBrush x:Key="OutputMuted" Color="#B0B0B0" /><SolidColorBrush x:Key="OutputDisabled" Color="#707070" />
+          <SolidColorBrush x:Key="OutputBorder" Color="#2E3B48" /><SolidColorBrush x:Key="OutputFocus" Color="#F2F2F2" />
+          <SolidColorBrush x:Key="OutputHover" Color="#202D39" /><SolidColorBrush x:Key="OutputSelected" Color="#182633" />
+          <SolidColorBrush x:Key="OutputInput" Color="#18222C" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="OutputSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="OutputText" Color="#171717" />
+          <SolidColorBrush x:Key="OutputMuted" Color="#555555" /><SolidColorBrush x:Key="OutputDisabled" Color="#8A8A8A" />
+          <SolidColorBrush x:Key="OutputBorder" Color="#D8E0E7" /><SolidColorBrush x:Key="OutputFocus" Color="#171717" />
+          <SolidColorBrush x:Key="OutputHover" Color="#F0F4F7" /><SolidColorBrush x:Key="OutputSelected" Color="#E3ECF3" />
+          <SolidColorBrush x:Key="OutputInput" Color="#F3F6F8" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Window.Resources>
+  <Window.Styles>
+    <StyleInclude Source="avares://SukiUI/Theme/Index.xaml" />
+    <Style Selector="Control"><Setter Property="UseLayoutRounding" Value="True" /></Style>
+    <Style Selector="TemplatedControl"><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource OutputText}" /></Style>
+    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="LineHeight" Value="20" /><Setter Property="Foreground" Value="{DynamicResource OutputText}" /><Setter Property="FontWeight" Value="Normal" /></Style>
+    <Style Selector="AccessText"><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="Normal" /></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LineHeight" Value="22" /></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <Style Selector="TextBlock.label"><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
+      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Transitions"><Transitions /></Setter>
+      <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+        <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="Button.action"><Setter Property="Background" Value="{DynamicResource OutputInput}" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource OutputHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource OutputSelected}" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="TextBox">
+      <Setter Property="MinHeight" Value="30" /><Setter Property="Height" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
+      <Setter Property="CornerRadius" Value="2" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="Background" Value="{DynamicResource OutputInput}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="SelectionBrush" Value="{DynamicResource OutputSelected}" /><Setter Property="CaretBrush" Value="{DynamicResource OutputText}" />
+      <!-- Avalonia 11.3.22 Simple TextBox named parts, with no extra Suki 5.3.0 outer inset. -->
+      <Setter Property="Template"><ControlTemplate>
+        <Border Name="OutputInputBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+          <DockPanel Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                     VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+            <TextBlock Name="floatingWatermark" DockPanel.Dock="Top" Text="{TemplateBinding Watermark}" Foreground="{DynamicResource OutputMuted}">
+              <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="UseFloatingWatermark" RelativeSource="{RelativeSource TemplatedParent}" />
+                <Binding Path="Text" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static StringConverters.IsNotNullOrEmpty}" />
+              </MultiBinding></TextBlock.IsVisible>
+            </TextBlock>
+            <DataValidationErrors>
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <ContentPresenter Content="{TemplateBinding InnerLeftContent}" />
+                <ScrollViewer Name="PART_ScrollViewer" Grid.Column="1" AllowAutoHide="{TemplateBinding (ScrollViewer.AllowAutoHide)}"
+                              BringIntoViewOnFocusChange="{TemplateBinding (ScrollViewer.BringIntoViewOnFocusChange)}"
+                              HorizontalScrollBarVisibility="{TemplateBinding (ScrollViewer.HorizontalScrollBarVisibility)}"
+                              VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
+                              IsScrollChainingEnabled="{TemplateBinding (ScrollViewer.IsScrollChainingEnabled)}">
+                  <Panel>
+                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{TemplateBinding Foreground}"
+                               FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}"
+                               TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}"
+                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+                      <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding ElementName="PART_TextPresenter" Path="PreeditText" Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                        <Binding Path="Text" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static StringConverters.IsNullOrEmpty}" />
+                      </MultiBinding></TextBlock.IsVisible>
+                    </TextBlock>
+                    <TextPresenter Name="PART_TextPresenter" CaretBlinkInterval="{TemplateBinding CaretBlinkInterval}"
+                                   CaretBrush="{TemplateBinding CaretBrush}" CaretIndex="{TemplateBinding CaretIndex}"
+                                   LineHeight="{TemplateBinding LineHeight}" LetterSpacing="{TemplateBinding LetterSpacing}"
+                                   PasswordChar="{TemplateBinding PasswordChar}" RevealPassword="{TemplateBinding RevealPassword}"
+                                   SelectionBrush="{TemplateBinding SelectionBrush}" SelectionForegroundBrush="{TemplateBinding SelectionForegroundBrush}"
+                                   SelectionStart="{TemplateBinding SelectionStart}" SelectionEnd="{TemplateBinding SelectionEnd}"
+                                   Text="{TemplateBinding Text, Mode=TwoWay}" TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}" />
+                  </Panel>
+                </ScrollViewer>
+                <ContentPresenter Grid.Column="2" Content="{TemplateBinding InnerRightContent}" />
+              </Grid>
+            </DataValidationErrors>
+          </DockPanel>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="TextBox:focus"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="TextBox:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="NumericUpDown">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
+      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" />
+      <Setter Property="ShowButtonSpinner" Value="False" /><Setter Property="TextAlignment" Value="Right" /><Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Template"><ControlTemplate><ButtonSpinner Name="PART_Spinner" AllowSpin="{TemplateBinding AllowSpin}" ShowButtonSpinner="False" HorizontalContentAlignment="Stretch" Padding="0"><ButtonSpinner.Template><ControlTemplate><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" /></ControlTemplate></ButtonSpinner.Template><TextBox Name="PART_TextBox" Text="{TemplateBinding Text}" Watermark="{TemplateBinding Watermark}" IsReadOnly="{TemplateBinding IsReadOnly}" TextAlignment="{TemplateBinding TextAlignment}"
+        FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}" /></ButtonSpinner></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="NumericUpDown:focus-within"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="NumericUpDown:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="NumericUpDown:disabled /template/ TextBox"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="ComboBox">
+      <Setter Property="MinHeight" Value="30" /><Setter Property="Height" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
+      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" /><Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="PlaceholderForeground" Value="{DynamicResource OutputMuted}" />
+      <!-- Preserve Avalonia 11.3.22 ComboBox selection, popup and editable named parts without the Suki outer inset. -->
+      <Setter Property="Template"><ControlTemplate>
+        <Border Name="OutputComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+          <Grid ColumnDefinitions="*,24">
+            <TextBlock Name="PlaceholderTextBlock" Margin="{TemplateBinding Padding}" Foreground="{TemplateBinding PlaceholderForeground}"
+                       Text="{TemplateBinding PlaceholderText}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+              <TextBlock.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="SelectionBoxItem" RelativeSource="{RelativeSource TemplatedParent}" Converter="{x:Static ObjectConverters.IsNull}" />
+                <Binding Path="!IsEditable" RelativeSource="{RelativeSource TemplatedParent}" />
+              </MultiBinding></TextBlock.IsVisible>
+            </TextBlock>
+            <ContentControl Margin="{TemplateBinding Padding}" Content="{TemplateBinding SelectionBoxItem}"
+                            ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Foreground="{TemplateBinding Foreground}"
+                            FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                            IsVisible="{TemplateBinding IsEditable, Converter={x:Static BoolConverters.Not}}" />
+            <TextBox Name="PART_EditableTextBox" Height="NaN" MinHeight="0" Padding="{TemplateBinding Padding}" Foreground="{TemplateBinding Foreground}"
+                     Background="Transparent" BorderThickness="0" Text="{TemplateBinding Text, Mode=TwoWay}" IsVisible="{TemplateBinding IsEditable}" />
+            <ToggleButton Name="toggle" Grid.Column="1" Width="24" MinWidth="0" MinHeight="0" Margin="0" Padding="0"
+                          Background="Transparent" BorderThickness="0" Focusable="False" ClickMode="Press"
+                          IsChecked="{TemplateBinding IsDropDownOpen, Mode=TwoWay}">
+              <ToggleButton.Template><ControlTemplate><Border Background="{TemplateBinding Background}"><ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></ToggleButton.Template>
+              <Path Width="8" Height="4" Stretch="Uniform" Fill="{DynamicResource OutputMuted}"
+                    Data="F1 M 301.14,-189.041L 311.57,-189.041L 306.355,-182.942L 301.14,-189.041 Z" />
+            </ToggleButton>
+            <Popup Name="PART_Popup" MinWidth="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}"
+                   MaxHeight="{TemplateBinding MaxDropDownHeight}" IsLightDismissEnabled="True"
+                   IsOpen="{TemplateBinding IsDropDownOpen, Mode=TwoWay}" PlacementTarget="{TemplateBinding}" InheritsTransform="True">
+              <Border Background="{DynamicResource OutputSurface}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1"
+                      RenderOptions.TextRenderingMode="Antialias" UseLayoutRounding="True">
+                <ScrollViewer HorizontalScrollBarVisibility="{TemplateBinding (ScrollViewer.HorizontalScrollBarVisibility)}"
+                              VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
+                              IsDeferredScrollingEnabled="{TemplateBinding (ScrollViewer.IsDeferredScrollingEnabled)}" IsScrollChainingEnabled="False">
+                  <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+        </Border>
+      </ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ComboBox:focus-within"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="ComboBox:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="ComboBox /template/ ContentPresenter"><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /></Style>
+    <Style Selector="ComboBoxItem"><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="Padding" Value="10,6" /><Setter Property="MinHeight" Value="30" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /><Setter Property="Foreground" Value="{DynamicResource OutputText}" />
+      <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" RenderOptions.TextRenderingMode="Antialias" UseLayoutRounding="True"><ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" VerticalAlignment="Center" /></Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource OutputHover}" /></Style>
+    <Style Selector="ComboBoxItem:selected"><Setter Property="Background" Value="{DynamicResource OutputSelected}" /></Style>
+    <Style Selector="CheckBox"><Setter Property="MinHeight" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource OutputText}" /></Style>
+    <Style Selector="CheckBox /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputText}" /></Style>
+    <Style Selector="CheckBox:disabled /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
+    <Style Selector="TabControl"><Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /></Style>
+    <Style Selector="TabItem">
+      <Setter Property="Height" Value="38" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="20,0" /><Setter Property="Margin" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" />
+      <Setter Property="Template"><ControlTemplate><Border Name="OutputTabSurface" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}"><ContentPresenter Content="{TemplateBinding Header}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource OutputText}" /><Setter Property="Background" Value="{DynamicResource OutputSelected}" /></Style>
+    <Style Selector="TabItem:selected /template/ Border#OutputTabSurface"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="TabItem:pointerover"><Setter Property="Background" Value="{DynamicResource OutputHover}" /></Style>
+    <Style Selector="Expander.outputAdvanced:down">
+      <Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" />
+      <Setter Property="ContentTransition" Value="{x:Null}" />
+      <!-- Avalonia Simple's down-expander contract, kept flat and without a decorative container. -->
+      <Setter Property="Template"><ControlTemplate><Grid RowDefinitions="Auto,Auto">
+        <ToggleButton Name="PART_toggle" Classes="advanced" Content="{TemplateBinding Header}" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+        <ContentPresenter Name="PART_ContentPresenter" Grid.Row="1" Margin="0,12,0,0" Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch"
+                          Foreground="{TemplateBinding Foreground}" IsVisible="{TemplateBinding IsExpanded}" Opacity="1" />
+      </Grid></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.advanced">
+      <Setter Property="Height" Value="32" /><Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" />
+      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+        <Grid ColumnDefinitions="24,*"><Path Width="5" Height="8" Data="M 0 0 L 4 4 L 0 8" Stroke="{TemplateBinding Foreground}" StrokeThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="50%,50%" />
+          <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+        </Grid>
+      </Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.advanced:pointerover"><Setter Property="Background" Value="{DynamicResource OutputHover}" /></Style>
+    <Style Selector="ToggleButton.advanced:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
+    <Style Selector="ToggleButton.advanced:checked /template/ Path"><Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter></Style>
+    <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource OutputBorder}" /><Setter Property="Margin" Value="0,4" /></Style>
+    <StyleInclude Source="avares://Mmd.Modern.App/EditorPopupStyles.axaml" />
+  </Window.Styles>
+  <Grid RowDefinitions="*,Auto">
+    <TabControl Name="OutputTabs">
+      <TabItem Header="{DynamicResource Mda.Text.fb04addb4c26}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="22" Margin="24,20,24,24">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.836f2584c39f}" Classes="label" /><ComboBox Name="MediaKindBox" Grid.Column="1" ItemsSource="{Binding MediaKinds}" SelectedIndex="{Binding MediaKindIndex}" /></Grid>
+              <Grid ColumnDefinitions="104,*,8,Auto"><TextBlock Text="{Binding DestinationLabel}" Classes="label" /><TextBox Name="DestinationBox" Grid.Column="1" Text="{Binding Destination}" Watermark="{DynamicResource Mda.Text.207f20a67722}" /><Button Grid.Column="3" Content="{DynamicResource Mda.Text.0617557e7bbc}" Click="BrowseDestination" /></Grid>
+              <TextBlock Text="{Binding DestinationHint}" Classes="caption" Margin="104,0,0,0" />
+            </StackPanel>
+            <Separator />
+            <Grid ColumnDefinitions="*,32,*">
+              <StackPanel Spacing="12">
+                <TextBlock Text="{DynamicResource Mda.Text.d051df30a636}" Classes="section" />
+                <Grid ColumnDefinitions="80,*,24,*"><TextBlock Text="{DynamicResource Mda.Text.81bac907ba62}" Classes="label" /><validated:EditorNumericUpDown Name="OutputWidthBox" Grid.Column="1" Value="{Binding Width}" Minimum="1" Maximum="32768" FormatString="0" /><TextBlock Grid.Column="2" Text="×" Classes="muted" HorizontalAlignment="Center" VerticalAlignment="Center" /><validated:EditorNumericUpDown Name="OutputHeightBox" Grid.Column="3" Value="{Binding Height}" Minimum="1" Maximum="32768" FormatString="0" /></Grid>
+                <Grid ColumnDefinitions="80,*"><TextBlock Text="{DynamicResource Mda.Text.d422d4399a96}" Classes="label" /><validated:EditorNumericUpDown Name="FrameRateBox" Grid.Column="1" Value="{Binding FramesPerSecond}" Minimum="0.000001" Maximum="1000000" Increment="1" FormatString="0.######" /></Grid>
+                <CheckBox Name="TransparentBackgroundBox" Content="{DynamicResource Mda.Text.e21e86348d89}" IsChecked="{Binding TransparentBackground}" IsEnabled="{Binding IsImage}" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="12">
+                <TextBlock Text="{DynamicResource Mda.Text.e737153a58e4}" Classes="section" />
+                <Grid ColumnDefinitions="80,*"><TextBlock Text="{DynamicResource Mda.Text.5b028a656e82}" Classes="label" /><validated:EditorNumericUpDown Name="StartFrameBox" Grid.Column="1" Value="{Binding StartFrame}" Minimum="0" Maximum="4294967295" FormatString="0" /></Grid>
+                <Grid ColumnDefinitions="80,*"><TextBlock Text="{DynamicResource Mda.Text.4e332402a4fd}" Classes="label" /><validated:EditorNumericUpDown Name="EndFrameBox" Grid.Column="1" Value="{Binding EndFrame}" Minimum="0" Maximum="4294967295" IsEnabled="{Binding IsInterval}" FormatString="0" /></Grid>
+                <TextBlock Text="{DynamicResource Mda.Text.722817ed6e87}" Classes="caption" />
+              </StackPanel>
+            </Grid>
+            <Separator />
+            <Expander Name="OutputAdvancedExpander" Classes="outputAdvanced" Header="{DynamicResource Mda.Text.d6e61888b078}" IsExpanded="False">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="104,160,*"><TextBlock Text="{DynamicResource Mda.Text.bfb9661f65c1}" Classes="label" /><validated:EditorNumericUpDown Name="PreRollBox" Grid.Column="1" Value="{Binding PreRoll}" Minimum="0" Maximum="4294967295" FormatString="0" /></Grid>
+                <TextBlock Text="{DynamicResource Mda.Text.10fa8628725a}" Classes="caption" Margin="104,0,0,0" />
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Mda.Text.77ccdb7ba817}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="24" Margin="24,20,24,24">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="148,200,*" IsVisible="{Binding SupportsCaptureMemory}">
+                <TextBlock Text="{Binding CaptureMemoryLabel}" Classes="label" Margin="0,0,12,0" />
+                <ComboBox Name="OutputCaptureMemoryBox" Grid.Column="1" ItemsSource="{Binding CaptureMemoryChoices}" SelectedIndex="{Binding CaptureMemoryIndex}" AutomationProperties.Name="{Binding CaptureMemoryLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorCaptureMemoryChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+              </Grid>
+              <TextBlock Text="{Binding CaptureMemoryHint}" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <Grid ColumnDefinitions="*,32,*">
+              <StackPanel Spacing="12">
+                <TextBlock Text="{DynamicResource Mda.Text.802203c950a9}" Classes="section" />
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{DynamicResource Mda.Text.47a270081ab2}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="AntialiasingBox" Grid.Column="1" ItemsSource="{Binding AntialiasingModes}" SelectedIndex="{Binding AntialiasingIndex}" /></Grid>
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{DynamicResource Mda.Text.7eb5ba8bf0d2}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="SmaaQualityBox" Grid.Column="1" ItemsSource="{Binding SmaaQualities}" SelectedIndex="{Binding SmaaIndex}" IsEnabled="{Binding IsSmaa}" /></Grid>
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding SurfaceOrderLabel}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="OutputSurfaceOrderBox" Grid.Column="1" ItemsSource="{Binding SurfaceOrders}" SelectedIndex="{Binding SurfaceOrderIndex}" AutomationProperties.Name="{Binding SurfaceOrderLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSurfaceOrderChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{DynamicResource Mda.Text.743c689cd76d}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="SpatialSamplesBox" Grid.Column="1" ItemsSource="{Binding SpatialSamples}" SelectedIndex="{Binding SpatialIndex}" /></Grid>
+                <TextBlock Text="{DynamicResource Mda.Text.6eec417108f9}" Classes="caption" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="12">
+                <TextBlock Text="{DynamicResource Mda.Text.2eb88a373a7f}" Classes="section" />
+                <CheckBox Name="DiffusionBox" Content="{DynamicResource Mda.Text.1251a1baefb5}" IsChecked="{Binding DiffusionEnabled}" />
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="label" Margin="0,0,12,0" /><validated:EditorNumericUpDown Grid.Column="1" Value="{Binding DiffusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" IsEnabled="{Binding DiffusionEnabled}" /></Grid>
+                <Grid ColumnDefinitions="148,*"><TextBlock Text="{DynamicResource Mda.Text.ae72b532f4b8}" Classes="label" Margin="0,0,12,0" /><validated:EditorNumericUpDown Grid.Column="1" Value="{Binding DiffusionExtent}" Minimum="0" Maximum="0.01" Increment="0.0005" FormatString="0.0000" IsEnabled="{Binding DiffusionEnabled}" /></Grid>
+                <TextBlock Text="{DynamicResource Mda.Text.3f325966f5b4}" Classes="caption" />
+              </StackPanel>
+            </Grid>
+            <Separator />
+            <StackPanel Spacing="12">
+              <TextBlock Text="{Binding GiLabel}" Classes="section" />
+              <Grid ColumnDefinitions="*,32,*">
+                <StackPanel Spacing="12">
+                  <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding GiModeLabel}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="OutputGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" IsEnabled="{Binding GiCapabilitiesReady}" AutomationProperties.Name="{Binding GiLabel}" /></Grid>
+                  <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding GiStrengthLabel}" Classes="label" Margin="0,0,12,0" /><validated:EditorNumericUpDown Name="OutputGiStrengthBox" Grid.Column="1" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiStrengthLabel}" /></Grid>
+                  <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding GiSamplesLabel}" Classes="label" Margin="0,0,12,0" /><validated:EditorNumericUpDown Name="OutputGiSamplesBox" Grid.Column="1" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSamplesLabel}" /></Grid>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="12">
+                  <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding GiCompositionLabel}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="OutputGiCompositionBox" Grid.Column="1" ItemsSource="{Binding GiCompositions}" SelectedIndex="{Binding GiCompositionIndex}" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiCompositionLabel}" /></Grid>
+                  <TextBlock Text="{Binding GiCompositionScope}" Classes="caption" IsVisible="{Binding ShowGiPaletteNotice}" />
+                  <Grid ColumnDefinitions="148,*"><TextBlock Text="{Binding GiDenoiserLabel}" Classes="label" Margin="0,0,12,0" /><ComboBox Name="OutputGiDenoiserBox" Grid.Column="1" ItemsSource="{Binding GiDenoisers}" SelectedIndex="{Binding GiDenoiserIndex}" IsEnabled="{Binding IsGiDenoiserEnabled}" AutomationProperties.Name="{Binding GiDenoiserLabel}" /></Grid>
+                  <TextBlock Text="{Binding GiHint}" Classes="caption" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Text="{Binding GiCapabilityStatus}" Classes="caption" />
+            </StackPanel>
+            <Expander Name="QualityAdvancedExpander" Classes="outputAdvanced" Header="{DynamicResource Mda.Text.d6e61888b078}" IsExpanded="False">
+              <StackPanel Spacing="8"><TextBlock Text="{Binding InheritedQualityStatus}" Classes="caption" /><TextBlock Text="{DynamicResource Mda.Text.e860eb4a01dd}" Classes="caption" /></StackPanel>
+            </Expander>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="{DynamicResource Mda.Text.780da4f96096}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="22" Margin="24,20,24,24">
+            <Grid ColumnDefinitions="*,32,*" IsEnabled="{Binding IsVideo}">
+              <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="88,*"><TextBlock Text="{DynamicResource Mda.Text.d8c9c6038eb3}" Classes="label" /><ComboBox Name="EncoderBox" Grid.Column="1" ItemsSource="{Binding Encoders}" SelectedIndex="{Binding EncoderIndex}" /></Grid>
+                <Grid ColumnDefinitions="88,*"><TextBlock Text="{DynamicResource Mda.Text.2ba57b3d58e8}" Classes="label" /><ComboBox Name="RateControlBox" Grid.Column="1" ItemsSource="{Binding RateControls}" SelectedIndex="{Binding RateControlIndex}" IsEnabled="{Binding IsCompressed}" /></Grid>
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="12">
+                <Grid ColumnDefinitions="88,*" IsVisible="{Binding IsConstantQuality}"><TextBlock Text="{DynamicResource Mda.Text.2f33b9cff9d2}" Classes="label" /><validated:EditorNumericUpDown Name="VideoQualityBox" Grid.Column="1" Value="{Binding Quality}" FormatString="0" IsEnabled="{Binding IsConstantQuality}" /></Grid>
+                <Grid ColumnDefinitions="132,*" IsVisible="{Binding IsTargetBitrate}"><TextBlock Text="{DynamicResource Mda.Text.c6ef80030c0c}" Classes="label" /><validated:EditorNumericUpDown Name="TargetBitrateBox" Grid.Column="1" Value="{Binding TargetBitrate}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsTargetBitrate}" /></Grid>
+                <Grid ColumnDefinitions="88,*"><TextBlock Text="{DynamicResource Mda.Text.0e14d148b46b}" Classes="label" /><ComboBox Name="VideoSpeedBox" Grid.Column="1" ItemsSource="{Binding Speeds}" SelectedIndex="{Binding SpeedIndex}" IsEnabled="{Binding IsCompressed}" /></Grid>
+                <TextBlock Text="{Binding QualityHint}" Classes="caption" Margin="88,0,0,0" IsVisible="{Binding IsConstantQuality}" />
+              </StackPanel>
+            </Grid>
+            <Separator />
+            <Expander Name="VideoAdvancedExpander" Classes="outputAdvanced" Header="{DynamicResource Mda.Text.21c73d40f042}" IsExpanded="False" IsEnabled="{Binding IsVideo}">
+              <Grid ColumnDefinitions="*,32,*">
+                <StackPanel Spacing="12">
+                  <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.d696a35bdd18}" Classes="label" /><ComboBox Name="VideoProfileBox" Grid.Column="1" ItemsSource="{Binding Profiles}" SelectedIndex="{Binding ProfileIndex}" IsEnabled="{Binding IsCompressed}" /></Grid>
+                  <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.1709305c9fa9}" Classes="label" /><ComboBox Name="VideoLevelBox" Grid.Column="1" ItemsSource="{Binding Levels}" SelectedIndex="{Binding LevelIndex}" IsEnabled="{Binding IsCompressed}" /></Grid>
+                  <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.8e467ca6d8ce}" Classes="label" /><validated:EditorNumericUpDown Name="VideoThreadsBox" Grid.Column="1" Value="{Binding Threads}" Minimum="1" Maximum="64" FormatString="0" /></Grid>
+                  <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.edee58aa040d}" Classes="label" /><validated:EditorNumericUpDown Name="VideoTimeoutBox" Grid.Column="1" Value="{Binding TimeoutSeconds}" Minimum="0.001" Maximum="86400" FormatString="0.###" /></Grid>
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="12">
+                  <CheckBox Content="{DynamicResource Mda.Text.298911e577cf}" IsChecked="{Binding LimitBitrate}" IsEnabled="{Binding IsCompressed}" />
+                  <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.713bee780c91}" Classes="label" /><validated:EditorNumericUpDown Name="MaximumBitrateBox" Grid.Column="1" Value="{Binding MaximumBitrate}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" /></Grid>
+                  <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.b3de6a18d60e}" Classes="label" /><validated:EditorNumericUpDown Name="VideoBufferSizeBox" Grid.Column="1" Value="{Binding BufferSize}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" /></Grid>
+                  <CheckBox Content="{DynamicResource Mda.Text.8e168cebc78e}" IsChecked="{Binding CustomKeyframeInterval}" IsEnabled="{Binding IsCompressed}" />
+                  <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.575132526fcb}" Classes="label" /><validated:EditorNumericUpDown Name="VideoKeyframeIntervalBox" Grid.Column="1" Value="{Binding KeyframeInterval}" Minimum="1" Maximum="10000" FormatString="0" IsEnabled="{Binding IsCustomKeyframeInterval}" /></Grid>
+                </StackPanel>
+              </Grid>
+            </Expander>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+    <Border Grid.Row="1" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,1,0,0" Padding="24,12,24,16">
+      <StackPanel Spacing="12">
+        <TextBlock Name="OutputValidationMessage" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2" VerticalAlignment="Center"><TextBlock Text="{Binding Summary}" Classes="caption" /><TextBlock Name="ExportAvailability" Text="{DynamicResource Mda.Text.981dc755b98a}" Classes="caption" /><TextBlock Name="OutputGiPaletteNotice" Text="{Binding GiPaletteNotice}" IsVisible="{Binding ShowGiPaletteNotice}" Classes="caption" /></StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Name="StartExportButton" Content="{DynamicResource Mda.Text.88da633ca773}" Click="StartExport" IsEnabled="False" /><Button Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelConfiguration" IsCancel="True" /><Button Name="ApplyOutputSettingsButton" Classes="action" Content="{DynamicResource Mda.Text.670f0a1d31c0}" Click="ApplyConfiguration" IsDefault="True" /></StackPanel>
+        </Grid>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

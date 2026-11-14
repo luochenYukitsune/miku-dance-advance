@@ -1,0 +1,291 @@
+// material_bind.h - the material/effect parameter binding of MMEffect.dll.
+//
+// Evidence:
+//   - MME_ApplyModelRenderSnapshot [0x18005a1e0] (kit decompile):
+//       memcpy(ModelData+0x138, snapshot, 0x220);
+//       if (ModelData+0xe8 != snapshot+0x30 draw_type_index) {
+//           ModelData+0xe8 = draw_type_index;
+//           MME_SelectMaterialEffectBinding(model, bindingContext, ModelData+0x138);
+//       }
+//       count = bindingContext ? *(u32*)(bindingContext+0x38) : 0;
+//       binding = FUN_18002d910(manager, count, model, snapshot+0x28 subset, 1);
+//       if (binding) FUN_18001b940(binding, draw_type_index, subset,
+//                                  snapshot+0x55 effect_file_used,
+//                                  0 < snapshot+0x50 sphere_mode,
+//                                  snapshot+0x54 toon_used, model+0x08);
+//   - MME_SelectMaterialEffectBinding [0x18005a020]: sets ModelData+0xe0 =
+//     &ModelData+0x138, looks up the (count, model, subset) node of the
+//     manager's std::map (+0xa0) and re-applies it (FUN_18001b340); then for
+//     renderClass == 0 with materialCount > 0 walks subsets 0..count-1
+//     re-applying each existing (count, model, i) node.
+//   - FUN_18002d910: the std::map lower_bound over the key
+//     (u32 turnId, ModelData*, int subset); when the exact subset is
+//     missing and the flag is set, retries once with subset = -1 (the
+//     "whole object" binding).
+//   - MME_BindMaterialParameter [0x18005eff0]: semantic ids
+//       0x18 Diffuse / 0x19 Ambient / 0x1A Emissive / 0x1B Specular
+//       ([0x18005eff0 tail switch] 0x1A selects the material +0x30 block
+//       (Emissive), 0x1B the +0x20 block (Specular) - swapped relative to
+//       the D3DMATERIAL9 field order; [0x18005f550] 0x1B also slices the
+//       light Specular. From device GetMaterial for draw types 1/3, zeroed
+//       material for 4, ExpGetAcsMaterial/ExpGetPmdMaterial
+//       otherwise), 0x1C ToonColor (snapshot+0x1a8 on the effect path),
+//       0x1D EdgeColor (snapshot+0x198 on the effect path, edge pass only),
+//       0x1E SpecularPower (Power, 0.0f -> 0.1f), 0x4E GroundShadowColor
+//       (shadow pass only, material x light composition).
+//   - MME_BindBooleanParameter [0x18005fb40]: semantic ids
+//       0x3C parthf (read back from the current effect), 0x3D spadd
+//       (sphere_mode == 2), 0x3E transp (snapshot+0x218), 0x3F use_texture
+//       (snapshot+0x56), 0x40 use_spheremap (0 < sphere_mode), 0x41
+//       use_subtexture (sphere_mode == 3), 0x42 use_toon (snapshot+0x54),
+//       0x45 opadd (GetBlendMode() == 1).
+//   - The effect-owner manager std::map (+0xa0): key (u32 count, ModelData*,
+//     int subset), value = the binding object (globals_structures.md section 4).
+//
+// Phase 2 boundary: the SAS script/technique machinery (Phase 3) owns the
+// render-turn records (one per OFFSCREENRENDERTARGET resource of the
+// binding's effect - the original's binding+0x1B8 vector, filled by the SAS
+// parser for semanticId 0x2E only; see MmeCollectSceneOffscreens in
+// pass_planner.cpp); the binding application here performs the
+// standard-parameter set through the name-table handles (the original's
+// 0x1800B36A0 table: the 17 matWorld..SphCMul names plus use_*/opadd/
+// VertexCount/SubsetCount) resolved by enumeration + _stricmp.
+// MATERIALTEXTURE/MATERIALSPHEREMAP/MATERIALTOONTEXTURE bind by semantic.
+// CONTROLOBJECT parameters are resolved from the live host by
+// MmeUpdateControlObjects during assignment traversal.
+#pragma once
+
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <d3d9.h>
+#include <d3dx9.h>
+
+#include "render_snapshot.h"
+
+namespace mme {
+
+struct SasEffect;
+struct SasResource;
+struct LoadedEffect;
+class ModelData;
+
+// One binding object (the manager map value; original node+0x30). It caches
+// the per-effect handles that the standard apply resolves by name.
+struct MaterialBinding {
+    ID3DXEffect* effect;                              // the target effect
+    std::string  effectPath;                          // assigned file ("" = pool effect)
+    // Compiled-file cache and the assignment's independent runtime instance.
+    std::shared_ptr<LoadedEffect> owner;
+    std::shared_ptr<LoadedEffect> instance;
+    // Resource names are scoped to an assignment, never to the engine cache.
+    std::map<std::string, unsigned int> offscreenTurns;
+    // The name-table handles (the original's 0x1800B36A0 table: matWorld ..
+    // SphCMul plus use_*/opadd/VertexCount/SubsetCount). Keyed by the table's
+    // canonical spelling and resolved once per binding by ENUMERATING the
+    // effect's parameters and _stricmp-matching desc.Name (0x18000e811) -
+    // case variants like `Matworld` bind, exactly like the original.
+    // [Allocation-free hot path] std::less<> is transparent: find(literal) directly compares string and
+    // const char* through operator<, without a temporary std::string (the original
+    // sub_18001B5B0 uses a precompiled ID table, allocating nothing per pass; this table matches that cost model;
+    // rayMMD's ~31 passes x 10 turns x 30fps amplify any per-pass allocation into
+    // hundreds of thousands of malloc/free operations per second; see the related MmeBindSemanticParameters comment).
+    std::map<std::string, D3DXHANDLE, std::less<>> namedHandles;
+    bool namesResolved;                               // namedHandles enumeration ran
+    D3DXHANDLE   technique;                           // legacy slot (kept null: the
+                                                     // original has no MainTec0
+                                                     // convention - a null per-draw
+                                                     // selection draws raw)
+    unsigned int passCount;                           // passes in the selected technique
+
+    // The parsed SAS model of the assigned effect (null for plain effects)
+    // and the technique the scene-effect drivers step/resume - EVERY render
+    // turn of the carrier walks this one (first script) technique; the
+    // original's (turn id, carrier) binding records store no per-turn
+    // technique choice (sub_18005A410 reads the record's techniques[0]).
+    // For object effects the technique table below drives the draw instead.
+    SasEffect* sas;
+    int        sceneTechIndex;
+
+    // Per-draw-type technique slot indexed by the host's
+    // ExpGetCurrentTechnic value (1 = object, 2 = object_ss, 3 = shadow,
+    // 4 = edge, 5 = z-plot). MmeApplyModelRenderSnapshot refreshes it per
+    // draw from the selection table below [FUN_18001b940's table lookup];
+    // a null entry falls back to `technique` (also null) -> the raw host
+    // draw, exactly the original's no-selection forward.
+    D3DXHANDLE  techniques[6];
+    unsigned int passCounts[6];
+
+    // [sub_18001DD20 precompute / FUN_18001b940 lookup] the per-MmdPass
+    // technique-selection table, built once per effect assignment with the
+    // model's material count. Modes 0/1 (object, object_ss) hold
+    // materialCount*8 (handle, passCount) entries indexed subset*8 +
+    // (useTexture | useSpheremap<<1 | useToon<<2); modes 2/3/4 (shadow,
+    // edge, zplot) hold materialCount entries indexed by subset alone
+    // (selected with every Use* state false). A null handle entry is "no
+    // technique -> raw host draw". The table stays empty when the effect
+    // has no SAS model or the material count is 0 - every lookup then
+    // misses, which is the original's empty-table behavior (sub_18001DD20's
+    // a2 <= 0 early-out).
+    std::vector<std::pair<D3DXHANDLE, unsigned int> > drawTechniques[5];
+    bool drawTableBuilt;
+
+    // Semantic-resolved handles (the SAS standard parameters ray-mmd style
+    // effects declare: float4x4 matWorldViewProject : WORLDVIEWPROJECTION
+    // etc.). Resolved once per binding through GetParameterBySemantic.
+    // [Allocation-free hot path] semanticFast caches each semantic parameter's dispatch decision (kind/base/
+    // flags/light) once on first binding; the per-pass binding loop only dispatches with switch,
+    // without string construction or annotation reads (matching original sub_18001B5B0's precompiled
+    // ID-table cost model). semanticHandles remains only for compatibility with the old path.
+    struct SemanticBind {
+        D3DXHANDLE    handle;
+        unsigned char kind;    // Dispatch category (kSem* constants, material_bind.cpp)
+        unsigned char base;    // Matrix basis/material ID/time index/texture slot/mouse button
+        unsigned char flags;   // Matrix: bit0=INVERSE bit1=TRANSPOSE; modulation: bit0=mul bit1=sphere
+        unsigned char light;   // 1 = Light/Light0 family
+    };
+    std::vector<SemanticBind> semanticFast;
+    std::vector<D3DXHANDLE> semanticHandles;
+    bool semanticsResolved;
+
+    MaterialBinding()
+        : effect(nullptr), technique(nullptr), passCount(0),
+          sas(nullptr), sceneTechIndex(-1), drawTableBuilt(false),
+          namesResolved(false), semanticsResolved(false) {
+        for (int i = 0; i < 6; ++i) {
+            techniques[i] = nullptr;
+            passCounts[i] = 0;
+        }
+    }
+};
+
+// [0x18005a020] MME_SelectMaterialEffectBinding: ensure the (count, model,
+// subset) bindings exist for the model's assigned effect, then re-apply the
+// binding for the snapshot subset and, for renderClass 0 models, every
+// material subset.
+void MmeSelectMaterialEffectBinding(ModelData* model, void* bindingContext,
+                                    const RenderSnapshot& snap);
+
+// [0x18005eff0] MME_BindMaterialParameter: SetVector/SetMatrix for the
+// material-color semantics (0x18-0x1E, 0x4E). `count` follows the original's
+// SetVector count parameter (4 = float4, 1 = float scalar splat for 0x1E).
+void MmeBindMaterialParameter(ModelData* model, ID3DXEffect* effect, int semantic,
+                              D3DXHANDLE handle, int count);
+
+// [0x18005fb40] MME_BindBooleanParameter: SetBool for the boolean semantics
+// (0x3C-0x45).
+void MmeBindBooleanParameter(ModelData* model, ID3DXEffect* effect, int semantic,
+                             D3DXHANDLE handle);
+
+// The Phase 2 standard apply (what FUN_18001b940's op dispatch reduces to
+// without the SAS op arrays): set the 17 cached standard parameters plus the
+// name-resolved extras for the model/effect pair. Handles are resolved
+// against the TARGET effect (the g_paramHandles cache belongs to the host
+// effect captured at Initialize and is invalid for model effects).
+void MmeBindStandardParameters(ModelData* model, MaterialBinding* binding,
+                               const RenderSnapshot& snap);
+
+// The SAS semantic binding layer (WORLD/WORLDVIEW/WORLDVIEWPROJECTION/
+// VIEW.../POSITION/DIRECTION/OBJECT-annotated Light-Camera dispatch,
+// VIEWPORTPIXELSIZE/TIME/ELAPSEDTIME/MOUSEPOSITION). Resolved through
+// GetParameterBySemantic once per binding; called from the standard apply.
+void MmeBindSemanticParameters(ModelData* model, MaterialBinding* binding,
+                               const RenderSnapshot& snap);
+
+// Accessory attach resolution (MMHack GetAcsAttachedPmd). Called by the pass
+// planner for kind != 1 objects with the accessory ID; records the attached
+// model id + bone index on the ModelData (the CONTROLOBJECT
+// "(AttachedModel)"/"(AttachedBone)" naming consumes it in Phase 3).
+void MmeResolveAccessoryAttach(ModelData* model, unsigned long long accessoryId);
+
+// Assignment lookup: (turn ID, object, subset), with optional whole-object
+// inheritance. owner retains the compiled-file cache; each assignment owns
+// a cloned runtime effect and its SAS model.
+MaterialBinding* MmeFindMaterialBinding(unsigned int turnId, ModelData* model,
+                                        int subsetIndex, bool allowWholeObject);
+MaterialBinding* MmeEnsureMaterialBinding(unsigned int turnId, ModelData* model,
+                                          int subsetIndex, ID3DXEffect* effect,
+                                          const std::string& effectPath,
+                                          const std::shared_ptr<LoadedEffect>& owner);
+void MmeDropMaterialBindings(ModelData* model);
+
+// Resolve (and cache) the whole-object binding for the model's assigned
+// effect: load the file through the engine cache, create the (0, model, -1)
+// binding, build the per-MmdPass selection table (sub_18001DD20: MmdPass +
+// Subset + UseTexture/UseSpheremap/UseToon against the material state,
+// indexed per draw by FUN_18001b940) and, when the effect is a
+// scene/sceneorobject class, write the SAS class/order into the ModelData
+// (+0x360/+0x364/+0x368) so the pass planner picks the object up as a pass
+// record. Returns null when the model has no assigned effect or the effect
+// is unavailable.
+MaterialBinding* MmeResolveModelEffectBinding(ModelData* model);
+
+// Resolve one explicit per-material assignment. Unlike the whole-object
+// binding this never changes the carrier's scene/pass classification.
+// An empty path creates a null-effect binding, overriding whole-object fallback.
+MaterialBinding* MmeResolveSubsetEffectBinding(ModelData* model, int subsetIndex,
+                                                const std::string& effectPath);
+
+// The whole-object binding lookup used by the draw path (the same (0, model,
+// -1) key MmeResolveModelEffectBinding creates). Returns null when the model
+// has no binding.
+MaterialBinding* MmeActiveModelBinding(ModelData* model);
+
+// --- offscreen DefaultEffect (sub_180011960 offscreen record +0x78) ---
+// Pure first-match query shared by rendering and the effect mapping UI.
+// The returned row is borrowed from rows. Values (hide/none/effect paths)
+// are not interpreted here. "self" compares model/owner pointer identity;
+// other keys retain the renderer's case-insensitive basename glob matching
+// against the basename and extension.
+const std::pair<std::string, std::string>* MmeFindDefaultEffectRow(
+    const std::vector<std::pair<std::string, std::string>>& rows,
+    ModelData* model, ModelData* owner);
+
+// Mapping-dialog checkbox state: an absent row retains the original -1
+// (shown) state; only an explicit "hide" clears it. This is not a render
+// eligibility test: the renderer may skip a turn with no assigned row.
+bool MmeDefaultEffectRowShown(const std::pair<std::string, std::string>* row);
+
+// Resolve the active turn's DefaultEffect assignment by first matching row.
+// Resource declaration does not grant the object its root binding in a turn.
+// Missing, none and hide return null; the caller distinguishes missing/hide
+// (no draw) from none (host geometry) with the predicates below.
+MaterialBinding* MmeResolveOffscreenDefaultBinding(ModelData* model, int subsetIndex = -1);
+MaterialBinding* MmeResolveTurnEffectBinding(unsigned int turnId,
+    SasResource& resource, ModelData* offscreenOwner, ModelData* model,
+    int subsetIndex = -1);
+
+// [sub_18005A1E0 0x18005a24c-0x18005a268] Offscreen render-turn
+// detection: the original considers the window active when ctx+0x168's 0x48-byte turn wrapper is non-null;
+// wrapper+0x38 is the current turn ID (MME_ApplyModelRenderSnapshot uses it as the first owner-key
+// field for binding lookup). A null wrapper means base turn (turn ID 0, scene-key-0 lookup).
+// The port uses ctx->currentBindingOffscreen (set by pass_planner when applying the turn from
+// renderPassList[lastRepeatCount-1], cleared for the base turn; the port counterpart of FUN_18005d130
+// [L74740]/[L74743-74745]) as the resource-identity equivalent of the wrapper:
+// non-null means an offscreen turn. Binding lookup within the window must never fall back to scene key 0 (the model's
+// own (0, model, -1) binding is invisible to turn-ID keys).
+bool MmeInOffscreenRenderTurn();
+
+// Distinguish an absent turn mapping (no draw) from an explicit "none"
+// mapping (draw host geometry without an effect).
+const std::string* MmeOffscreenEffectValue(const SasResource& resource,
+    ModelData* model, ModelData* owner, int subsetIndex = -1);
+bool MmeOffscreenObjectShown(const SasResource& resource,
+    ModelData* model, ModelData* owner, int subsetIndex = -1);
+bool MmeHasOffscreenDefaultEffectRow(ModelData* model, int subsetIndex = -1);
+
+// True when the model's matched offscreen DefaultEffect row is "hide" - the
+// model must not be drawn into the offscreen target at all.
+bool MmeOffscreenDefaultEffectHides(ModelData* model, int subsetIndex = -1);
+
+// Per-frame CONTROLOBJECT resolution for every assignment (the original's
+// EffectFrameParamSetter walk, sub_180057BC0): resolve each control
+// parameter's object/item against the live ModelData name tables and push
+// the value into the effect. Called once per frame from the pass planner.
+void MmeUpdateControlObjects(ModelData* model, MaterialBinding* binding,
+                             ModelData* offscreenOwner);
+
+} // namespace mme

@@ -1,0 +1,213 @@
+// mmhack_getters.cpp - the 22 exported state-query functions.
+//
+// In the original binary every getter is a tiny reader over MMHack's .data
+// state block; the per-export evidence address is cited above each function.
+#include "mmhack_state.h"
+#include "mmhack_api.h"
+
+// Host accessory layout: direct-read view for GetAcsAttachedPmd (+0x240/+0x244).
+#include "mikudancestudio/accessory_layout.hpp"
+
+MmhState g_mmh;
+
+extern "C" {
+
+// --- ordinal 1 [0x1800012d0 GetAcsAttachedPmd] ------------------------------
+BOOL __cdecl GetAcsAttachedPmd(unsigned long long accessory_id,
+                               unsigned long long* model_id, int* bone_index)
+{
+    // Original data flow: [0x1800012ea] for an id absent from the objData map, sub_18000F2B0
+    // directly returns a1 at [0x18000f331], treating the id as a host accessory pointer. Then
+    // [0x1800012ef] mov ecx,[rax+240h] / [0x1800012f5] mov ebp,[rax+244h] read
+    // the attached model index (+0x240, -1 = unattached, AccessoryRecord::parentModel on the host) and
+    // attached bone index (+0x244 =
+    // AccessoryRecord::parentBone) directly from that object's current memory. The original ObjData never writes these fields
+    // (MMHack.dll has no +0x240 writes anywhere, only this function's read); the direct read is
+    // the sole real data source. Object ids in this project are also host accessory pointers (ExpGetAcsID returns
+    // AccessoryRecord*, no longer truncated to 32 bits on x64), so read the host object directly on every
+    // call as well.
+    // [0x1800012fd] Only exactly -1 means unattached; otherwise [0x180001306] keeps ecx as
+    // attachPmdIndex and calls ExpGetPmdID (slot enumeration failure returns 0 and also yields FALSE).
+    // [0x18000130c] mov eax,eax zero-extends the value before writing the 64-bit model id output; [0x18000131e]
+    // writes the 32-bit bone output (the original writes both outputs unconditionally; on FALSE, the model id is 0).
+    // [0x180001325] setnz returns (PmdID != 0).
+    int pmdIndex = -1;
+    int boneIndex = 0;
+    if (accessory_id != 0) {
+        const mikudancestudio::mdl::AccessoryRecord* acs =
+            mikudancestudio::mdl::Accessory(
+                reinterpret_cast<const void*>(accessory_id));
+        pmdIndex = acs->parentModel;    // +0x240
+        boneIndex = acs->parentBone;    // +0x244
+    }
+    unsigned long long modelId = 0;
+    if (pmdIndex != -1)
+        modelId = (unsigned long long)(uintptr_t)ExpGetPmdID(pmdIndex);
+    if (model_id)
+        *model_id = modelId;
+    if (bone_index)
+        *bone_index = boneIndex;
+    return modelId != 0 ? TRUE : FALSE;
+}
+
+// --- ordinal 2 [0x1800012c0 GetBlendMode; DAT_18006e7b8] --------------------
+int __cdecl GetBlendMode(void)
+{
+    return g_mmh.blendMode;
+}
+
+// --- ordinal 3 [0x180001780 GetClearColor; DAT_18006ccc4] -------------------
+D3DCOLOR __cdecl GetClearColor(void)
+{
+    return g_mmh.clearColor;
+}
+
+// --- ordinal 4 [0x180001050 GetCurrentDrawType; DAT_18006e798] --------------
+int __cdecl GetCurrentDrawType(void)
+{
+    return g_mmh.currentDrawType;
+}
+
+// --- ordinal 5 [0x180001290 GetCurrentEffect; DAT_18006e7a0] ----------------
+void* __cdecl GetCurrentEffect(void)
+{
+    return g_mmh.currentEffect;
+}
+
+// --- ordinal 6 [0x180001090 GetCurrentFrameTime; DAT_18006e79c] -------------
+float __cdecl GetCurrentFrameTime(void)
+{
+    return g_mmh.frameTime;
+}
+
+// --- ordinal 7 [0x180001040 GetCurrentModelID; DAT_18006e868] ---------------
+unsigned long long __cdecl GetCurrentModelID(void)
+{
+    return g_mmh.currentModelID;
+}
+
+// --- ordinal 8 [0x1800012b0 GetCurrentSubsetIndex; DAT_18006ccc0] -----------
+int __cdecl GetCurrentSubsetIndex(void)
+{
+    return g_mmh.currentSubsetIndex;
+}
+
+// --- ordinal 9 [0x180001070 GetDrawnWindow; DAT_18006e7c0] ------------------
+HWND __cdecl GetDrawnWindow(void)
+{
+    return g_mmh.presentWindow;
+}
+
+// --- ordinal 10 [0x180001330 GetLightViewProjMatrix] ------------------------
+void __cdecl GetLightViewProjMatrix(D3DMATRIX* light_view,
+                                    D3DMATRIX* light_projection,
+                                    D3DMATRIX* light_view_projection)
+{
+    MmhComputeLightViewProjMatrix(light_view, light_projection, light_view_projection);
+}
+
+// --- ordinal 11 [0x180001060 GetMMDMainWindow; DAT_18006e7e0] ---------------
+HWND __cdecl GetMMDMainWindow(void)
+{
+    return g_mmh.mainWindow;
+}
+
+// --- ordinal 12 [0x180001130 GetMaterialName] -------------------------------
+const wchar_t* __cdecl GetMaterialName(unsigned long long object_id,
+                                       unsigned long material_index, int name_kind)
+{
+    return MmhGetMaterialName(object_id, material_index, name_kind);
+}
+
+// --- ordinal 13 [0x1800010e0 GetSphereMapMode; bytes @0x18006e789/78a] ------
+MMH_SPHERE_MAP_MODE __cdecl GetSphereMapMode(void)
+{
+    // Original RVA 0x10E9/0x10F5/0x1106 returns a full 32-bit value in
+    // EAX, consumed without zero-extension by MMEffect RVA 0x59CC8.
+    if (g_mmh.sphereUsed == 0)
+        return MMH_SPHERE_NONE;
+    if (g_mmh.subTexUsed != 0)
+        return MMH_SPHERE_SUBTEXTURE;
+    return g_mmh.sphereAdd != 0 ? MMH_SPHERE_ADD : MMH_SPHERE_MULTIPLY;
+}
+
+// --- ordinal 14 [0x1800010d0 GetSphereMapTexture; DAT_18006e7b0] ------------
+IDirect3DBaseTexture9* __cdecl GetSphereMapTexture(void)
+{
+    return g_mmh.sphereTexture;
+}
+
+// --- ordinal 15 [0x1800010a0 GetTexture; DAT_18006e7a8] ---------------------
+IDirect3DBaseTexture9* __cdecl GetTexture(void)
+{
+    return g_mmh.baseTexture;
+}
+
+// --- ordinal 16 [0x1800010b0 GetToonTexture] ---------------------------------
+IDirect3DBaseTexture9* __cdecl GetToonTexture(void)
+{
+    // Only for PMD models (DAT_18006e870 == 1); texture comes from the
+    // toon cache for the current material. [FUN_18000f810]
+    if (g_mmh.currentObjectKind != 1)
+        return nullptr;
+    return MmhGetCurrentToonTexture(g_mmh.currentModelID);
+}
+
+// --- ordinal 17 [0x180001770 IsDebugMode; DAT_18006e7bc] --------------------
+BOOL __cdecl IsDebugMode(void)
+{
+    return g_mmh.debugMode ? TRUE : FALSE;
+}
+
+// --- ordinal 18 [0x180001080 IsEditMode; DAT_18006e796 == 0] ----------------
+BOOL __cdecl IsEditMode(void)
+{
+    return g_mmh.notEditMode == 0 ? TRUE : FALSE;
+}
+
+// --- ordinal 19 [0x1800012a0 IsEffectFileUsed; DAT_18006e795] ---------------
+BOOL __cdecl IsEffectFileUsed(void)
+{
+    return g_mmh.effectFileUsed ? TRUE : FALSE;
+}
+
+// --- ordinal 20 [0x180001110 IsToonUsed] -------------------------------------
+BOOL __cdecl IsToonUsed(void)
+{
+    // [0x180001122] The original is a pure bool:
+    //   (DAT_18006e798 == 1 || DAT_18006e798 == 2) && BYTE3(qword_18006e788) == 0
+    // Always FALSE when drawType is neither 1 nor 2 (the original has no path returning numeric technic high bits).
+    return ((g_mmh.currentDrawType == 1 || g_mmh.currentDrawType == 2) &&
+            g_mmh.diffuseFlag == 0)
+               ? TRUE
+               : FALSE;
+}
+
+// --- ordinal 21 [0x180001790 LoadedPMMFile] ----------------------------------
+const wchar_t* __cdecl LoadedPMMFile(void)
+{
+    // One-shot: returns the last loaded .pmm path once, then clears the flag.
+    static std::wstring ret;
+    ret.clear();
+    if (!g_mmh.loadedPmmFlag)
+        return nullptr;
+    ret = g_mmh.loadedPMMFile;
+    g_mmh.loadedPMMFile.clear();
+    g_mmh.loadedPmmFlag = false;
+    return ret.c_str();
+}
+
+// --- ordinal 22 [0x180001840 SavedPMMFile] -----------------------------------
+const wchar_t* __cdecl SavedPMMFile(void)
+{
+    // Pops the front of the save list; nullptr when empty.
+    static std::wstring ret;
+    ret.clear();
+    if (g_mmh.savedPmmList.empty())
+        return nullptr;
+    ret = g_mmh.savedPmmList.front();
+    g_mmh.savedPmmList.pop_front();
+    return ret.c_str();
+}
+
+} // extern "C"

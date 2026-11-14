@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Effects/Mmd.Modern.Effects.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Physics.Bepu/Mmd.Modern.Physics.Bepu.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Physics.Runtime/Mmd.Modern.Physics.Runtime.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.ViewOutput.D3D12/Mmd.Modern.ViewOutput.D3D12.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.App/Mmd.Modern.App.csproj" />
+    <ProjectReference Include="../Mmd.Modern.PluginFixture/Mmd.Modern.PluginFixture.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Avalonia.Headless" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <None Include="../../fixtures/humanoid.pmd" Link="fixtures/humanoid.pmd" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Mmd.Modern.Formats.Tests/Fixtures/rich-w1-uv4.pmx" Link="fixtures/rich-w1-uv4.pmx" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Mmd.Modern.Application.Tests/Fixtures/pmm-v1-one-model.pmm" Link="fixtures/pmm-v1-one-model.pmm" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../../src/Mmd.Modern.Smoke/SceneTextureLoader.cs" Link="Smoke/SceneTextureLoader.cs" />
+  </ItemGroup>
+  <Target Name="CopyEditorPluginFixture" AfterTargets="Build">
+    <ItemGroup><EditorPluginFixtureFiles Include="$(ModernCacheRoot)/bin/Mmd.Modern.PluginFixture/$(Configuration)/$(TargetFramework)/*.dll;$(ModernCacheRoot)/bin/Mmd.Modern.PluginFixture/$(Configuration)/$(TargetFramework)/*.deps.json" /></ItemGroup>
+    <Copy SourceFiles="@(EditorPluginFixtureFiles)" DestinationFolder="$(TargetDir)PluginFixtures" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,225 @@
+--- upstream/third_party/mmeffect/src/mmeffect/effect_engine.cpp
++++ ALTERED/third_party/mmeffect/src/mmeffect/effect_engine.cpp
+@@ -1,5 +1,8 @@
++// ALTERED reset244: retain live effect source identity across device loss.
+ // effect_engine.cpp - see effect_engine.h
+ #include "effect_engine.h"
++#include "mda_object_fx_policy.hpp"
++#include "mda_resource_paths.hpp"
+ 
+ #include <direct.h>
+ #include <map>
+@@ -40,6 +43,16 @@
+ {
+     static std::vector<std::weak_ptr<LoadedEffect>> instances;
+     return instances;
++}
++
++// General offscreen DefaultEffect resolution can fail before it creates a
++// binding. The original draw path may then fall back to the host draw; latch
++// the configured-scene failure so the adapter rejects those partial pixels.
++// Keep the original unconfigured/finite-object reporting behavior unchanged.
++void RecordSceneFxFailure()
++{
++    if (MdaMmeSceneFxV1())
++        MdaMmeRecordErrorV1(MDA_MME_INVALID, 0, MDA_MME_QUERY_OBJECT_FX, 0);
+ }
+ 
+ std::vector<std::shared_ptr<LoadedEffect>> LiveEffects()
+@@ -76,9 +89,10 @@
+ // that relative resource paths inside the effect resolve, then restores it.
+ class ScopedChdir {
+ public:
+-    explicit ScopedChdir(const std::string& effectPath)
++    explicit ScopedChdir(const std::string& effectPath, bool enabled = true)
+         : previous_(nullptr)
+     {
++        if (!enabled) return;
+         char* cwd = _getcwd(nullptr, 0);
+         previous_ = cwd;   // may be null; the original guards this too
+         char drive[3] = { 0 };
+@@ -300,6 +314,13 @@
+ static std::shared_ptr<LoadedEffect> LoadCachedEffectFile(IDirect3DDevice9* device,
+                                                       const std::string& pathAnsi)
+ {
++    if (MdaMmeExplicitObjectFxV1() && !MdaObjectFxAllowedPaths.count(pathAnsi)) {
++        auto rejected = std::make_shared<LoadedEffect>();
++        rejected->path = pathAnsi;
++        rejected->objectFxRejected = true;
++        rejected->errorText = "object FX file is outside the immutable explicit configuration\n";
++        return rejected;
++    }
+     EffectCache& cache = EffectCacheRef();
+     EffectCache::iterator existing = cache.find(pathAnsi);
+     if (existing != cache.end()) {
+@@ -308,6 +329,16 @@
+ 
+     std::shared_ptr<LoadedEffect> entry(new LoadedEffect());
+     entry->path = pathAnsi;
++    const bool mappedResources = MdaMmeMappedResourcesV1() != 0;
++    if (mappedResources) {
++        std::string mappedRoot, resolutionError;
++        if (!MdaMappedResourcePath(pathAnsi, pathAnsi, mappedRoot, resolutionError) ||
++            !mda_resource_detail::SamePath(mappedRoot, pathAnsi)) {
++            entry->errorText = "Error: package FX root is not mapped: " + pathAnsi + "\n" + resolutionError + "\n";
++            cache[pathAnsi] = entry;
++            return entry;
++        }
++    }
+ 
+     // [big-C 11211-11223] FUN_18000B7F0 gate: an unreadable file leaves the
+     // entry with a null effect (the caller then reports the load failure).
+@@ -340,7 +371,9 @@
+     }
+ 
+     // [big-C 11258-11327] CWD switch around the load (relative resources).
+-    ScopedChdir chdirScope(pathAnsi);
++    ScopedChdir chdirScope(pathAnsi, !mappedResources);
++    MdaPackageInclude packageInclude(pathAnsi);
++    ID3DXInclude* include = mappedResources ? &packageInclude : nullptr;
+ 
+     // [0x18000c08e-0x18000c0fa] Original flags = 0x1000 | (byte_1800D99DE ? 0xC0 : 0):
+     //   bit12 is always set (bts edi,0Ch) = D3DXSHADER_ENABLE_BACKWARDS_COMPATIBILITY;
+@@ -363,14 +396,18 @@
+     // Original x64: CP_ACP conversion (sub_180006610), then the W import
+     // from d3dx9_43 at 0x18000C16A. The x86 loader does not convert the path.
+     const std::wstring pathWide = MmeAnsiToWide(pathAnsi.c_str());
+-    HRESULT hr = D3DXCreateEffectFromFileW(device, pathWide.c_str(), defines, nullptr, loadFlags,
++    HRESULT hr = D3DXCreateEffectFromFileW(device, pathWide.c_str(), defines, include, loadFlags,
+                                            g_effectPool, &entry->effect, &errors);
+ #else
+     // Original x86 0.37: d3dx9_32 A import at 0x1000CD10. Its W compiler
+     // path mixes UTF-8 filenames with ANSI file opens under legacy ACPs.
+-    HRESULT hr = D3DXCreateEffectFromFileA(device, pathAnsi.c_str(), defines, nullptr, loadFlags,
++    HRESULT hr = D3DXCreateEffectFromFileA(device, pathAnsi.c_str(), defines, include, loadFlags,
+                                            g_effectPool, &entry->effect, &errors);
+ #endif
++    if (!packageInclude.ErrorText().empty()) {
++        if (SUCCEEDED(hr)) hr = E_FAIL;
++        entry->errorText += packageInclude.ErrorText() + "\n";
++    }
+     // [0x18000c1ab-0x18000c376] on failure exactly ONE segment is appended to
+     // the error text: the compiler text when the error buffer carries bytes,
+     // otherwise "DirectX Error: <desc> [%08X]\n" (the !errors ||
+@@ -460,6 +497,18 @@
+         }
+     }
+ 
++    // The explicit policy is already active before model registration/loading.
++    // Reject before any binding/planner can recursively consume this source.
++    if (MdaMmeExplicitObjectFxV1() && entry->effect) {
++        const auto rejection = MdaMmeSceneFxV1()
++            ? MdaSceneFxAdmission(entry->sas) : MdaObjectFxAdmission(entry->sas);
++        if (!rejection.empty()) {
++            entry->objectFxRejected = true;
++            entry->errorText += rejection + "\n";
++            SasUnload(entry->sas); entry->sas = nullptr;
++            entry->effect->Release(); entry->effect = nullptr;
++        }
++    }
+     cache[pathAnsi] = entry;
+     return entry;
+ }
+@@ -470,7 +519,19 @@
+ {
+     auto loaded = LoadCachedEffectFile(device, pathAnsi);
+     if (!loaded || !loaded->effect) {
++        RecordSceneFxFailure();
+         return loaded;
++    }
++    if (MdaMmeSceneFxV1()) {
++        const auto rejection = MdaSceneFxAdmission(loaded->sas);
++        if (!rejection.empty()) {
++            RecordSceneFxFailure();
++            auto failure = std::make_shared<LoadedEffect>();
++            failure->path = pathAnsi;
++            failure->fileStamp = loaded->fileStamp;
++            failure->errorText = rejection + "\n";
++            return failure;
++        }
+     }
+     const auto key = std::make_pair(materialCount, g_skipValidation);
+     auto validation = loaded->techniqueValidation.find(key);
+@@ -491,13 +552,14 @@
+     failure->path = pathAnsi;
+     failure->fileStamp = loaded->fileStamp;
+     failure->errorText = validation->second;
++    RecordSceneFxFailure();
+     return failure;
+ }
+ 
+ std::shared_ptr<LoadedEffect> MmeEngineCreateEffectInstance(
+     IDirect3DDevice9* device, const std::shared_ptr<LoadedEffect>& source)
+ {
+-    if (!source || !source->effect) return nullptr;
++    if (!source || !source->effect) { RecordSceneFxFailure(); return nullptr; }
+     if (!source->assigned) {
+         source->assigned = true;
+         EffectInstances().push_back(source);
+@@ -508,13 +570,35 @@
+     instance->path = source->path;
+     instance->fileStamp = source->fileStamp;
+     // Original cache-hit loader: CloneEffect, then parse this assignment's SAS.
+-    if (FAILED(source->effect->CloneEffect(device, &instance->effect))) return nullptr;
+-    ScopedChdir directory(source->path);
++    if (FAILED(source->effect->CloneEffect(device, &instance->effect))) {
++        RecordSceneFxFailure();
++        return nullptr;
++    }
++    ScopedChdir directory(source->path, MdaMmeMappedResourcesV1() == 0);
+     instance->sas = SasParse(instance->effect, instance->path, device,
+                              &instance->errorText);
+-    if (!instance->sas || SasHadErrors(instance->sas)) return nullptr;
++    if (!instance->sas || SasHadErrors(instance->sas)) {
++        RecordSceneFxFailure();
++        return nullptr;
++    }
++    if (MdaMmeExplicitObjectFxV1()) {
++        const auto rejection = MdaMmeSceneFxV1()
++            ? MdaSceneFxAdmission(instance->sas) : MdaObjectFxAdmission(instance->sas);
++        if (!rejection.empty()) {
++            instance->errorText += rejection + "\n";
++            RecordSceneFxFailure();
++            return nullptr;
++        }
++    }
+     EffectInstances().push_back(instance);
+     return instance;
++}
++
++void MmeEnginePruneExpiredInstances()
++{
++    auto& instances = EffectInstances();
++    instances.erase(std::remove_if(instances.begin(), instances.end(),
++        [](const std::weak_ptr<LoadedEffect>& entry) { return entry.expired(); }), instances.end());
+ }
+ 
+ void MmeEngineUnloadEffectFile(const std::string& pathAnsi,
+@@ -554,6 +638,27 @@
+     TextureCacheRef().clear();
+ }
+ 
++void MmeEngineClearLostDeviceCaches()
++{
++    // The owning device thread calls this only after MmeEngineOnLostDevice
++    // has returned. Its temporary LiveEffects() strong references are gone;
++    // no concurrent binding resolution can change ownership during this walk.
++    // Keep sources still owned by live bindings/assignment instances under
++    // their existing cache keys. Replacing those sources on the first frame
++    // would replace the bindings and lose authored offscreen overrides.
++    auto& effects = EffectCacheRef();
++    for (auto it = effects.begin(); it != effects.end();) {
++        if (!it->second || it->second.use_count() == 1) {
++            it = effects.erase(it);
++        } else {
++            ++it;
++        }
++    }
++    // DEFAULT resources and stateblocks were already released by the lost
++    // walk; preserving logical effect identity does not reacquire them.
++    TextureCacheRef().clear();
++}
++
+ IDirect3DBaseTexture9* MmeEngineFindCachedTexture(const std::string& pathAnsi)
+ {
+     TextureCache& cache = TextureCacheRef();
