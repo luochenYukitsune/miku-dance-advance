@@ -10,7 +10,7 @@ import re
 import subprocess
 
 ROOT_FILES = {'.gitattributes', '.gitignore', 'Directory.Build.props', 'global.json',
-              'Mmd.Modern.slnx', 'NuGet.Config', 'LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md'}
+              'Mmd.Modern.slnx', 'NuGet.Config', 'LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'}
 SOURCE_ROOTS = {'src', 'tests', 'native', 'third_party', 'installer', 'examples', 'fixtures', 'scripts', 'tools'}
 PUBLIC_DOC_ROOTS = ('docs/guide/', 'docs/development/', 'docs/site/', 'docs/assets/css/', 'docs/_data/', 'docs/_layouts/')
 PUBLIC_DOC_FILES = {'docs/index.md', 'docs/_config.yml', 'docs/LICENSE-Minimal.txt'}
