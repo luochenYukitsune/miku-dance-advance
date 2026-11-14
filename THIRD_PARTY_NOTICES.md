@@ -4,7 +4,7 @@ MDA's original contributions use AGPL-3.0-only; this does not replace any licens
 
 ## Documentation website
 
-GitHub Pages renders the documentation using the [Minimal theme](https://github.com/pages-themes/minimal), which is released under CC0-1.0. Its implementation is supplied by GitHub Pages rather than vendored into MDA. Local reading-style overrides are MDA's original contributions. The website does not redistribute standalone font files.
+GitHub Pages renders the documentation using the [Minimal theme](https://github.com/pages-themes/minimal), which is released under CC0-1.0. Its stylesheet is supplied by GitHub Pages; `docs/_layouts/default.html` adapts the v0.2.0 layout with MDA document navigation and accessibility changes. The original CC0 dedication is retained at `docs/LICENSE-Minimal.txt`. Local reading-style overrides are MDA's original contributions. The website does not redistribute standalone font files.
 
 ## HarmonyOS Sans SC (embedded interface fonts)
 

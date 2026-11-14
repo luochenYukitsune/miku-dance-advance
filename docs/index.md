@@ -6,6 +6,7 @@ title: MDA 使用文档
 
 MikuDance Advance（简称 MDA）是一款运行在 Windows x64 桌面端的 MMD 工程编辑与渲染软件。软件支持导入常见的 MMD 资源与工程，提供时间轴关键帧编辑、实时视口预览以及图片与视频导出功能。
 
+- [完成第一段动画](guide/first-animation.md)：跟着步骤导入模型和动作，预览、保存并导出第一段视频。
 - [用户指南](guide/index.md)：安装、工程导入、时间轴、自动恢复、预览与导出。
 - [从源码构建](development/build.md)：托管工程、原生依赖和当前可验证的构建范围。
 - [插件 API 1 开发规范](development/plugins.md)：清单、生命周期、命令扩展与打包。

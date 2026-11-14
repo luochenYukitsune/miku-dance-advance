@@ -4,6 +4,8 @@ title: 用户指南
 
 [文档首页](../index.md)
 
+第一次使用？可以先跟着[完成第一段动画](first-animation.md)走一遍从导入到导出的操作，再按需查阅本指南。
+
 # MikuDance Advance (MDA) 用户指南
 
 ## 1. 安装、目录结构与启动

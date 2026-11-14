@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!-- Layout adapted from pages-themes/minimal v0.2.0 (CC0-1.0).
+     Local document navigation and accessibility changes by MDA. -->
+<html lang="{{ site.lang | default: 'zh-CN' }}">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% seo %}
+    <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}?v={{ site.github.build_revision }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到正文</a>
+    <div class="wrapper">
+      <header>
+        <h1><a href="{{ '/' | relative_url }}">{{ site.title }}</a></h1>
+        <p>{{ site.description }}</p>
+        {% assign current_url = page.url | replace: 'index.html', '' %}
+        <nav class="docs-nav" aria-label="文档目录">
+          {% for group in site.data.navigation %}
+          <div class="docs-nav-group">
+            <p class="docs-nav-heading">{{ group.title }}</p>
+            <ul>
+              {% for item in group.items %}
+              <li><a href="{{ item.url | relative_url }}"{% if current_url == item.url %} aria-current="page"{% endif %}>{{ item.title }}</a></li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </nav>
+        <p class="docs-source"><a href="https://github.com/luochenYukitsune/miku-dance-advance">查看 GitHub 源码</a></p>
+        <p class="docs-copyright">© 2026 luochen Yukitsune<br>由 GitHub Pages 托管</p>
+      </header>
+      <section id="main-content" tabindex="-1">
+        {{ content }}
+      </section>
+    </div>
+  </body>
+</html>

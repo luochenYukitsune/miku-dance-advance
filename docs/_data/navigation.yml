@@ -1,0 +1,14 @@
+- title: 开始使用
+  items:
+    - title: 文档首页
+      url: /
+    - title: 第一段动画
+      url: /guide/first-animation.html
+    - title: 用户指南
+      url: /guide/
+- title: 开发与扩展
+  items:
+    - title: 从源码构建
+      url: /development/build.html
+    - title: 插件开发
+      url: /development/plugins.html
