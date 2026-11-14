@@ -4,9 +4,10 @@ MikuDance Advance（简称 MDA）是一款运行在 Windows x64 桌面环境下�
 
 它围绕常见的 MMD 素材与工作流构建，将底层的模型动作、骨骼、IK、刚体与柔体物理以及工程编辑整合在一起，并在渲染层提供现代引擎与传统引擎两种选择。你可以在启动软件时根据当前工程的需要选定引擎，在统一的桌面界面里完成模型与动作导入、时间轴编辑、实时预览以及图像或视频导出。
 
-目前项目的源代码已经公开，预编译安装包尚未公开发布。你可以通过以下链接访问代码仓库与说明文档：
+MDA 的安装包统一放在 GitHub Releases，预发布版本也会列在同一页面。你可以在那里下载软件、查看版本更新，也可以通过下面的入口阅读文档或获取源码：
 
 - **源码仓库**：<https://github.com/luochenYukitsune/miku-dance-advance>
+- **安装包与更新日志**：[GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases)
 - **在线文档站**：<https://luochenyukitsune.github.io/miku-dance-advance/>
 - **文档快速入口**：[文档首页](docs/index.md) ｜ [使用指南](docs/guide/index.md) ｜ [第一个动画教程](docs/guide/first-animation.md) ｜ [构建文档](docs/development/build.md) ｜ [插件文档](docs/development/plugins.md)
 
@@ -128,7 +129,7 @@ MDA 按职责划分为六个产品模块：
 
 ## 文档导航与源码构建
 
-由于目前尚未公开安装包，如需从源码编译运行 MDA，请查阅构建文档。需要注意：**托管构建并不等同于完整的原生桌面环境或包含传统引擎的完整运行环境**，本地编译与运行请以构建文档中的说明为准。
+直接使用 MDA，请到 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 下载 Windows x64 安装包。想修改代码或自行编译，可以查阅构建文档。托管构建与完整安装包所需的原生组件不同，具体准备步骤见构建说明。
 
 ### 完整文档链接
 - [文档首页 (docs/index.md)](docs/index.md)

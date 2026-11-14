@@ -18,7 +18,7 @@ title: 完成第一段动画
 
 ### 1. 准备程序
 
-目前 MikuDance Advance 的安装包尚未公开。如果你已经在本地完成了安装或构建，直接从下一步的启动程序开始就行；如果你刚拿到源码、还没编译出可执行程序，请先阅读[构建指南](../development/build.md)完成本地构建。
+到 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 打开你要使用的版本，在 Assets 中下载 Windows x64 安装程序，按向导完成安装。预发布版会标有 Pre-release。如果已经安装好软件，直接从下一步开始；想自己编译的读者可以先看[构建指南](../development/build.md)。
 
 ### 2. 准备你自己的素材
 

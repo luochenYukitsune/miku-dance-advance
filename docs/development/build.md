@@ -6,6 +6,8 @@ title: 从源码构建
 
 # MikuDance Advance (MDA) 开发者构建说明
 
+如果只是使用软件，无需自行编译：请到 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 下载 Windows x64 安装包。本页面向准备修改源码或自行构建的开发者。
+
 本文档面向开发者说明 MikuDance Advance（MDA）公开源码的构建结构、已验证范围、原生依赖边界以及构建注意事项。
 
 ---

@@ -12,6 +12,6 @@ MikuDance Advance（简称 MDA）是一款运行在 Windows x64 桌面端的 MMD
 - [插件 API 1 开发规范](development/plugins.md)：清单、生命周期、命令扩展与打包。
 - [GitHub 源码仓库](https://github.com/luochenYukitsune/miku-dance-advance)
 
-安装包尚未公开发布。本文档对应公开源码；具体功能是否已经进入本机安装版，请以该版本发布说明为准。
+安装包和更新日志统一放在 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases)。下载时请选择 Windows x64 安装包；标有 Pre-release 的版本为预发布版。
 
 Copyright (c) 2026 luochen Yukitsune。原创部分采用 AGPL-3.0-only，第三方部分保留各自许可。

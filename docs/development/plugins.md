@@ -6,6 +6,8 @@ title: 插件 API 1 开发规范
 
 # MikuDance Advance (MDA) 插件 API 1 开发规范
 
+开发前可从 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 获取 MDA 安装包，并查看对应版本的更新说明。插件接口以目标宿主版本为准。
+
 ## 1. 概述与能力边界
 
 MDA 插件系统 API 1（`apiVersion: 1`）为开发者提供宿主内命令扩展机制：

@@ -11,7 +11,7 @@ title: 用户指南
 ## 1. 安装、目录结构与启动
 
 ### 1.1 系统要求与安装
-- **安装包状态**：官方安装包尚未公开发布（待发布）。
+- **下载安装包**：前往 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases)，在对应版本的 Assets 中下载 Windows x64 安装程序。更新内容写在各版本的发布说明中，预发布版会标有 Pre-release。
 - **操作系统要求**：安装器仅支持 Windows 10 及以上版本的 64 位（x64）系统。
 - **可选组件**：安装过程中，“传统引擎”作为可选组件提供，可根据是否需要 MMD/MME 兼容渲染按需选择安装。
 
