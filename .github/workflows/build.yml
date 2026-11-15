@@ -1,0 +1,77 @@
+name: modern-csharp
+on:
+  workflow_call:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_gpu:
+        description: Run actual GPU acceptance on a Windows self-hosted runner labeled gpu
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - name: Restore locked dependencies and build managed projects
+        shell: pwsh
+        run: |
+          ./scripts/dotnet.ps1 -DotNetArguments @('restore', 'Mmd.Modern.slnx', '--locked-mode')
+          ./scripts/dotnet.ps1 -DotNetArguments @('build', 'Mmd.Modern.slnx', '-c', 'Release', '--no-restore')
+      # Native physics, codecs and GPU checks require separately prepared libraries.
+      # Do not present these portable checks as full product acceptance.
+      - name: Run portable format, scheduling and plugin checks
+        shell: pwsh
+        run: |
+          foreach ($project in 'Mmd.Modern.Formats.Tests', 'Mmd.Modern.Scheduling.Tests', 'Mmd.Modern.Plugins.Tests') {
+            ./scripts/dotnet.ps1 -DotNetArguments @('test', "tests/$project", '-c', 'Release', '--no-build', '--no-restore', '--logger', "trx;LogFileName=$project.trx", '--results-directory', 'artifacts/green')
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/green/*.trx
+  windows-build:
+    needs: build-and-test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build Windows x64 app with native physics and pinned FFmpeg
+        shell: pwsh
+        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MDA-modern-development-win-x64
+          path: ${{ runner.temp }}/mda-windows/
+          retention-days: 14
+  gpu-acceptance:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gpu
+    runs-on: [self-hosted, Windows, X64, gpu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - name: Real device render and Bepu acceptance
+        shell: pwsh
+        run: ./scripts/verify.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-acceptance
+          path: |
+            artifacts/gpu/
+            artifacts/green/*.trx

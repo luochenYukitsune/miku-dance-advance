@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "version": "n9.0.2-57-gd838f9f9ae-20261114",
+  "license": "GPL-3.0-or-later",
+  "assetUrl": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-14-12-37/ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0.zip",
+  "assetSha256": "7d41fc8a3f52ad7d1e66804e1b2e79d16e51f0f854c3cc8ae962c5e88603eec8",
+  "archiveRoot": "ffmpeg-n9.0.2-57-gd838f9f9ae-win64-gpl-9.0",
+  "ffmpegCommit": "d838f9f9aeb0e09b4d068e2af20a46a12640696f",
+  "buildRepository": "https://github.com/FFmpeg-Builds/FFmpeg-Builds",
+  "buildCommit": "c9fe5114060e507409f7ee07edfd82efaf25d767",
+  "buildRun": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/actions/runs/43593293993",
+  "files": {
+    "ffmpeg.exe": "6e984c8ee016b9b7047ea87a25295998082a896f691aeaf560a3dad5771a9f0b",
+    "ffprobe.exe": "897af669756f8bea940a5b02c4b538f37ea3baeaac4d95cb581495029c6d8032"
+  }
+}

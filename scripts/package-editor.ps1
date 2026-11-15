@@ -17,6 +17,7 @@ param(
     [string]$StageDirectory,
     [string]$DxcDirectory,
     [string]$FfmpegDirectory,
+    [string]$FfmpegEvidenceDirectory,
     [string]$FfmpegSourceDirectory,
     [string]$NugetPackages,
     [string]$ClassicNativeBuildDirectory,
@@ -293,7 +294,8 @@ $dxcFiles = foreach ($entry in $dxcManifest.files) {
     [pscustomobject]@{ Source = $source; Name = [IO.Path]::GetFileName($entry.path) }
 }
 
-$ffmpegEvidence = Join-Path $projectRoot 'artifacts/stage-20261022-view-output/ffmpeg/cli-baseline'
+$ffmpegEvidence = if ($FfmpegEvidenceDirectory) { (Resolve-Path -LiteralPath $FfmpegEvidenceDirectory).Path }
+    else { Join-Path $projectRoot 'artifacts/stage-20261022-view-output/ffmpeg/cli-baseline' }
 $ffmpegProvenance = Get-Content -LiteralPath (Join-Path $ffmpegEvidence 'provenance.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $FfmpegDirectory) { $FfmpegDirectory = [IO.Path]::GetDirectoryName($ffmpegProvenance.'ffmpeg.exe'.path) }
 foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
