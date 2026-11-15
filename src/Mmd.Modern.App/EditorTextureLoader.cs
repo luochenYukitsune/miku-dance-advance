@@ -11,6 +11,29 @@ public static class EditorTextureLoader
 {
     // This is the existing SceneTexture contract, independent of PMX/PMA input byte budgets.
     private const int MaximumDimension = 4096;
+    /// <summary>Decoded RGBA allowed for one model's textures. One texture is capped at 4096² (64 MiB), but a model
+    /// could list hundreds; without a total, a crafted or oversized model exhausted memory while opening.</summary>
+    public const long MaximumModelTextureBytes = 1L << 30;
+
+    /// <summary>Wraps a per-model texture loader so the model's decoded textures stay within
+    /// <see cref="MaximumModelTextureBytes"/>. Each distinct returned texture is counted once.</summary>
+    public static Func<string, SceneTexture?> WithModelBudget(Func<string, SceneTexture?> load, long maximumBytes = MaximumModelTextureBytes)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+        long total = 0;
+        var counted = new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
+        return relative =>
+        {
+            var texture = load(relative);
+            if (texture is not null && counted.Add(texture))
+            {
+                total += texture.Rgba.Length;
+                if (total > maximumBytes)
+                    throw new InvalidDataException(EditorLocalization.Format("模型贴图解码后的总大小超过 {0} MiB 上限。", maximumBytes / (1024 * 1024)));
+            }
+            return texture;
+        };
+    }
 
     public static SceneTexture? Load(string modelDirectory, string relative, CancellationToken token = default)
     {

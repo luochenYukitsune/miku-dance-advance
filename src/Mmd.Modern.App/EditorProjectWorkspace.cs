@@ -103,7 +103,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     /// <summary>Builds a render source for the exact model already prepared by the PMM/core reader.
     /// The source path is used only to resolve read-only model-local textures.</summary>
     public static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path, CancellationToken token = default)
-        => CreateModelAsset(model, path, relative => LoadTexture(Path.GetDirectoryName(Path.GetFullPath(path))!, relative, token), token);
+        => CreateModelAsset(model, path, EditorTextureLoader.WithModelBudget(
+            relative => LoadTexture(Path.GetDirectoryName(Path.GetFullPath(path))!, relative, token)), token);
 
     internal static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path,
         Func<string, SceneTexture?> loadTexture, CancellationToken token = default,

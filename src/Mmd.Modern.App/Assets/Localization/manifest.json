@@ -23,6 +23,8 @@
     "src/Mmd.Modern.App/EditorStartupWindow.axaml"
   ],
   "literalToKey": {
+    "模型贴图解码后的总大小超过 {0} MiB 上限。": "Mda.Text.6193ad17602d",
+    "PMM 媒体“{0}”不是受支持的媒体文件类型。请保留原工程并修复资源路径。": "Mda.Text.3e75822b0a4a",
     "设置": "Mda.Text.df3d58c7d84b",
     "编辑器外观、语言、工具与容量设置": "Mda.Text.3adabe75a1eb",
     "文件": "Mda.Text.39932f24fe11",

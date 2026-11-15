@@ -37,6 +37,22 @@ public sealed class PluginPackageInstallTests
         workspace.AssertNoStagingDirectories();
     }
 
+    [Theory(Timeout = 15_000)]
+    [InlineData("enabled.json", false)]
+    [InlineData("settings.json", true)]
+    public async Task Plugin_id_cannot_take_the_name_of_a_host_file_in_the_plugin_folder(string id, bool existingFile)
+    {
+        // An id equal to enabled.json would install as a directory named enabled.json and break later writes.
+        var workspace = new InstallWorkspace();
+        Directory.CreateDirectory(workspace.Installation);
+        if (existingFile) File.WriteAllText(Path.Combine(workspace.Installation, id), "{}");
+        var result = await PluginPackageInstaller.InstallAsync(workspace.CreateFixtureArchive(id: id), workspace.Installation,
+            TestContext.Current.CancellationToken);
+        Assert.False(result.Succeeded);
+        Assert.False(Directory.Exists(Path.Combine(workspace.Installation, id)));
+        workspace.AssertNoStagingDirectories();
+    }
+
     [Fact(Timeout = 15_000)]
     public async Task Installation_and_discovery_do_not_construct_plugin_code()
     {
@@ -286,14 +302,14 @@ public sealed class PluginPackageInstallTests
             return path;
         }
 
-        internal string CreateFixtureArchive(int schemaVersion = 1, string? extraEntry = null)
+        internal string CreateFixtureArchive(int schemaVersion = 1, string? extraEntry = null, string id = "install-probe")
         {
             var archivePath = CreateArchive(Path.Combine(AppContext.BaseDirectory, "PluginFixtures"));
             using var archive = ZipFile.Open(archivePath, ZipArchiveMode.Update);
             WriteEntry(archive, "mda-plugin.json", JsonSerializer.Serialize(new
             {
                 schemaVersion,
-                id = "install-probe",
+                id,
                 name = "Install fixture",
                 version = "1.0.0",
                 entryAssembly = "Mmd.Modern.PluginFixture.dll",
