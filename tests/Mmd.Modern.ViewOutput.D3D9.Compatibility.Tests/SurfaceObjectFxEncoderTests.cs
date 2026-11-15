@@ -164,10 +164,18 @@ public sealed partial class SurfaceFrameEncoderTests
 
     private static T FxConstruct<T>(IEnumerable<D3D9SurfaceObjectBinding> bindings, D3D9ObjectFxConfiguration configuration)
     {
-        var constructor = typeof(T).GetConstructor(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            null, [typeof(IEnumerable<D3D9SurfaceObjectBinding>), typeof(D3D9ObjectFxConfiguration)], null);
+        // Match the (bindings, configuration) constructor even when later parameters are optional, as on
+        // D3D9SurfacePreflightInputs(bindings, configuration, classicPassInputs = null).
+        var constructor = typeof(T).GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .SingleOrDefault(candidate =>
+            {
+                var parameters = candidate.GetParameters();
+                return parameters.Length >= 2 && parameters[0].ParameterType == typeof(IEnumerable<D3D9SurfaceObjectBinding>)
+                    && parameters[1].ParameterType == typeof(D3D9ObjectFxConfiguration) && parameters.Skip(2).All(p => p.IsOptional);
+            });
         Assert.NotNull(constructor);
-        try { return (T)constructor.Invoke([bindings, configuration]); }
+        object?[] arguments = [bindings, configuration, .. constructor.GetParameters().Skip(2).Select(p => p.DefaultValue)];
+        try { return (T)constructor.Invoke(arguments); }
         catch (TargetInvocationException error) { ExceptionDispatchInfo.Capture(error.InnerException!).Throw(); throw; }
     }
 
