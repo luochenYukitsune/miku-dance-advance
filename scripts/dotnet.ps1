@@ -32,7 +32,10 @@ $env:MSBuildEnableWorkloadResolver = 'false'
 $env:MSBUILDDISABLENODEREUSE = '1'
 $env:DOTNET_CLI_USE_MSBUILD_SERVER = '0'
 $env:NUGET_XMLDOC_MODE = 'skip'
-$dotnetPath = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'C:/Program Files/dotnet/dotnet.exe' } else { 'dotnet' }
+# Honor an explicit SDK, then the SDK on PATH (per-user installs, setup-dotnet), then the default machine install.
+$dotnetPath = if ($env:DOTNET_EXE) { $env:DOTNET_EXE }
+    elseif (Get-Command dotnet -ErrorAction SilentlyContinue) { (Get-Command dotnet).Source }
+    elseif ($IsWindows -or $env:OS -eq 'Windows_NT') { 'C:/Program Files/dotnet/dotnet.exe' } else { 'dotnet' }
 Push-Location $projectRoot
 try {
     # Preserve xUnit/native stderr and its complete result before reporting a failed exit.

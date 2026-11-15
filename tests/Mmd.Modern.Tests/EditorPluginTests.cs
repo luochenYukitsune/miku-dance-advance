@@ -18,7 +18,7 @@ namespace Mmd.Modern.Tests;
 public sealed class EditorPluginTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
-    private const string Root = "G:/MDA-Work/plugins/20261113/loader675";
+    private static readonly string Root = Mmd.Modern.TestSupport.TestWorkspace.Root("plugins/20261113/loader675");
     private readonly string directory = Path.Combine(Root, "editor-" + Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 

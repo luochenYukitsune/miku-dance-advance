@@ -13,7 +13,7 @@ namespace Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests;
 
 public sealed class FrozenEffectProjectTests : IDisposable
 {
-    private readonly string directory = Path.Combine("G:/MDA-Work/compat/20261106/frozen557/tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261106/frozen557/tests"), Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static readonly Guid Model = new("51851d0c-e1fe-477b-ac55-608caa47b001");
     private static readonly Guid Accessory = new("51851d0c-e1fe-477b-ac55-608caa47b002");
@@ -343,7 +343,7 @@ public sealed class FrozenEffectProjectTests : IDisposable
     public void Dispose()
     {
         string full = Path.GetFullPath(directory);
-        if (!full.StartsWith(Path.GetFullPath("G:/MDA-Work/compat/20261106/frozen557/tests/"), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
+        if (!full.StartsWith(Path.GetFullPath((Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261106/frozen557/tests") + "/")), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
         if (Directory.Exists(full)) Directory.Delete(full, recursive: true);
     }
 }

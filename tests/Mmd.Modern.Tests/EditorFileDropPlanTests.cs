@@ -13,7 +13,7 @@ namespace Mmd.Modern.Tests;
 public sealed class EditorFileDropPlanTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
-    private readonly string directory = Path.Combine("G:/MDA-Work/editor/20261113/drop688/unit", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("editor/20261113/drop688/unit"), Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -133,7 +133,7 @@ public sealed class EditorFileDropPlanTests : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await Task.Run(session.Dispose).ConfigureAwait(false);
-        string root = Path.GetFullPath("G:/MDA-Work/editor/20261113/drop688/unit").TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string root = Path.GetFullPath(Mmd.Modern.TestSupport.TestWorkspace.Root("editor/20261113/drop688/unit")).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         string owned = Path.GetFullPath(directory);
         if (!owned.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Drop-plan test cleanup escaped its owned directory.");

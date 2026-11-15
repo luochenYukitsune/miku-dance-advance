@@ -15,7 +15,7 @@ public sealed class EditorClassicToonPackageTests
     [Fact]
     public void UsedOriginalImagesFreezeBeforeHostLoadAndSurviveMovedOriginalsAndDetachedResave()
     {
-        string directory = Path.Combine("G:/MDA-Work/compat/20261110/toon-package598", "tests", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261110/toon-package598"), "tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {

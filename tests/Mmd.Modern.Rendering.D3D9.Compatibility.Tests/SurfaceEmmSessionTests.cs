@@ -154,7 +154,7 @@ public sealed class SurfaceEmmSessionTests
     [Fact]
     public async Task CancelledInitializationRetainsEveryResourceUntilFailedDestroyRetryCompletes()
     {
-        var directory = Path.Combine(@"G:\MDA-Work\compat\20261106\emm523", "cpu-assets", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261106/emm523"), "cpu-assets", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var root = Path.Combine(directory, "seed.fx");
         var target = Path.Combine(directory, "target.fx");

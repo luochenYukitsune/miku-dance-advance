@@ -15,7 +15,6 @@ if (!$ExistingDirectory) { $ExistingDirectory = Join-Path $workspaceRoot '.dev-c
 function Assert-ControlledDestination([string]$Path) {
     $absolute = [IO.Path]::GetFullPath($Path)
     $allowedRoots = @((Join-Path $workspaceRoot '.dev-cache'), (Join-Path $projectRoot 'tools'))
-    if ([IO.Path]::GetPathRoot($absolute) -ine 'D:\') { throw "DXC writes must stay on D: $absolute" }
     $inside = $false
     foreach ($allowed in $allowedRoots) {
         $prefix = [IO.Path]::GetFullPath($allowed).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar

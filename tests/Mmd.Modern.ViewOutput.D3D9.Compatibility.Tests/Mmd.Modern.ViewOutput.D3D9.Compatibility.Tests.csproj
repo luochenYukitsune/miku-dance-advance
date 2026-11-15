@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><Compile Include="../Shared/TestWorkspace.cs" Link="Shared/TestWorkspace.cs" /></ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mmd.Modern.ViewOutput.D3D9.Compatibility/Mmd.Modern.ViewOutput.D3D9.Compatibility.csproj" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />

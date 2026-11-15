@@ -17,7 +17,7 @@ public sealed class EditorClassicQualityDefaultsTests : IAsyncDisposable
     public async Task SelectedClassicStartsWithValidPreviewAndExportWhileExplicitUnsupportedQualityIsRejected()
         => await session.Dispatch(() =>
         {
-            string directory = Path.Combine("G:/MDA-Work/compat/20261112/quality623/tests", Guid.NewGuid().ToString("N"));
+            string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261112/quality623/tests"), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             try
             {

@@ -27,12 +27,20 @@ jobs:
           ./scripts/dotnet.ps1 -DotNetArguments @('build', 'Mmd.Modern.slnx', '-c', 'Release', '--no-restore')
       # Native physics, codecs and GPU checks require separately prepared libraries.
       # Do not present these portable checks as full product acceptance.
-      - name: Run portable format, scheduling and plugin checks
+      # Projects that need no GPU and no separately built native physics/codec libraries. The D3D9 compatibility
+      # suites exercise the managed side against fake native tables. Application.Tests and Mmd.Modern.Tests
+      # still need the Bullet DLLs and a D3D12 device; scripts/verify.ps1 runs every project on such a machine.
+      - name: Run portable managed test projects
         shell: pwsh
         run: |
-          foreach ($project in 'Mmd.Modern.Formats.Tests', 'Mmd.Modern.Scheduling.Tests', 'Mmd.Modern.Plugins.Tests') {
-            ./scripts/dotnet.ps1 -DotNetArguments @('test', "tests/$project", '-c', 'Release', '--no-build', '--no-restore', '--logger', "trx;LogFileName=$project.trx", '--results-directory', 'artifacts/green')
+          $failed = @()
+          foreach ($project in 'Mmd.Modern.Formats.Tests', 'Mmd.Modern.Scheduling.Tests', 'Mmd.Modern.Plugins.Tests',
+              'Mmd.Modern.ViewOutput.Tests', 'Mmd.Modern.ViewOutput.FFmpeg.Tests',
+              'Mmd.Modern.Rendering.D3D9.Compatibility.Tests', 'Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests') {
+            try { ./scripts/dotnet.ps1 -DotNetArguments @('test', "tests/$project", '-c', 'Release', '--no-build', '--no-restore', '--logger', "trx;LogFileName=$project.trx", '--results-directory', 'artifacts/green') }
+            catch { Write-Host $_; $failed += $project }
           }
+          if ($failed) { throw "Test projects failed: $($failed -join ', ')" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

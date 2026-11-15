@@ -1,5 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><Compile Include="../Shared/TestWorkspace.cs" Link="Shared/TestWorkspace.cs" /></ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
     <ProjectReference Include="../../src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj" />

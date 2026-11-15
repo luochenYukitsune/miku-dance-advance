@@ -40,8 +40,21 @@ public sealed class FfmpegTests
             Assert.True(software.Executed, software.Failure);
             Assert.True(software.Validation!.Decoded); Assert.Equal("30000/1001", software.Validation.FrameRate);
         }
+        // Every hardware row must be recorded, and a row reported as executed must have produced a decodable stream
+        // (the previous `Executed || Failure != null` assertion could never fail).
+        Assert.Equal(3, capabilities.Skip(4).Count());
         foreach (var hardware in capabilities.Skip(4))
-            Assert.True(hardware.Executed || !string.IsNullOrWhiteSpace(hardware.Failure));
+        {
+            if (hardware.Executed)
+            {
+                Assert.Null(hardware.Failure);
+                Assert.True(hardware.Validation!.Decoded); Assert.Equal("30000/1001", hardware.Validation.FrameRate);
+            }
+            else Assert.False(string.IsNullOrWhiteSpace(hardware.Failure));
+        }
+        // On a machine that declares NVENC support, a failed hardware encode is a regression, not a recorded skip.
+        if (Environment.GetEnvironmentVariable("MMD_EXPECT_NVENC") == "1")
+            Assert.All(capabilities.Skip(4), hardware => Assert.True(hardware.Executed, hardware.Failure));
     }
 
     [Fact]

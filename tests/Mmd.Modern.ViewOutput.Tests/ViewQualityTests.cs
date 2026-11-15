@@ -13,7 +13,10 @@ public sealed class ViewQualityTests
         var quality = new ViewQualityOptions();
         var resolved = quality.ApplyTo(scene);
         Assert.Null(quality.Antialiasing); Assert.Null(quality.SmaaQuality); Assert.Null(quality.SpatialSamples);
-        Assert.Equal(scene with { RayGi = RayGiOptions.Off }, resolved);
+        // View quality defaults to opaque-first surface ordering (see SurfaceDrawOrderSettingsTests); everything else
+        // keeps the scene's antialiasing and sample settings with GI off.
+        Assert.Equal(SurfaceDrawOrder.OpaqueFirst, resolved.SurfaceOrder);
+        Assert.Equal(scene with { RayGi = RayGiOptions.Off, SurfaceOrder = SurfaceDrawOrder.OpaqueFirst }, resolved);
         Assert.Equal(ViewUpscalingMode.Off, quality.EffectiveUpscaling.Mode);
     }
 

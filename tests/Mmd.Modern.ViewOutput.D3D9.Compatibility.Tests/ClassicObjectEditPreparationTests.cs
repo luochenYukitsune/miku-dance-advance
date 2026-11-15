@@ -11,7 +11,7 @@ namespace Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests;
 
 public sealed class ClassicObjectEditPreparationTests : IDisposable
 {
-    private readonly string directory = Path.Combine("G:/MDA-Work/compat/20261110/rebind596/tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261110/rebind596/tests"), Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class ClassicObjectEditPreparationTests : IDisposable
     public void Dispose()
     {
         string full = Path.GetFullPath(directory);
-        if (!full.StartsWith(Path.GetFullPath("G:/MDA-Work/compat/20261110/rebind596/tests/"), StringComparison.OrdinalIgnoreCase))
+        if (!full.StartsWith(Path.GetFullPath((Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261110/rebind596/tests") + "/")), StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Test cleanup escaped its task directory.");
         if (Directory.Exists(full)) Directory.Delete(full, true);
     }
