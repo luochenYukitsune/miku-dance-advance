@@ -75,6 +75,15 @@ public sealed class RayGiDenoiserContractTests
     }
 
     [Fact]
+    public void PerspectiveFootprintIsPerUnitDepthFromTheVerticalFieldOfView()
+    {
+        // A perspective camera used the orthographic height; the shader now scales this by each pixel's depth.
+        var camera=new SceneCamera(new(0,0,-10),Vector3.Zero,Vector3.UnitY,6,.1f,100,VerticalFovDegrees:90);
+        Assert.Equal(2f/300,D3D12RayGiDenoiser.CameraGuide(camera,300).W,6);
+        Assert.Contains("EyePerspective.w>0",D3D12RayGiDenoiser.Source);
+    }
+
+    [Fact]
     public void SpatialShaderCompilesAsSoftwareCompatibleSm6WithoutGpuExecution()
     {
         string output=Environment.GetEnvironmentVariable("MMD_DENOISE_CPU_ARTIFACTS")??Path.Combine(AppContext.BaseDirectory,"denoise-cpu");

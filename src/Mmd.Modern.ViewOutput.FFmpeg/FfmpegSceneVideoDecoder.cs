@@ -37,7 +37,7 @@ public sealed class FfmpegSceneVideoDecoder : ISceneVideoDecoder
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(operationTimeout);
             await File.WriteAllBytesAsync(path, asset.CopyBytes(), timeout.Token).ConfigureAwait(false);
-            string json = await FfmpegToolchain.RunTextAsync(tools.FfprobePath,
+            string json = await FfmpegToolchain.RunStdoutAsync(tools.FfprobePath,
                 ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,color_transfer,color_primaries,color_space",
                     "-of", "json", path], timeout.Token).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);

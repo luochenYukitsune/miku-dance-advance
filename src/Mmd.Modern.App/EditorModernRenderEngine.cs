@@ -164,8 +164,15 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         public ValueTask DisposeAsync() => renderer.DisposeAsync();
         private OriginalFrameScene ApplyBackground(OriginalFrameScene scene)
         {
-            var options = (scene.Options ?? new(OriginalAlphaBlendMode.Normal, true, false)) with
-            { BackgroundColor = background, AlphaOutput = FrameAlphaOutput.Straight };
+            // Straight alpha only matters when the background is transparent. Forcing it for opaque exports made the
+            // renderer reject every spatial/temporal upscaler (FSR, XeSS, DLSS) on the first frame, although the
+            // same settings render in the preview. Keep the scene's own alpha mode for an opaque background.
+            var options = scene.Options ?? new(OriginalAlphaBlendMode.Normal, true, false);
+            options = options with
+            {
+                BackgroundColor = background,
+                AlphaOutput = background.W < 1 ? FrameAlphaOutput.Straight : options.AlphaOutput,
+            };
             return new(scene.Surface, scene.Outline, scene.OutlineOptions, options, scene.Materials, scene.Lighting, scene.EditorOverlay);
         }
     }

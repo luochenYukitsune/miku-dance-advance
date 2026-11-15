@@ -138,6 +138,9 @@ int32_t mmd_bullet_add_body(void* pointer, const MmdBulletBody* d) noexcept {
         btRigidBody::btRigidBodyConstructionInfo info(mass, value->motion.get(), value->shape.get(), inertia);
         info.m_linearDamping = d->linear_damping; info.m_angularDamping = d->angular_damping;
         info.m_restitution = d->restitution; info.m_friction = d->friction;
+        // MMD-family solvers (saba MMDPhysics.cpp, nanoem) enable Bullet's additional damping, which settles slow
+        // residual motion. Without it, low-speed bodies kept jittering where the reference implementations rest.
+        info.m_additionalDamping = true;
         value->body.reset(new btRigidBody(info));
         if (d->mode == 0) {
             value->body->setCollisionFlags((value->body->getCollisionFlags() & ~btCollisionObject::CF_STATIC_OBJECT) | btCollisionObject::CF_KINEMATIC_OBJECT);

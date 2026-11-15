@@ -12,10 +12,12 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
     private ID3D12PipelineState? pipeline;
 
     [StructLayout(LayoutKind.Sequential)]
-    private readonly struct Constants(RayGiUInt4 dimensions,Vector4 viewPixel)
+    private readonly struct Constants(RayGiUInt4 dimensions,Vector4 viewPixel,Vector4 eyePerspective)
     {
         public readonly RayGiUInt4 Dimensions=dimensions;
         public readonly Vector4 ViewPixel=viewPixel;
+        // xyz: camera eye; w: 1 for a perspective camera (ViewPixel.w is then per unit of view depth), else 0.
+        public readonly Vector4 EyePerspective=eyePerspective;
     }
 
     internal static bool IsEnabled(RayGiOptions options)
@@ -25,7 +27,10 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
     internal static Vector4 CameraGuide(SceneCamera camera,int height)
     {
         double x=(double)camera.Target.X-camera.Eye.X,y=(double)camera.Target.Y-camera.Eye.Y,z=(double)camera.Target.Z-camera.Eye.Z;
-        double length=Math.Sqrt(x*x+y*y+z*z),pixel=(double)camera.OrthographicHeight/height;
+        // Orthographic: world units per pixel. Perspective: per unit of view depth (2·tan(fov/2)/height); the shader
+        // multiplies by each pixel's depth. Previously perspective cameras used the unrelated orthographic height.
+        double length=Math.Sqrt(x*x+y*y+z*z),pixel=camera.VerticalFovDegrees is {} fov
+            ?2*Math.Tan(fov*Math.PI/360)/height:(double)camera.OrthographicHeight/height;
         if(height<=0||!double.IsFinite(length)||length<=0||!double.IsFinite(pixel)||pixel<=0||pixel>float.MaxValue)return default;
         var guide=new Vector4((float)(x/length),(float)(y/length),(float)(z/length),(float)pixel);
         return guide.W>0?guide:default;
@@ -44,7 +49,8 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
         var output=trackedOutput.Resource;
         var commands=context.Commands;
         commands.SetComputeRootSignature(root!);commands.SetPipelineState(pipeline!);
-        commands.SetComputeRootConstantBufferView(0,context.UploadConstants(new Constants(new((uint)width,(uint)height,(uint)triangleCount,(uint)materialCount),CameraGuide(camera,height))));
+        commands.SetComputeRootConstantBufferView(0,context.UploadConstants(new Constants(new((uint)width,(uint)height,(uint)triangleCount,(uint)materialCount),CameraGuide(camera,height),
+            new(camera.Eye,camera.VerticalFovDegrees is null?0:1))));
         commands.SetComputeRootShaderResourceView(1,triangles.GPUVirtualAddress);
         commands.SetComputeRootShaderResourceView(2,input.GPUVirtualAddress);
         commands.SetComputeRootDescriptorTable(3,guides);
@@ -79,7 +85,7 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
     // Authored for the current geometry/incident signal contract. No upstream shader is copied.
     internal const string Source="""
         struct Triangle { float4 P0; float4 P1; float4 P2; float4 N0U0; float4 N1U1; float4 N2U2; float4 V012; float4 SphereUv01; float4 SphereUv2; uint4 Meta; };
-        cbuffer FilterConstants:register(b0) { uint4 Dimensions; float4 ViewPixel; };
+        cbuffer FilterConstants:register(b0) { uint4 Dimensions; float4 ViewPixel; float4 EyePerspective; };
         StructuredBuffer<Triangle> Triangles:register(t0);
         StructuredBuffer<float4> Input:register(t1);
         Texture2D<float4> Position:register(t2);
@@ -129,7 +135,11 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
             if(!Guide(int2(thread.xy),p0,n0,g0,id0,t0)) return;
             float angle=abs(dot(g0,ViewPixel.xyz));
             if(!isfinite(angle)||angle<.2) return;
-            float footprint=ViewPixel.w/angle;
+            // One pixel's world size: constant for an orthographic camera; for a perspective camera it grows with
+            // view depth along the forward axis, as in the temporal pass's reprojection.
+            float pixelSize=ViewPixel.w;
+            if(EyePerspective.w>0) pixelSize*=max(dot(p0-EyePerspective.xyz,ViewPixel.xyz),0);
+            float footprint=pixelSize/angle;
             if(!isfinite(footprint)||!(footprint>0)) return;
             float3 mean=center.rgb;float total=1;
             [loop] for(int y=-2;y<=2;y++) [loop] for(int x=-2;x<=2;x++) {
