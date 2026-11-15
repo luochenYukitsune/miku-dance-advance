@@ -1041,6 +1041,7 @@
     "Mda.Text.Context.Inspector.Lighting.AdditionalLights": "Lighting page heading for existing additional lights.",
     "Mda.Text.Context.Inspector.Lighting.NoProject": "Quiet Lighting page prompt when no model or project is loaded.",
     "Mda.Text.Recovery.OpenCopies": "File menu command that reopens the recovery dialog, including interrupted sessions whose startup offer was deferred.",
+    "Mda.Text.Plugins.Cancelled": "Result after the user cancels a running plugin command from the plugins dialog.",
     "Mda.Text.Recovery.SavedCleanupFailed": "A recovery checkpoint was committed; {0} explains a subsequent resource cleanup failure.",
     "Mda.Text.Motion.NamesNotPersistable": "Warning after a keyframe edit is applied in memory but some channel names cannot be written into VMD-based project storage; {0} lists model: names.",
     "Mda.Text.Recovery.SavedWithoutNames": "A recovery checkpoint was committed without keyframes on channels whose names cannot be written into VMD-based storage; {0} lists them.",

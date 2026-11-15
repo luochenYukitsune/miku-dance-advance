@@ -474,7 +474,15 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
                 }
             }
             finally { preservingRegisterDrafts = false; }
-            if (objectId == actor) SelectedKeyframes = selection;
+            // A programmatic selection after register/paste/move echoes back through the timeline's two-way binding.
+            // Mark it so the window does not treat it as a pointer selection (which seeks the playhead and switches
+            // the channel, discarding other channels' unregistered drafts mid-commit).
+            if (objectId == actor)
+            {
+                IsUpdatingTimelineSelectionWithoutNavigation = true;
+                try { SelectedKeyframes = selection; }
+                finally { IsUpdatingTimelineSelectionWithoutNavigation = false; }
+            }
             // Warn when the edit can't be stored losslessly, instead of letting the user find out at save time.
             if (UnpersistableNames?.Invoke(actor) is { Count: > 0 } names)
                 SetStatus("Mda.Text.Motion.NamesNotPersistable", string.Join(", ", names));

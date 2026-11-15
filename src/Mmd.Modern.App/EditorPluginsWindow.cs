@@ -36,6 +36,7 @@ internal sealed class EditorPluginsWindow : Window
     private readonly TextBlock noCommands = new() { Name = "NoPluginCommands", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
     private readonly Expander locationExpander = new() { Name = "PluginDirectoryExpander" };
     private bool busy;
+    private CancellationTokenSource? commandCancellation;
 
     internal EditorPluginsWindow(Window owner, EditorPluginService service)
     {
@@ -145,19 +146,38 @@ internal sealed class EditorPluginsWindow : Window
         run.Click += async (_, _) =>
         {
             if (commands.SelectedItem is not CommandChoice choice) return;
-            await PerformAsync(async () =>
+            using var cancellation = new CancellationTokenSource();
+            commandCancellation = cancellation;
+            try
             {
-                var output = await service.RunCommandAsync(choice.PluginId, choice.RegistrationId);
-                return new(true, output.Message);
-            });
+                await PerformAsync(async () =>
+                {
+                    try
+                    {
+                        var output = await service.RunCommandAsync(choice.PluginId, choice.RegistrationId, cancellation.Token);
+                        return new(true, output.Message);
+                    }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                    { return new(false, Text("Cancelled")); }
+                });
+            }
+            finally { commandCancellation = null; }
         };
         directory.Click += (_, _) =>
         {
             try { Directory.CreateDirectory(service.InstallationDirectory); Process.Start(new ProcessStartInfo(service.InstallationDirectory) { UseShellExecute = true }); }
             catch (Exception error) { result.Text = error.Message; }
         };
-        close.Click += (_, _) => Close();
-        Closing += (_, args) => { if (busy) { args.Cancel = true; result.Text = Text("Wait"); } };
+        // While a plugin command runs, Close cancels it, so a command that never returns cannot trap the modal
+        // dialog (and with it the editor) open.
+        close.Click += (_, _) => { if (commandCancellation is { } running) running.Cancel(); else Close(); };
+        Closing += (_, args) =>
+        {
+            if (!busy) return;
+            args.Cancel = true;
+            if (commandCancellation is { } running) running.Cancel();
+            result.Text = Text("Wait");
+        };
         EditorLocalization.Observe(this, static window => window.Refresh());
         result.Text = service.Diagnostic ?? "";
         Refresh();
@@ -210,7 +230,8 @@ internal sealed class EditorPluginsWindow : Window
     private void RefreshAvailability()
     {
         var selected = plugins.SelectedItem as PluginInfo;
-        plugins.IsEnabled = commands.IsEnabled = directory.IsEnabled = close.IsEnabled = !busy;
+        plugins.IsEnabled = commands.IsEnabled = directory.IsEnabled = !busy;
+        close.IsEnabled = !busy || commandCancellation is not null;
         enable.IsEnabled = !busy && selected is not null && selected.State is PluginState.Disabled or PluginState.Failed;
         disable.IsEnabled = !busy && selected?.State == PluginState.Active;
         rescan.IsEnabled = import.IsEnabled = !busy; run.IsEnabled = !busy && commands.SelectedItem is CommandChoice;

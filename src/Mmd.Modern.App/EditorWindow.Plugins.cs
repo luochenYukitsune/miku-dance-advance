@@ -14,11 +14,16 @@ public partial class EditorWindow
         this.FindControl<Avalonia.Controls.MenuItem>("PluginsMenuItem")!.IsEnabled = true;
     }
 
+    private bool openingPlugins;
+
     private async void OpenPlugins(object? sender, RoutedEventArgs args)
     {
-        if (_shell?.IsBusy == true) return;
+        if (_shell?.IsBusy == true || openingPlugins) return;
         if (Plugins is null && !_persistPreferences) return;
         _shell?.StopPlayback();
+        // InitializeAsync yields the UI thread while the menu stays clickable. Without this latch a second click
+        // created another plugin host that ran the enabled plugins again and was never disposed.
+        openingPlugins = true;
         try
         {
             var host = Plugins;
@@ -32,6 +37,7 @@ public partial class EditorWindow
             await new EditorPluginsWindow(this, host).ShowDialog(this);
         }
         catch (Exception error) { await ShowErrorAsync(error); }
+        finally { openingPlugins = false; }
     }
 
     internal async ValueTask ReleasePluginsAsync()

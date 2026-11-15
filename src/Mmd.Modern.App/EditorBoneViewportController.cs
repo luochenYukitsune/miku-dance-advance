@@ -231,7 +231,10 @@ public sealed class EditorBoneViewportController
         ArgumentNullException.ThrowIfNull(camera); Synchronize();
         if (!enabled || !showBones || shell.IsBusy || drag is not null || captured is not { } pose
             || width != pose.RenderFrame.Width || height != pose.RenderFrame.Height || width <= 0 || height <= 0
-            || pose.RenderFrame.SourceFrame != shell.CurrentFrame) return false;
+            // Compare the timeline frame recorded with this capture. After pausing, playback can stop between
+            // source frames, so the render frame's SourceFrame is fractional while the timeline shows its integer
+            // floor; comparing those made every click miss and fall through to camera rotation.
+            || pose.Frame != shell.CurrentFrame) return false;
         var displayedCamera = pose.RenderFrame.ResolvedCamera ?? pose.RenderFrame.Camera?.CreateCamera()
             ?? pose.RenderFrame.Scene.Surface.Snapshot.Camera;
         if (camera != displayedCamera) { requestRender(); return false; }

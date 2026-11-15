@@ -68,6 +68,25 @@ internal sealed class EditorUserDataPaths
             : throw new InvalidDataException(EditorLocalization.Text("Mda.Text.UserData.InvalidConfiguration"));
     }
 
+    // A second instance started at the same moment (double-click, file association) used to fail startup on the
+    // first sharing violation. Wait briefly for the other instance to finish its migration instead.
+    private static FileStream AcquireMigrationLock(string lockPath)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                    FileShare.None, 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (!(DateTime.UtcNow > deadline) && File.Exists(lockPath))
+            {
+                Thread.Sleep(100);
+            }
+        }
+    }
+
     internal void Initialize()
     {
         if (!IsConfigured) return;
@@ -77,8 +96,7 @@ internal sealed class EditorUserDataPaths
             _ = ReadMarker(RootDirectory);
             string lockPath = Path.Combine(RootDirectory, ".mda-user-data.lock");
             EnsureNoReparse(lockPath);
-            using var migrationLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                FileShare.None, 1, FileOptions.DeleteOnClose);
+            using var migrationLock = AcquireMigrationLock(lockPath);
             bool initialized = ReadMarker(RootDirectory);
             foreach (string path in new[] { RootDirectory, ConfigDirectory, PluginDirectory, RecoveryDirectory,
                 ProjectCacheDirectory, UpdateDirectory, ExportLogDirectory }) EnsureWritableDirectory(path);
