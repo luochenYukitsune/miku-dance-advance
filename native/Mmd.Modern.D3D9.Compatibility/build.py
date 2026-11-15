@@ -16,7 +16,7 @@ import sys
 HERE = Path(__file__).resolve().parent
 HOST = HERE.parents[1] / 'compatibility' / 'd3d9-mme-host'
 PINNED_ARCHIVE = '4bd74d68f7158bdc481fc9ebf999161ae63f9c2f486f4ec9264cbf459596bfcc'
-PINNED_MANIFEST = '31326c0df052d1f7da8f21e8560ee647bc1627da4c482cd51f65a292e26655c9'
+PINNED_MANIFEST = '9df6e1a56c0b3f272aa3e1084cc160ca04f0064cb6070901aec4275432236f00'
 
 
 def digest(path):
@@ -119,7 +119,11 @@ def main():
         report.update(hostInputCount=count, mergedHostInputCount=merged_count,
                       hostManifestSha256=PINNED_MANIFEST, hostArchiveSha256=PINNED_ARCHIVE,
                       toolSha256=digest(zig))
-        sources = ['mda_d3d9_session.h', 'session.cpp', 'mda_d3d9_dependency.h', 'dependency.cpp', 'dependency_compiler_api.hpp', 'mda_d3d9_dependency_roots.h', 'dependency_roots.cpp', 'object_fx.hpp', 'effect_resource_map.hpp', 'owner_window.hpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py']
+        # Every first-party file compiled into the DLL must be listed, or the packaging drift check cannot see it.
+        sources = ['mda_d3d9_session.h', 'session.cpp', 'mda_d3d9_dependency.h', 'dependency.cpp', 'dependency_compiler_api.hpp', 'mda_d3d9_dependency_roots.h', 'dependency_roots.cpp', 'object_fx.hpp', 'effect_resource_map.hpp', 'emm_configuration.hpp', 'owner_window.hpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py']
+        unlisted = sorted(path.name for path in HERE.iterdir() if path.suffix in ('.h', '.hpp', '.cpp') and path.name not in sources)
+        if unlisted:
+            raise RuntimeError('native sources missing from the build identity: ' + ', '.join(unlisted))
         report['sourceInputs'] = [{'path': str(HERE / name), 'sha256': digest(HERE / name)} for name in sources]
         # Embed the project-owned ordinary shader. The separate opt-in object FX
         # configuration loads only its explicitly leased immutable file paths.

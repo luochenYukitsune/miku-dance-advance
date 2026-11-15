@@ -313,8 +313,8 @@
     },
     {
       "path": "patches/effect_engine.h.patch",
-      "bytes": 2310,
-      "sha256": "96b76e74a28159a4f712a642920c766a0c434b82d0f0d6b19fb98d1aa3e0130b",
+      "bytes": 2271,
+      "sha256": "5a61e394e097ecc960a3bad6f4669941dcb3ed31c7927e45912dbfd9515e4c47",
       "category": "source-diff",
       "origin": {
         "kind": "local-generated-metadata"
@@ -326,16 +326,16 @@
       "category": "patch",
       "reuseLicense": "MIT (upstream context); project-owned modifications",
       "licensePath": "upstream/LICENSE",
-      "bytes": 27409,
-      "sha256": "9576a30fe5d15612e6257ec355291716edbf633fc212298187fcc3bb094369e2"
+      "bytes": 26839,
+      "sha256": "ae8a40cf0bbd48de481d5ebb41e70913af5968232d6dec945bb4f38b86d90a36"
     },
     {
       "path": "patches/emm_manager.h.patch",
       "category": "patch",
       "reuseLicense": "MIT (upstream context); project-owned modifications",
       "licensePath": "upstream/LICENSE",
-      "bytes": 3353,
-      "sha256": "7b5480d3a0c8f2b4a37e6dfefc7210d888817dfa3167e66f76d107b1fe727900"
+      "bytes": 3282,
+      "sha256": "7a71983c47df53f1bfa6d2269e3962fa62a7be64f58a376393812829292708cf"
     },
     {
       "path": "patches/mda_mme_bridge_v1.cpp.patch",
@@ -430,8 +430,32 @@
       },
       "reuseLicense": "MIT (upstream portions); project-owned modifications",
       "licensePath": "upstream/LICENSE",
-      "bytes": 30624,
-      "sha256": "ae99f633f277a7106ad3ea5b84016c60f2a4620e54dc7c4dbcae20ab839f1602"
+      "bytes": 30021,
+      "sha256": "c58263bdc298b6f4a49d107e9a543e60f13635b2c7b7b39616db0ffaa60c024a"
+    },
+    {
+      "path": "patches/mda_effect_dependency.hpp.patch",
+      "category": "altered-upstream-diff",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 12783,
+      "sha256": "5fef7c4575b03dc6d6a2743e902b3f1b08f946e16a63b4eb8bff8d43cfff9e2c"
+    },
+    {
+      "path": "patches/mda_effect_dependency_semantics.hpp.patch",
+      "category": "altered-upstream-diff",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 10748,
+      "sha256": "df639a0775c47abace7c23217aa771e26162b7ce838498c1c530d327c4c8740c"
+    },
+    {
+      "path": "patches/mda_effect_root_discovery.hpp.patch",
+      "category": "altered-upstream-diff",
+      "reuseLicense": "MIT (upstream portions); project-owned local modifications",
+      "licensePath": "upstream/LICENSE",
+      "bytes": 2582,
+      "sha256": "70ace48437e02f53732a12e11e086cf8fa0cc047fa4aa675b1a0b57ef1667331"
     },
     {
       "path": "upstream/CMakeLists.txt",

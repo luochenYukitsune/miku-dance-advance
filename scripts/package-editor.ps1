@@ -195,7 +195,7 @@ if ($ClassicNativeBuildDirectory) {
         $seenNativeSources[$name] = $true
         $sourceIdentities.Add([pscustomobject]@{ path = 'native/Mmd.Modern.D3D9.Compatibility/' + $name; sha256 = $identity.sha256 })
     }
-    foreach ($name in @('mda_d3d9_session.h', 'session.cpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py')) {
+    foreach ($name in @('mda_d3d9_session.h', 'session.cpp', 'emm_configuration.hpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py')) {
         if (-not $seenNativeSources.ContainsKey($name)) { throw "Classic build summary lacks current source identity: $name" }
     }
     $classicFiles.Add([pscustomobject]@{ source = $classicNative; path = 'Mmd.Modern.D3D9.Compatibility.dll'; sha256 = $classicNativeIdentity })
