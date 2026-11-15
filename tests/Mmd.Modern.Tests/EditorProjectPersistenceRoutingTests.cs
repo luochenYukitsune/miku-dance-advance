@@ -84,6 +84,29 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
             return true;
         }, Token);
 
+    [Fact]
+    public async Task ClearingTheLastMaterialMappingIsSavedAndReopensWithoutIt()
+        => await dispatcher.Dispatch(async () =>
+        {
+            using var files = new Fixture();
+            using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("modern-cache") };
+            Guid id = files.AddModel(workspace);
+            var profile = new D3D12MaterialBindingProfile("route.mapping", "Route mapping",
+                D3D12MaterialBindingLayout.Capture(workspace.Session!.Objects.Single().Source).Fingerprint, []);
+            workspace.MaterialBindings.Add(id, profile);
+            string path = files.Path("mapping.pma");
+            workspace.Save(path, Token);
+            await Task.Run(() => workspace.Open(path, Token), Token);
+            Assert.Single(workspace.MaterialBindings);
+            // Previously an empty mapping set skipped the codec and the opened package's index was saved again.
+            workspace.MaterialBindings.Clear();
+            string cleared = files.Path("cleared.pma");
+            workspace.Save(cleared, Token);
+            await Task.Run(() => workspace.Open(cleared, Token), Token);
+            Assert.Empty(workspace.MaterialBindings);
+            return true;
+        }, Token);
+
     [Theory]
     [InlineData(D3D9EmmPma.ExtensionName)]
     [InlineData(D3D9EffectResourceTree.ExtensionName)]
