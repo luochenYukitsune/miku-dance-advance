@@ -389,6 +389,14 @@ struct Session {
  Phase phase=Phase::Ready;
  uint32_t width=0,height=0;uint64_t captures=0,presents=0,generation=0;
  packet::Frame scene{};Metadata metadata;std::vector<D3DMATERIAL9> materials;std::unique_ptr<FrameGpu> gpu;Diagnostics diagnostic;
+ // MME host object cache identity. The host keeps a cached object (its parsed material table, EMM and effect
+ // clones, offscreen state) while geometry() returns the same identity and the same borrowed IUnknown. The
+ // vertex buffer is rebuilt every frame, so per-frame values made the host delete and re-create every model each
+ // frame (re-reading model files and cloning effects). Identity now changes only when an object's own layout
+ // changes, and the borrowed pointer is a stable session-owned token; draws bind the real per-frame buffers.
+ struct ObjectIdentity{uint32_t kind=0,materialStart=0,materialCount=0,vertexStart=0,vertexCount=0;std::string sourcePath;uint64_t token=0;};
+ std::unordered_map<uint64_t,ObjectIdentity> objectIdentities;uint64_t nextObjectIdentity=0;Com<IDirect3DVertexBuffer9> geometryToken;
+ void refreshObjectIdentities();
  std::unique_ptr<ObjectFxState> objectFx;
  int currentObject=0,currentMaterial=0,currentTechnic=1,repeatCount=0;
  explicit Session(uint64_t value,Mode m=Mode::Capture,HWND target=nullptr,DWORD thread=0,DWORD process=0):id(value),mode(m),borrowedTarget(target),targetThread(thread),targetProcess(process){}
@@ -438,7 +446,8 @@ const wchar_t* __cdecl accessoryPath(int i){return typedPath(packet::Accessory,i
 int32_t __cdecl geometry(void* context,uint32_t kind,uint64_t id,MdaMmeGeometryV1* out)noexcept{
  auto* s=static_cast<Session*>(context);if(!s||(kind!=MDA_MME_MODEL&&kind!=MDA_MME_ACCESSORY)||!out||out->size<sizeof(*out)||out->version!=MDA_MME_BRIDGE_VERSION||!s->gpu||!s->gpu->vertices.p)return -1;
  const auto found=s->metadata.byId.find(id);if(found==s->metadata.byId.end()||s->scene.objects[found->second].kind!=kind)return -1;
- out->identity=s->generation;out->borrowed_iunknown=s->gpu->vertices.p;return 0;
+ const auto identity=s->objectIdentities.find(id);if(identity==s->objectIdentities.end()||!s->geometryToken.p)return -1;
+ out->identity=identity->second.token;out->borrowed_iunknown=s->geometryToken.p;return 0;
 }
 int32_t __cdecl parent(void* context,uint64_t id,MdaMmeParentV1* out)noexcept{
  auto* s=static_cast<Session*>(context);if(!s||!out||out->size<sizeof(*out)||out->version!=MDA_MME_BRIDGE_VERSION)return -1;
@@ -488,6 +497,7 @@ void Session::cleanup()noexcept {
  if(runtime){MmeHostShutdownRuntime();runtime=false;}
  if(objectFx){mme::g_autoReload=objectFx->previousAutoReload;objectFx.reset();mme::MdaObjectFxAllowedPaths.clear();}
  if(callbacks==this)callbacks=nullptr;
+ objectIdentities.clear();geometryToken.reset();
  gpu.reset();effect.reset();releaseShadowTarget();screenCaptureTexture.reset();target.reset();depth.reset();readback.reset();device.reset();d3d.reset();
  if(window){DestroyWindow(window);window=nullptr;}
 }
@@ -587,6 +597,7 @@ void Session::captureAccessoryScreen(){
 uint32_t Session::render(FrozenDraw& frozen,uint32_t order){
  resize(frozen.frame.width,frozen.frame.height);prepareShadowTarget(frozen.frame);auto next=std::make_unique<FrameGpu>();next->upload(device,frozen.frame,frozen.appearance);
  auto previous=std::move(gpu);gpu=std::move(next);scene=std::move(frozen.frame);metadata=std::move(frozen.metadata);materials=std::move(frozen.materials);++generation;diagnostic={};
+ refreshObjectIdentities();
  try{return draw(frozen.appearance,order,frozen.editorOverlay);}catch(...){
   // A general SAS walk may have suspended/redirected state when it fails. Use
   // the same frame-tail cleanup, then require Destroy rather than publishing
@@ -595,6 +606,23 @@ uint32_t Session::render(FrozenDraw& frozen,uint32_t order){
   if(started){started=false;try{MmeHostEndScene(device);}catch(...){poisoned=true;device->EndScene();}}
   throw;
  }
+}
+void Session::refreshObjectIdentities(){
+ // A tiny system-memory buffer is always creatable and survives Reset, so the host can AddRef it as a stable
+ // geometry lifetime token. It is never bound or drawn. Create it once per device.
+ if(!geometryToken.p)check(device->CreateVertexBuffer(16,0,0,D3DPOOL_SYSTEMMEM,geometryToken.put(),nullptr),"MME geometry identity token");
+ std::unordered_map<uint64_t,ObjectIdentity> next;next.reserve(scene.objects.size());
+ for(const auto& o:scene.objects){
+  ObjectIdentity value{o.kind,o.materialStart,o.materialCount,o.vertexStart,o.vertexCount,o.sourcePath,0};
+  const auto old=objectIdentities.find(o.id);
+  const bool same=old!=objectIdentities.end()&&old->second.kind==value.kind&&old->second.materialStart==value.materialStart&&
+   old->second.materialCount==value.materialCount&&old->second.vertexStart==value.vertexStart&&old->second.vertexCount==value.vertexCount&&
+   old->second.sourcePath==value.sourcePath;
+  if(same)value.token=old->second.token;
+  else{if(nextObjectIdentity==UINT64_MAX)fail(MDA9_INTERNAL_ERROR,"MME geometry identity space exhausted");value.token=++nextObjectIdentity;}
+  next.emplace(o.id,std::move(value));
+ }
+ objectIdentities=std::move(next);
 }
 void Session::present(){
  Com<IDirect3DSurface9> back;D3DSURFACE_DESC src{},dst{};
@@ -644,7 +672,7 @@ void Session::applyObjectFx(){
   if(!rejection.empty())throw Failure(fx.sceneEffects?MDA9_DEVICE_FAILURE:MDA9_UNSUPPORTED,rejection);
   fx.compiled[row.path]=std::move(loaded);
  }
- // A new VB/generation may have replaced every host object. Reapply the full
+ // A changed object layout may have replaced a host object. Reapply the full
  // frozen map each frame, in whole-then-subset order independent of input order.
  for(const auto& object:scene.objects){
   if(!object.visible)continue;

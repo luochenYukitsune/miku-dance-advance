@@ -50,10 +50,19 @@ int main(){
   // Never dereferenced/AddRef'd: this only exercises adapter identity admission.
   // The separate real-host/GPU checks own borrowed-COM lifetime validation.
   s.gpu->vertices.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x1234));
+  s.geometryToken.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x5678));
   MdaMmeGeometryV1 g{sizeof g,MDA_MME_BRIDGE_VERSION};
-  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==23&&g.borrowed_iunknown==s.gpu->vertices.p,"geometry callback returns exact generation and token");
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)!=0,"geometry callback rejects an object without a published identity");
+  // Identity is per object and stays stable across frames until that object's own layout changes, so the host
+  // keeps its cached object instead of rebuilding every model each frame.
+  auto identities=[&]{s.objectIdentities.clear();s.nextObjectIdentity=0;
+   for(const auto& o:s.scene.objects)s.objectIdentities.emplace(o.id,Session::ObjectIdentity{o.kind,o.materialStart,o.materialCount,o.vertexStart,o.vertexCount,o.sourcePath,++s.nextObjectIdentity});};
+  identities();const uint64_t first=s.objectIdentities.at(Accessory).token;
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==first&&g.borrowed_iunknown==s.geometryToken.p,"geometry callback returns the object identity and the stable session token");
+  s.generation=24;s.gpu->vertices.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x9abc));
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==first&&g.borrowed_iunknown==s.geometryToken.p,"a new frame and vertex buffer keep the same host identity");
   check(geometry(&s,MDA_MME_MODEL,Accessory,&g)!=0&&geometry(&s,9,Accessory,&g)!=0&&geometry(&s,MDA_MME_ACCESSORY,Accessory+1,&g)!=0,"geometry callback rejects ID-kind mismatch");
-  s.gpu->vertices.p=nullptr;
+  s.gpu->vertices.p=nullptr;s.geometryToken.p=nullptr;s.objectIdentities.clear();
   c.requiredFeatures=MDA9_FEATURE_SURFACE;try{freezeDraw(c,s);check(false,"missing accessory capability");}catch(const Failure& e){check(e.status==MDA9_UNSUPPORTED,"missing accessory capability");}
   c.requiredFeatures=MDA9_FEATURE_SURFACE|MDA9_FEATURE_ACCESSORY;c.renderOrder=MDA9_ORDER_OPAQUE_FIRST;try{freezeDraw(c,s);check(false,"opaque-first mixed scene");}catch(const Failure& e){check(e.status==MDA9_UNSUPPORTED,"opaque-first mixed scene");}
   callbacks=nullptr;
