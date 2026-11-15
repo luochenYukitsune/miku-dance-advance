@@ -40,12 +40,16 @@ public partial class EditorWindow : Window
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
         Closed += async (_, _) =>
         {
+            // Async void: every step is isolated so one failed cleanup (for example a viewport whose GPU device was
+            // removed) neither skips plugin and workspace release nor terminates the process.
             var old = _shell;
             AttachShell(null);
-            this.FindControl<EditorViewportHost>("SceneViewport")!.Dispose();
+            try { this.FindControl<EditorViewportHost>("SceneViewport")!.Dispose(); }
+            catch (Exception error) { EditorCrashLog.TryWrite("close-viewport", error); }
             try { await ReleasePluginsAsync(); }
             catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
-            finally { old?.Dispose(); }
+            try { old?.Dispose(); }
+            catch (Exception error) { EditorCrashLog.TryWrite("close-workspace", error); }
         };
         Closing += CheckClosing;
         KeyDown += OnEditorKeyDown;

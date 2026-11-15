@@ -742,5 +742,5 @@ public sealed class D3D12FrameRenderer : IDisposable
         temporalPass?.Dispose();temporalPass=null;xeSsTemporalPass?.Dispose();xeSsTemporalPass=null;
         dlssTemporalPass?.Dispose();dlssTemporalPass=null;
     }
-    public void Dispose(){if(disposed)return;runtime.WaitForIdle();disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();rayGiRenderer?.Dispose();frameDescriptors.Dispose();cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}
+    public void Dispose(){if(disposed)return;runtime.WaitForIdleForTeardown();disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();rayGiRenderer?.Dispose();frameDescriptors.Dispose();cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}
 }

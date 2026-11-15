@@ -68,7 +68,7 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
         if (disposed) return;
         // An open recording could still refer to these descriptor tables. Its owner must
         // submit or abort it, then retire every GPU reader before releasing the pool.
-        runtime.WaitForIdle();
+        runtime.WaitForIdleForTeardown();
         disposed = true;
         foreach (var set in slots) set?.Dispose();
         Array.Clear(slots);

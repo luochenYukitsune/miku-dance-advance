@@ -278,6 +278,13 @@ public sealed partial class EditorShellViewModel : IDisposable
     public void Dispose()
     {
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
-        DisposeAudioPlayback(); PosePreview.Dispose(); Workspace.Dispose();
+        // An audio device that was unplugged can fail cleanup (it stays owned for retry); the pose preview and
+        // the workspace, which owns native physics worlds, are still released.
+        try { DisposeAudioPlayback(); }
+        finally
+        {
+            try { PosePreview.Dispose(); }
+            finally { Workspace.Dispose(); }
+        }
     }
 }

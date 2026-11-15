@@ -216,8 +216,13 @@ public sealed class D3D12MeshRenderer : IRenderBackend
 
     public void Dispose()
     {
-        if (disposed) return; disposed = true; WaitForGpu();
-        debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose();
+        if (disposed) return; disposed = true;
+        // A removed device runs nothing further (its fence reads UINT64_MAX); release instead of throwing.
+        try { if (fence.CompletedValue != ulong.MaxValue) WaitForGpu(); }
+        finally
+        {
+            debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose();
+        }
     }
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct MeshConstants(Matrix4x4 World, Matrix4x4 NormalWorld, Matrix4x4 ViewProjection,

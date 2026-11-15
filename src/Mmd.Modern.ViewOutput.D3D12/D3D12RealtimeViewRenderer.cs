@@ -210,6 +210,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync().ConfigureAwait(false);
-        try { if (disposed) return; disposed = true; presenter.Dispose(); } finally { gate.Release(); }
+        // Mark disposed only after the presenter released: a failed release must stay retryable by the cleanup ledger.
+        try { if (disposed) return; presenter.Dispose(); disposed = true; } finally { gate.Release(); }
     }
 }

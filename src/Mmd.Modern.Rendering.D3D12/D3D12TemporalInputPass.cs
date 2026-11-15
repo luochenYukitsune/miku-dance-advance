@@ -187,7 +187,7 @@ internal sealed partial class D3D12TemporalInputPass(D3D12GpuRuntime runtime) : 
     {
         if (disposed) return;
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open frame before disposing temporal inputs.");
-        runtime.WaitForIdle();
+        runtime.WaitForIdleForTeardown();
         DisposeCharacterInputs();
         pipeline?.Dispose();
         root?.Dispose();
