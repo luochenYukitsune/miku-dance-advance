@@ -99,7 +99,7 @@ public sealed class D3D12MaterialBindingLayout
     {
         var texture = GetTexture(sourceSceneTextureOrdinal);
         return new(sourceSceneTextureOrdinal, texture.Width, texture.Height, texture.Kind,
-            Convert.ToHexStringLower(SHA256.HashData(texture.Rgba)));
+            texture.RgbaSha256);
     }
 
     /// <summary>Validates only the explicitly selected slot. Equal content elsewhere never repairs a mismatching slot.</summary>
@@ -109,7 +109,7 @@ public sealed class D3D12MaterialBindingLayout
         var texture = GetTexture(selector.SourceSceneTextureOrdinal);
         if (selector.Width != texture.Width || selector.Height != texture.Height || selector.Kind != texture.Kind
             || !IsCanonicalSha256(selector.RgbaSha256)
-            || !string.Equals(selector.RgbaSha256, Convert.ToHexStringLower(SHA256.HashData(texture.Rgba)), StringComparison.Ordinal))
+            || !string.Equals(selector.RgbaSha256, texture.RgbaSha256, StringComparison.Ordinal))
             throw new ArgumentException("Selected source scene texture no longer matches its size, kind or RGBA8 content guard.", nameof(selector));
     }
 

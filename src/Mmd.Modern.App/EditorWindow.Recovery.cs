@@ -27,20 +27,39 @@ public partial class EditorWindow
             // A process interruption never reaches this hook and leaves its own sessions unclean.
             // Coordinator shutdown and store I/O never await the dispatcher; captures already
             // belong to their Task.Run worker, so this final drain cannot wait on this UI thread.
+            // Each wait is bounded: stuck I/O (a network share, an antivirus lock) used to freeze the closing window.
+            // A writer that does not finish is abandoned, not marked clean, so its session stays a recovery offer.
             foreach (var owner in recoveryOwners)
             {
-                try { owner.ShutdownCleanAsync().GetAwaiter().GetResult(); }
+                try
+                {
+                    var shutdown = owner.ShutdownCleanAsync();
+                    if (!shutdown.Wait(RecoveryCloseTimeout))
+                    {
+                        System.Diagnostics.Trace.TraceWarning("Recovery shutdown did not finish in time; the session stays recoverable.");
+                        owner.Abandon();
+                    }
+                    else shutdown.GetAwaiter().GetResult();
+                }
                 catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
                 finally { owner.Dispose(); }
             }
             foreach (var session in reviewedRecoverySessions.Values)
             {
-                try { session.Store.CompleteInactiveSessionStartupOfferAsync(session.SessionId).GetAwaiter().GetResult(); }
+                try
+                {
+                    using var timeout = new CancellationTokenSource(RecoveryCloseTimeout);
+                    var complete = session.Store.CompleteInactiveSessionStartupOfferAsync(session.SessionId, timeout.Token);
+                    if (complete.Wait(RecoveryCloseTimeout)) complete.GetAwaiter().GetResult();
+                    else System.Diagnostics.Trace.TraceWarning("Recovery offer completion did not finish in time; it is offered again next start.");
+                }
                 catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
             }
             reviewedRecoverySessions.Clear();
         };
     }
+
+    internal static TimeSpan RecoveryCloseTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     private void RefreshRecoveryTimer()
     {

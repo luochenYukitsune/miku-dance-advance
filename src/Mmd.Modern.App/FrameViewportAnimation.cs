@@ -93,9 +93,11 @@ public sealed partial class FrameViewportViewModel
         NotifyMotionState();
     }
 
-    public void LoadMotion(string path)
+    public void LoadMotion(string path)=>LoadMotion(ReadMotion(path),path);
+    /// <summary>File I/O and VMD decoding only; safe off the UI thread. Applying the motion is not.</summary>
+    internal static VmdMotion ReadMotion(string path)
     {
-        using var stream=File.OpenRead(path);var motion=VmdReader.Read(stream);LoadMotion(motion,path);
+        using var stream=File.OpenRead(path);return VmdReader.Read(stream);
     }
     public void LoadMotion(VmdMotion motion,string? sourcePath=null)
     {

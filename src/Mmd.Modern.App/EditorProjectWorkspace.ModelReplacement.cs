@@ -24,7 +24,7 @@ public sealed partial class EditorProjectWorkspace
             candidate => preparedMetadata = PrepareObjectEditMetadata(candidate, token));
         if (removeIncompatibleMaterialMapping) MaterialBindings.Remove(plan.ObjectId);
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata)); redo.Clear(); MarkChanged();
+        PushUndo(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata)); redo.Clear(); MarkChanged();
     }
 
     public void ApplyOrphanRestoration(SceneOrphanRestorationPlan plan, CancellationToken token = default)
@@ -33,6 +33,6 @@ public sealed partial class EditorProjectWorkspace
         if (plan.RecoverableCount == 0) return;
         var before = SnapshotMappings();
         session.ApplyOrphanRestoration(plan, confirmed: true, token);
-        undo.Push(new(session, session, true, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); redo.Clear(); MarkChanged();
+        PushUndo(new(session, session, true, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); redo.Clear(); MarkChanged();
     }
 }

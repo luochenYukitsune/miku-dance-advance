@@ -849,11 +849,27 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             frameWaitCancellation?.Cancel(); framePermitReady = false;
             running = workerTask;
         }
-        running.GetAwaiter().GetResult(); // Worker never awaits a UI callback.
-        ReleaseRendererAsync().AsTask().GetAwaiter().GetResult();
+        // Worker never awaits a UI callback. Both waits are bounded: a GPU that hangs without a driver reset, or a
+        // stuck native call, used to freeze the window forever. Fence waits time out on their own (60 s); past this
+        // bound the remaining release continues in the background so the window can still close.
+        if (!WaitBounded(running, "render worker")) return;
+        var release = Task.Run(async () => await ReleaseRendererAsync().ConfigureAwait(false));
+        if (!WaitBounded(release, "renderer release")) return;
+        release.GetAwaiter().GetResult();
         lock (workerGate) sceneInputRequests = [];
         AdapterName = null; Statistics = null;
         SetPreparingFrame(false);
+    }
+
+    internal static TimeSpan CloseWaitTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    private bool WaitBounded(Task task, string what)
+    {
+        try { if (task.Wait(CloseWaitTimeout)) return true; }
+        catch (AggregateException) { return true; } // Observed by the caller or already reported by the worker.
+        System.Diagnostics.Trace.TraceWarning($"Editor viewport {what} did not finish within {CloseWaitTimeout.TotalSeconds:0} s; continuing to close.");
+        AdapterName = null; Statistics = null; SetPreparingFrame(false);
+        return false;
     }
 
     public void Dispose()

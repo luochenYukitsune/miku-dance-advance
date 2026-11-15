@@ -58,7 +58,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
         bool PreservePoseDrafts = false);
-    private readonly Stack<HistoryStep> undo = [], redo = [];
+    // Same capacity as SceneProjectSession's own history, so every retained session-edit step can still undo.
+    private readonly BoundedHistory<HistoryStep> undo = new(), redo = new();
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
     public SceneProjectSession? Session { get; private set; }
@@ -184,7 +185,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             var beforeMetadata = ProjectMetadata;
             Session = candidate; ProjectMetadata = metadata;
             standaloneSessions.Add(Session);
-            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); ClearRedo();
+            PushUndo(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); ClearRedo();
         }
         else { Edit(edit => Add(edit.Composition, edit.Lighting, edit.Motions)); return id; }
         MarkChanged();
@@ -429,7 +430,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts)); ClearRedo();
+        PushUndo(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts)); ClearRedo();
         MarkChanged(preservePoseDrafts);
     }
 
@@ -519,7 +520,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var mappings = SnapshotMappings();
         session.SetDefaultRenderingStyle(style);
         // The metadata-only session transaction shares the owner's ordered history; bridge it like an ordinary edit.
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); ClearRedo();
+        PushUndo(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); ClearRedo();
         MarkChanged();
         return true;
     }
@@ -535,7 +536,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var before = SnapshotMappings();
         var beforeMetadata = ProjectMetadata;
         Session = null; MaterialBindings.Clear(); ProjectMetadata = null;
-        undo.Push(new(session, null, false, before, [], beforeMetadata, null)); ClearRedo(); MarkChanged();
+        PushUndo(new(session, null, false, before, [], beforeMetadata, null)); ClearRedo(); MarkChanged();
     }
 
     public void Save(string path, CancellationToken token = default)
@@ -705,7 +706,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         if (!redo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Redo() != true) return false;
-        redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
+        redo.Pop(); PushUndo(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
         RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
@@ -726,6 +727,12 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         CloseContent(); ProjectPath = null; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
+    /// <summary>Pushes an undo step; when the bounded history drops its oldest step, a standalone session only that
+    /// step referenced is released like a discarded redo branch.</summary>
+    private void PushUndo(HistoryStep step)
+    {
+        if (undo.Push(step, out _)) DisposeUnreachableSessions();
+    }
     /// <summary>Discards the redo branch. A standalone session that is now unreachable (only the discarded branch
     /// referenced it) is disposed here so its native physics worlds are freed, instead of living until the
     /// document closes.</summary>
@@ -733,10 +740,14 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         if (redo.Count == 0) return;
         redo.Clear();
+        DisposeUnreachableSessions();
+    }
+    private void DisposeUnreachableSessions()
+    {
         var reachable = new HashSet<SceneProjectSession>(ReferenceEqualityComparer.Instance);
         if (Session is { } current) reachable.Add(current);
         if (package?.Session is { } packaged) reachable.Add(packaged);
-        foreach (var step in undo) { if (step.Before is { } before) reachable.Add(before); if (step.After is { } after) reachable.Add(after); }
+        foreach (var step in undo.Concat(redo)) { if (step.Before is { } before) reachable.Add(before); if (step.After is { } after) reachable.Add(after); }
         foreach (var orphan in standaloneSessions.Where(item => !reachable.Contains(item)).ToArray())
         {
             standaloneSessions.Remove(orphan);
