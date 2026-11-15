@@ -271,7 +271,9 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         if(disposed)return;
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
-        if(!IsDeviceRemoved)Wait(fenceValue);
+        // Device removal can also happen while waiting (a TDR during close). The fence then reports UINT64_MAX,
+        // which ends this loop as "complete"; unlike WaitForFence it is not turned into an exception here.
+        while(fence.CompletedValue<fenceValue)Thread.Sleep(1);
         foreach(var slot in slots)Retire(slot);
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}

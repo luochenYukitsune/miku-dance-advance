@@ -103,7 +103,11 @@ public partial class EditorWindow
                 || shell.IsPlaying || document != capturedDocument || shell.Workspace.DocumentId != capturedDocument) return null;
             // Both captures happen synchronously on the UI owner, without committing pose drafts.
             // The detached package writer never reads the live workspace or these view models.
-            var state = EditorRecoverySessionState.Capture(shell.Animation, shell.SceneInspector, shell.Workspace.Motions) with
+            // Validate editor state against the motions the copy will actually store. A selected keyframe on a channel
+            // whose name exceeds the VMD limits is left out of that copy, so drop it from the saved selection too;
+            // otherwise reopening the copy fails on a selection that no longer exists.
+            var recoveryMotions = shell.Workspace.RecoveryMotions();
+            var state = EditorRecoverySessionState.Capture(shell.Animation, shell.SceneInspector, recoveryMotions) with
             {
                 SceneSelectionIndex = shell.SceneSelectionIndex, HierarchyTab = shell.HierarchyTab,
                 PixelsPerFrame = shell.PixelsPerFrame, FirstVisibleFrame = shell.FirstVisibleFrame,

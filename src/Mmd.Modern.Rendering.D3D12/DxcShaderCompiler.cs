@@ -246,13 +246,20 @@ public sealed class DxcShaderCompiler
         }
     }
 
-    // An installed copy has the bundled tools next to the executable and no source checkout above it. Development
-    // and test builds (including ones redirected to a separate output cache) are not installations.
+    // An installed copy is a published self-contained app: the installer and the CI publish both place the bundled
+    // tools/dxc next to it. Development and test builds come from MSBuild's output directory, which the repository
+    // redirects to <repo>/../.dev-cache/modern-dotnet/bin/<project>/<config>/<tfm>/ (Directory.Build.props), so no
+    // checkout is among its ancestors. Detect both layouts rather than inferring "installed" from the apphost.
     private static bool RunsFromSourceTree()
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
             if (File.Exists(Path.Combine(directory.FullName, "Mmd.Modern.slnx"))) return true;
-        return !File.Exists(Path.Combine(AppContext.BaseDirectory, "Mmd.Modern.App.exe"));
+            // <cache>/bin/<project>/...: a sibling obj/ tree and a checkout beside the cache's parent.
+            if (string.Equals(directory.Name, "bin", StringComparison.OrdinalIgnoreCase) && directory.Parent is { } cache
+                && Directory.Exists(Path.Combine(cache.FullName, "obj"))) return true;
+        }
+        return false;
     }
 
     private static string? FindWorkspaceRoot()

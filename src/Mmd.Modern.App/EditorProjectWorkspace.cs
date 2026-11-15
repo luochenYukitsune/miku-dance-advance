@@ -271,15 +271,28 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         return UnpersistableNames(actor.Motion, MotionCodePage(actor));
     }
 
-    private static IReadOnlyList<string> UnpersistableNames(VmdMotion motion, int codePage)
+    /// <summary>Channels whose names the VMD-based storage cannot write, judged per channel kind against that kind's
+    /// own field width (bone/morph 15 bytes, IK 20 bytes). A name dropped on one kind does not affect another.</summary>
+    private sealed record DroppedChannels(IReadOnlySet<string> Bones, IReadOnlySet<string> Morphs, IReadOnlySet<string> IkBones)
+    {
+        internal bool IsEmpty => Bones.Count == 0 && Morphs.Count == 0 && IkBones.Count == 0;
+        internal IReadOnlyList<string> Names => Bones.Concat(Morphs).Concat(IkBones).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> UnpersistableNames(VmdMotion motion, int codePage) => DroppedChannelsOf(motion, codePage).Names;
+
+    private static DroppedChannels DroppedChannelsOf(VmdMotion motion, int codePage)
     {
         var encoding = LegacyAnsiEncoding.Create(codePage);
-        var names = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var key in motion.BoneKeyframes) if (!Fits(key.BoneName, key.OriginalName, 15)) names.Add(key.BoneName);
-        foreach (var key in motion.MorphKeyframes) if (!Fits(key.MorphName, key.OriginalName, 15)) names.Add(key.MorphName);
+        var bones = new HashSet<string>(StringComparer.Ordinal);
+        var morphs = new HashSet<string>(StringComparer.Ordinal);
+        var ik = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in motion.BoneKeyframes) if (!Fits(key.BoneName, key.OriginalName, 15)) bones.Add(key.BoneName);
+        foreach (var key in motion.MorphKeyframes) if (!Fits(key.MorphName, key.OriginalName, 15)) morphs.Add(key.MorphName);
         foreach (var key in motion.IkKeyframes)
-            foreach (var item in key.Switches) if (!Fits(item.BoneName, item.OriginalName, 20)) names.Add(item.BoneName);
-        return names.ToArray();
+            foreach (var item in key.Switches) if (!Fits(item.BoneName, item.OriginalName, 20)) ik.Add(item.BoneName);
+        return new(bones, morphs, ik);
 
         bool Fits(string name, VmdEncodedName? original, int width)
         {
@@ -291,20 +304,20 @@ public sealed partial class EditorProjectWorkspace : IDisposable
 
     /// <summary>A VMD-representable copy of an unpersistable motion: keyframes on channels whose names cannot be
     /// written are left out, every other track is kept. Used only for recovery copies; null if still unwritable.</summary>
-    private static SceneMotionAsset? RecoveryProjection(SceneActorMotion actor, int codePage, IReadOnlySet<string> dropped)
+    private static SceneMotionAsset? RecoveryProjection(SceneActorMotion actor, int codePage, DroppedChannels dropped)
     {
         var motion = actor.Motion;
         var projected = new VmdMotion
         {
             ModelName = motion.ModelName, OriginalModelName = motion.OriginalModelName,
-            BoneKeyframes = motion.BoneKeyframes.Where(key => !dropped.Contains(key.BoneName)).ToArray(),
-            MorphKeyframes = motion.MorphKeyframes.Where(key => !dropped.Contains(key.MorphName)).ToArray(),
+            BoneKeyframes = motion.BoneKeyframes.Where(key => !dropped.Bones.Contains(key.BoneName)).ToArray(),
+            MorphKeyframes = motion.MorphKeyframes.Where(key => !dropped.Morphs.Contains(key.MorphName)).ToArray(),
             CameraKeyframes = motion.CameraKeyframes, LightKeyframes = motion.LightKeyframes,
             SelfShadowKeyframes = motion.SelfShadowKeyframes,
             IkKeyframes = motion.IkKeyframes.Select(key => new VmdIkKeyframe
             {
                 Frame = key.Frame, Visible = key.Visible,
-                Switches = key.Switches.Where(item => !dropped.Contains(item.BoneName)).ToArray()
+                Switches = key.Switches.Where(item => !dropped.IkBones.Contains(item.BoneName)).ToArray()
             }).ToArray(),
             Diagnostics = motion.Diagnostics,
         };
@@ -541,6 +554,19 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     internal PmaSaveSnapshot CaptureRecoverySnapshot(CancellationToken token = default)
         => CaptureRecoverySnapshot(out _, token);
 
+    /// <summary>The actor motions exactly as the next recovery copy stores them: actors with unwritable channel
+    /// names get the projected motion (those channels left out), every other actor its live motion. Recovery
+    /// editor state must be validated against this, not the live motion, or the copy cannot be reopened.</summary>
+    internal IReadOnlyList<SceneActorMotion> RecoveryMotions()
+        => Motions.Select(actor =>
+        {
+            if (actor.Asset is not null || IsHeaderFailure(actor)) return actor;
+            int codePage = MotionCodePage(actor);
+            var dropped = DroppedChannelsOf(actor.Motion, codePage);
+            if (dropped.IsEmpty || RecoveryProjection(actor, codePage, dropped) is not { } asset) return actor;
+            return actor with { Motion = asset.Motion, Asset = asset };
+        }).ToArray();
+
     /// <summary>
     /// Unlike a manual save, a recovery copy must not be blocked by channel names that exceed the VMD-based
     /// storage limits; otherwise a crash loses all work. Such motions are stored without the unwritable channels
@@ -554,11 +580,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         foreach (var actor in Motions.Where(actor => actor.Asset is null && !IsHeaderFailure(actor)))
         {
             int codePage = MotionCodePage(actor);
-            var names = UnpersistableNames(actor.Motion, codePage);
-            if (names.Count == 0) continue;
-            if (RecoveryProjection(actor, codePage, names.ToHashSet(StringComparer.Ordinal)) is not { } asset) continue;
+            var dropped = DroppedChannelsOf(actor.Motion, codePage);
+            if (dropped.IsEmpty) continue;
+            if (RecoveryProjection(actor, codePage, dropped) is not { } asset) continue;
             overrides.Add(actor.ObjectId, asset);
-            notes.Add(actor.Model.Name + ": " + string.Join(", ", names));
+            notes.Add(actor.Model.Name + ": " + string.Join(", ", dropped.Names));
         }
         omitted = notes.AsReadOnly();
         var options = CreateSaveOptions(token, overrides.Keys.ToHashSet());
