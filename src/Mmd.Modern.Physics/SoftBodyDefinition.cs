@@ -25,6 +25,8 @@ public sealed record SoftBodySettings
 /// Definitions may share IDs: a supporting backend must simulate them with common nodes.</summary>
 public sealed class SoftBodyDefinition
 {
+    /// <summary>Largest accepted absolute vertex coordinate; the native solver enforces the same bound.</summary>
+    public const float MaxCoordinate = 1e6f;
     public string Name { get; }
     public SoftBodyShape Shape { get; }
     public IReadOnlyList<int> VertexIndices { get; }
@@ -44,6 +46,10 @@ public sealed class SoftBodyDefinition
         if (!Enum.IsDefined(shape) || ids.Length < 2 || ids.Length != points.Length || ids.Any(i => i < 0)
             || ids.Distinct().Count() != ids.Length || points.Any(p => !PhysicsMath.Finite(p)))
             throw new ArgumentException("Invalid soft-body vertex mapping.");
+        // The native solver quantizes positions into sparse-SDF cells with an int conversion; huge finite
+        // coordinates from a damaged or crafted model overflowed it and crashed the process.
+        if (points.Any(p => MathF.Abs(p.X) > MaxCoordinate || MathF.Abs(p.Y) > MaxCoordinate || MathF.Abs(p.Z) > MaxCoordinate))
+            throw new ArgumentException($"Soft-body vertex positions must be within ±{MaxCoordinate:0} units.");
         var map = ids.ToHashSet();
         if (pins.Any(i => !map.Contains(i)) || pins.Distinct().Count() != pins.Length
             || anchorArray.Any(a => !map.Contains(a.VertexIndex) || a.BodyIndex < 0))
@@ -61,6 +67,10 @@ public sealed class SoftBodyDefinition
             || settings.BendingDistance < 0 || settings.ClusterCount < 0 || settings.AeroModel is < 0 or > 4
             || !float.IsFinite(settings.Mass) || settings.Mass <= 0 || !float.IsFinite(settings.Margin) || settings.Margin < 0)
             throw new ArgumentException("Invalid soft-body configuration.", nameof(settings));
+        // Bullet stores each node's inverse mass as count / total; keep both the mass and its inverse finite.
+        float nodeMass = settings.Mass / ids.Length;
+        if (!float.IsFinite(nodeMass) || nodeMass <= 0 || !float.IsFinite(1 / nodeMass))
+            throw new ArgumentException("Soft-body mass per vertex is outside the float solver range.", nameof(settings));
         Name = name; Shape = shape; VertexIndices = Array.AsReadOnly(ids); Positions = Array.AsReadOnly(points);
         TriangleIndices = Array.AsReadOnly(triangles); PinVertexIndices = Array.AsReadOnly(pins); Anchors = Array.AsReadOnly(anchorArray);
         Settings = settings with { Config = Array.AsReadOnly(settings.Config.ToArray()),

@@ -29,6 +29,12 @@ template<class F> int guard(F f) noexcept { message[0]=0; try { f(); return 0; }
  catch(const std::exception& e){std::snprintf(message,sizeof(message),"%s",e.what());}
  catch(...){std::snprintf(message,sizeof(message),"Unknown soft-body failure");} return 1; }
 btVector3 vec(const float* p){return btVector3(p[0],p[1],p[2]);}
+// Soft-body collision quantizes node positions into btSparseSdf cells with an (int) conversion. Finite but huge
+// coordinates (about 1.6e9 and above) overflow it and index far outside the cell table, crashing the process.
+// MMD models live within a few thousand units; 1e6 leaves ample room while keeping float precision useful.
+constexpr float MaxSoftCoordinate=1e6f;
+void requirePoints(const float* points,long long values,const char* what){
+ for(long long i=0;i<values;i++)if(!std::isfinite(points[i])||std::fabs(points[i])>MaxSoftCoordinate)throw std::invalid_argument(what);}
 btTransform pose(const float* p){return btTransform(btQuaternion(p[3],p[4],p[5],p[6]),vec(p));}
 struct Rigid { std::unique_ptr<btCollisionShape> shape; std::unique_ptr<btRigidBody> body; };
 struct World {
@@ -80,7 +86,8 @@ struct World {
   if(hasGround){ground.reset(new Rigid());ground->shape.reset(new btStaticPlaneShape(btVector3(0,1,0),0));
    btRigidBody::btRigidBodyConstructionInfo ci(0,nullptr,ground->shape.get());ground->body.reset(new btRigidBody(ci));
    ground->body->setWorldTransform(btTransform(btQuaternion::getIdentity(),btVector3(0,y,0)));
-   ground->body->setInterpolationWorldTransform(ground->body->getWorldTransform());world->addRigidBody(ground->body.get());}
+   // All PMX groups (and soft clusters with a non-zero mask) collide with the ground; see mmd_bullet.cpp.
+   ground->body->setInterpolationWorldTransform(ground->body->getWorldTransform());world->addRigidBody(ground->body.get(),short(-1),short(-1));}
  }
  World(btSoftRigidDynamicsWorld& value,const std::vector<btRigidBody*>& bodies,const std::vector<int>& modes)
   : world(&value),borrowed(true),rigidBodies(bodies),authoredModes(modes) {}
@@ -114,6 +121,7 @@ API int mmd_soft_create(const float* gravity,int hasGround,float y,void** result
  return guard([&]{if(!result||!gravity)throw std::invalid_argument("Null create arguments");*result=new World(gravity,hasGround,y);});}
 API void mmd_soft_destroy(void* p){if(p&&static_cast<World*>(p)->borrowed){std::snprintf(message,sizeof(message),"Only the coupled owner may destroy this binding");return;}delete static_cast<World*>(p);}
 API int mmd_soft_add_collider(void* p,int shape,int group,int mask,const float* size,const float* transform){return guard([&]{
+ if(!size||!transform||group<0||group>15||mask<0||mask>65535)throw std::invalid_argument("Collider description");
  auto& w=ctx(p);if(w.borrowed)throw std::invalid_argument("Attached binding cannot add proxy colliders");auto r=std::make_unique<Rigid>();
  switch(shape){case 0:r->shape.reset(new btSphereShape(size[0]));break;case 1:r->shape.reset(new btBoxShape(vec(size)));break;
  case 2:r->shape.reset(new btCapsuleShape(size[0],size[1]));break;default:throw std::invalid_argument("Collider shape");}
@@ -125,6 +133,10 @@ API int mmd_soft_add_collider(void* p,int shape,int group,int mask,const float* 
 API int mmd_soft_add(void* p,const float* points,int count,const int* triangles,int numIndices,const int* options,
  const float* values,const int* pins,int numPins,const int* anchors,int numAnchors){return guard([&]{
  auto& w=ctx(p);if(w.frozen)throw std::invalid_argument("Cannot change frozen topology");if(count<2||!points||!options||!values)throw std::invalid_argument("Soft description");
+ if(count>std::numeric_limits<int>::max()/3||(options[0]==0&&numIndices>0&&!triangles)||numPins<0||(numPins&&!pins)||
+    numAnchors<0||numAnchors>std::numeric_limits<int>::max()/2||(numAnchors&&!anchors)||options[5]<0||options[5]>15||options[6]<0||options[6]>65535)
+  throw std::invalid_argument("Soft description/counts");
+ requirePoints(points,3LL*count,"Soft point is nonfinite or outside the supported coordinate range");
  std::vector<btVector3> vertices;for(int i=0;i<count;i++)vertices.push_back(vec(points+i*3));
  std::unique_ptr<btSoftBody> b;
  if(options[0]==0){if(numIndices<=0||numIndices%3)throw std::invalid_argument("Triangle count");
@@ -174,7 +186,8 @@ API int mmd_soft_add_shared(void* p,const float* points,int count,int partCount,
  if(nodeOffsets[0]!=0||nodeOffsets[partCount]!=nodeCount||triangleOffsets[0]!=0||triangleOffsets[partCount]!=triangleCount)
   throw std::invalid_argument("Shared offset endpoints");
  std::vector<btVector3> vertices;vertices.reserve(count);
- for(int i=0;i<count;i++){for(int axis=0;axis<3;axis++)if(!std::isfinite(points[i*3+axis]))throw std::invalid_argument("Shared nonfinite point");vertices.push_back(vec(points+i*3));}
+ requirePoints(points,3LL*count,"Shared point is nonfinite or outside the supported coordinate range");
+ for(int i=0;i<count;i++)vertices.push_back(vec(points+i*3));
  std::vector<double> masses(count,0);double totalMass=0;
  std::vector<int> owner(count,-1),parent(partCount);for(int i=0;i<partCount;i++)parent[i]=i;
  auto root=[&](int i){while(parent[i]!=i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
@@ -310,7 +323,7 @@ API int mmd_soft_near_anchors(void* p,int index,const int* pairs,int count){retu
  }
  w.nearAnchors[index]=std::move(candidate);});}
 API int mmd_soft_targets(void* p,int index,const float* points,int count){return guard([&]{auto& w=ctx(p);auto& b=body(w,index);
- if(count!=b.m_nodes.size()||!points)throw std::invalid_argument("Target count");for(int j=0;j<count*3;j++)if(!std::isfinite(points[j]))throw std::invalid_argument("Nonfinite soft target");if(w.frozen)return;for(int i:w.pins[index]){auto& n=b.m_nodes[i];n.m_x=vec(points+i*3);n.m_q=n.m_x;n.m_v.setZero();n.m_f.setZero();}b.updateBounds();});}
+ if(count!=b.m_nodes.size()||!points)throw std::invalid_argument("Target count");requirePoints(points,3LL*count,"Soft target is nonfinite or outside the supported coordinate range");if(w.frozen)return;for(int i:w.pins[index]){auto& n=b.m_nodes[i];n.m_x=vec(points+i*3);n.m_q=n.m_x;n.m_v.setZero();n.m_f.setZero();}b.updateBounds();});}
 API int mmd_soft_collider_pose(void* p,int index,const float* transform){return guard([&]{auto& w=ctx(p);if(w.borrowed)throw std::invalid_argument("Attached binding cannot publish proxy poses");if(index<0||index>=int(w.rigidBodies.size()))throw std::out_of_range("Collider");
  auto* b=w.rigidBodies[index];b->setWorldTransform(pose(transform));w.world->updateSingleAabb(b);b->activate(true);});}
 // Additive ABI1 feature 8: complete proxy pose transaction. No soft nodes, velocities,

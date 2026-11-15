@@ -49,6 +49,19 @@ public sealed class PmxSoftBodyTests
         Assert.True(sample.Positions[2].Y < 5);
     }
 
+    [Theory]
+    [InlineData(2e9f)]
+    [InlineData(-1.5e6f)]
+    public void HugeFiniteVertexCoordinatesFailBeforeNativeAllocation(float coordinate)
+        // Finite coordinates near 1.6e9 overflowed the native sparse-SDF cell index and crashed the process.
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("huge", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, new(coordinate, 0, 0)], [], [], [], new()));
+
+    [Fact]
+    public void TinyMassWhosePerNodeInverseOverflowsFailsBeforeNativeAllocation()
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("light", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, Vector3.One], [], [], [], new() { Mass = 1e-45f }));
+
     [Fact]
     public void InvalidGlobalPinFailsBeforeNativeAllocation()
         => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("bad", SoftBodyShape.Rope,
