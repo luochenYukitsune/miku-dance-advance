@@ -278,6 +278,30 @@ public sealed class ScenePmmControlsRuntimeTests : IDisposable
             (object)(name.Value, frame, tracks.DisabledBonesAt(m.Index, frame).Contains(i)))).ToArray();
     }
 
+    [Fact]
+    public void ModelAddedToAPmmProjectStepsPhysicsAndJoinsTheMixedDrawOrder()
+    {
+        // ValidateActors deliberately allows an actor added after the import. It used to fail later: physics
+        // looked up its PMM disabled-bone set (KeyNotFoundException) and the mixed draw order left it out.
+        var f = Fixture();
+        var provider = new ProjectSettingsBackendProvider((_, _) => new Probe(), _ => new Probe());
+        using var project = new SceneProjectSession(f.Layout, new(), f.Motions, provider, pmmControls: f.Controls);
+        var extra = RigidModel("extra", ["root"], 0, false);
+        string path = Path.Combine(directory, "extra.pmx"); File.WriteAllBytes(path, PmxWriter.ToBytes(extra));
+        Guid added = Guid.Empty;
+        project.Edit(edit =>
+        {
+            var obj = edit.Composition.Add("extra", path, ModelRole.Character, Rest(extra)); added = obj.Id;
+            var asset = SceneMotionAsset.FromMotion(new() { BoneKeyframes = [new() { BoneName = "root" }] });
+            edit.Motions.Add(new(obj.Id, extra, asset.Motion, Asset: asset));
+        }, Token);
+        for (int i = 0; i < 4; i++) project.Advance(1d / 120, Token);
+        var order = project.CaptureRenderSnapshot().MixedDrawOrder;
+        Assert.Equal(3, order.Count(item => item.Kind == PmmDrawableKind.Model));
+        var last = order.Single(item => item.ObjectId == added);
+        Assert.Equal(order.Max(item => item.DrawOrderIndex), last.DrawOrderIndex);
+    }
+
     private (SceneCompositionEditor Layout, SceneActorMotion[] Motions, ScenePmmControlState Controls) Fixture()
     {
         var layout = new SceneCompositionEditor(); var models = new[] { RigidModel("subject", ["unused", "root"], 1, false), RigidModel("parent", ["root"], 0, true) };

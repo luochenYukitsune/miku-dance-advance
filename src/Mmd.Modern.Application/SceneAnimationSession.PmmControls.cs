@@ -36,8 +36,11 @@ public sealed partial class SceneAnimationSession
         return result;
     }
 
+    // A model added after the PMM import has no PMM control record (ValidateActors allows independent actors),
+    // so it has no disabled bones rather than a missing-key failure.
     private IReadOnlySet<int> ControlDisabled(Guid id, double frame)
-        => pmmControls is null ? new HashSet<int>() : ControlSample(frame).DisabledBoneIndices[id].ToHashSet();
+        => pmmControls is not null && ControlSample(frame).DisabledBoneIndices.TryGetValue(id, out var disabled)
+            ? disabled.ToHashSet() : new HashSet<int>();
 
     private void ValidateControls(Entry[] source)
     {

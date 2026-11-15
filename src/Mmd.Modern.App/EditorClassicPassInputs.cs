@@ -44,9 +44,10 @@ internal sealed class EditorClassicPassInputs
                 throw new InvalidDataException("Classic outline controls require the exact authored model identity.");
             float? width = null;
             bool additiveBlend = false;
-            if (controls is not null)
+            // A model added after the PMM import has no PMM record and keeps the source outline defaults.
+            if (controls is not null && controls.ModelIndices.TryGetValue(item.Id, out byte index))
             {
-                if (!controls.ModelIndices.TryGetValue(item.Id, out byte index) || !pmmModels!.TryGetValue(index, out var pmm))
+                if (!pmmModels!.TryGetValue(index, out var pmm))
                     throw new InvalidDataException("Classic PMM outline controls do not cover the live model identity.");
                 width = document!.Version == 1 ? 1 : pmm.EdgeWidth;
                 additiveBlend = pmm.BlendEnabled;

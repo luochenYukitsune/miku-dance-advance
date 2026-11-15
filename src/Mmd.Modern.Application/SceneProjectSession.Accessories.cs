@@ -128,6 +128,17 @@ public sealed partial class SceneProjectSession
                 draw.Add(new(id, item.Kind, item.StoredIndex, item.SourceDrawOrderIndex, item.DrawOrderIndex, byActor[id].Visible, false));
             }
         }
+        // Models added after the PMM import have no PMM draw-order record. Draw them after the PMM models, in
+        // scene order, so the traditional renderer still receives a complete object table.
+        var mapped = controls.ModelIndices.Keys.ToHashSet();
+        int nextSource = draw.Where(value => value.Kind == PmmDrawableKind.Model).Select(value => (int)value.SourceDrawOrderIndex).DefaultIfEmpty(-1).Max() + 1;
+        int nextOrder = draw.Select(value => value.DrawOrderIndex).DefaultIfEmpty(-1).Max() + 1;
+        foreach (var obj in content.Composition.Objects.Where(value => !mapped.Contains(value.Id) && !content.Accessories.Any(a => a.ObjectId == value.Id)))
+        {
+            if (nextSource > byte.MaxValue) throw new NotSupportedException("A PMM-based project supports at most 256 drawn models.");
+            draw.Add(new(obj.Id, PmmDrawableKind.Model, -1, (byte)nextSource++, nextOrder++,
+                byActor.TryGetValue(obj.Id, out var actor) ? actor.Visible : true, false));
+        }
         return (frames.AsReadOnly(), new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, Matrix4x4>>(bones),
             draw.AsReadOnly(), document.Settings.AccessoryIndexAfterModels, order.Diagnostics);
     }
