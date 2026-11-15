@@ -611,11 +611,27 @@ begin
     Exit;
   Result := CustomMessage('RelocationUninstallFailed');
   if not RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', PreviousDir) or (PreviousDir = '') then
+  begin
+    { A registration without a location points at nothing that can be uninstalled. Drop it rather than
+      block installing anywhere; there is no payload to remove. }
+    Log('Removing stale MDA uninstall registration without an install location.');
+    RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey);
+    Result := '';
     Exit;
+  end;
   PreviousDir := AddBackslash(ExpandFileName(PreviousDir));
   if CompareText(PreviousDir, AddBackslash(ExpandFileName(WizardDirValue))) = 0 then
   begin
     { Same-directory upgrades keep Inno's existing uninstall-log append flow. }
+    Result := '';
+    Exit;
+  end;
+  if not FileExists(PreviousDir + 'Mmd.Modern.App.exe') and not DirExists(PreviousDir) then
+  begin
+    { The registered installation folder no longer exists (deleted by hand, drive removed). Its uninstaller is
+      gone too, so the user could not follow the "uninstall first" advice; clear the stale registration. }
+    Log('Removing stale MDA uninstall registration for missing folder: ' + PreviousDir);
+    RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey);
     Result := '';
     Exit;
   end;

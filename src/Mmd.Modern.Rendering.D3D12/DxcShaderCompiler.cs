@@ -184,6 +184,10 @@ public sealed class DxcShaderCompiler
 
         string bundled=Path.Combine(AppContext.BaseDirectory,"tools","dxc","dxc.exe");
         if(File.Exists(bundled))return Path.GetFullPath(bundled);
+        // The fallbacks below run an executable found outside the installation. An installed app (one that is
+        // not running from a source checkout) must not run a dxc found on PATH, and no build may search from the
+        // process's current directory, which an associated document can control. MMD_DXC_PATH stays explicit.
+        bool developmentBuild = RunsFromSourceTree();
         string? workspace = FindWorkspaceRoot();
         if (workspace is not null)
         {
@@ -195,6 +199,8 @@ public sealed class DxcShaderCompiler
                 if (File.Exists(candidate)) return Path.GetFullPath(candidate);
         }
 
+        if (!developmentBuild)
+            throw new FileNotFoundException("The bundled DXC is missing from this installation. Reinstall MDA or set MMD_DXC_PATH.", bundled);
         foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
         {
             if (string.IsNullOrWhiteSpace(directory)) continue;
@@ -240,9 +246,19 @@ public sealed class DxcShaderCompiler
         }
     }
 
+    // An installed copy has the bundled tools next to the executable and no source checkout above it. Development
+    // and test builds (including ones redirected to a separate output cache) are not installations.
+    private static bool RunsFromSourceTree()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "Mmd.Modern.slnx"))) return true;
+        return !File.Exists(Path.Combine(AppContext.BaseDirectory, "Mmd.Modern.App.exe"));
+    }
+
     private static string? FindWorkspaceRoot()
     {
-        foreach (string start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+        // Only the application's own location is trusted, never the process's current directory.
+        foreach (string start in new[] { AppContext.BaseDirectory })
         {
             for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
                 if (File.Exists(Path.Combine(directory.FullName, "MMD932_modern", "AGENTS.md")))
