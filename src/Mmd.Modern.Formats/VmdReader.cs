@@ -54,8 +54,12 @@ public static class VmdReader
                 reader.ReadSingle(field + ".rotation.x"), reader.ReadSingle(field + ".rotation.y"),
                 reader.ReadSingle(field + ".rotation.z"), reader.ReadSingle(field + ".rotation.w"));
             // Do not normalize here: retain the original finite xyzw values for compatibility decisions.
+            // MMD itself writes all-zero quaternions for some untouched keys and plays them as rest.
             if (rotation.X == 0 && rotation.Y == 0 && rotation.Z == 0 && rotation.W == 0)
-                throw new VmdFormatException(field + ".rotation", rotationOffset, "zero quaternion has no rotation");
+            {
+                rotation = Quaternion.Identity;
+                reader.Repair(field + ".rotation", rotationOffset, "zero quaternion read as identity");
+            }
             byte[] interpolation = new byte[64];
             reader.ReadBytes(interpolation, field + ".interpolation");
             bones[i] = new VmdBoneKeyframe
@@ -172,7 +176,8 @@ public static class VmdReader
                 diagnostics.Add($"Read {ikCount} IK keyframe(s), {totalIkBones} bone toggle(s); visibility is separate from IK state.");
         }
 
-        reader.RequireEnd();
+        reader.SkipTrailing();
+        diagnostics.AddRange(reader.Repairs);
         return new VmdMotion
         {
             ModelName = modelName.Value, OriginalModelName = modelName,
@@ -242,12 +247,27 @@ public static class VmdReader
             return value[0];
         }
 
+        private const int MaxRepairDiagnostics = 16;
+        private int _repairCount;
+        public List<string> Repairs { get; } = [];
+
+        /// <summary>Records a tolerated deviation. Only the first few are listed so a file full of them stays bounded.</summary>
+        public void Repair(string field, long offset, string message)
+        {
+            _repairCount++;
+            if (Repairs.Count < MaxRepairDiagnostics)
+                Repairs.Add($"Repaired {field} at byte {offset}: {message}.");
+            else if (Repairs.Count == MaxRepairDiagnostics)
+                Repairs.Add("Further repairs omitted.");
+        }
+
         public bool ReadFlag(string field)
         {
             long offset = Position;
             byte flag=ReadByte(field);
+            // Any non-zero byte is true for MMD; tools that write 0xFF should not reject the whole motion.
             if (flag > 1)
-                throw new VmdFormatException(field, offset, "flag must be 0 or 1");
+                Repair(field, offset, $"flag {flag} read as 1");
             return flag!=0;
         }
 
@@ -279,6 +299,13 @@ public static class VmdReader
             ReadBytes(bytes, field);
             int nul = bytes.IndexOf((byte)0);
             byte[] payload = (nul < 0 ? bytes : bytes[..nul]).ToArray();
+            // MMD truncates names to the fixed field width by bytes, which can split the final double-byte
+            // character. Only a name that fills the whole field can be truncated that way.
+            if (nul < 0 && payload.Length > 0 && EndsWithIncompleteCharacter(payload))
+            {
+                payload = payload[..^1];
+                Repair(field, offset, "trailing half of a truncated double-byte character dropped");
+            }
             if (_names.Find(kind, payload) is { } explicitName)
                 return explicitName;
             if (_names.CandidatesFor(kind) is { } candidates)
@@ -305,6 +332,14 @@ public static class VmdReader
             {
                 throw new VmdFormatException(field, offset, $"name is not valid CP{_encoding.CodePage}", exception);
             }
+        }
+
+        private bool EndsWithIncompleteCharacter(byte[] payload)
+        {
+            try { _encoding.GetString(payload); return false; }
+            catch (DecoderFallbackException) { }
+            try { _encoding.GetString(payload, 0, payload.Length - 1); return true; }
+            catch (DecoderFallbackException) { return false; }
         }
 
         public int ReadCount(string section, int minimumBytes)
@@ -342,10 +377,23 @@ public static class VmdReader
             return (int)count;
         }
 
-        public void RequireEnd()
+        /// <summary>Some exporters pad files or append private data after the known sections. Those bytes are
+        /// not motion data, so they are reported instead of rejecting the file. Reading stays bounded by the input cap.</summary>
+        public void SkipTrailing()
         {
-            if (_stream.ReadByte() >= 0)
-                throw new VmdFormatException("motion.end", Position, "unexpected trailing data after known VMD sections");
+            long offset = Position;
+            long trailing = 0;
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = _stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                trailing += read;
+                if (trailing > MaxInputBytes - offset)
+                    throw new VmdFormatException("motion.end", offset, $"input exceeds safety limit {MaxInputBytes} bytes");
+            }
+            Position += trailing;
+            if (trailing > 0)
+                Repair("motion.end", offset, $"{trailing} trailing byte(s) after known VMD sections ignored");
         }
     }
 }

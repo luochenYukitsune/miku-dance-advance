@@ -1321,5 +1321,6 @@
   "Mda.Text.Plugins.Cancelled": "Plugin command cancelled.",
   "Mda.Text.7ba973697905": "The PMM project’s camera field of view is invalid (it must be between 0 and 180 degrees). Keep your original project and fix the camera in MMD.",
   "Mda.Text.898373142ac6": "The Legacy engine supports only the MMD style. Switch to the Modern engine to choose another style.",
-  "Mda.Text.7b6ff92e42ef": "The Legacy engine preview doesn’t support GI, anti-aliasing, supersampling, upscaling or diffusion. Keep these off, or switch to the Modern engine."
+  "Mda.Text.7b6ff92e42ef": "The Legacy engine preview doesn’t support GI, anti-aliasing, supersampling, upscaling or diffusion. Keep these off, or switch to the Modern engine.",
+  "Mda.Text.d3230a73f4ed": "Texture “{0}” was not loaded and is shown as missing: {1}"
 }

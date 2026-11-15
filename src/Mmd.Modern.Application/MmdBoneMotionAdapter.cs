@@ -21,8 +21,8 @@ public static class MmdBoneMotionAdapter
                 BezierCurve Curve(int c)
                 {
                     int offset=16*c;
-                    return new(key.Interpolation[offset]/127f,key.Interpolation[offset+4]/127f,
-                        key.Interpolation[offset+8]/127f,key.Interpolation[offset+12]/127f);
+                    return BezierCurve.FromMmd(key.Interpolation[offset],key.Interpolation[offset+4],
+                        key.Interpolation[offset+8],key.Interpolation[offset+12]);
                 }
                 keys[key.Frame]=new(key.Frame,key.Translation,key.Rotation,new(Curve(0),Curve(1),Curve(2),Curve(3)));
             }

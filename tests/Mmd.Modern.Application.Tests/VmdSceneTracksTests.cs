@@ -14,6 +14,22 @@ public sealed class VmdSceneTracksTests
       Distance = -10 - value, ViewAngle = (uint)(30 + value), Perspective = perspective, Interpolation = curve ?? Linear() };
 
     [Fact]
+    public void ControlBytesAbove127AreClampedInsteadOfFailingImportOrEvaluation()
+    {
+        byte[] curves = Linear();
+        curves[0] = 0; curves[1] = 255; curves[2] = 200; curves[3] = 255;
+        var tracks = new VmdSceneTracks(new() { CameraKeyframes = [Camera(0, 0, false, curves), Camera(10, 10)] });
+        float expected = (float)new BezierCurve(0, 1, 1, 1).Evaluate(.5);
+        Assert.Equal(10 * expected, tracks.CameraAt(5)!.Value.LookAt.X, 5);
+
+        byte[] bone = new byte[64];
+        for (int c = 0; c < 4; c++) { bone[16 * c] = 20; bone[16 * c + 4] = 200; bone[16 * c + 8] = 255; bone[16 * c + 12] = 107; }
+        var clip = MmdBoneMotionAdapter.Convert(new VmdMotion { BoneKeyframes = [new() { BoneName = "A", Frame = 10, Rotation = Quaternion.Identity, Interpolation = bone }] });
+        Assert.NotNull(clip);
+        Assert.Equal(BezierCurve.FromMmd(20, 127, 127, 107), BezierCurve.FromMmd(20, 200, 255, 107));
+    }
+
+    [Fact]
     public void SixOutgoingCameraCurvesUseVmdByteOrderAndKeepRawCoordinates()
     {
         byte[] curves = Linear();
@@ -79,7 +95,7 @@ public sealed class VmdSceneTracksTests
     {
         Assert.Throws<ArgumentException>(() => new VmdSceneTracks(new() { LightKeyframes = [new() { Color = new(float.NaN) }] }));
         Assert.Throws<ArgumentException>(() => new VmdSceneTracks(new() { SelfShadowKeyframes = [new() { Mode = 3 }] }));
-        var bytes = Linear(); bytes[23] = 128;
+        var bytes = Linear()[..23];
         Assert.Throws<ArgumentException>(() => new VmdSceneTracks(new() { CameraKeyframes = [Camera(0, 0, curve: bytes)] }));
     }
 

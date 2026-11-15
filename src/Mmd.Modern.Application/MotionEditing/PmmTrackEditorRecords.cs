@@ -238,7 +238,7 @@ internal static class PmmTrackEditorRecords
         if (frame <= a.Frame || index == keys.Length - 1) return (a.Translation, a.Rotation);
         var b = keys[index + 1]; double t = (frame - (double)a.Frame) / (b.Frame - (double)a.Frame);
         double Curve(int channel)
-        { int start = channel * 4; var c = b.Interpolation; return new BezierCurve(c[start] / 127f, c[start + 1] / 127f, c[start + 2] / 127f, c[start + 3] / 127f).Evaluate(t); }
+        { int start = channel * 4; var c = b.Interpolation; return BezierCurve.FromMmd(c[start], c[start + 1], c[start + 2], c[start + 3]).Evaluate(t); }
         float L(float from, float to, double weight) => (float)((1 - weight) * from + weight * to);
         return (new(L(a.Translation.X, b.Translation.X, Curve(0)), L(a.Translation.Y, b.Translation.Y, Curve(1)), L(a.Translation.Z, b.Translation.Z, Curve(2))),
             Quaternion.Slerp(Normalize(a.Rotation), Normalize(b.Rotation), (float)Curve(3)));

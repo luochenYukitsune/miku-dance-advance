@@ -82,13 +82,11 @@ public sealed class SceneMotionAssetTests : IDisposable
     [Theory]
     [InlineData("signature")]
     [InlineData("truncated")]
-    [InlineData("trailing")]
     public void FromBytesRejectsMalformedVmdUsingExistingReader(string corruption)
     {
         byte[] bytes = Fixture();
         if (corruption == "signature") bytes[0] = 0;
-        else if (corruption == "truncated") bytes = bytes[..^1];
-        else bytes = [.. bytes, 1];
+        else bytes = bytes[..^1];
 
         Assert.Throws<VmdFormatException>(() => SceneMotionAsset.FromBytes(bytes));
     }

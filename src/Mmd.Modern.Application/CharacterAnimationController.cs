@@ -74,7 +74,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         ArgumentNullException.ThrowIfNull(model);ArgumentNullException.ThrowIfNull(motion);
         this.model=model;
         restSurface=surface;restOutline=outline;
-        var rig=PmxCharacterRigAdapter.Convert(model,surface.Snapshot);
+        var rig=PmxCharacterRigAdapter.Convert(model,surface.Snapshot,out var rigRepairs);
         ikSwitches=new(model.Bones.Select((b,i)=>(b,i)).Where(p=>p.b.Flags.HasFlag(PmxBoneFlags.Ik))
             .ToDictionary(p=>p.b.Name,p=>p.i,StringComparer.Ordinal),motion);
         visibility=new(motion);IsVisible=visibility.Evaluate(0);
@@ -97,7 +97,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         timeInvariantBoneTracks=clip.Tracks.Where(track=>boneNames.Contains(track.BoneName))
             .All(track=>track.Keys.Count==1&&track.Keys[0].Frame==0);
         animator=new(rig,clip);DurationFrames=Math.Max(Math.Max(clip.DurationFrames,ikSwitches.DurationFrames),morphMotion.DurationFrames);
-        var diagnostics=new List<string>(motion.Diagnostics);diagnostics.AddRange(animator.Diagnostics);
+        var diagnostics=new List<string>(motion.Diagnostics);diagnostics.AddRange(rigRepairs);diagnostics.AddRange(animator.Diagnostics);
         diagnostics.AddRange(ikSwitches.Diagnostics.Where(d=>!d.StartsWith("VMD model visibility is retained",StringComparison.Ordinal)));
         diagnostics.AddRange(morphs.Diagnostics.Where(d=>!d.StartsWith("PMX morph type 'Material'",StringComparison.Ordinal)
             &&!d.StartsWith("PMX morph type 'Impulse'",StringComparison.Ordinal)));

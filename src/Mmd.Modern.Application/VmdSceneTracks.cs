@@ -42,7 +42,7 @@ public sealed class VmdSceneTracks
         {
             int i = channel * 4; var c = a.Interpolation;
             // VMD order is x1,x2,y1,y2, unlike PMM's x1,y1,x2,y2.
-            return (float)new BezierCurve(c[i] / 127f, c[i + 2] / 127f, c[i + 1] / 127f, c[i + 3] / 127f).Evaluate(t);
+            return (float)BezierCurve.FromMmd(c[i], c[i + 2], c[i + 1], c[i + 3]).Evaluate(t);
         }
         static float L(float x, float y, float t) => x * (1 - t) + y * t;
         return new PmmCameraPose(new(L(a.Interest.X, b.Interest.X, Curve(0)), L(a.Interest.Y, b.Interest.Y, Curve(1)),
@@ -94,8 +94,9 @@ internal static class SceneTrackRecords
         static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
         foreach (var k in motion.CameraKeyframes)
             if (k is null || !float.IsFinite(k.Distance) || !Finite(k.Interest) || !Finite(k.Rotation)
-                || k.Interpolation.Count != 24 || k.Interpolation.Any(b => b > 127))
-                throw new ArgumentException("Camera keys require finite values and 24 curve bytes in [0,127].", nameof(motion));
+                || k.Interpolation.Count != 24)
+                // Control bytes above 127 come from third-party exporters; evaluation clamps them (BezierCurve.FromMmd).
+                throw new ArgumentException("Camera keys require finite values and 24 curve bytes.", nameof(motion));
         foreach (var k in motion.LightKeyframes)
             if (k is null || !Finite(k.Color) || !Finite(k.Direction))
                 throw new ArgumentException("Light keys require finite color and direction values.", nameof(motion));
