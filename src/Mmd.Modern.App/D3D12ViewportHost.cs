@@ -67,6 +67,9 @@ public sealed class D3D12ViewportHost : NativeControlHost, IDisposable
     }
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
+        // As in EditorViewportHost: never destroy a handle that is no longer ours. Windows destroys the child with
+        // its parent and may reuse the value for an unrelated window.
+        if (control.Handle != childWindow) return;
         DetachInput();
         StopLoop();
         presenter?.Dispose(); presenter = null; RayGiCapabilities = null;
@@ -99,7 +102,9 @@ public sealed class D3D12ViewportHost : NativeControlHost, IDisposable
     private D3D12ViewportSize CurrentSize()
     {
         if (childWindow == IntPtr.Zero || !GetClientRect(childWindow, out var rectangle)) return new(0, 0);
-        return new(Math.Max(0, rectangle.Right - rectangle.Left), Math.Max(0, rectangle.Bottom - rectangle.Top));
+        // Same 1..4096 swapchain limit as the editor viewport; an oversized window must not stop the frame loop.
+        return new(Math.Clamp(rectangle.Right - rectangle.Left, 0, EditorViewportHost.MaximumRenderDimension),
+            Math.Clamp(rectangle.Bottom - rectangle.Top, 0, EditorViewportHost.MaximumRenderDimension));
     }
     private void RenderTick()
     {

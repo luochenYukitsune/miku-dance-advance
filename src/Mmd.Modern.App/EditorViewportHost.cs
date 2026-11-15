@@ -107,8 +107,13 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         else if (childWindow != nint.Zero && GetClientRect(childWindow, out var bounds))
         { width = bounds.Right - bounds.Left; height = bounds.Bottom - bounds.Top; }
         else { width = height = 0; }
+        // The D3D12 renderer and swapchain accept 1..4096 per axis (the capability probe already clamps the same
+        // way). A 5K/8K or multi-monitor window used to fail on the first frame and latch the preview as failed.
+        width = Math.Min(width, MaximumRenderDimension); height = Math.Min(height, MaximumRenderDimension);
         return width > 0 && height > 0;
     }
+
+    internal const int MaximumRenderDimension = 4096;
 
     /// <summary>Borrowed UI-thread session. Replacing it releases GPU caches, never the session.</summary>
     public SceneProjectSession? Project

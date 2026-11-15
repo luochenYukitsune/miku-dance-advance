@@ -499,6 +499,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
         var previous = session.RenderingStyles.DefaultStyle;
         if (previous == style) return false;
+        // The classic (D3D9) engine renders only the ordinary MMD preset. Reject here, before the session, undo
+        // history and dirty flag change; previously the edit committed and the next preview bind failed.
+        if (EditorRenderEngineOptions.UsesD3D9Surface(RenderEngine) && style != RenderingPresetReference.BuiltIn(RenderingStyleId.Mmd))
+            throw new NotSupportedException(EditorLocalization.Text("传统引擎只支持 MMD 画风。请切换到现代引擎后再选择其他画风。"));
         var catalog = Mmd.Modern.Rendering.D3D12.D3D12StylePresetCatalog.BuiltIn;
         var selected = catalog.Find(style.StableId);
         if (!selected.IsAvailable || selected.Definition is null)

@@ -23,6 +23,9 @@
     "src/Mmd.Modern.App/EditorStartupWindow.axaml"
   ],
   "literalToKey": {
+    "传统引擎的预览不支持光照 GI、抗锯齿、超采样、超分辨率或扩散效果。请保持这些选项关闭，或切换到现代引擎。": "Mda.Text.7b6ff92e42ef",
+    "传统引擎只支持 MMD 画风。请切换到现代引擎后再选择其他画风。": "Mda.Text.898373142ac6",
+    "PMM 工程的相机视角无效（视角必须在 0 到 180 度之间）。请保留原工程并在 MMD 中修复相机。": "Mda.Text.7ba973697905",
     "模型贴图解码后的总大小超过 {0} MiB 上限。": "Mda.Text.6193ad17602d",
     "PMM 媒体“{0}”不是受支持的媒体文件类型。请保留原工程并修复资源路径。": "Mda.Text.3e75822b0a4a",
     "设置": "Mda.Text.df3d58c7d84b",

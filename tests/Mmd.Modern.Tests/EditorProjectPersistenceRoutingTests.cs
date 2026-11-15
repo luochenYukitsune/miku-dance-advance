@@ -104,6 +104,22 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
         }, Token);
 
     [Fact]
+    public void ClassicEngineRejectsAModernStyleWithoutChangingTheProject()
+    {
+        // The edit used to commit (undo entry, dirty) and only fail when the D3D9 preview bound the project.
+        using var files = new Fixture();
+        using var classic = files.Workspace();
+        files.AddModel(classic);
+        bool dirty = classic.IsDirty, canUndo = classic.CanUndo;
+        var style = classic.Session!.RenderingStyles.DefaultStyle;
+        Assert.Throws<NotSupportedException>(() => classic.SetDefaultRenderingStyle(new("genshin")));
+        Assert.Equal(style, classic.Session.RenderingStyles.DefaultStyle);
+        Assert.Equal(dirty, classic.IsDirty); Assert.Equal(canUndo, classic.CanUndo);
+        Assert.True(EditorWindow.IsClassicCompatible(new()));
+        Assert.False(EditorWindow.IsClassicCompatible(new(Antialiasing: FrameAntialiasing.Smaa1X)));
+    }
+
+    [Fact]
     public void DiscardingRedoDisposesAStandaloneSessionNothingElseReferences()
     {
         using var files = new Fixture();

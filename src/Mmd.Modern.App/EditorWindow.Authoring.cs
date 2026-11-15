@@ -67,12 +67,21 @@ public partial class EditorWindow
         if (quality is null) return;
         try
         {
+            // The classic (D3D9) surface renderer implements no GI, AA, supersampling, upscaling, temporal
+            // reconstruction or diffusion. Reject before replacing the working preview configuration.
+            if (EditorRenderEngineOptions.UsesD3D9Surface(shell.Workspace.RenderEngine) && !IsClassicCompatible(quality))
+                throw new NotSupportedException(Text("传统引擎的预览不支持光照 GI、抗锯齿、超采样、超分辨率或扩散效果。请保持这些选项关闭，或切换到现代引擎。"));
             if (_persistPreferences && EditorRenderEngineOptions.UsesModernQualityPreferences(shell.Workspace.RenderEngine))
                 EditorPreferences.SavePreviewQuality(quality);
             ApplyPreviewQuality(viewport, quality);
         }
         catch (Exception error) { await ShowErrorAsync(error, owner); }
     }
+
+    internal static bool IsClassicCompatible(ViewQualityOptions quality)
+        => !quality.EffectiveGi.Enabled && quality.Antialiasing is null or Mmd.Modern.Core.FrameAntialiasing.Off
+            && quality.SpatialSamples is null or <= 1 && quality.EffectiveUpscaling.Mode == ViewUpscalingMode.Off
+            && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.Off && !quality.EffectiveDiffusion.Enabled;
 
     internal void ApplyPreviewQuality(EditorViewportHost viewport, ViewQualityOptions quality)
     {
