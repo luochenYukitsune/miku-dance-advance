@@ -299,7 +299,7 @@ public sealed class PluginManager : IAsyncDisposable
         var manifest = entry.Manifest!;
         if (manifest.ApiVersion != _host.ApiVersion)
             entry.Reject($"Plugin API version {manifest.ApiVersion} is incompatible with host API version {_host.ApiVersion}.");
-        else if (_host.ApplicationVersion < manifest.MinimumHostVersion)
+        else if (PluginManifest.Normalize(_host.ApplicationVersion) < manifest.MinimumHostVersion)
             entry.Reject($"Plugin requires host version {manifest.MinimumHostVersion} or newer.");
         else
         {

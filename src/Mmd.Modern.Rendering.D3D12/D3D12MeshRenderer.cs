@@ -192,11 +192,17 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     private void WaitForGpu()
     {
         queue.Signal(fence, ++fenceValue).CheckError();
+        if (fence.CompletedValue >= fenceValue) return;
+        using var completed = new AutoResetEvent(false);
+        fence.SetEventOnCompletion(fenceValue, completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
+        long deadline = Environment.TickCount64 + (long)D3D12GpuRuntime.FenceTimeout.TotalMilliseconds;
         while (fence.CompletedValue < fenceValue)
         {
-            if (fence.CompletedValue == ulong.MaxValue) throw new InvalidOperationException("D3D12 mesh device removed while waiting for the GPU.");
-            Thread.Sleep(1);
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException($"The D3D12 mesh queue did not reach fence {fenceValue} within {D3D12GpuRuntime.FenceTimeout.TotalSeconds:0} s.");
+            completed.WaitOne(100);
         }
+        if (fence.CompletedValue == ulong.MaxValue) throw new InvalidOperationException("D3D12 mesh device removed while waiting for the GPU.");
     }
 
     private static (ID3D12Device Device, string Name, bool Warp) CreateDevice()

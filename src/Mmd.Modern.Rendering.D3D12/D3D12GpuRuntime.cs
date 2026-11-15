@@ -245,15 +245,38 @@ internal sealed class D3D12GpuRuntime:IDisposable
     }
     internal void Wait(ulong value)=>WaitForFence(value,CancellationToken.None);
 
+    /// <summary>Upper bound for one fence wait. Windows resets a GPU that does not respond within ~2 s (TDR), after
+    /// which the fence reports UINT64_MAX; this bound only catches a queue that never signals at all (for example
+    /// a driver that hangs without a reset) so the caller fails instead of blocking the UI or exporter forever.</summary>
+    internal static TimeSpan FenceTimeout{get;set;}=TimeSpan.FromSeconds(60);
+
     internal void WaitForFence(ulong value,CancellationToken cancellationToken)
     {
+        if(!WaitForFenceCore(value,FenceTimeout,cancellationToken))
+            throw new TimeoutException($"The D3D12 queue did not reach fence {value} within {FenceTimeout.TotalSeconds:0} s (completed {fence.CompletedValue}).");
+        cancellationToken.ThrowIfCancellationRequested();
+        if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
+    }
+
+    /// <summary>Blocks on a completion event instead of polling with Thread.Sleep(1), which costs a scheduler
+    /// quantum per check (up to ~15 ms on default timer resolution) and burns CPU while the GPU is busy.
+    /// Returns false on timeout. Cancellation is observed between short event slices.</summary>
+    private bool WaitForFenceCore(ulong value,TimeSpan timeout,CancellationToken cancellationToken)
+    {
+        if(fence.CompletedValue>=value)return true;
+        var deadline=Environment.TickCount64+(long)timeout.TotalMilliseconds;
+        using var completed=new AutoResetEvent(false);
+        fence.SetEventOnCompletion(value,completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
+        var handles=cancellationToken.CanBeCanceled?new WaitHandle[]{completed,cancellationToken.WaitHandle}:new WaitHandle[]{completed};
         while(fence.CompletedValue<value)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(1);
+            long remaining=deadline-Environment.TickCount64;
+            if(remaining<=0)return false;
+            // Slices also cover device removal, which reports UINT64_MAX without necessarily firing the event.
+            WaitHandle.WaitAny(handles,(int)Math.Min(remaining,100));
         }
-        cancellationToken.ThrowIfCancellationRequested();
-        if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
+        return true;
     }
     internal void WaitForIdle()
     {
@@ -273,7 +296,10 @@ internal sealed class D3D12GpuRuntime:IDisposable
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         // Device removal can also happen while waiting (a TDR during close). The fence then reports UINT64_MAX,
         // which ends this loop as "complete"; unlike WaitForFence it is not turned into an exception here.
-        while(fence.CompletedValue<fenceValue)Thread.Sleep(1);
+        // A queue that never signals is treated like a removed device after the bound: the process is closing the
+        // runtime either way and waiting forever would hang the editor/export shutdown.
+        if(!WaitForFenceCore(fenceValue,FenceTimeout,CancellationToken.None))
+            System.Diagnostics.Trace.TraceWarning($"D3D12 teardown gave up waiting for fence {fenceValue} after {FenceTimeout.TotalSeconds:0} s.");
         foreach(var slot in slots)Retire(slot);
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
