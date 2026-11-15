@@ -86,6 +86,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         Browser.ImportModelCommand = ImportModelCommand;
         Browser.SelectionChanged += (_, _) => RefreshSelection();
         Animation.CommitMotion = Workspace.CommitMotion;
+        Animation.UnpersistableNames = Workspace.GetUnpersistableMotionNames;
         Animation.CanMutateProject = () => !IsBusy;
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };
         Animation.PoseDraftChanged += (_, _) =>

@@ -103,6 +103,48 @@ public sealed class EditorRecoveryPmaIntegrationTests : IAsyncDisposable
     }, TestContext.Current.CancellationToken);
 
     [Fact]
+    public async Task LongChannelNamesBlockManualSaveButRecoveryKeepsEveryOtherTrack() => await session.Dispatch(async () =>
+    {
+        var token = TestContext.Current.CancellationToken;
+        string directory = Path.Combine(Path.GetTempPath(), "mda-recovery-long-names-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var model = Model(); string source = Path.Combine(directory, "model.pmx");
+            await File.WriteAllBytesAsync(source, PmxWriter.ToBytes(model), token);
+            using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = Path.Combine(directory, "cache") };
+            Guid actorId = workspace.AddModel(source, EditorProjectWorkspace.CreateModelAsset(model, source, token), ModelRole.Prop);
+            const string longMorph = "口横広げ（歯見せ）"; // 18 bytes in CP932, VMD allows 15.
+            workspace.CommitMotion(actorId, new()
+            {
+                ModelName = "recovery",
+                BoneKeyframes = [new() { BoneName = "root", Frame = 10, Translation = Vector3.UnitY }],
+                MorphKeyframes = [new() { MorphName = longMorph, Frame = 4, Weight = 1 }, new() { MorphName = "あ", Frame = 5, Weight = .5f }],
+            });
+            Assert.Equal([longMorph], workspace.GetUnpersistableMotionNames(actorId));
+            // A manual save still refuses lossy storage.
+            Assert.Throws<NotSupportedException>(() => workspace.Save(Path.Combine(directory, "manual.pma"), token));
+            // A recovery copy is written and reports what it left out.
+            using var snapshot = workspace.CaptureRecoverySnapshot(out var omitted, token);
+            Assert.Contains(longMorph, Assert.Single(omitted));
+            string recovery = Path.Combine(directory, "recovery.pma");
+            await Task.Run(() => snapshot.Save(recovery, token), token);
+            // The live motion keeps the long-named channel.
+            Assert.Equal(2, Assert.Single(workspace.Motions).Motion.MorphKeyframes.Count);
+            using var reopened = new EditorProjectWorkspace { PackageCacheDirectory = Path.Combine(directory, "cache2") };
+            await Task.Run(() => reopened.Open(recovery, token), token);
+            var restored = Assert.Single(reopened.Motions).Motion;
+            Assert.Equal(Vector3.UnitY, Assert.Single(restored.BoneKeyframes).Translation);
+            Assert.Equal("あ", Assert.Single(restored.MorphKeyframes).MorphName);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+        return true;
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
     public void PackageCacheDefaultsStayCompatibleAndRejectRelativeOrDisposedOwners()
     {
         var workspace = new EditorProjectWorkspace();

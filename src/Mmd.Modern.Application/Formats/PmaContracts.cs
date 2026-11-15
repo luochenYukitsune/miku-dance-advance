@@ -12,6 +12,10 @@ public sealed record PmaSaveOptions
     /// <summary>Snapshots used only by this Save call. Does not edit the live session or affect a subsequent default Save.
     /// Reopening the saved PMA adopts these model snapshots. Apply a SceneProjectSession edit to change live actor metadata.</summary>
     public IReadOnlyDictionary<Guid, PmxModel> ModelOverrides { get; init; } = new Dictionary<Guid, PmxModel>();
+    /// <summary>Save-only motion replacements for bound actors, used by this Save call only. The live session's
+    /// motion is unchanged. Recovery copies use this to persist a VMD-representable projection of a motion whose
+    /// full in-memory form cannot be stored, instead of writing no recovery copy at all.</summary>
+    public IReadOnlyDictionary<Guid, SceneMotionAsset> MotionOverrides { get; init; } = new Dictionary<Guid, SceneMotionAsset>();
     /// <summary>Save-only extension overrides, defensively cloned and validated. The rendering-styles extension,
     /// when supplied here, affects only the saved package; use the session's typed edit API to change the live selection.</summary>
     public IReadOnlyDictionary<string, JsonElement> OptionalExtensions { get; init; } = new Dictionary<string, JsonElement>();

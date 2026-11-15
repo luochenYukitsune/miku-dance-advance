@@ -118,11 +118,14 @@ public partial class EditorWindow
             var metadata = new EditorRecoveryCheckpointMetadata(shell.Workspace.ProjectPath,
                 shell.Workspace.ProjectPath is { } path ? Path.GetFileName(path) : EditorLocalization.Text("Mda.Text.Recovery.Unnamed"),
                 shell.ContentRevision, json.RootElement, projectFormat: shell.Workspace.ProjectFormat);
+            IReadOnlyList<string> omitted = [];
             var result = await recoveryOwner.CheckpointAsync(document, EditorAutoSaveSnapshot.GetFingerprint(metadata),
-                () => new EditorAutoSaveSnapshot(metadata, shell.Workspace.CaptureRecoverySnapshot()));
+                () => new EditorAutoSaveSnapshot(metadata, shell.Workspace.CaptureRecoverySnapshot(out omitted)));
             if (result.Error is { } error && !recoveryWindowClosed && ReferenceEquals(shell, _shell))
                 shell.OperationStatus = EditorLocalization.Format(result.Checkpoint is null
                     ? "Mda.Text.Recovery.SaveFailed" : "Mda.Text.Recovery.SavedCleanupFailed", error.Message);
+            else if (result.Checkpoint is not null && omitted.Count != 0 && !recoveryWindowClosed && ReferenceEquals(shell, _shell))
+                shell.OperationStatus = EditorLocalization.Format("Mda.Text.Recovery.SavedWithoutNames", string.Join("; ", omitted));
             return result;
         }
         catch (Exception error)

@@ -1312,5 +1312,7 @@
   "Mda.Text.Preview.LowFrameRate": "プレビューが重くなっています",
   "Mda.Text.Preview.LowFrameRateHint": "画質を下げると軽くなります。書き出し画質は変わりません。",
   "Mda.Text.Preview.AdjustQuality": "プレビュー画質を調整…",
-  "Mda.Text.Preview.DismissLowFrameRate": "今回は表示しない"
+  "Mda.Text.Preview.DismissLowFrameRate": "今回は表示しない",
+  "Mda.Text.Motion.NamesNotPersistable": "キーフレームは適用されましたが、次の名前は VMD の名前の長さまたは文字コードの制限を超えているため、現在はプロジェクトファイルに保存できません：{0}。復元用コピーではこれらのチャンネルのキーフレームを省略します。",
+  "Mda.Text.Recovery.SavedWithoutNames": "復元用コピーを保存しましたが、VMD の名前の制限に収まらないキーフレームは省略しました：{0}"
 }

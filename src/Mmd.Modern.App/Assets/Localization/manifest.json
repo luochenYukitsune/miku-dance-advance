@@ -1039,6 +1039,8 @@
     "Mda.Text.Context.Inspector.Lighting.AdditionalLights": "Lighting page heading for existing additional lights.",
     "Mda.Text.Context.Inspector.Lighting.NoProject": "Quiet Lighting page prompt when no model or project is loaded.",
     "Mda.Text.Recovery.SavedCleanupFailed": "A recovery checkpoint was committed; {0} explains a subsequent resource cleanup failure.",
+    "Mda.Text.Motion.NamesNotPersistable": "Warning after a keyframe edit is applied in memory but some channel names cannot be written into VMD-based project storage; {0} lists model: names.",
+    "Mda.Text.Recovery.SavedWithoutNames": "A recovery checkpoint was committed without keyframes on channels whose names cannot be written into VMD-based storage; {0} lists them.",
     "Mda.Text.Project.SavedCleanupFailed": "A project save was committed; {0} explains a subsequent resource cleanup failure.",
     "Mda.Text.Recovery.ForeignFormat": "The selected engine cannot open this recovery copy; {0} is its native format label. Keep the current engine and document.",
     "Mda.Text.Preview.FrameRate": "Playback-only completed viewport presentation rate; {0:0.0} is the measured frames per second.",
