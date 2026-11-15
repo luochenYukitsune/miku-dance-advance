@@ -12,7 +12,15 @@ permissions:
   contents: read
 jobs:
   checks:
-    uses: ./.github/workflows/build.yml
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the existing build of this commit
+        run: python scripts/wait-build-for-release.py --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
   publish:
     needs: checks
     runs-on: ubuntu-latest

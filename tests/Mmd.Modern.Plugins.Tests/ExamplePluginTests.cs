@@ -8,7 +8,7 @@ public sealed class ExamplePluginTests
     [Fact]
     public async Task ActualExamplePackageLoadsWithoutItsOwnContractCopyAndReportsTheHostVersion()
     {
-        string directory = Path.Combine("G:/MDA-Work/plugins/20261113/loader675", "sample-" + Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(Path.GetTempPath(), "MDA", "Tests", "Plugins", "sample-" + Guid.NewGuid().ToString("N"));
         string plugin = Path.Combine(directory, "mda.hello");
         Directory.CreateDirectory(plugin);
         foreach (string file in Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory, "ExamplePlugin")))

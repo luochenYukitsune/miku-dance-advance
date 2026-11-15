@@ -127,7 +127,7 @@ public sealed class PluginActiveDiscoveryTests
     {
         public FixtureWorkspace([CallerMemberName] string testName = "")
         {
-            Root = Path.Combine("G:/MDA-Work/plugins/20261113/import681", $"{testName}-{Guid.NewGuid():N}");
+            Root = Path.Combine(Path.GetTempPath(), "MDA", "Tests", "Plugins", $"{testName}-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Root);
         }
 
