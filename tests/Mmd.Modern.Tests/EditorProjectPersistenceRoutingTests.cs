@@ -85,6 +85,46 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
         }, Token);
 
     [Fact]
+    public async Task RemovingTheLastModelThenAddingOneKeepsThePackageIdentity()
+        => await dispatcher.Dispatch(async () =>
+        {
+            using var files = new Fixture();
+            using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("modern-cache") };
+            files.AddModel(workspace);
+            string first = files.Path("first.pma");
+            workspace.Save(first, Token);
+            await Task.Run(() => workspace.Open(first, Token), Token);
+            workspace.RemoveModel(Assert.Single(workspace.Session!.Objects).Id);
+            files.AddModel(workspace);
+            string second = files.Path("second.pma");
+            workspace.Save(second, Token);
+            // A fresh session used to get a new project id and drop the package's retained content.
+            Assert.Equal(ProjectId(first), ProjectId(second));
+            return true;
+        }, Token);
+
+    [Fact]
+    public void DiscardingRedoDisposesAStandaloneSessionNothingElseReferences()
+    {
+        using var files = new Fixture();
+        using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("modern-cache") };
+        files.AddModel(workspace);
+        var dropped = workspace.Session!;
+        Assert.True(workspace.Undo());
+        // Adding again discards the redo branch that alone referenced the first session; its native worlds go too.
+        files.AddModel(workspace);
+        Assert.Throws<ObjectDisposedException>(() => dropped.Objects);
+        Assert.NotNull(workspace.Session!.Objects);
+    }
+
+    private static string ProjectId(string package)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(package);
+        using var reader = new StreamReader(zip.GetEntry("manifest.json")!.Open());
+        return JsonDocument.Parse(reader.ReadToEnd()).RootElement.GetProperty("projectId").GetString()!;
+    }
+
+    [Fact]
     public async Task ClearingTheLastMaterialMappingIsSavedAndReopensWithoutIt()
         => await dispatcher.Dispatch(async () =>
         {

@@ -1316,5 +1316,6 @@
   "Mda.Text.Motion.NamesNotPersistable": "关键帧已应用，但以下名称超出 VMD 名称长度或编码限制，当前无法保存到工程文件：{0}。自动恢复副本会省略这些通道的关键帧。",
   "Mda.Text.Recovery.SavedWithoutNames": "恢复副本已保存，但省略了无法按 VMD 名称限制写入的关键帧：{0}",
   "Mda.Text.3e75822b0a4a": "PMM 媒体“{0}”不是受支持的媒体文件类型。请保留原工程并修复资源路径。",
-  "Mda.Text.6193ad17602d": "模型贴图解码后的总大小超过 {0} MiB 上限。"
+  "Mda.Text.6193ad17602d": "模型贴图解码后的总大小超过 {0} MiB 上限。",
+  "Mda.Text.Recovery.OpenCopies": "恢复副本…"
 }

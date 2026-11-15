@@ -475,6 +475,25 @@ public sealed class EditorRecoveryStoreTests : IDisposable
         Assert.True(File.Exists(metadataPath));
     }
 
+    [Fact]
+    public async Task AbandonedStagingPackageInACleanSessionDoesNotBlockReclaimOrStayInTheBudget()
+    {
+        // A killed writer leaves <guid>.tmp.pma. It used to count toward the budget forever and made its clean
+        // session unreclaimable, so after a few crashes every new checkpoint failed.
+        var store = Store(new(MaxVersions: 5, MaxTotalBytes: 30));
+        var old = await store.CreateSessionAsync(null, "Old", Token);
+        var oldPoint = await Write(store, old, 1, new string('o', 10));
+        string residue = Path.Combine(Path.GetDirectoryName(oldPoint.PackagePath)!, Guid.NewGuid().ToString("N") + ".tmp.pma");
+        await File.WriteAllTextAsync(residue, new string('r', 10), Token);
+        await store.MarkCleanAsync(old, Token); old.Dispose();
+        using var current = await store.CreateSessionAsync(null, "Current", Token);
+        // 10 (old) + 10 (residue) + 15 (new) > 30: the old clean history and the residue must both be reclaimed.
+        var point = await Write(store, current, 1, new string('n', 15));
+        Assert.True(File.Exists(point.PackagePath));
+        Assert.False(File.Exists(residue));
+        Assert.False(File.Exists(oldPoint.PackagePath));
+    }
+
     private EditorRecoveryStore Store(RecoveryRetentionPolicy? policy = null) => new(Path.Combine(directory, "recovery"), policy);
     private static EditorRecoveryCheckpointMetadata Metadata(long revision) => new(null, "Project", revision,
         JsonSerializer.SerializeToElement(new { frame = 12 }));

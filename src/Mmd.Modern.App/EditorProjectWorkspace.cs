@@ -174,13 +174,17 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             }, "scene.vmd");
             var candidate = new SceneProjectSession(composition, lighting, motions, CreatePhysicsProvider(),
                 new ProjectSettings { BackgroundRed = 1, BackgroundGreen = 1, BackgroundBlue = 1 }, sceneMotion: sceneMotion);
+            // Removing the last model of an opened package keeps that package (for Undo). A model added now starts a
+            // fresh session; continue the package's identity and retained content instead of silently saving a new
+            // project that drops unknown extensions and render resources.
+            if (package?.Session is { } opened) candidate.ContinuePackageFrom(opened);
             IEditorProjectMetadata? metadata;
             try { metadata = PrepareInitialModelMetadata(candidate); }
             catch { candidate.Dispose(); throw; }
             var beforeMetadata = ProjectMetadata;
             Session = candidate; ProjectMetadata = metadata;
             standaloneSessions.Add(Session);
-            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); redo.Clear();
+            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); ClearRedo();
         }
         else { Edit(edit => Add(edit.Composition, edit.Lighting, edit.Motions)); return id; }
         MarkChanged();
@@ -425,7 +429,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts)); redo.Clear();
+        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts)); ClearRedo();
         MarkChanged(preservePoseDrafts);
     }
 
@@ -511,7 +515,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var mappings = SnapshotMappings();
         session.SetDefaultRenderingStyle(style);
         // The metadata-only session transaction shares the owner's ordered history; bridge it like an ordinary edit.
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); redo.Clear();
+        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); ClearRedo();
         MarkChanged();
         return true;
     }
@@ -527,7 +531,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var before = SnapshotMappings();
         var beforeMetadata = ProjectMetadata;
         Session = null; MaterialBindings.Clear(); ProjectMetadata = null;
-        undo.Push(new(session, null, false, before, [], beforeMetadata, null)); redo.Clear(); MarkChanged();
+        undo.Push(new(session, null, false, before, [], beforeMetadata, null)); ClearRedo(); MarkChanged();
     }
 
     public void Save(string path, CancellationToken token = default)
@@ -718,6 +722,24 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         CloseContent(); ProjectPath = null; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
+    /// <summary>Discards the redo branch. A standalone session that is now unreachable (only the discarded branch
+    /// referenced it) is disposed here so its native physics worlds are freed, instead of living until the
+    /// document closes.</summary>
+    private void ClearRedo()
+    {
+        if (redo.Count == 0) return;
+        redo.Clear();
+        var reachable = new HashSet<SceneProjectSession>(ReferenceEqualityComparer.Instance);
+        if (Session is { } current) reachable.Add(current);
+        if (package?.Session is { } packaged) reachable.Add(packaged);
+        foreach (var step in undo) { if (step.Before is { } before) reachable.Add(before); if (step.After is { } after) reachable.Add(after); }
+        foreach (var orphan in standaloneSessions.Where(item => !reachable.Contains(item)).ToArray())
+        {
+            standaloneSessions.Remove(orphan);
+            orphan.Dispose();
+        }
+    }
+
     private void CloseContent()
     {
         foreach (var retained in standaloneSessions)

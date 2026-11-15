@@ -168,7 +168,13 @@ public partial class EditorWindow
         }
     }
 
-    internal async Task ReviewRecoveryAsync()
+    private async void OpenRecoveryCopies(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+    {
+        try { await ReviewRecoveryAsync(includeDeferred: true); }
+        catch (Exception error) { EditorCrashLog.TryWrite("recovery-review", error); }
+    }
+
+    internal async Task ReviewRecoveryAsync(bool includeDeferred = false)
     {
         if (!_recoveryEnabled || _shell is not { IsBusy: false } shell || reviewingRecovery || closingRecovery || recoveryWindowClosed) return;
         reviewingRecovery = true;
@@ -176,9 +182,11 @@ public partial class EditorWindow
         {
             while (!recoveryWindowClosed)
             {
-                var found = await Task.Run(() => EditorRecoveryDiscovery.ScanAsync(_preferences));
+                var found = await Task.Run(() => EditorRecoveryDiscovery.ScanAsync(_preferences, includeDeferred: includeDeferred));
                 if (found.Errors.Count != 0)
                     shell.OperationStatus = EditorLocalization.Format("Mda.Text.Recovery.ScanFailed", found.Errors.Count);
+                if (found.Sessions.Count == 0 && includeDeferred && !closingRecovery && !recoveryWindowClosed)
+                    shell.OperationStatus = EditorLocalization.Text("Mda.Text.Recovery.Empty");
                 if (found.Sessions.Count == 0 || closingRecovery || recoveryWindowClosed) return;
                 var choiceTask = new EditorRecoveryWindow(this, found.Sessions).ShowDialog<EditorRecoveryChoice?>(this);
                 // Register after ShowDialog succeeds so a scan or a failed display does not

@@ -7,6 +7,18 @@ public sealed partial class SceneProjectSession
 {
     internal PmaRetainedState? PmaRetention { get; set; }
     internal Guid? PmaProjectIdentity { get; set; }
+
+    /// <summary>Continues an opened package in a new session: the project identity and the package's retained
+    /// optional extensions and render resources carry over, as they would if the session had been edited in place.
+    /// Used when every model was removed and a new one added, which builds a fresh session. The retained resources
+    /// stay owned by the original package; keep it alive while this session can save.</summary>
+    public void ContinuePackageFrom(SceneProjectSession source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (ReferenceEquals(source, this)) return;
+        PmaRetention ??= source.PmaRetention;
+        PmaProjectIdentity ??= source.PmaProjectIdentity ?? source.PmaRetention?.ProjectId;
+    }
     internal SceneAnimationSession.SaveSnapshot PmaSnapshot() { RequireIdle(); return animation.CaptureSaveSnapshot(); }
     internal PmmDocument PmaExportRaw(PmmSessionExportOptions? options) { RequireIdle(); return PmmSessionExporter.Export(animation, ProjectPmmOutput(options)); }
     private PmmSessionExportOptions ProjectPmmOutput(PmmSessionExportOptions? options)

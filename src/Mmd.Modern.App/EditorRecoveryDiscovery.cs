@@ -5,7 +5,11 @@ internal sealed record EditorRecoveryDiscovery(
     IReadOnlyDictionary<string, EditorRecoveryStore> Sources,
     IReadOnlyList<Exception> Errors)
 {
-    internal static async Task<EditorRecoveryDiscovery> ScanAsync(EditorPreferences preferences, CancellationToken token = default)
+    /// <param name="includeDeferred">Also list interrupted sessions whose startup offer was already shown and deferred
+    /// ("Later"). The startup prompt leaves them out; the explicit Recover command includes them, so a deferred copy
+    /// stays reachable instead of only occupying the recovery budget.</param>
+    internal static async Task<EditorRecoveryDiscovery> ScanAsync(EditorPreferences preferences, CancellationToken token = default,
+        bool includeDeferred = false)
     {
         var sessions = new List<EditorRecoverySessionInfo>();
         var sources = new Dictionary<string, EditorRecoveryStore>(StringComparer.OrdinalIgnoreCase);
@@ -21,7 +25,9 @@ internal sealed record EditorRecoveryDiscovery(
                 if (OperatingSystem.IsWindows() && new DriveInfo(Path.GetPathRoot(root)!).DriveType == DriveType.Network)
                     throw new IOException("A recovery search location is now a network drive.");
                 var store = new EditorRecoveryStore(root, new(preferences.RecoveryMaxVersions, preferences.RecoveryMaxTotalBytes));
-                foreach (var session in await store.ListStartupRecoverableAsync(token).ConfigureAwait(false))
+                var listed = includeDeferred ? await store.ListRecoverableAsync(token).ConfigureAwait(false)
+                    : await store.ListStartupRecoverableAsync(token).ConfigureAwait(false);
+                foreach (var session in listed)
                 {
                     sessions.Add(session);
                     foreach (var checkpoint in session.Checkpoints) sources.Add(checkpoint.PackagePath, store);

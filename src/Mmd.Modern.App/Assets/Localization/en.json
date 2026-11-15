@@ -1316,5 +1316,6 @@
   "Mda.Text.Motion.NamesNotPersistable": "Keyframes applied, but these names exceed the VMD name length or encoding limit and can’t be saved to the project file yet: {0}. Recovery copies leave out keyframes on these channels.",
   "Mda.Text.Recovery.SavedWithoutNames": "Recovery copy saved, but keyframes that don’t fit the VMD name limits were left out: {0}",
   "Mda.Text.3e75822b0a4a": "The PMM media “{0}” isn’t a supported media file type. Keep your original project and fix the resource path.",
-  "Mda.Text.6193ad17602d": "The model’s decoded textures exceed the {0} MiB limit."
+  "Mda.Text.6193ad17602d": "The model’s decoded textures exceed the {0} MiB limit.",
+  "Mda.Text.Recovery.OpenCopies": "Recovery Copies…"
 }
