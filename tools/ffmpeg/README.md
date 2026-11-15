@@ -5,6 +5,8 @@ separate encoder setup. The source repository stores acquisition metadata.
 
 `manifest.json` pins the binary archive and both executable SHA256 values.
 `scripts/fetch-ffmpeg.ps1` verifies this exact pair for automated builds.
+The MDA Release mirror is tried first, with the pinned upstream build as a
+fallback. Both URLs must yield the same archive hash.
 Software H.264, HEVC, AOM AV1 and SVT-AV1 encoding with AAC audio were checked.
 Hardware encoder availability depends on the device.
 

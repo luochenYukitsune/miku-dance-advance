@@ -40,5 +40,5 @@ for name in required - {'SHA256SUMS.txt'}:
     asset = assets[name]
     if name not in digests or asset.get('digest') != 'sha256:' + digests[name] or not asset['size']:
         raise SystemExit('Asset digest mismatch: ' + name)
-gh('api', f'repos/{a.repo}/releases/{r["id"]}', '--method', 'PATCH', '-F', 'draft=false', '-F', 'prerelease=true')
-print(r['html_url'])
+published = json.loads(gh('api', f'repos/{a.repo}/releases/{r["id"]}', '--method', 'PATCH', '-F', 'draft=false', '-F', 'prerelease=true'))
+print(published['html_url'])

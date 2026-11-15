@@ -6,7 +6,17 @@ $root = [IO.Path]::GetFullPath($Destination)
 if (Test-Path -LiteralPath $root) { throw "Destination must be new: $root" }
 New-Item -ItemType Directory -Path $root | Out-Null
 $archive = Join-Path $root 'ffmpeg.zip'
-Invoke-WebRequest -Uri $pin.assetUrl -OutFile $archive
+$urls = @($pin.assetUrl)
+if ($pin.PSObject.Properties.Name -contains 'fallbackAssetUrl') { $urls += $pin.fallbackAssetUrl }
+for ($index = 0; $index -lt $urls.Count; $index++) {
+    try {
+        Invoke-WebRequest -Uri $urls[$index] -OutFile $archive -UseBasicParsing
+        break
+    } catch {
+        if ($index -eq $urls.Count - 1) { throw }
+        Write-Warning 'FFmpeg mirror unavailable; trying the pinned upstream archive.'
+    }
+}
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $pin.assetSha256) { throw 'FFmpeg download SHA256 mismatch.' }
 Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $root 'upstream')
 $upstream = Join-Path $root ('upstream/' + $pin.archiveRoot)
