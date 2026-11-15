@@ -17,6 +17,7 @@ public sealed partial class App : Avalonia.Application
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
     public override void OnFrameworkInitializationCompleted()
     {
+        EditorCrashLog.InstallUiThread();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var options = FrameViewportOptions.Parse(desktop.Args ?? []);

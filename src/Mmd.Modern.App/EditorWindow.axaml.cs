@@ -136,7 +136,9 @@ public partial class EditorWindow : Window
             && args.PropertyName is nameof(EditorShellViewModel.SelectedThemeIndex) or nameof(EditorShellViewModel.ShowWorldGuides))
         {
             _preferences = _preferences with { ThemeIndex = active.SelectedThemeIndex, ShowWorldGuides = active.ShowWorldGuides };
-            try { _preferences.Save(); } catch (IOException error) { active.ReportActivityFailure(error); }
+            try { _preferences.Save(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+            { active.ReportActivityFailure(error); }
         }
     }
 

@@ -122,7 +122,7 @@ internal static class PortableModelAssets
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
-            string dependency = Path.GetFullPath(reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar), directory);
+            string dependency = ContainedDependency(directory, reference);
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
             Resource resource;
             try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
@@ -142,7 +142,16 @@ internal static class PortableModelAssets
         if (replacement is not null || Path.GetExtension(path).Equals(".pmx", StringComparison.OrdinalIgnoreCase))
         {
             var model = replacement ?? PmxReader.Read(source, new() { MaxInputBytes = limits.FileBytes });
-            string[] textures = model.Textures.Select(Copy).ToArray();
+            // Only textures a material binds are dependencies. An unreferenced table entry is
+            // never loaded by the renderer, so it must not be copied into a shareable package
+            // either: blank it to keep every material's texture index unchanged.
+            var referenced = new HashSet<int>();
+            foreach (var material in model.Materials)
+            {
+                referenced.Add(material.TextureIndex); referenced.Add(material.SphereTextureIndex);
+                if (material.ToonMode == PmxToonMode.Separate) referenced.Add(material.ToonTextureIndex);
+            }
+            string[] textures = model.Textures.Select((name, index) => referenced.Contains(index) ? Copy(name) : "").ToArray();
             var copy = new PmxModel
             {
                 Header = model.Header, Name = model.Name, EnglishName = model.EnglishName,
@@ -171,7 +180,7 @@ internal static class PortableModelAssets
                 bool common = Enumerable.Range(1, 10).Any(i => name.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase));
                 // Saba checks a model-local toon before the shared data directory. Preserve an
                 // authored local override, even if its name happens to equal a built-in toon.
-                string local = Path.GetFullPath(name.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar), directory);
+                string local = ContainedDependency(directory, name);
                 RejectRedirects(local);
                 if (common && !usedToons.Contains(index)) return name;
                 return common && !File.Exists(local) ? name : Copy(name);
@@ -344,6 +353,24 @@ internal static class PortableModelAssets
             output.Write(buffer, 0, count);
         }
         RejectRedirects(path); token.ThrowIfCancellationRequested(); return output.ToArray();
+    }
+
+    /// <summary>
+    /// Resolves a model-authored dependency the way the texture loader does: it must be a
+    /// relative path that stays inside the model directory. Rooted, drive-qualified and escaping
+    /// references are rejected so a crafted model cannot pull arbitrary local files into a package.
+    /// </summary>
+    internal static string ContainedDependency(string modelDirectory, string reference)
+    {
+        string normalized = reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
+            throw new InvalidDataException($"Model dependency '{reference}' must be a relative path inside the model directory.");
+        string folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modelDirectory)) + Path.DirectorySeparatorChar;
+        string path = Path.GetFullPath(Path.Combine(folder, normalized));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!path.StartsWith(folder, comparison))
+            throw new InvalidDataException($"Model dependency '{reference}' points outside the model directory.");
+        return path;
     }
 
     private static void RejectRedirects(string path)

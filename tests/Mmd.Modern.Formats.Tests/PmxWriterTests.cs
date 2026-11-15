@@ -154,6 +154,39 @@ public sealed class PmxWriterTests
         Assert.Throws<PmxFormatException>(() => PmxWriter.ToBytes(Copy(empty, softBodies: rich.SoftBodies)));
     }
 
+    [Theory]
+    [InlineData(0xFF, true)]
+    [InlineData(0x0A, false)]
+    public void CommonToonNoneByteNormalizesToSeparateNoneAndOtherOutOfRangeBytesFailAtReadTime(byte value, bool accepted)
+    {
+        PmxModel empty = Read(EmptyLiteral);
+        var material = new PmxMaterial
+        {
+            Name = "", EnglishName = "", Diffuse = Vector4.One, Specular = default,
+            SpecularPower = 0, Ambient = default, DrawMode = default, EdgeColor = default,
+            EdgeSize = 0, TextureIndex = -1, SphereTextureIndex = -1, SphereMode = default,
+            ToonMode = PmxToonMode.Common, ToonTextureIndex = 7, Memo = "", FaceVertexCount = 3,
+        };
+        PmxModel model = Copy(empty, vertices: [Vertex(), Vertex(), Vertex()], faces: [new(0, 1, 2)], materials: [material]);
+        byte[] bytes = PmxWriter.ToBytes(model);
+        // The common toon byte is the only 0x07 that directly follows the toon-mode byte 0x01.
+        int offset = -1;
+        for (int i = 1; i < bytes.Length; i++) if (bytes[i - 1] == 0x01 && bytes[i] == 0x07) { Assert.Equal(-1, offset); offset = i; }
+        Assert.True(offset > 0);
+        bytes[offset] = value;
+        if (!accepted)
+        {
+            var error = Assert.Throws<PmxFormatException>(() => Read(bytes));
+            Assert.Contains("toonTextureIndex", error.Message);
+            return;
+        }
+        PmxMaterial read = Read(bytes).Materials[0];
+        Assert.Equal(PmxToonMode.Separate, read.ToonMode);
+        Assert.Equal(-1, read.ToonTextureIndex);
+        // The normalized model can be written back (previously "common toon must be 0-9").
+        Assert.Equal(-1, Read(PmxWriter.ToBytes(Read(bytes))).Materials[0].ToonTextureIndex);
+    }
+
     private static PmxModel Read(byte[] bytes)
     {
         using var input = new MemoryStream(bytes, writable: false);
