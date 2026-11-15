@@ -83,17 +83,33 @@ public sealed class FfmpegFrameSink(FfmpegToolchain tools, FfmpegOutputOptions o
         finally { ArrayPool<byte>.Shared.Return(row); }
     }
 
+    /// <summary>
+    /// Validation decodes the whole output (frame count probe, full decode, audio decode), so its cost grows with
+    /// the clip. It gets its own budget: the configured encoder timeout plus time proportional to the decoded
+    /// pixels, assuming a conservative 5 megapixels per second per decode pass and three passes.
+    /// </summary>
+    public static TimeSpan ValidationBudget(OfflineFramePlan plan, TimeSpan encoderTimeout)
+    {
+        double pixels = (double)plan.Width * plan.Height * plan.FrameCount;
+        double seconds = encoderTimeout.TotalSeconds + 3 * pixels / 5_000_000d;
+        return TimeSpan.FromSeconds(Math.Min(seconds, TimeSpan.FromDays(1).TotalSeconds));
+    }
+
     public async ValueTask CompleteAsync(CancellationToken cancellationToken = default)
     {
         if (process is null || plan is null || temporary is null || ended) throw new InvalidOperationException("The sink cannot complete.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(options.Timeout);
+        bool encoded = false;
         try
         {
             if (written != plan.FrameCount) throw new InvalidOperationException($"Expected {plan.FrameCount} frames; received {written}.");
             await process.FinishAsync(timeout.Token).ConfigureAwait(false);
-            Validation = await tools.ValidateAsync(temporary, plan, options, timeout.Token).ConfigureAwait(false);
-            timeout.Token.ThrowIfCancellationRequested();
+            encoded = true;
+            using var validationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            validationTimeout.CancelAfter(ValidationBudget(plan, options.Timeout));
+            Validation = await tools.ValidateAsync(temporary, plan, options, validationTimeout.Token).ConfigureAwait(false);
+            validationTimeout.Token.ThrowIfCancellationRequested();
             DeletePrivateAudio();
             string destination = Path.GetFullPath(options.OutputPath);
             // Both files are in one directory. File.Replace publishes atomically and preserves the old file on failure.
@@ -101,6 +117,18 @@ public sealed class FfmpegFrameSink(FfmpegToolchain tools, FfmpegOutputOptions o
             else File.Move(temporary, destination);
             temporary = null;
             ended = true;
+        }
+        catch (OperationCanceledException error) when (encoded && !cancellationToken.IsCancellationRequested && temporary is not null)
+        {
+            // The encoder finished; only verification ran out of time. Keep the encoded file at its private
+            // path instead of deleting hours of rendering, and say where it is.
+            string kept = temporary;
+            temporary = null; ended = true;
+            try { DeletePrivateAudio(); } catch (Exception cleanupError) { AddCleanupError(error, cleanupError); }
+            var failure = new TimeoutException(
+                $"The video was encoded, but verifying it took longer than allowed. The unverified file was kept at '{kept}'.", error);
+            failure.Data["FfmpegUnverifiedOutput"] = kept;
+            throw failure;
         }
         catch (Exception error) { await PreserveFailureAsync(error).ConfigureAwait(false); throw; }
     }
