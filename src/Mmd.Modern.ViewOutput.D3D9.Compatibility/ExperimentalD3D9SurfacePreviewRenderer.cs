@@ -217,13 +217,17 @@ public sealed class ExperimentalD3D9SurfacePreviewRenderer : IRealtimeViewRender
         D3D9SurfacePreflight.ValidateStyles(bindings);
     }
 
+    /// <summary>Preview preflight runs the CPU frame checks only. A full <c>Encode</c> here serialized the whole frame,
+    /// including every texture's RGBA, and was discarded; <see cref="PresentAsync"/> encodes again before native
+    /// queue admission, so an encoder failure still stops the frame before any native work. Export validation
+    /// (<see cref="ExperimentalD3D9SurfaceViewRenderer"/>) keeps the full encode.</summary>
     public void ValidateSceneInputs(PreviewFrame frame)
     {
         var current = RequireRequest();
         _ = D3D9SurfaceEditorOverlay.Freeze(frame, encoder.HasClassicPassInputs);
         var offline = D3D9SurfaceFrameInput.FromPreview(D3D9SurfaceEditorOverlay.FrameWithoutOverlay(frame));
         D3D9SurfacePreflight.ValidateFrame(offline, current, encoder.HasClassicPassInputs);
-        _ = encoder.Encode(offline, current, background);
+        encoder.ValidateIdentities(offline);
     }
 
     /// <summary>Serializes with presentation and drains native resize before publishing the new dimensions.</summary>

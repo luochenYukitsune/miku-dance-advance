@@ -112,6 +112,20 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             .ToDictionary(group => group.Key, group => group.Select(row => row.Subset).ToArray());
     }
 
+    /// <summary>The identity part of the encoder's frame checks, without serializing geometry or textures. Preview
+    /// preflight uses this; the full encode in PresentAsync still enforces every rule before native admission.</summary>
+    internal void ValidateIdentities(OfflineFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var rows = frame.RenderingStyles;
+        int modelCount = objects.Values.Count(value => value.Kind == PmmDrawableKind.Model);
+        if (rows.Count != modelCount || rows.Any(row => row is null)
+            || rows.Select(row => row.ObjectId).Distinct().Count() != rows.Count
+            || rows.Any(row => !objects.TryGetValue(row.ObjectId, out var binding) || binding.Kind != PmmDrawableKind.Model)
+            || frame.SceneInputs.Keys.Any(id => !objects.TryGetValue(id, out var binding) || binding.Kind != PmmDrawableKind.Model))
+            throw new ArgumentException("Frame metadata must cover exactly the configured object identities.", nameof(frame));
+    }
+
     internal D3D9SurfaceSnapshot Encode(OfflineFrame frame, ViewRenderRequest request, Vector4 background,
         D3D9ClassicMediaInputs? media = null)
     {

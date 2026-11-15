@@ -60,13 +60,17 @@ class FiniteSoftSoftCollisionAlgorithm final : public btSoftSoftCollisionAlgorit
  static btVector3 faceNormal(const btSoftBody::Face& f) {
   return (f.m_n[1]->m_x-f.m_n[0]->m_x).cross(f.m_n[2]->m_x-f.m_n[0]->m_x);
  }
+ // A contact whose normal cannot be repaired is dropped instead of throwing: an exception here unwinds out of
+ // collision dispatch after the soft bodies were already predicted, leaving the world half-stepped. Dropping a
+ // degenerate contact only loses one undefined push for this step; the next step sees the pair again.
  static void repair(btSoftBody& owner,int first,const btVector3& direction) {
-  for(int i=first;i<owner.m_scontacts.size();i++){
-   auto& contact=owner.m_scontacts[i];if(finite(contact.m_normal))continue;
-   btVector3 normal=faceNormal(*contact.m_face);
-   if(!finite(normal)||normal.length2()==0)
-    throw std::runtime_error("Coincident soft contact has no nondegenerate face normal");
-   normal.normalize();if(normal.dot(direction)<0)normal=-normal;contact.m_normal=normal;
+  for(int i=first;i<owner.m_scontacts.size();){
+   auto& contact=owner.m_scontacts[i];if(finite(contact.m_normal)){i++;continue;}
+   btVector3 normal=direction.length2()>0?faceNormal(*contact.m_face):btVector3(0,0,0);
+   if(!finite(normal)||normal.length2()==0){
+    owner.m_scontacts[i]=owner.m_scontacts[owner.m_scontacts.size()-1];owner.m_scontacts.pop_back();continue;
+   }
+   normal.normalize();if(normal.dot(direction)<0)normal=-normal;contact.m_normal=normal;i++;
   }
  }
 public:
@@ -88,7 +92,7 @@ public:
    }
    if(direction.length2()>0)break;
   }
-  if(direction.length2()==0)throw std::runtime_error("Coincident soft pair has no nondegenerate reference face");
+  // With no nondegenerate reference face every undefined contact of this pair is dropped (see repair).
   repair(first,startFirst,direction);repair(second,startSecond,-direction);
  }
  struct CreateFunc final : btCollisionAlgorithmCreateFunc {

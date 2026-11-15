@@ -30,19 +30,34 @@ internal sealed class FfmpegVideoDecodePipe : IAsyncDisposable
         readDiagnostic = ReadDiagnosticAsync();
     }
 
-    internal static FfmpegVideoDecodePipe Start(string executable, string path, int width, int height)
+    /// <param name="seekTicks">When positive, FFmpeg input-seeks to this media time instead of decoding every frame
+    /// from the start. Timestamps then keep their source values (<c>-copyts</c>) and are rebased by
+    /// <paramref name="originTicks"/>, the stream start time, so they match the unseeked timeline.</param>
+    internal static FfmpegVideoDecodePipe Start(string executable, string path, int width, int height,
+        long seekTicks = 0, long originTicks = 0)
     {
-        Process process = new() { StartInfo = FfmpegProcess.StartInfo(executable,
-            ["-hide_banner", "-nostdin", "-loglevel", "info", "-noautorotate", "-i", path,
-                "-map", "0:v:0", "-an", "-sn", "-dn", "-filter_threads", "1", "-vf",
-                "settb=1/10000000,setpts=PTS-STARTPTS,format=rgba,showinfo=checksum=0",
-                "-fps_mode", "passthrough", "-threads", "1", "-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1"]) };
+        Process process = new() { StartInfo = FfmpegProcess.StartInfo(executable, Arguments(path, seekTicks, originTicks)) };
         try
         {
             process.Start(); process.StandardInput.Close();
             return new(process, width, height);
         }
         catch { process.Dispose(); throw; }
+    }
+
+    internal static IReadOnlyList<string> Arguments(string path, long seekTicks, long originTicks)
+    {
+        var arguments = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "info", "-noautorotate" };
+        string rebase = "PTS-STARTPTS";
+        if (seekTicks > 0)
+        {
+            arguments.AddRange(["-ss", ((seekTicks + originTicks) / (decimal)TimeSpan.TicksPerSecond).ToString("0.0000000", CultureInfo.InvariantCulture), "-copyts"]);
+            rebase = "PTS-" + originTicks.ToString(CultureInfo.InvariantCulture);
+        }
+        arguments.AddRange(["-i", path, "-map", "0:v:0", "-an", "-sn", "-dn", "-filter_threads", "1", "-vf",
+            $"settb=1/10000000,setpts={rebase},format=rgba,showinfo=checksum=0",
+            "-fps_mode", "passthrough", "-threads", "1", "-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1"]);
+        return arguments;
     }
 
     internal async ValueTask<FfmpegDecodedVideoFrame?> ReadAsync(CancellationToken cancellationToken)

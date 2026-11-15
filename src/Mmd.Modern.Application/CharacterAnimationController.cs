@@ -63,7 +63,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         .Concat(physicsCleanupDiagnostics).Distinct(StringComparer.Ordinal).ToArray();
     public bool SupportsPhysics=>model.RigidBodies.Count>0;
     public bool PhysicsEnabled=>physics is not null||sharedPhysicsStatus is not null||SoftBodiesEnabled;
-    public bool PhysicsFaulted=>sharedPhysicsStatus?.IsFaulted??physics?.IsFaulted??false;
+    public bool PhysicsFaulted=>(sharedPhysicsStatus?.IsFaulted??physics?.IsFaulted??false)||softBodies?.IsFaulted==true;
     public int PhysicsLastStepCount=>sharedPhysicsStatus?.LastStepCount??physics?.LastStepCount??0;
     public double PhysicsDiscardedSeconds=>sharedPhysicsStatus?.DiscardedSeconds??physics?.DiscardedSeconds??0;
     public string? PhysicsBackendName=>sharedPhysicsStatus?.BackendName??physics?.BackendName??softBackendName;

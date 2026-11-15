@@ -149,6 +149,24 @@ public sealed class ControllerSoftBodyTests
         Assert.Same(after.Surface, controller.SampleAt(60).Surface);
     }
 
+    [Fact]
+    public void AFailedSoftStepFaultsTheControllerUntilPhysicsIsReset()
+    {
+        using var controller = Controller(PmxSoftBodyTests.MaterialFixture());
+        var soft = new RecordingSoftBackend(); controller.EnableSoftBodies(soft, 0);
+        controller.Advance(1, 1d / 30);
+        soft.FailNextStep = true;
+        Assert.Throws<InvalidOperationException>(() => controller.Advance(2, 1d / 30));
+        Assert.True(controller.PhysicsFaulted);
+        int steps = soft.StepCount;
+        Assert.Throws<InvalidOperationException>(() => controller.Advance(3, 1d / 30));
+        Assert.Equal(steps, soft.StepCount);
+        controller.ResetPhysics(3);
+        Assert.False(controller.PhysicsFaulted);
+        controller.Advance(4, 1d / 30);
+        Assert.True(soft.StepCount > steps);
+    }
+
     private static CharacterAnimationController Controller(PmxModel model, uint duration = 60) => new(model,
         new VmdMotion { BoneKeyframes = [new() { BoneName = "root" }, new() { BoneName = "root", Frame = duration }] },
         PmxOriginalStyleAdapter.FromRestPose(model).Scene, PmxOriginalOutlineAdapter.FromRestPose(model));
@@ -167,14 +185,17 @@ public sealed class ControllerSoftBodyTests
     private sealed class RecordingSoftBackend : ISoftBodyBackend
     {
         private int[] ids = [];
-        public Vector3[] Targets = []; public Matrix4x4[] Rigids = []; public int ResetCount, StepCount; public bool Disposed;
+        public Vector3[] Targets = []; public Matrix4x4[] Rigids = []; public int ResetCount, StepCount; public bool Disposed, FailNextStep;
         public IReadOnlyList<string> Diagnostics => ["recording soft diagnostic"];
         public void Initialize(IReadOnlyList<SoftBodyDefinition> definitions, IReadOnlyList<PhysicsBodyDefinition> colliders)
             => ids = definitions.SelectMany(d => d.VertexIndices).ToArray();
         public void Reset(ReadOnlySpan<Vector3> targets, ReadOnlySpan<Matrix4x4> rigids)
         { Targets = targets.ToArray(); Rigids = rigids.ToArray(); ResetCount++; }
         public void Step(float seconds, ReadOnlySpan<Vector3> targets, ReadOnlySpan<Matrix4x4> rigids)
-        { StepCount++; foreach (int id in ids) Targets[id] -= new Vector3(0, seconds, 0); }
+        {
+            if (FailNextStep) { FailNextStep = false; throw new InvalidOperationException("Bullet soft ABI failure: degenerate contact"); }
+            StepCount++; foreach (int id in ids) Targets[id] -= new Vector3(0, seconds, 0);
+        }
         public IReadOnlyList<SoftBodySample> Sample() => [new(ids, ids.Select(id => Targets[id]).ToArray(), ids.Select(_ => Vector3.UnitZ).ToArray())];
         public void SetGravity(Vector3 gravity) { }
         public void Dispose() => Disposed = true;
