@@ -132,8 +132,6 @@ internal static class PmdTailReader
     private static string Text(BinaryReader r, int width)
     {
         byte[] bytes = r.ReadBytes(width); if (bytes.Length != width) throw new EndOfStreamException();
-        int end = Array.IndexOf(bytes, (byte)0);
-        try { return CodePagesEncodingProvider.Instance.GetEncoding(932, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback)!.GetString(bytes, 0, end < 0 ? width : end); }
-        catch (DecoderFallbackException error) { throw new InvalidDataException("Invalid PMD CP932 text.", error); }
+        return PmdText.Decode(bytes);
     }
 }

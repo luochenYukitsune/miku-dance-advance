@@ -108,7 +108,10 @@ public static class PmdPmxAdapter
             PmxBoneFlags flags = PmxBoneFlags.AllowRotate;
             if (b.Type is 1 or 2) flags |= PmxBoneFlags.AllowTranslate;
             if (b.Type is not (3 or 6 or 7 or 9)) flags |= PmxBoneFlags.Visible | PmxBoneFlags.AllowControl;
-            bool hasTail = b.Type != 9 && b.TailIndex >= 0 && b.TailIndex < source.Bones.Length;
+            // PMD tail 0 means "no child" just like 0xFFFF (nanoem maps both to not-found); only type 9 reuses the
+            // field as its rotation source. Treating 0 as a real tail linked end/IK/invisible bones to bone 0 and
+            // aimed type-8 twist axes at it.
+            bool hasTail = b.Type != 9 && b.TailIndex > 0 && b.TailIndex < source.Bones.Length;
             if (hasTail) flags |= PmxBoneFlags.TargetShowMode;
             if (appendSources[i] >= 0) flags |= PmxBoneFlags.AppendRotate;
             Vector3 axis = default;
@@ -133,7 +136,8 @@ public static class PmdPmxAdapter
             {
                 Name = b.Name, EnglishName = b.EnglishName, Position = b.Position, ParentIndex = b.Parent,
                 DeformDepth = layers[i], Flags = flags, LinkBoneIndex = hasTail ? b.TailIndex : -1, FixedAxis = axis,
-                AppendBoneIndex = appendSources[i], AppendWeight = b.Type switch { 5 => 1, 9 => b.IkParent * .01f, _ => 0 },
+                // The type-9 ratio is a signed int16 percentage (nanoem reads it signed): 0xFFCE is -50 %, not 654.86.
+                AppendBoneIndex = appendSources[i], AppendWeight = b.Type switch { 5 => 1, 9 => unchecked((short)b.IkParent) * .01f, _ => 0 },
                 IkTargetBoneIndex = ik?.TargetBoneIndex ?? -1, IkIterationCount = ik?.Iterations ?? 0,
                 IkLimit = (ik?.AngleLimit ?? 0) * 4, IkLinks = ik?.Links.Select(Link).ToArray() ?? []
             };
