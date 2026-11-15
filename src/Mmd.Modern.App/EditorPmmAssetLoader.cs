@@ -20,6 +20,7 @@ public sealed class EditorPmmAssetLoader(bool retainToonTextures = false,
         string path = Path.GetFullPath(prepared.Path);
         if (assets.TryGetValue(path, out var cached) && ReferenceEquals(cached.Model, prepared.Model)) return cached.Asset;
         string root = Path.GetDirectoryName(path)!;
+        int textureFailures = 0;
         var asset = EditorProjectWorkspace.CreateModelAsset(prepared.Model, path, EditorTextureLoader.WithModelBudget(relative =>
         {
             // Use the same containment checks as ordinary imports before consulting the cache.
@@ -28,9 +29,12 @@ public sealed class EditorPmmAssetLoader(bool retainToonTextures = false,
             texture = EditorTextureLoader.Load(root, relative, token);
             textures.Add(texturePath, texture);
             return texture;
-        }), token, retainToonTextures, loadCommonToon, loadDefaultToon);
+        }, failures: message => { textureFailures++; System.Diagnostics.Trace.TraceWarning(message); }),
+            token, retainToonTextures, loadCommonToon, loadDefaultToon);
         token.ThrowIfCancellationRequested();
-        assets[path] = (prepared.Model, asset);
+        // A model whose texture degraded to the missing image is not cached, so repairing the file and loading
+        // again picks up the texture instead of the degraded asset.
+        if (textureFailures == 0) assets[path] = (prepared.Model, asset);
         return asset;
     }
 }
