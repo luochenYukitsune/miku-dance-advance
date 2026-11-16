@@ -124,6 +124,33 @@ public sealed class EmmImportPlan
         IEnumerable<EmmObjectBinding> liveObjects, string? absoluteWorkingDirectory = null)
         => CreateCore(document, absoluteEmmPath, liveObjects, absoluteWorkingDirectory, null, null, false);
 
+    /// <summary>Changes authored assignments without rematching identical model instances by path.
+    /// Existing rows remain unchanged; appended exact-path rows can name previously implicit objects.
+    /// Object-set edits use RebindLiveObjects instead.</summary>
+    public static EmmImportPlan WithAssignments(EmmImportPlan previous, EmmDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(previous); ArgumentNullException.ThrowIfNull(document);
+        if (previous.Document.Objects.Any(oldRow => !document.Objects.Any(row => row.Key == oldRow.Key && row.Path == oldRow.Path)))
+            throw new ArgumentException("Assignment edits must retain the exact EMM object table.", nameof(document));
+        var old = previous.LiveObjects.ToDictionary(value => value.ObjectId);
+        var proof = (previous.StableMatchProvenance ?? previous.Matches.Select(match =>
+        {
+            var binding = old[match.ObjectId];
+            return new EmmStableMatchProvenance(match.RecordKey, match.ObjectId, binding.IsModel,
+                binding.SourcePath, binding.RenderOrder, match.Reason);
+        }).ToArray()).ToList();
+        var free = previous.UnmatchedObjects.OrderBy(value => value.RenderOrder).ToList();
+        foreach (var row in document.Objects.Where(row => !previous.Document.Objects.Any(oldRow => oldRow.Key == row.Key)))
+        {
+            var binding = free.FirstOrDefault(value => value.IsModel == row.IsModel && value.SourcePath == row.Path)
+                ?? throw new ArgumentException("New assignment rows must explicitly identify an unmatched live object by its exact source path.", nameof(document));
+            free.Remove(binding);
+            proof.Add(new(row.Key, binding.ObjectId, binding.IsModel, binding.SourcePath, binding.RenderOrder, EmmObjectMatchReason.RawPath));
+        }
+        return CreateCore(document, previous.PathContext.OriginalEmmPath, previous.LiveObjects,
+            previous.PathContext.OriginalWorkingDirectory, proof, old.Keys.ToHashSet(), false);
+    }
+
     /// <summary>Edits the live identity table without reassigning any surviving instance's EMM row.
     /// Only newly added Guids enter the existing lexical matcher over the remaining free rows.</summary>
     public static EmmImportPlan RebindLiveObjects(EmmImportPlan previous, IEnumerable<EmmObjectBinding> liveObjects)

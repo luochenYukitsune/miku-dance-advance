@@ -23,6 +23,7 @@ internal sealed partial class EditorClassicRenderEngine : IEditorRenderEngine
     public string Id => "classic.d3d9.mme";
     public IEditorProjectPersistence Persistence { get; }
     public IEditorRenderBinding EmptyBinding => empty.Value;
+    internal bool EffectsEnabled { get; set; } = true;
 
     internal EditorClassicRenderEngine(EditorCompatibilityRuntimeSource runtime, string existingAbsoluteCacheDirectory,
         EditorClassicToonResources? toonResources = null)
@@ -90,6 +91,7 @@ internal sealed partial class EditorClassicRenderEngine : IEditorRenderEngine
         var state = workspace.ProjectMetadata as EditorClassicDocumentState ?? throw new NotSupportedException(
             "Classic rendering requires its prepared document metadata and frozen effect assignments.");
         var effects = state.RequireEffects(source);
+        if (!EffectsEnabled) effects = effects.WithoutEffects();
         var authored = source.CaptureAuthoredContent();
         var models = authored.Motions.ToDictionary(value => value.ObjectId, value => value.Model);
         var bindings = new List<D3D9SurfaceObjectBinding>(source.Objects.Count + source.Accessories.Count);

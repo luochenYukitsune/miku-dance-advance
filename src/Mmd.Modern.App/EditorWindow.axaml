@@ -410,6 +410,20 @@
     <Border Classes="panelHeader menuBar" Padding="0">
       <DockPanel>
         <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="{DynamicResource Mda.Text.df3d58c7d84b}" Margin="6,0" Click="OpenPreferences" ToolTip.Tip="{DynamicResource Mda.Text.3adabe75a1eb}" />
+        <Menu DockPanel.Dock="Right" Background="Transparent" IsEnabled="{Binding CanEditWorkspace}">
+          <MenuItem Name="ClassicEffectsMenu" Header="MMEffect" IsVisible="False">
+            <MenuItem Name="ClassicEffectAssignment" Header="{DynamicResource Mda.Text.Mme.Assignment}" Click="OpenClassicEffects" />
+            <MenuItem Name="ClassicToonSettings" Header="{DynamicResource Mda.Text.Mme.Toon}" Click="OpenClassicToons" />
+            <Separator />
+            <MenuItem Name="ClassicEffectsEnabled" Header="{DynamicResource Mda.Text.Mme.Enable}" ToggleType="CheckBox" IsChecked="True" Click="ToggleClassicEffects" InputGesture="Ctrl+Shift+E" />
+            <MenuItem Name="ClassicEffectsReload" Header="{DynamicResource Mda.Text.Mme.Reload}" Click="ReloadClassicEffects" />
+            <MenuItem Name="ClassicEffectsAutoReload" Header="{DynamicResource Mda.Text.Mme.AutoReload}" ToggleType="CheckBox" />
+            <MenuItem Name="ClassicMappingAutoSave" Header="{DynamicResource Mda.Text.Mme.AutoSave}" ToggleType="CheckBox" Click="ChooseClassicMappingAutoSave" />
+            <Separator />
+            <MenuItem Header="{DynamicResource Mda.Text.Mme.Log}" Click="ShowClassicEffectLog" />
+            <MenuItem Header="{DynamicResource Mda.Text.Mme.About}" Click="ShowClassicEffectAbout" />
+          </MenuItem>
+        </Menu>
         <Menu Background="Transparent" RenderOptions.TextRenderingMode="Antialias" IsEnabled="{Binding CanEditWorkspace}">
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.39932f24fe11}" /></MenuItem.Header>
             <MenuItem Header="{DynamicResource Mda.Text.36c3ca51b182}" Command="{Binding NewProjectCommand}" /><MenuItem Header="{DynamicResource Mda.Text.7490115b7a71}" Command="{Binding OpenProjectCommand}" /><Separator />

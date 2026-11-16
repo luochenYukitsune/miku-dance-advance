@@ -35,6 +35,7 @@ public partial class EditorWindow : Window
         EditorLocalization.SetLanguage(_preferences.Language);
         InitializeComponent();
         InitializeFileDrop();
+        InitializeClassicEffects();
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
@@ -52,7 +53,10 @@ public partial class EditorWindow : Window
         AddHandler(EditorNumericUpDown.InputValidityChangedEvent, (_, _) =>
         { _shell?.Animation.RefreshInputValidation(); _shell?.SceneInspector.RefreshInputValidation(); });
         this.FindControl<EditorViewportHost>("SceneViewport")!.Error += error =>
-        { _shell?.ReportActivityFailure(error, previewUnavailable: true); };
+        {
+            if (_shell?.Workspace.RenderEngine is EditorClassicRenderEngine) LogClassicEffect(error.ToString());
+            _shell?.ReportActivityFailure(error, previewUnavailable: true);
+        };
         this.FindControl<EditorViewportHost>("SceneViewport")!.CameraPoseChanged += pose => _shell?.SceneInspector.SetCameraDraft(pose);
         this.FindControl<EditorViewportHost>("SceneViewport")!.EditorKeyPressed += OnViewportKeyPressed;
     }
@@ -62,6 +66,7 @@ public partial class EditorWindow : Window
         if (_shell is not null)
         {
             _shell.Workspace.Changed -= OnRecoveryWorkspaceChanged;
+            _shell.Workspace.Changed -= OnClassicMappingChanged;
             _shell.PropertyChanged -= OnShellPropertyChanged;
             _shell.ViewStateChanged -= RefreshViewport;
             _shell.PlayheadDiscontinuity -= InvalidateViewportPlayhead;
@@ -71,12 +76,14 @@ public partial class EditorWindow : Window
         }
         if (lightController is not null) lightController.Changed -= LightToolsChanged;
         _shell = shell;
+        RefreshClassicEffectsMenu();
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
         viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null;
         viewport.LightController = null; viewport.BoneController = null;
         if (shell is null || _shell is null) return;
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
+        shell.Workspace.Changed += OnClassicMappingChanged;
         viewport.SetRenderEngine(shell.Workspace.RenderEngine);
         _mappedRevision = -1; _mappedSession = null;
         shell.Animation.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
@@ -184,6 +191,7 @@ public partial class EditorWindow : Window
     private void RefreshViewport(object? sender, EventArgs args)
     {
         if (_shell is not { } shell || shell.IsBusy) return;
+        RefreshClassicEffectsMenu();
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.Project = shell.Workspace.Session;
         viewport.EmptyCamera = shell.Camera;
@@ -513,6 +521,9 @@ public partial class EditorWindow : Window
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
+        if (key == Key.E && control && modifiers.HasFlag(KeyModifiers.Shift)
+            && shell.Workspace.RenderEngine is EditorClassicRenderEngine)
+        { ToggleClassicEffects(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         if (control && (key is Key.S or Key.Z or Key.Y) && !CommitPendingInlineLighting()) return true;
         System.Windows.Input.ICommand? command = (key, control, modifiers.HasFlag(KeyModifiers.Shift)) switch
         {
