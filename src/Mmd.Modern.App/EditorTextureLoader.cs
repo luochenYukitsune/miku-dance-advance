@@ -21,7 +21,7 @@ public static class EditorTextureLoader
     /// the model budget) degrades to the missing-image fallback, like a missing file, instead of failing the whole
     /// model; <paramref name="failures"/> receives the reason. Cancellation and out-of-memory still propagate.</summary>
     public static Func<string, SceneTexture?> WithModelBudget(Func<string, SceneTexture?> load, long maximumBytes = MaximumModelTextureBytes,
-        Action<string>? failures = null)
+        Action<string>? failures = null, Action<string, SceneTexture?>? accepted = null)
     {
         ArgumentNullException.ThrowIfNull(load);
         long total = 0;
@@ -52,6 +52,8 @@ public static class EditorTextureLoader
                 }
                 total += texture.Rgba.Length;
             }
+            // Only results that passed the budget reach a caller-side cache; a rejected texture is not retained.
+            accepted?.Invoke(relative, texture);
             return texture;
         };
     }

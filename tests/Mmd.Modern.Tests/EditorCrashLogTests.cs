@@ -42,5 +42,28 @@ public sealed class EditorCrashLogTests : IDisposable
         EditorCrashLog.ResetThrottleForTests();
     }
 
+    private sealed class First { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
+    private sealed class Second { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
+
+    [Fact]
+    public void SameNamedMethodsOnDifferentTypesAreDistinctSignatures()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        Assert.True(EditorCrashLog.ShouldRecord("ui", First.Refresh(), out _, directory));
+        Assert.True(EditorCrashLog.ShouldRecord("ui", Second.Refresh(), out _, directory));
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
+    [Fact]
+    public void SignaturesPastTheTableBoundAreStillThrottled()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        for (int i = 0; i < EditorCrashLog.MaxSignatures; i++) EditorCrashLog.ShouldRecord("fill" + i, new Exception("x"), out _, directory);
+        int announced = 0;
+        for (int i = 0; i < 20; i++) if (EditorCrashLog.ShouldRecord("late", new Exception("y"), out _, directory)) announced++;
+        Assert.Equal(1, announced);
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
 }

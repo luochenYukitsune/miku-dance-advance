@@ -202,8 +202,14 @@ public sealed class D3D12SwapchainPresenter : IDisposable
         if (disposed) return;
         framePermit.Dispose();
         // Teardown wait: a removed device has no work in flight, so release instead of throwing.
-        try { session.WaitForIdleForTeardown(); }
-        finally { disposed = true; ReleaseBackbuffers(); swapchain.Dispose(); session.Dispose(); }
+        bool idle = false;
+        try { idle = session.WaitForIdleForTeardown(); }
+        finally
+        {
+            disposed = true;
+            // The queue never reached its fence (no device removal): the GPU may still read these, so leak rather than free.
+            if (idle) { ReleaseBackbuffers(); swapchain.Dispose(); session.Dispose(); }
+        }
     }
 }
 

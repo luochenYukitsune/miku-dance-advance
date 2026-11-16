@@ -100,6 +100,13 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
 
     private bool HasCaptureSurface => childWindow != nint.Zero || captureSizeProvider is not null;
 
+    private static (int X, int Y) MapPointer(nint window, int x, int y)
+    {
+        if (!GetClientRect(window, out var bounds)) return (x, y);
+        var mapped = ToRenderSpace(x, y, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+        return (mapped.X, mapped.Y);
+    }
+
     private bool TryGetCaptureSize(out int width, out int height)
     {
         Dispatcher.UIThread.VerifyAccess();
@@ -114,6 +121,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     }
 
     internal const int MaximumRenderDimension = 4096;
+
+    /// <summary>The swapchain stretches a capped frame (at most 4096 per axis) over the whole client area. Picking
+    /// compares against the captured frame, so pointer coordinates and size are mapped into render pixels the same way.</summary>
+    internal static (int X, int Y, int Width, int Height) ToRenderSpace(int x, int y, int clientWidth, int clientHeight)
+    {
+        int width = Math.Min(clientWidth, MaximumRenderDimension), height = Math.Min(clientHeight, MaximumRenderDimension);
+        if (width == clientWidth && height == clientHeight || clientWidth <= 0 || clientHeight <= 0) return (x, y, clientWidth, clientHeight);
+        return ((int)((long)x * width / clientWidth), (int)((long)y * height / clientHeight), width, height);
+    }
 
     /// <summary>Borrowed UI-thread session. Replacing it releases GPU caches, never the session.</summary>
     public SceneProjectSession? Project
@@ -246,7 +262,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     {
         Dispatcher.UIThread.VerifyAccess();
         var selected = EditorRenderEngineBinding.Require(renderEngine, binding);
-        if (ReferenceEquals(renderBinding, selected)) return;
+        // An equal binding is reused across edits so a healthy renderer survives; after a failure the same binding
+        // must still restart it, or the preview could not recover through ordinary editing.
+        if (ReferenceEquals(renderBinding, selected) && !HasRendererError) return;
         renderBinding = selected;
         RestartRenderer();
     }
@@ -849,11 +867,12 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             frameWaitCancellation?.Cancel(); framePermitReady = false;
             running = workerTask;
         }
-        // Worker never awaits a UI callback. Both waits are bounded: a GPU that hangs without a driver reset, or a
-        // stuck native call, used to freeze the window forever. Fence waits time out on their own (60 s); past this
-        // bound the remaining release continues in the background so the window can still close.
-        if (!WaitBounded(running, "render worker")) return;
-        var release = Task.Run(async () => await ReleaseRendererAsync().ConfigureAwait(false));
+        // Worker never awaits a UI callback. The release is chained after the worker before waiting, so it always runs
+        // even if the UI stops waiting: a GPU that hangs without a driver reset, or a stuck native call, used to freeze
+        // the window forever. The UI waits a bounded time; past it the release finishes in the background.
+        var release = running.ContinueWith(_ => ReleaseRendererAsync().AsTask(), CancellationToken.None,
+            TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+        lock (workerGate) workerTask = release.ContinueWith(_ => { }, TaskScheduler.Default);
         if (!WaitBounded(release, "renderer release")) return;
         release.GetAwaiter().GetResult();
         lock (workerGate) sceneInputRequests = [];
@@ -990,22 +1009,24 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             {
                 if (dragButton != 0) return nint.Zero;
                 if (message == 0x201 && GetClientRect(window, out var lightBounds)
-                    && LightController?.TryBeginDrag(x, y, lightBounds.Right, lightBounds.Bottom, currentCamera, RotateLightHandle) == true)
+                    && ToRenderSpace(x, y, lightBounds.Right, lightBounds.Bottom) is var lp
+                    && LightController?.TryBeginDrag(lp.X, lp.Y, lp.Width, lp.Height, currentCamera, RotateLightHandle) == true)
                 { SetFocus(window); if (LightController.IsDragging) SetCapture(window); return nint.Zero; }
                 if (message == 0x201 && GetClientRect(window, out var boneBounds)
-                    && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera) == true)
+                    && ToRenderSpace(x, y, boneBounds.Right, boneBounds.Bottom) is var bp
+                    && BoneController?.TryBeginDrag(bp.X, bp.Y, bp.Width, bp.Height, currentCamera) == true)
                 { SetFocus(window); if (BoneController.IsDragging) SetCapture(window); return nint.Zero; }
                 SetFocus(window); cameraBeforeDrag = manualCameraPose; dragCamera = EditableLocalCamera();
                 dragButton = message; pointerX = x; pointerY = y; SetCapture(window); return nint.Zero;
             }
             if (message == 0x200 && LightController?.IsDragging == true)
-            { LightController.MoveDrag(x, y); return nint.Zero; }
+            { var p = MapPointer(window, x, y); LightController.MoveDrag(p.X, p.Y); return nint.Zero; }
             if (message == 0x200 && BoneController?.IsDragging == true)
             {
                 long input = InteractionDiagnostics.IsEnabled
                     ? EditorInteractionTrace.BeginInput("pointer.move", unchecked((long)(uint)GetMessageTime())) : 0;
                 using var moveMeasure = InteractionDiagnostics.Measure("pointer.move-handler", input);
-                BoneController.MoveDrag(x, y); return nint.Zero;
+                var p = MapPointer(window, x, y); BoneController.MoveDrag(p.X, p.Y); return nint.Zero;
             }
             if (message == 0x202 && LightController?.IsDragging == true)
             { LightController.EndDrag(); ReleaseCapture(); return nint.Zero; }

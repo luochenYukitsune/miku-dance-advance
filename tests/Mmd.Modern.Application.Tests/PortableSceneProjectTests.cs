@@ -262,6 +262,19 @@ public sealed class PortableSceneProjectTests : IDisposable
         AssertSecretNotPackaged();
     }
 
+    [Fact]
+    public void LocalTextureWithANonAsciiExtensionIsPackagedUnderASafeAlias()
+    {
+        string local = Path.Combine(Source, "paint.画像"); File.WriteAllBytes(local, [4, 5, 6]);
+        string path = WritePmx(diffuse: "paint.画像");
+        SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token);
+        string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();
+        string bundle = Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models", hash);
+        var saved = PmxReader.Read(Path.Combine(bundle, "model.pmx"));
+        Assert.EndsWith(".bin", saved.Textures[0]);
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(bundle, saved.Textures[0])));
+    }
+
     private void AssertSecretNotPackaged()
     {
         string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();

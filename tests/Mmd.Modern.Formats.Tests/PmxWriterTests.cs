@@ -214,7 +214,8 @@ public sealed class PmxWriterTests
         // 20 offsets need ~2.3 KB; the remaining input holds one. The old 2-byte floor accepted this count.
         BitConverter.TryWriteBytes(bytes.AsSpan(count, 4), 20);
         var error = Assert.Throws<PmxFormatException>(() => Read(bytes));
-        Assert.Contains("morphs[0]", error.Message);
+        // The count itself is rejected before allocating; the old 2-byte floor failed later on morphs[0] offsets.
+        Assert.Equal("morphs[0].count", error.Field);
     }
 
     [Theory]

@@ -26,10 +26,10 @@ public sealed class EditorPmmAssetLoader(bool retainToonTextures = false,
             // Use the same containment checks as ordinary imports before consulting the cache.
             string texturePath = EditorTextureLoader.ResolveLocalPath(root, relative);
             if (textures.TryGetValue(texturePath, out var texture)) return texture;
-            texture = EditorTextureLoader.Load(root, relative, token);
-            textures.Add(texturePath, texture);
-            return texture;
-        }, failures: message => { textureFailures++; System.Diagnostics.Trace.TraceWarning(message); }),
+            return EditorTextureLoader.Load(root, relative, token);
+        }, failures: message => { textureFailures++; System.Diagnostics.Trace.TraceWarning(message); },
+            // Cache only after the model budget accepted the texture, so rejected decodes are not kept alive.
+            accepted: (relative, texture) => textures.TryAdd(EditorTextureLoader.ResolveLocalPath(root, relative), texture)),
             token, retainToonTextures, loadCommonToon, loadDefaultToon);
         token.ThrowIfCancellationRequested();
         // A model whose texture degraded to the missing image is not cached, so repairing the file and loading

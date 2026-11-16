@@ -299,13 +299,8 @@ public static class VmdReader
             ReadBytes(bytes, field);
             int nul = bytes.IndexOf((byte)0);
             byte[] payload = (nul < 0 ? bytes : bytes[..nul]).ToArray();
-            // MMD truncates names to the fixed field width by bytes, which can split the final double-byte
-            // character. Only a name that fills the whole field can be truncated that way.
-            if (nul < 0 && payload.Length > 0 && EndsWithIncompleteCharacter(payload))
-            {
-                payload = payload[..^1];
-                Repair(field, offset, "trailing half of a truncated double-byte character dropped");
-            }
+            // Explicit overrides and candidate matching see the untouched bytes: a field-filling name can end in a
+            // complete character of the alternative code page that only looks truncated in the configured one.
             if (_names.Find(kind, payload) is { } explicitName)
                 return explicitName;
             if (_names.CandidatesFor(kind) is { } candidates)
@@ -324,9 +319,18 @@ public static class VmdReader
                 }
                 if (match is not null) return match;
             }
+            // MMD truncates names to the fixed field width by bytes, which can split the final double-byte
+            // character. Only a name that fills the whole field can be truncated that way; drop that half for the
+            // fallback decode only (the encoded name keeps bytes that decode to its value).
+            byte[] decoded = payload;
+            if (nul < 0 && payload.Length > 0 && EndsWithIncompleteCharacter(payload))
+            {
+                decoded = payload[..^1];
+                Repair(field, offset, "trailing half of a truncated double-byte character dropped");
+            }
             try
             {
-                return new(_encoding.GetString(payload), payload, _encoding.CodePage);
+                return new(_encoding.GetString(decoded), decoded, _encoding.CodePage);
             }
             catch (DecoderFallbackException exception)
             {

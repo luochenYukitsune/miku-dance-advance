@@ -27,6 +27,11 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     private readonly ID3D12InfoQueue? debugQueue;
     private ulong fenceValue;
     private bool disposed, rendering;
+    /// <summary>Resources of a submission whose fence never completed (timeout without device removal). The GPU may
+    /// still read them, so they are kept until a later wait proves the queue reached <see cref="abandonedFence"/>, the
+    /// device is removed, or Dispose. Freeing them earlier would let the GPU touch released memory.</summary>
+    private readonly List<IDisposable> abandoned = [];
+    private ulong abandonedFence;
     public string AdapterName { get; }
     public bool IsWarp { get; }
     public FeatureLevel FeatureLevel { get; }
@@ -78,6 +83,7 @@ public sealed class D3D12MeshRenderer : IRenderBackend
         ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(scene);
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         if (rendering) throw new InvalidOperationException("Reentrant/concurrent rendering is unsupported.");
+        ReleaseAbandonedIfComplete();
         rendering = true;
         var resources = new List<IDisposable>();
         T Own<T>(T value) where T : IDisposable { resources.Add(value); return value; }
@@ -86,9 +92,11 @@ public sealed class D3D12MeshRenderer : IRenderBackend
         {
             debugQueue?.ClearStoredMessages();
             LastVertexCount = scene.VertexCount; LastIndexCount = scene.Indices.Length;
-            using var rtvHeap = device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1));
-            using var dsvHeap = device.CreateDescriptorHeap(new(DescriptorHeapType.DepthStencilView, 1));
-            using var srvHeap = device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, scene.Textures.Count + 2, DescriptorHeapFlags.ShaderVisible));
+            // Descriptor heaps follow the frame's fence like every other resource: a handle does not keep its heap
+            // alive, so a scope-bound `using` could free a shader-visible heap the GPU is still reading.
+            var rtvHeap = Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1)));
+            var dsvHeap = Own(device.CreateDescriptorHeap(new(DescriptorHeapType.DepthStencilView, 1)));
+            var srvHeap = Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, scene.Textures.Count + 2, DescriptorHeapFlags.ShaderVisible)));
             int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
             var color = Own(device.CreateCommittedResource(HeapType.Default, ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
             var depth = Own(device.CreateCommittedResource(HeapType.Default, ResourceDescription.Texture2D(Format.D32_Float, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowDepthStencil), ResourceStates.DepthWrite));
@@ -179,16 +187,33 @@ public sealed class D3D12MeshRenderer : IRenderBackend
         finally
         {
             if (open) { try { commands.Close(); } catch { /* Preserve original recording error. */ } }
-            if (submitted) WaitForGpu();
+            bool gpuDone = true;
+            if (submitted)
+            {
+                // A second timeout must not skip the bookkeeping below or strand `rendering`; keep the frame's
+                // resources alive instead of freeing what the GPU may still read.
+                try { WaitForGpu(); }
+                catch (TimeoutException) { gpuDone = false; }
+            }
             if (debugQueue is not null)
             {
                 var messages = new List<string>();
                 for (ulong i = 0; i < debugQueue.NumStoredMessages; i++) messages.Add(debugQueue.GetMessage(i).ToString());
                 LastDebugMessages = messages.AsReadOnly();
             }
-            for (int i = resources.Count - 1; i >= 0; i--) resources[i].Dispose();
+            if (gpuDone) for (int i = resources.Count - 1; i >= 0; i--) resources[i].Dispose();
+            else { abandoned.AddRange(resources); abandonedFence = fenceValue; }
             rendering = false;
         }
+    }
+
+    private void ReleaseAbandonedIfComplete()
+    {
+        if (abandoned.Count == 0) return;
+        ulong completed = fence.CompletedValue;
+        if (completed < abandonedFence) return; // Includes UINT64_MAX (device removed): nothing runs any more.
+        for (int i = abandoned.Count - 1; i >= 0; i--) abandoned[i].Dispose();
+        abandoned.Clear();
     }
 
     private void WaitForGpu()
@@ -226,9 +251,14 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     {
         if (disposed) return; disposed = true;
         // A removed device runs nothing further (its fence reads UINT64_MAX); release instead of throwing.
+        bool idle = true;
         try { if (fence.CompletedValue != ulong.MaxValue) WaitForGpu(); }
+        catch (TimeoutException) { idle = false; }
         finally
         {
+            // Only release abandoned frame resources when the queue is proven idle or the device is gone; otherwise
+            // leak them (and the device holding them) rather than free memory the GPU may still access.
+            if (idle || fence.CompletedValue == ulong.MaxValue) ReleaseAbandonedIfComplete();
             debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose();
             fenceEvent.Dispose();
         }

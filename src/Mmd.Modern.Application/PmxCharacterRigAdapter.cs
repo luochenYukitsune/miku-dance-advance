@@ -23,6 +23,9 @@ public static class PmxCharacterRigAdapter
         var log=new RepairLog();
         int count=model.Bones.Count;
         var names=new HashSet<string>(StringComparer.Ordinal);
+        // Generated names must avoid every original name, not only those already visited: with ["A","A","A#1"] the
+        // second bone may not take "A#1" from the third, whose authored name is unique.
+        var authored=model.Bones.Select(b=>b.Name).Where(name=>!string.IsNullOrWhiteSpace(name)).ToHashSet(StringComparer.Ordinal);
         RigBone Bone(PmxBone b,int index)
         {
             string name=b.Name;
@@ -30,7 +33,7 @@ public static class PmxCharacterRigAdapter
             {
                 // MMD binds motion to the first bone with a name; later duplicates get a unique, unmatchable name.
                 string original=name;name=$"{name}#{index}";
-                while(!names.Add(name))name+="#";
+                while(authored.Contains(name)||!names.Add(name))name+="#";
                 log.Add($"bone {index} '{original}' renamed to '{name}' (duplicate or empty name)");
             }
             int parent=b.ParentIndex;

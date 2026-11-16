@@ -75,8 +75,9 @@ public sealed partial class CharacterAnimationController : IDisposable
         this.model=model;
         restSurface=surface;restOutline=outline;
         var rig=PmxCharacterRigAdapter.Convert(model,surface.Snapshot,out var rigRepairs);
+        // Same first-name-wins rule as the rig repair: a later IK bone with a duplicate name is unbindable.
         ikSwitches=new(model.Bones.Select((b,i)=>(b,i)).Where(p=>p.b.Flags.HasFlag(PmxBoneFlags.Ik))
-            .ToDictionary(p=>p.b.Name,p=>p.i,StringComparer.Ordinal),motion);
+            .DistinctBy(p=>p.b.Name,StringComparer.Ordinal).ToDictionary(p=>p.b.Name,p=>p.i,StringComparer.Ordinal),motion);
         visibility=new(motion);IsVisible=visibility.Evaluate(0);
         morphs=new(model);materialMorphs=new(model);extendedMorphs=new(model);impulseMorphs=new(model);
         SupportedMorphCount=morphs.SupportedIndices.Concat(materialMorphs.SupportedIndices).Concat(extendedMorphs.SupportedMorphIndices.Values)

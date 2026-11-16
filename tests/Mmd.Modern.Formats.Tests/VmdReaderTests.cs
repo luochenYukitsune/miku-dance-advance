@@ -241,6 +241,24 @@ public sealed class VmdReaderTests
     }
 
     [Fact]
+    public void AFieldFillingCandidateFromTheOtherCodePageIsMatchedBeforeTruncation()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        string name = "AAAAAAAAAAAAA你";
+        byte[] gbk = Encoding.GetEncoding(936).GetBytes(name);
+        Assert.Equal(15, gbk.Length);
+        using MemoryStream fixture = Build(writer =>
+        {
+            writer.Write(1u);
+            Bone(writer, "腕", 0, Vector3.Zero, Quaternion.Identity);
+        });
+        gbk.CopyTo(fixture.GetBuffer(), 54);
+        VmdMotion motion = VmdReader.Read(fixture, new VmdReadOptions { BoneNameCandidates = [name] });
+        Assert.Equal(name, Assert.Single(motion.BoneKeyframes).BoneName);
+        Assert.DoesNotContain(motion.Diagnostics, d => d.Contains("bones[0].name"));
+    }
+
+    [Fact]
     public void TrailingBytesAfterKnownSectionsAreIgnoredAndReported()
     {
         using MemoryStream fixture = Build(writer =>

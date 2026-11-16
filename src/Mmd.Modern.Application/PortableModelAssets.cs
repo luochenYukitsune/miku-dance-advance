@@ -144,12 +144,12 @@ internal static class PortableModelAssets
         var dependencies = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         long total = 0;
         // Loading degrades a texture reference it refuses to resolve (outside the model folder, absolute path) to the
-        // missing image (EditorTextureLoader). Saving matches that: such a reference, or one with an extension that
-        // cannot form a portable alias, becomes an empty slot in the packaged copy (rendered as missing, as it was when
-        // loaded) plus a diagnostic, instead of failing every manual save and recovery snapshot. The outside file is
-        // never read. A referenced file inside the model folder that is missing or unreadable still fails the save
-        // (MissingModelDependencyException as the inner cause) unless the caller explicitly opted in to leaving it
-        // empty (PmaSaveOptions.LeaveMissingModelDependenciesEmpty, offered only by a manual editor save).
+        // missing image (EditorTextureLoader). Saving matches that: such a reference becomes an empty slot in the
+        // packaged copy (rendered as missing, as it was when loaded) plus a diagnostic, instead of failing every manual
+        // save and recovery snapshot. The outside file is never read. A referenced file inside the model folder that is
+        // missing or unreadable still fails the save (MissingModelDependencyException as the inner cause) unless the
+        // caller explicitly opted in to leaving it empty (PmaSaveOptions.LeaveMissingModelDependenciesEmpty, offered
+        // only by a manual editor save).
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
@@ -157,9 +157,11 @@ internal static class PortableModelAssets
             try { dependency = ContainedDependency(directory, reference); }
             catch (InvalidDataException error) { capture.Skip(path, reference, error.Message); return ""; }
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
+            // The alias keeps an ASCII extension so the packaged name is canonical. A local file whose extension is not
+            // (for example "paint.画像" holding DDS data) is still packaged: decoders identify DDS by content, and other
+            // formats keep working because the extension was never a recognizable codec name in the first place.
             string extension = Path.GetExtension(dependency).ToLowerInvariant();
-            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c)))
-            { capture.Skip(path, reference, "unsupported extension for a portable alias"); return ""; }
+            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c))) extension = ".bin";
             if (!capture.Snapshots.TryGetValue(dependency, out var resource))
             {
                 try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
