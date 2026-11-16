@@ -42,6 +42,18 @@ public sealed class EditorTextureFallbackTests
     }
 
     [Fact]
+    public void OnlyTexturesThatPassTheBudgetAreReportedForCaching()
+    {
+        var small = new SceneTexture("a.png", 1, 1, new byte[4]);
+        var large = new SceneTexture("b.png", 2, 2, new byte[16]);
+        var cached = new Dictionary<string, SceneTexture?>();
+        var load = EditorTextureLoader.WithModelBudget(relative => relative == "a.png" ? small : large, maximumBytes: 8,
+            failures: _ => { }, accepted: (relative, texture) => cached[relative] = texture);
+        load("a.png"); load("b.png"); load("b.png");
+        Assert.Equal(new[] { "a.png" }, cached.Keys);
+    }
+
+    [Fact]
     public void CancellationStillPropagates()
     {
         var load = EditorTextureLoader.WithModelBudget(_ => throw new OperationCanceledException());

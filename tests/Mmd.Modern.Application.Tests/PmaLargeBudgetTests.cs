@@ -9,6 +9,11 @@ using Xunit;
 
 namespace Mmd.Modern.Application.Tests;
 
+[CollectionDefinition(PmaLargeBudgetCollection.Name, DisableParallelization = true)]
+public sealed class PmaLargeBudgetCollection { public const string Name = "PMA free-space seam"; }
+
+// LoadRefusesBeforeExtracting... replaces the process-wide free-space seam; no other PMA load may run in parallel.
+[Collection(PmaLargeBudgetCollection.Name)]
 public sealed class PmaLargeBudgetTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "pma-large-budget-" + Guid.NewGuid().ToString("N"));

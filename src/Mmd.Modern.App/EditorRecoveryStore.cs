@@ -425,7 +425,9 @@ public sealed class EditorRecoveryStore
                         // package left by a killed writer is never published; remove it so it stops counting toward the
                         // byte budget and stops making the session unreclaimable. Unclean (interrupted) sessions and
                         // published pairs are left untouched for recovery.
-                        RemoveAbandonedStagingPackages(directory);
+                        // Freed bytes count against this save's projection directly; the session may have no
+                        // checkpoints to remove afterwards, so the deletion itself must lower the total.
+                        projected -= RemoveAbandonedStagingPackages(directory);
                         // Other sessions' packages are verified before they may be deleted: a damaged package is never
                         // reclaimed for someone else's budget. This runs only when the budget is actually exceeded.
                         var points = await ReadCheckpointsAsync(directory, id, cancellationToken).ConfigureAwait(false);
@@ -470,8 +472,10 @@ public sealed class EditorRecoveryStore
         }
     }
 
-    private void RemoveAbandonedStagingPackages(string directory)
+    /// <summary>Returns the bytes actually freed.</summary>
+    private long RemoveAbandonedStagingPackages(string directory)
     {
+        long freed = 0;
         foreach (string path in Directory.EnumerateFiles(directory))
         {
             string filename = Path.GetFileName(path);
@@ -480,9 +484,10 @@ public sealed class EditorRecoveryStore
             string stem = Path.GetFileNameWithoutExtension(filename);
             if (!stem.EndsWith(".tmp", StringComparison.Ordinal) || !IsCanonicalGuid(stem[..^4], out _)) continue;
             EnsureSafePath(path);
-            try { File.Delete(path); }
+            try { long length = new FileInfo(path).Length; File.Delete(path); freed += length; }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
+        return freed;
     }
 
     private bool HasOnlyValidatedCheckpointFiles(string directory, List<EditorRecoveryCheckpoint> checkpoints)

@@ -244,7 +244,14 @@ public static class PmaProjectStore
                 cancellationToken.ThrowIfCancellationRequested();
                 string target = Path.Combine(stage, file.Path.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                if (extracted.TryGetValue(file.Sha256, out string? first)) { File.Copy(first, target, overwrite: false); continue; }
+                if (extracted.TryGetValue(file.Sha256, out string? first))
+                {
+                    // Chunked copy observes cancellation, unlike File.Copy, for a multi-GiB shared resource.
+                    using var existing = new FileStream(first, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var duplicate = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                    Copy(existing, duplicate, cancellationToken, file.Length);
+                    continue;
+                }
                 using (var source = zip.GetEntry("blobs/" + file.Sha256)!.Open())
                 using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     Copy(source, output, cancellationToken, file.Length);

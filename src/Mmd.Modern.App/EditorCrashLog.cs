@@ -52,18 +52,25 @@ internal static class EditorCrashLog
     internal const int MaxFiles = 50;
     private static readonly object throttleGate = new();
     private static readonly Dictionary<string, int> seen = new(StringComparer.Ordinal);
+    internal const int MaxSignatures = 1024;
+    private const string OverflowSignature = "<overflow>";
 
     /// <summary>An exception on a per-frame path (playback timer, viewport refresh) used to write a new file every
     /// time. Only the first occurrence of each signature (source, type, throw site) is written; repeats are counted
     /// and the count is written at every power of two, so the log stays bounded but the frequency is visible.</summary>
     internal static bool ShouldRecord(string source, Exception error, out string? path, string? directory = null)
     {
-        string signature = source + "|" + error.GetType().FullName + "|" + (error.TargetSite?.ToString() ?? error.Message);
+        // TargetSite.ToString() omits the declaring type, so A.Refresh() and B.Refresh() would share a signature.
+        var site = error.TargetSite;
+        string location = site is null ? error.Message : $"{site.DeclaringType?.AssemblyQualifiedName}::{site}#{site.MetadataToken}";
+        string signature = source + "|" + error.GetType().FullName + "|" + location;
         int count;
         lock (throttleGate)
         {
+            // Past the table bound, new signatures share one overflow counter so they are still throttled.
+            if (!seen.ContainsKey(signature) && seen.Count >= MaxSignatures) signature = OverflowSignature;
             seen.TryGetValue(signature, out count); count++;
-            if (seen.Count < 1024 || seen.ContainsKey(signature)) seen[signature] = count;
+            seen[signature] = count;
         }
         path = null;
         if (count > 1 && (count & (count - 1)) != 0) return false;

@@ -38,7 +38,7 @@ public sealed class FfmpegSceneVideoDecoder : ISceneVideoDecoder
             timeout.CancelAfter(operationTimeout);
             await File.WriteAllBytesAsync(path, asset.CopyBytes(), timeout.Token).ConfigureAwait(false);
             string json = await FfmpegToolchain.RunStdoutAsync(tools.FfprobePath,
-                ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,start_time,color_transfer,color_primaries,color_space",
+                ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,start_pts,time_base,color_transfer,color_primaries,color_space",
                     "-of", "json", path], timeout.Token).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
             var streams = document.RootElement.GetProperty("streams");
@@ -51,9 +51,8 @@ public sealed class FfmpegSceneVideoDecoder : ISceneVideoDecoder
                 => stream.TryGetProperty(name, out var value) ? value.GetString() : null;
             // Seeking keeps source timestamps; the stream start rebases them onto the same zero as an unseeked decode.
             // Still images and streams without a start time cannot seek and always decode from the beginning.
-            long? originTicks = decimal.TryParse(Metadata(stream, "start_time"), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out decimal start) && start >= 0 && start < 86400
-                ? (long)Math.Round(start * TimeSpan.TicksPerSecond) : null;
+            long? originTicks = OriginTicks(stream.TryGetProperty("start_pts", out var startPts) ? startPts : default,
+                Metadata(stream, "time_base"));
             return new Session(tools.FfmpegPath, directory, path, asset.Sha256, width, height, operationTimeout,
                 Metadata(stream, "color_transfer"), Metadata(stream, "color_primaries"), Metadata(stream, "color_space"), originTicks);
         }
@@ -63,6 +62,22 @@ public sealed class FfmpegSceneVideoDecoder : ISceneVideoDecoder
             Directory.Delete(directory);
             throw;
         }
+    }
+
+    /// <summary>The stream origin in the filter's 1/10,000,000 time base, computed exactly from <c>start_pts</c> and
+    /// <c>time_base</c> with av_rescale_q's round-to-nearest (ties away from zero), as <c>settb</c> rescales every frame.
+    /// ffprobe's formatted <c>start_time</c> has six decimals and loses ticks (1/30 s became 333330 instead of 333333),
+    /// which made a seeked decode pick a different frame than a decode from the start.</summary>
+    internal static long? OriginTicks(JsonElement startPts, string? timeBase)
+    {
+        if (startPts.ValueKind != JsonValueKind.Number || !startPts.TryGetInt64(out long pts) || pts < 0) return null;
+        if (timeBase is null || timeBase.Split('/') is not [var n, var d]
+            || !long.TryParse(n, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long numerator)
+            || !long.TryParse(d, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long denominator)
+            || numerator <= 0 || denominator <= 0) return null;
+        var scaled = (System.Numerics.BigInteger)pts * numerator * TimeSpan.TicksPerSecond;
+        var ticks = (scaled + denominator / 2) / denominator;
+        return ticks < TimeSpan.TicksPerDay ? (long)ticks : null;
     }
 
     private sealed class Session(string executable, string directory, string path, string sha256, int width, int height,

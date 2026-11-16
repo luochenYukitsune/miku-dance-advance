@@ -52,6 +52,6 @@ public sealed class D3D12FrameSession:IDisposable
         Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion);
     public void WaitForIdle()=>Runtime.WaitForIdle();
-    internal void WaitForIdleForTeardown()=>Runtime.WaitForIdleForTeardown();
+    internal bool WaitForIdleForTeardown()=>Runtime.WaitForIdleForTeardown();
     public void Dispose(){try{renderer.Dispose();}finally{Runtime.Dispose();}}
 }

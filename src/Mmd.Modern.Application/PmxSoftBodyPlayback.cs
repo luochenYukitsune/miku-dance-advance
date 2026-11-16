@@ -66,6 +66,8 @@ public sealed class PmxSoftBodyPlayback : IDisposable
     public SceneVertex[] Apply(ReadOnlySpan<SceneVertex> skinned)
     {
         RequireAlive(); if (!initialized) throw new InvalidOperationException("Reset the soft solver before sampling.");
+        // Sampling is read-only: it is also the non-mutating probe used to validate a candidate rigid replacement,
+        // whose failure must leave the soft history untouched. Faults are recorded where the solver is stepped (Advance).
         _ = Targets(skinned); var output = skinned.ToArray(); var claimed = new HashSet<int>();
         foreach (var sample in backend.Sample())
         {

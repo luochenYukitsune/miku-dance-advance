@@ -295,17 +295,26 @@ internal sealed class D3D12GpuRuntime:IDisposable
     /// <summary>Idle wait for Dispose paths. Device removal means no submitted work can still read a resource,
     /// so teardown treats it as idle and releases everything instead of throwing and leaking the device graph.
     /// Render paths keep using <see cref="WaitForIdle"/>, which reports device removal.</summary>
-    internal void WaitForIdleForTeardown()
+    /// <summary>True when teardown gave up on a queue that never reached its fence (no device removal). The GPU may
+    /// still read every submitted resource, so they are deliberately leaked instead of released.</summary>
+    internal bool TeardownTimedOut{get;private set;}
+    /// <returns>True when all submitted work is over (fence reached, or device removed); false after a timeout.</returns>
+    internal bool WaitForIdleForTeardown()
     {
-        if(disposed)return;
+        if(disposed)return !TeardownTimedOut;
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         // Device removal can also happen while waiting (a TDR during close). The fence then reports UINT64_MAX,
-        // which ends this loop as "complete"; unlike WaitForFence it is not turned into an exception here.
-        // A queue that never signals is treated like a removed device after the bound: the process is closing the
-        // runtime either way and waiting forever would hang the editor/export shutdown.
-        if(!WaitForFenceCore(fenceValue,FenceTimeout,CancellationToken.None))
-            System.Diagnostics.Trace.TraceWarning($"D3D12 teardown gave up waiting for fence {fenceValue} after {FenceTimeout.TotalSeconds:0} s.");
+        // which ends this wait as "complete"; unlike WaitForFence it is not turned into an exception here.
+        // A queue that never signals within the bound is NOT treated as stopped: waiting forever would hang shutdown,
+        // but releasing resources the GPU may still access is unsafe, so they are kept (leaked) instead.
+        if(!WaitForFenceCore(fenceValue,FenceTimeout,CancellationToken.None)&&!IsDeviceRemoved)
+        {
+            TeardownTimedOut=true;
+            System.Diagnostics.Trace.TraceWarning($"D3D12 teardown gave up waiting for fence {fenceValue} after {FenceTimeout.TotalSeconds:0} s; GPU resources are kept alive.");
+            return false;
+        }
         foreach(var slot in slots)Retire(slot);
+        return true;
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
     internal D3D12FrameStatistics Statistics(int scenes,int passes,int readbacks,int submissions)=>new(FrameId,submissions,readbacks,scenes,passes,
@@ -314,13 +323,19 @@ internal sealed class D3D12GpuRuntime:IDisposable
     public void Dispose()
     {
         if(disposed)return;
-        try{Abort();WaitForIdleForTeardown();}
+        bool idle=false;
+        try{Abort();idle=WaitForIdleForTeardown();}
         finally
         {
             disposed=true;
-            foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-            // Release the device (which owns outstanding event registrations) before the event they may still signal.
-            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceEvent.Dispose();
+            // After a timeout the queue may still execute these command lists and read these pages, so nothing the GPU
+            // can reach is released; the leak is bounded to this one runtime and preferable to use-after-free.
+            if(idle)
+            {
+                foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
+                // Release the device (which owns outstanding event registrations) before the event they may still signal.
+                DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceEvent.Dispose();
+            }
         }
     }
 }

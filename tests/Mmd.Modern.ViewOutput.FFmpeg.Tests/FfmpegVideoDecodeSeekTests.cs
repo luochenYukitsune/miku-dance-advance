@@ -13,6 +13,25 @@ public sealed class FfmpegVideoDecodeSeekTests
         Assert.Contains(args, a => a.Contains("setpts=PTS-STARTPTS", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(1, "1/30", 333333L)]            // 1/30 s; ffprobe's start_time "0.033333" lost three ticks.
+    [InlineData(126000, "1/90000", 14000000L)]   // MPEG-TS 1.4 s.
+    [InlineData(0, "1/1000", 0L)]
+    public void OriginComesExactlyFromStartPtsAndTimeBase(long pts, string timeBase, long expected)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(pts.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(expected, FfmpegSceneVideoDecoder.OriginTicks(json.RootElement, timeBase));
+    }
+
+    [Fact]
+    public void MissingOrInvalidOriginDisablesSeeking()
+    {
+        using var number = System.Text.Json.JsonDocument.Parse("5");
+        Assert.Null(FfmpegSceneVideoDecoder.OriginTicks(default, "1/30"));
+        Assert.Null(FfmpegSceneVideoDecoder.OriginTicks(number.RootElement, null));
+        Assert.Null(FfmpegSceneVideoDecoder.OriginTicks(number.RootElement, "0/1"));
+    }
+
     [Fact]
     public void DeepPositionsInputSeekAndKeepTheUnseekedTimeline()
     {

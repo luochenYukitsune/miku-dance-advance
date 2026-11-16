@@ -104,6 +104,45 @@ public sealed class PmxCharacterRigAdapterTests
         Assert.Contains(repairs, r => r.Contains("bone 3 IK target -1"));
     }
 
+    [Fact]
+    public void GeneratedNamesNeverTakeAnotherBonesAuthoredName()
+    {
+        var template = Model(3, 1f);
+        PmxBone Bone(string name) => new() { Name = name, EnglishName = "", Position = Vector3.Zero, ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.None };
+        var model = new PmxModel
+        {
+            Header = template.Header, Name = template.Name, EnglishName = "", Comment = "", EnglishComment = "",
+            Vertices = template.Vertices, Faces = template.Faces, Textures = template.Textures, Materials = template.Materials,
+            Bones = [Bone("A"), Bone("A"), Bone("A#1")],
+            Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = []
+        };
+        var rig = PmxCharacterRigAdapter.Convert(model, Rest(model), out _);
+        Assert.Equal("A", rig.Bones[0].Name);
+        Assert.Equal("A#1", rig.Bones[2].Name);
+        Assert.NotEqual("A#1", rig.Bones[1].Name);
+        Assert.NotEqual("A", rig.Bones[1].Name);
+    }
+
+    [Fact]
+    public void ControllerBindsADuplicateIkNameToTheFirstBone()
+    {
+        var template = Model(3, 1f);
+        var goal = template.Bones[2];
+        var model = new PmxModel
+        {
+            Header = template.Header, Name = template.Name, EnglishName = "", Comment = "", EnglishComment = "",
+            Vertices = template.Vertices, Faces = template.Faces, Textures = template.Textures, Materials = template.Materials,
+            Bones = [template.Bones[0], template.Bones[1], goal, new() { Name = goal.Name, EnglishName = "", Position = Vector3.UnitZ,
+                ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.Ik, IkTargetBoneIndex = 1, IkIterationCount = 3, IkLimit = 1,
+                IkLinks = [new(0, false, default, default)] }],
+            Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = []
+        };
+        var rest = EditedMotionProjectTests.Rest(model);
+        var motion = new VmdMotion { BoneKeyframes = [new() { BoneName = "link" }, new() { BoneName = "link", Frame = 10 }] };
+        using var controller = new CharacterAnimationController(model, motion, rest.Surface, rest.Outline!);
+        Assert.Contains(controller.Diagnostics, d => d.Contains("bone 3") && d.Contains("renamed"));
+    }
+
     private static SceneSnapshot Rest(PmxModel model) => EditedMotionProjectTests.Rest(model).Surface.Snapshot;
 
     private static PmxModel Model(int iterations, float limit)

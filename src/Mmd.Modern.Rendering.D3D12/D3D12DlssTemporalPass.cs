@@ -106,7 +106,7 @@ internal sealed class D3D12DlssTemporalPass : IDisposable
         }
         catch
         {
-            if (nativeContext != 0 && close is not null) { runtime.WaitForIdleForTeardown(); close(nativeContext); nativeContext = 0; }
+            if (nativeContext != 0 && close is not null && runtime.WaitForIdleForTeardown()) { close(nativeContext); nativeContext = 0; }
             FreeLibrary(); throw;
         }
     }
@@ -168,7 +168,9 @@ internal sealed class D3D12DlssTemporalPass : IDisposable
     {
         if (disposed) return;
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open frame before destroying DLSS history.");
-        runtime.WaitForIdleForTeardown(); if (nativeContext != 0) { close(nativeContext); nativeContext = 0; }
+        // The queue never reached its fence (no device removal): the GPU may still read these, so leak rather than free.
+        if (!runtime.WaitForIdleForTeardown()) { disposed = true; return; }
+        if (nativeContext != 0) { close(nativeContext); nativeContext = 0; }
         FreeLibrary(); disposed = true;
     }
     private void FreeLibrary() { if (library != 0) { NativeLibrary.Free(library); library = 0; } }

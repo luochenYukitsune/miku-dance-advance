@@ -247,7 +247,8 @@ internal sealed class D3D12XeSsTemporalPass : IDisposable
     {
         if (disposed) return;
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the GPU frame before disposing XeSS history.");
-        runtime.WaitForIdleForTeardown();
+        // The queue never reached its fence (no device removal): the GPU may still read these, so leak rather than free.
+        if (!runtime.WaitForIdleForTeardown()) { disposed = true; return; }
         int code = D3D12XeSsDispatchThread.Invoke(() =>
         {
             int result = nativeContext == 0 ? 0 : destroy(nativeContext);
