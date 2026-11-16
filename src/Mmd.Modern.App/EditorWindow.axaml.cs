@@ -38,6 +38,18 @@ public partial class EditorWindow : Window
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
+        // An exception that escaped a UI handler is logged and swallowed so the workspace survives; tell the user, so
+        // they do not keep editing (and save) an operation that stopped halfway. Repeats are throttled by the log.
+        // ReportActivityFailure puts the status bar into its failed state ("操作失败 · …") with the technical details
+        // (and the log path) one click away.
+        Action<Exception, string?> crashNotice = (error, path) =>
+        {
+            if (!IsVisible || _shell is not { } shell) return;
+            shell.ReportActivityFailure(path is null ? error
+                : new InvalidOperationException("Unhandled UI exception; log: " + path, error));
+        };
+        EditorCrashLog.UiExceptionRecorded += crashNotice;
+        Closed += (_, _) => EditorCrashLog.UiExceptionRecorded -= crashNotice;
         Closed += async (_, _) =>
         {
             // Async void: every step is isolated so one failed cleanup (for example a viewport whose GPU device was

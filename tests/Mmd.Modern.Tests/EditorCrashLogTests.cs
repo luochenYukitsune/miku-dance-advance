@@ -27,5 +27,43 @@ public sealed class EditorCrashLogTests : IDisposable
         Assert.Null(EditorCrashLog.TryWrite("ui", new Exception("x"), Path.Combine(blocker, "nested")));
     }
 
+    [Fact]
+    public void RepeatedExceptionsAreWrittenOnceThenAtPowersOfTwoAndOldFilesArePruned()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        Exception Thrown() { try { throw new InvalidOperationException("per-frame"); } catch (Exception error) { return error; } }
+        int announced = 0;
+        for (int i = 0; i < 100; i++) if (EditorCrashLog.ShouldRecord("ui", Thrown(), out _, directory)) announced++;
+        Assert.Equal(1, announced);
+        // 1, 2, 4, 8, 16, 32, 64.
+        Assert.Equal(7, Directory.GetFiles(directory).Length);
+        for (int i = 0; i < EditorCrashLog.MaxFiles + 5; i++) EditorCrashLog.TryWrite("distinct" + i, new Exception("x"), directory);
+        Assert.Equal(EditorCrashLog.MaxFiles, Directory.GetFiles(directory).Length);
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
+    private sealed class First { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
+    private sealed class Second { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
+
+    [Fact]
+    public void SameNamedMethodsOnDifferentTypesAreDistinctSignatures()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        Assert.True(EditorCrashLog.ShouldRecord("ui", First.Refresh(), out _, directory));
+        Assert.True(EditorCrashLog.ShouldRecord("ui", Second.Refresh(), out _, directory));
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
+    [Fact]
+    public void SignaturesPastTheTableBoundAreStillThrottled()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        for (int i = 0; i < EditorCrashLog.MaxSignatures; i++) EditorCrashLog.ShouldRecord("fill" + i, new Exception("x"), out _, directory);
+        int announced = 0;
+        for (int i = 0; i < 20; i++) if (EditorCrashLog.ShouldRecord("late", new Exception("y"), out _, directory)) announced++;
+        Assert.Equal(1, announced);
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
 }
