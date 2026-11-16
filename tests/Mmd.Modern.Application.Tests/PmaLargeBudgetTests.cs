@@ -123,6 +123,46 @@ public sealed class PmaLargeBudgetTests : IDisposable
         }
     }
 
+    [Fact]
+    public void LoadRefusesBeforeExtractingWhenTheVolumeCannotHoldTheLogicalFiles()
+    {
+        using var project = Fixture();
+        string package = Path.Combine(directory, "space.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        var seam = typeof(PmaProjectStore).GetProperty("AvailableFreeSpace", BindingFlags.Static | BindingFlags.NonPublic)!;
+        long reserve = (long)typeof(PmaProjectStore).GetField("ExtractionFreeSpaceReserve", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var original = seam.GetValue(null);
+        try
+        {
+            seam.SetValue(null, (Func<string, long?>)(_ => reserve + 16));
+            string cache = Path.Combine(directory, "tight");
+            Assert.Throws<IOException>(() => PmaProjectStore.Load(package, cache, LoadModel, new NoPhysics(), cancellationToken: Token));
+            Assert.True(!Directory.Exists(cache) || !Directory.EnumerateFiles(cache, "*", SearchOption.AllDirectories).Any());
+            seam.SetValue(null, (Func<string, long?>)(_ => null));
+            using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "unknown"), LoadModel, new NoPhysics(), cancellationToken: Token);
+            Assert.Single(loaded.Session.Objects);
+        }
+        finally { seam.SetValue(null, original); }
+    }
+
+    [Fact]
+    public void SaveWritesOneBlobPerTextureForBothOriginalAndEditedBundlesAndLoadSharesIt()
+    {
+        using var project = Fixture();
+        string package = Path.Combine(directory, "shared.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        using (var zip = ZipFile.OpenRead(package))
+        {
+            JsonNode manifest; using (var reader = new StreamReader(zip.GetEntry("manifest.json")!.Open())) manifest = JsonNode.Parse(reader.ReadToEnd())!;
+            var files = manifest["files"]!.AsArray();
+            // The texture appears under the original and the edited bundle but is stored as one blob.
+            Assert.True(files.Count(f => f!["path"]!.GetValue<string>().EndsWith(".png", StringComparison.Ordinal)) >= 1);
+            Assert.Equal(files.Select(f => f!["sha256"]!.GetValue<string>()).Distinct().Count(), zip.Entries.Count - 1);
+        }
+        using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "load"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Single(loaded.Session.Objects);
+    }
+
     private SceneProjectSession Fixture()
     {
         var m = PmmMotionAdapterTests.Pmx(["root"]);

@@ -57,15 +57,19 @@ public sealed partial class SceneProjectSession
         // Both original and edited model spools belong to this configured, private PMA
         // stage. Do not create a second implicit cache at the system drive root.
         var limits = PortableModelAssets.Limits.FromPma(options.ValidationOptions) with { TemporaryDirectory = stage };
+        var overrides = input.Animation.Motions.ToDictionary(m => m.ObjectId, m => m.Model);
+        foreach (var pair in options.ModelOverrides) overrides[pair.Key] = pair.Value ?? throw new ArgumentException("PMX override cannot be null.");
+        // The package keeps two bundles per model: the original source (OriginalModelPath) and the in-memory edited
+        // version (EditedModelPath). Both captures share one dependency snapshot cache, so each texture is read and
+        // hashed once, and a bundle the first publish already wrote is not verified and rewritten again.
+        using var originalBundles = PortableModelAssets.Prepare(input.Composition.Objects, token, limits: limits);
+        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits, originalBundles);
         SceneAnimationProjectStore.SaveSnapshot(path, input.Composition, input.Lighting, input.Animation,
-            input.Settings, input.Media, new() { PortableLimits = limits }, token);
+            input.Settings, input.Media, new() { PortableLimits = limits, PreparedPortable = originalBundles }, token);
         var node = JsonNode.Parse(File.ReadAllText(path))!;
         var layout = node["layout"]!;
         var originals = layout["objects"]!.AsArray().ToDictionary(o => o!["id"]!.GetValue<Guid>(), o => o!["sourcePath"]!.GetValue<string>());
-        var overrides = input.Animation.Motions.ToDictionary(m => m.ObjectId, m => m.Model);
-        foreach (var pair in options.ModelOverrides) overrides[pair.Key] = pair.Value ?? throw new ArgumentException("PMX override cannot be null.");
-        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits);
-        portable.Publish(stage, token);
+        portable.Publish(stage, token, originalBundles.Bundles.Keys.ToHashSet(StringComparer.Ordinal));
         layout["portableModels"] = new JsonArray(portable.Hashes.Select(hash => (JsonNode?)JsonValue.Create(hash)).ToArray());
         foreach (var item in layout["objects"]!.AsArray()) item!["sourcePath"] = portable.Paths[item["id"]!.GetValue<Guid>()];
         File.WriteAllText(path, node.ToJsonString());

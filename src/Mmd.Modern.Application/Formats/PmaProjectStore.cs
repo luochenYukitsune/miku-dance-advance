@@ -235,14 +235,20 @@ public static class PmaProjectStore
         PmaResourceReader? resourceReader = null;
         try
         {
+            RequireFreeSpace(stage, manifest.Files.Sum(file => file.Length));
+            // Several logical files may name one blob (shared textures across original/edited bundles). Decompress each
+            // blob once and copy later references from disk; the OS may clone instead of copying (APFS, ReFS).
+            var extracted = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var file in manifest.Files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string target = Path.Combine(stage, file.Path.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                using var source = zip.GetEntry("blobs/" + file.Sha256)!.Open();
-                using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                Copy(source, output, cancellationToken, file.Length);
+                if (extracted.TryGetValue(file.Sha256, out string? first)) { File.Copy(first, target, overwrite: false); continue; }
+                using (var source = zip.GetEntry("blobs/" + file.Sha256)!.Open())
+                using (var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    Copy(source, output, cancellationToken, file.Length);
+                extracted.Add(file.Sha256, target);
             }
             ValidateProjectReferences(stage, manifest, options);
             resourceReader = new(stage, manifest.Files.Where(f => f.Path.StartsWith(PmaAdditionalResources.Prefix, StringComparison.Ordinal))
@@ -476,6 +482,24 @@ public static class PmaProjectStore
         if (input.Length > maximum) throw new InvalidDataException("PMA source resource exceeds the configured entry budget.");
         using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
         Copy(input, output, token, input.Length);
+    }
+
+    /// <summary>Space kept free on the cache volume after extraction. The default 50 GiB budgets suit real large
+    /// projects, so a tiny crafted archive could still request tens of GiB of extraction; this refuses before writing
+    /// anything instead of filling the system or recovery drive.</summary>
+    internal const long ExtractionFreeSpaceReserve = 1L << 30;
+    /// <summary>Test seam: available bytes on the volume holding a directory, or null when unknown.</summary>
+    internal static Func<string, long?> AvailableFreeSpace { get; set; } = directory =>
+    {
+        try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(directory))!).AvailableFreeSpace; }
+        catch (Exception error) when (error is IOException or ArgumentException or UnauthorizedAccessException) { return null; }
+    };
+
+    private static void RequireFreeSpace(string directory, long required)
+    {
+        if (AvailableFreeSpace(directory) is not { } available) return;
+        if (required > available - ExtractionFreeSpaceReserve)
+            throw new IOException($"Opening this PMA needs {required / (1024 * 1024)} MiB of free space for extraction; only {Math.Max(0, available) / (1024 * 1024)} MiB are available.");
     }
 
     private static string FreshDirectory(string parent)

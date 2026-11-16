@@ -15,6 +15,8 @@ public sealed record SceneProjectSaveOptions
 {
     public bool CopyModelAssets { get; init; } = true;
     internal PortableModelAssets.Limits? PortableLimits { get; init; }
+    /// <summary>An already prepared capture to publish instead of preparing one here; the caller owns it.</summary>
+    internal PortableModelAssets.Capture? PreparedPortable { get; init; }
 }
 
 /// <summary>Content-addressed portable model bundles. Inputs are only read, copies are rewritten.
@@ -44,6 +46,10 @@ internal static class PortableModelAssets
         private string? temporary;
         internal readonly Dictionary<Guid, string> Paths = [];
         internal readonly Dictionary<string, Bundle> Bundles = new(StringComparer.Ordinal);
+        /// <summary>Dependency snapshots (length + SHA-256) by full path. Shared between the original and edited
+        /// captures of one save so each texture is read and hashed once; publishing still re-hashes what it copies.</summary>
+        internal Dictionary<string, Resource> Snapshots { get; init; } =
+            new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         internal string ModelTemporary()
         {
             temporary ??= Path.Combine(temporaryParent, "portable-" + Guid.NewGuid().ToString("N"));
@@ -52,11 +58,13 @@ internal static class PortableModelAssets
         }
         public void Dispose() { if (temporary is not null && Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true); }
         internal string[] Hashes => Bundles.Keys.Order(StringComparer.Ordinal).ToArray();
-        internal void Publish(string parent, CancellationToken token)
+        internal void Publish(string parent, CancellationToken token, IReadOnlySet<string>? alreadyPublished = null)
         {
             foreach (var (hash, bundle) in Bundles)
             {
                 token.ThrowIfCancellationRequested();
+                // Content-addressed: a bundle this save already published is identical; verifying it again re-read every file.
+                if (alreadyPublished?.Contains(hash) == true) continue;
                 string directory = Path.Combine(parent, "assets", "models", hash);
                 RejectRedirects(directory);
                 Directory.CreateDirectory(directory);
@@ -78,10 +86,11 @@ internal static class PortableModelAssets
     internal sealed record Bundle(byte[] Manifest, Dictionary<string, Resource> Files);
 
     internal static Capture Prepare(IReadOnlyList<EditableSceneObject> objects, CancellationToken token,
-        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null)
+        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null, Capture? shareSnapshotsWith = null)
     {
         limits ??= Limits.Default;
-        var capture = new Capture(limits.TemporaryDirectory ?? Path.GetTempPath());
+        var capture = shareSnapshotsWith is null ? new Capture(limits.TemporaryDirectory ?? Path.GetTempPath())
+            : new Capture(limits.TemporaryDirectory ?? Path.GetTempPath()) { Snapshots = shareSnapshotsWith.Snapshots };
         try
         {
             var loaded = new Dictionary<string, (string Hash, string Name)>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -124,9 +133,12 @@ internal static class PortableModelAssets
             if (reference.Length == 0) return reference;
             string dependency = ContainedDependency(directory, reference);
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
-            Resource resource;
-            try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
-            catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
+            if (!capture.Snapshots.TryGetValue(dependency, out var resource))
+            {
+                try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
+                catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
+                capture.Snapshots.Add(dependency, resource);
+            }
             string extension = Path.GetExtension(dependency).ToLowerInvariant();
             if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c)))
                 throw new InvalidDataException($"Dependency '{reference}' has an unsupported extension for a portable alias.");
