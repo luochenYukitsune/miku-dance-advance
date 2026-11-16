@@ -80,11 +80,22 @@ internal sealed class EditorUserDataPaths
                 return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite,
                     FileShare.None, 1, FileOptions.DeleteOnClose);
             }
-            catch (IOException) when (!(DateTime.UtcNow > deadline) && File.Exists(lockPath))
+            // Retry only lock contention. The holder opens the file DeleteOnClose, so it can disappear between our
+            // failed open and this filter; checking File.Exists here failed startup at exactly that moment.
+            catch (IOException error) when (DateTime.UtcNow <= deadline && IsLockContention(error))
             {
                 Thread.Sleep(100);
             }
         }
+    }
+
+    /// <summary>ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33) on Windows; on Unix .NET reports FileShare.None
+    /// contention as an IOException with HResult EWOULDBLOCK/EAGAIN, so any non-file-system-missing IOException there.</summary>
+    internal static bool IsLockContention(IOException error)
+    {
+        if (error is FileNotFoundException or DirectoryNotFoundException or PathTooLongException) return false;
+        int code = error.HResult & 0xFFFF;
+        return !OperatingSystem.IsWindows() || code is 32 or 33;
     }
 
     internal void Initialize()

@@ -163,7 +163,21 @@ public sealed class PmaLargeBudgetTests : IDisposable
         Assert.Single(loaded.Session.Objects);
     }
 
-    private SceneProjectSession Fixture()
+    [Fact]
+    public void ModelWithATextureOutsideItsFolderLoadsAndStillSavesAsPma()
+    {
+        using var project = Fixture("../outside.png");
+        File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(directory)!, "outside.png"), [9, 9, 9]);
+        string package = Path.Combine(directory, "outside.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "load"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        var saved = PmxReader.Read(loaded.Session.Objects[0].SourcePath);
+        Assert.Equal("", Assert.Single(saved.Textures));
+        // Resaving the loaded project (the recovery snapshot path) also succeeds.
+        PmaProjectStore.Save(Path.Combine(directory, "resave.pma"), loaded.Session, new() { CacheDirectory = Path.Combine(directory, "restage") }, Token);
+    }
+
+    private SceneProjectSession Fixture(string texture = "texture.png")
     {
         var m = PmmMotionAdapterTests.Pmx(["root"]);
         var model = new PmxModel { Header = m.Header, Name = m.Name, EnglishName = m.EnglishName, Comment = m.Comment,
@@ -171,7 +185,7 @@ public sealed class PmaLargeBudgetTests : IDisposable
             Vertices = new[] { Vector3.Zero, Vector3.UnitX, Vector3.UnitY }.Select(p => new PmxVertex
             { Position = p, Normal = Vector3.UnitZ, Uv = Vector2.Zero, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1,
                 BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 }).ToArray(),
-            Faces = [new(0, 1, 2)], Textures = ["texture.png"], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
+            Faces = [new(0, 1, 2)], Textures = [texture], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
                 Specular = Vector3.Zero, SpecularPower = 1, Ambient = Vector3.Zero, EdgeColor = Vector4.Zero, EdgeSize = 1,
                 DrawMode = PmxDrawModeFlags.None, TextureIndex = 0, SphereTextureIndex = -1, SphereMode = PmxSphereMode.None,
                 ToonMode = PmxToonMode.Separate, ToonTextureIndex = -1, Memo = "", FaceVertexCount = 3 }],

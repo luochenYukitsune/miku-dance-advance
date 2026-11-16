@@ -20,6 +20,9 @@ public sealed class FfmpegVideoDecodeSeekTests
         var args = FfmpegVideoDecodePipe.Arguments("in.mp4", TimeSpan.FromSeconds(90).Ticks, TimeSpan.FromSeconds(.5).Ticks).ToList();
         int ss = args.IndexOf("-ss");
         Assert.True(ss >= 0 && ss < args.IndexOf("-i"), "the seek must be an input option");
+        // -ss is an absolute source timestamp (stream origin + media time), so FFmpeg must not add the start time again.
+        int absolute = args.IndexOf("-seek_timestamp");
+        Assert.True(absolute >= 0 && absolute < args.IndexOf("-i") && args[absolute + 1] == "1");
         Assert.Equal("90.5000000", args[ss + 1]);
         Assert.Contains("-copyts", args);
         Assert.Contains(args, a => a.Contains("setpts=PTS-5000000,", StringComparison.Ordinal));

@@ -58,6 +58,15 @@ internal static class PortableModelAssets
         }
         public void Dispose() { if (temporary is not null && Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true); }
         internal string[] Hashes => Bundles.Keys.Order(StringComparer.Ordinal).ToArray();
+        private readonly List<string> skipped = [];
+        /// <summary>Texture references left empty in the packaged copies (see PrepareBundle).</summary>
+        internal IReadOnlyList<string> Skipped => skipped;
+        internal void Skip(string model, string reference, string reason)
+        {
+            string line = $"Model '{Path.GetFileName(model)}': texture '{reference}' not packaged ({reason}); it stays missing.";
+            if (!skipped.Contains(line)) skipped.Add(line);
+            System.Diagnostics.Trace.TraceWarning(line);
+        }
         internal void Publish(string parent, CancellationToken token, IReadOnlySet<string>? alreadyPublished = null)
         {
             foreach (var (hash, bundle) in Bundles)
@@ -128,20 +137,27 @@ internal static class PortableModelAssets
         var shared = new Dictionary<(string Hash, string Extension), string>();
         var dependencies = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         long total = 0;
+        // Loading degrades a texture reference it refuses to resolve (outside the model folder, absolute path) to the
+        // missing image (EditorTextureLoader). Saving matches that: such a reference, or one with an extension that
+        // cannot form a portable alias, becomes an empty slot in the packaged copy (rendered as missing, as it was when
+        // loaded) plus a diagnostic, instead of failing every manual save and recovery snapshot. The outside file is
+        // never read. A referenced file that is missing or unreadable still fails the save, as before.
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
-            string dependency = ContainedDependency(directory, reference);
+            string dependency;
+            try { dependency = ContainedDependency(directory, reference); }
+            catch (InvalidDataException error) { capture.Skip(path, reference, error.Message); return ""; }
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
+            string extension = Path.GetExtension(dependency).ToLowerInvariant();
+            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c)))
+            { capture.Skip(path, reference, "unsupported extension for a portable alias"); return ""; }
             if (!capture.Snapshots.TryGetValue(dependency, out var resource))
             {
                 try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
                 catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
                 capture.Snapshots.Add(dependency, resource);
             }
-            string extension = Path.GetExtension(dependency).ToLowerInvariant();
-            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c)))
-                throw new InvalidDataException($"Dependency '{reference}' has an unsupported extension for a portable alias.");
             var key = (resource.Sha256, extension);
             if (shared.TryGetValue(key, out string? existing)) { dependencies.Add(dependency, existing); return existing; }
             string alias = files.Count.ToString("x", CultureInfo.InvariantCulture) + extension;
@@ -184,7 +200,8 @@ internal static class PortableModelAssets
             var model = PmdReader.Read(source);
             if (model.UnknownTailData.Length != 0 || model.UnparsedTailBytes != 0)
                 throw new NotSupportedException("Portable PMD copying cannot discover dependencies in an unknown trailer.");
-            var materials = model.Materials.Select(m => m with { Texture = string.Join('*', m.Texture.Split('*').Select(Copy)) }).ToArray();
+            // PMD "texture*sphere" pairs are classified by extension, so dropping a skipped half keeps the other valid.
+            var materials = model.Materials.Select(m => m with { Texture = string.Join('*', m.Texture.Split('*').Select(Copy).Where(part => part.Length != 0)) }).ToArray();
             var usedToons = model.Materials.Where(m => m.ToonIndex != 255).Select(m => (int)m.ToonIndex).ToHashSet();
             var toons = model.ToonTextures.Select((name, index) =>
             {
@@ -192,7 +209,14 @@ internal static class PortableModelAssets
                 bool common = Enumerable.Range(1, 10).Any(i => name.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase));
                 // Saba checks a model-local toon before the shared data directory. Preserve an
                 // authored local override, even if its name happens to equal a built-in toon.
-                string local = ContainedDependency(directory, name);
+                string local;
+                try { local = ContainedDependency(directory, name); }
+                catch (InvalidDataException error)
+                {
+                    // A common toon name still resolves to the shared data directory; anything else stays missing.
+                    if (common) return name;
+                    capture.Skip(path, name, error.Message); return "";
+                }
                 RejectRedirects(local);
                 if (common && !usedToons.Contains(index)) return name;
                 return common && !File.Exists(local) ? name : Copy(name);

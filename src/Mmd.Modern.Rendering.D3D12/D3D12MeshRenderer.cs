@@ -20,6 +20,8 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     private readonly ID3D12CommandAllocator allocator;
     private readonly ID3D12GraphicsCommandList commands;
     private readonly ID3D12Fence fence;
+    // Lives as long as the fence: D3D12 may signal a registered handle after a wait timed out (see D3D12GpuRuntime).
+    private readonly AutoResetEvent fenceEvent = new(false);
     private readonly ID3D12RootSignature root;
     private readonly ID3D12PipelineState pipeline;
     private readonly ID3D12InfoQueue? debugQueue;
@@ -193,7 +195,7 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     {
         queue.Signal(fence, ++fenceValue).CheckError();
         if (fence.CompletedValue >= fenceValue) return;
-        using var completed = new AutoResetEvent(false);
+        var completed = fenceEvent;
         fence.SetEventOnCompletion(fenceValue, completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
         long deadline = Environment.TickCount64 + (long)D3D12GpuRuntime.FenceTimeout.TotalMilliseconds;
         while (fence.CompletedValue < fenceValue)
@@ -228,6 +230,7 @@ public sealed class D3D12MeshRenderer : IRenderBackend
         finally
         {
             debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose();
+            fenceEvent.Dispose();
         }
     }
     [StructLayout(LayoutKind.Sequential)]

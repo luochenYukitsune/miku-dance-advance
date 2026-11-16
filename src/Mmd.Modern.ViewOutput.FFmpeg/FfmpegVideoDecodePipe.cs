@@ -51,7 +51,11 @@ internal sealed class FfmpegVideoDecodePipe : IAsyncDisposable
         string rebase = "PTS-STARTPTS";
         if (seekTicks > 0)
         {
-            arguments.AddRange(["-ss", ((seekTicks + originTicks) / (decimal)TimeSpan.TicksPerSecond).ToString("0.0000000", CultureInfo.InvariantCulture), "-copyts"]);
+            // Without -seek_timestamp, FFmpeg adds the container (format) start time to -ss itself, which would count
+            // the origin twice and use the format rather than the video stream start. With it, -ss is the absolute
+            // source timestamp: the stream origin plus the requested media time.
+            arguments.AddRange(["-seek_timestamp", "1",
+                "-ss", ((seekTicks + originTicks) / (decimal)TimeSpan.TicksPerSecond).ToString("0.0000000", CultureInfo.InvariantCulture), "-copyts"]);
             rebase = "PTS-" + originTicks.ToString(CultureInfo.InvariantCulture);
         }
         arguments.AddRange(["-i", path, "-map", "0:v:0", "-an", "-sn", "-dn", "-filter_threads", "1", "-vf",

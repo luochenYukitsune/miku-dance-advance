@@ -261,11 +261,16 @@ internal sealed class D3D12GpuRuntime:IDisposable
     /// <summary>Blocks on a completion event instead of polling with Thread.Sleep(1), which costs a scheduler
     /// quantum per check (up to ~15 ms on default timer resolution) and burns CPU while the GPU is busy.
     /// Returns false on timeout. Cancellation is observed between short event slices.</summary>
+    /// <summary>D3D12 keeps a registered handle and signals it whenever the fence reaches the value, even after this
+    /// wait gave up (timeout, cancellation, device removal). A per-wait event closed on exit would let that late signal
+    /// hit a closed (possibly reused) handle, so one event lives as long as the fence and is released in Dispose after
+    /// the last wait. Stale signals only cause a spurious wake; the loop rechecks CompletedValue.</summary>
+    private readonly AutoResetEvent fenceEvent=new(false);
     private bool WaitForFenceCore(ulong value,TimeSpan timeout,CancellationToken cancellationToken)
     {
         if(fence.CompletedValue>=value)return true;
         var deadline=Environment.TickCount64+(long)timeout.TotalMilliseconds;
-        using var completed=new AutoResetEvent(false);
+        var completed=fenceEvent;
         fence.SetEventOnCompletion(value,completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
         var handles=cancellationToken.CanBeCanceled?new WaitHandle[]{completed,cancellationToken.WaitHandle}:new WaitHandle[]{completed};
         while(fence.CompletedValue<value)
@@ -314,7 +319,8 @@ internal sealed class D3D12GpuRuntime:IDisposable
         {
             disposed=true;
             foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+            // Release the device (which owns outstanding event registrations) before the event they may still signal.
+            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceEvent.Dispose();
         }
     }
 }
