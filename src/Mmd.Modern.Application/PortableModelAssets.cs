@@ -58,6 +58,9 @@ internal static class PortableModelAssets
         }
         public void Dispose() { if (temporary is not null && Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true); }
         internal string[] Hashes => Bundles.Keys.Order(StringComparer.Ordinal).ToArray();
+        /// <summary>Turns a missing or unreadable in-folder dependency into an empty slot plus a diagnostic
+        /// instead of failing. Only an explicit manual-save opt-in sets this.</summary>
+        internal bool LeaveMissingDependenciesEmpty { get; init; }
         private readonly List<string> skipped = [];
         /// <summary>Texture references left empty in the packaged copies (see PrepareBundle).</summary>
         internal IReadOnlyList<string> Skipped => skipped;
@@ -95,11 +98,14 @@ internal static class PortableModelAssets
     internal sealed record Bundle(byte[] Manifest, Dictionary<string, Resource> Files);
 
     internal static Capture Prepare(IReadOnlyList<EditableSceneObject> objects, CancellationToken token,
-        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null, Capture? shareSnapshotsWith = null)
+        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null, Capture? shareSnapshotsWith = null,
+        bool leaveMissingDependenciesEmpty = false)
     {
         limits ??= Limits.Default;
-        var capture = shareSnapshotsWith is null ? new Capture(limits.TemporaryDirectory ?? Path.GetTempPath())
-            : new Capture(limits.TemporaryDirectory ?? Path.GetTempPath()) { Snapshots = shareSnapshotsWith.Snapshots };
+        var capture = shareSnapshotsWith is null
+            ? new Capture(limits.TemporaryDirectory ?? Path.GetTempPath()) { LeaveMissingDependenciesEmpty = leaveMissingDependenciesEmpty }
+            : new Capture(limits.TemporaryDirectory ?? Path.GetTempPath())
+            { Snapshots = shareSnapshotsWith.Snapshots, LeaveMissingDependenciesEmpty = leaveMissingDependenciesEmpty };
         try
         {
             var loaded = new Dictionary<string, (string Hash, string Name)>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -141,7 +147,9 @@ internal static class PortableModelAssets
         // missing image (EditorTextureLoader). Saving matches that: such a reference, or one with an extension that
         // cannot form a portable alias, becomes an empty slot in the packaged copy (rendered as missing, as it was when
         // loaded) plus a diagnostic, instead of failing every manual save and recovery snapshot. The outside file is
-        // never read. A referenced file that is missing or unreadable still fails the save, as before.
+        // never read. A referenced file inside the model folder that is missing or unreadable still fails the save
+        // (MissingModelDependencyException as the inner cause) unless the caller explicitly opted in to leaving it
+        // empty (PmaSaveOptions.LeaveMissingModelDependenciesEmpty, offered only by a manual editor save).
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
@@ -155,7 +163,15 @@ internal static class PortableModelAssets
             if (!capture.Snapshots.TryGetValue(dependency, out var resource))
             {
                 try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
-                catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
+                catch (IOException exception)
+                {
+                    // Explicit manual-save opt-in only: the user chose to keep this texture missing. Autosave and
+                    // recovery never set it, so they keep failing and preserve the last good package.
+                    if (capture.LeaveMissingDependenciesEmpty)
+                    { capture.Skip(path, reference, "the file is missing or cannot be read"); return ""; }
+                    throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.",
+                        new MissingModelDependencyException(path, reference, exception));
+                }
                 capture.Snapshots.Add(dependency, resource);
             }
             var key = (resource.Sha256, extension);

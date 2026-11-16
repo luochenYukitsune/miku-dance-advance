@@ -159,6 +159,35 @@ public sealed class PmaProjectStoreTests : IDisposable
     }
 
     [Fact]
+    public void DefaultSaveReportsWhichInFolderTextureDisappearedAfterLoading()
+    {
+        using var project = Fixture(out _, out _); string path = Path.Combine(directory, "strict.pma");
+        PmaProjectStore.Save(path, project, cancellationToken: Token); byte[] before = File.ReadAllBytes(path);
+        File.Delete(Path.Combine(directory, "texture.png"));
+        var error = Assert.ThrowsAny<IOException>(() => PmaProjectStore.Save(path, project, cancellationToken: Token));
+        var missing = MissingModelDependencyException.Find(error);
+        Assert.NotNull(missing);
+        Assert.Equal(Path.GetFullPath(project.Objects[0].SourcePath), missing.ModelPath);
+        Assert.Equal("texture.png", missing.TextureReference);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public void ExplicitOptInSavesMissingInFolderTextureAsEmptySlot()
+    {
+        using var project = Fixture(out _, out _); string path = Path.Combine(directory, "anyway.pma");
+        File.Delete(Path.Combine(directory, "texture.png"));
+        PmaProjectStore.Save(path, project, new() { LeaveMissingModelDependenciesEmpty = true }, Token);
+        using var loaded = PmaProjectStore.Load(path, Path.Combine(directory, "cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        var version = Assert.Single(loaded.Models);
+        foreach (string model in new[] { version.OriginalModelPath, version.EditedModelPath })
+        {
+            using var input = File.OpenRead(Path.Combine(loaded.CacheDirectory, model));
+            Assert.Equal([""], PmxReader.Read(input).Textures);
+        }
+    }
+
+    [Fact]
     public void PmmPreflightListsActualLossesAndRecommendsPma()
     {
         using var project = Fixture(out _, out var id);

@@ -26,6 +26,11 @@ public sealed record PmaSaveOptions
     /// capture. Must cover every live accessory and match the final selected extension and resource bytes.
     /// Null preserves the explicit rejection of independent accessory saves.</summary>
     public PmaAccessoryPersistenceCapture? AccessoryPersistence { get; init; }
+    /// <summary>Explicit opt-in for a user-confirmed manual save. A texture inside a model's folder that is missing
+    /// or unreadable (see <see cref="MissingModelDependencyException"/>) is saved as an empty slot plus a diagnostic,
+    /// as outside-folder references already are, instead of failing the save. False by default: autosave and
+    /// recovery must never set it, so they keep the last good package rather than silently dropping a texture.</summary>
+    public bool LeaveMissingModelDependenciesEmpty { get; init; }
     public string CacheDirectory { get; init; } = Path.Combine(Path.GetTempPath(), "Mda", "pma");
     /// <summary>Limits for validating this save. Use matching load options for packages above the default budgets.
     /// ZIP64 has no 4 GiB format limit; the defaults deliberately bound input and expanded resource costs.</summary>

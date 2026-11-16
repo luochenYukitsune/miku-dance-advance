@@ -62,8 +62,10 @@ public sealed partial class SceneProjectSession
         // The package keeps two bundles per model: the original source (OriginalModelPath) and the in-memory edited
         // version (EditedModelPath). Both captures share one dependency snapshot cache, so each texture is read and
         // hashed once, and a bundle the first publish already wrote is not verified and rewritten again.
-        using var originalBundles = PortableModelAssets.Prepare(input.Composition.Objects, token, limits: limits);
-        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits, originalBundles);
+        bool leaveMissing = options.LeaveMissingModelDependenciesEmpty;
+        using var originalBundles = PortableModelAssets.Prepare(input.Composition.Objects, token, limits: limits,
+            leaveMissingDependenciesEmpty: leaveMissing);
+        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits, originalBundles, leaveMissing);
         SceneAnimationProjectStore.SaveSnapshot(path, input.Composition, input.Lighting, input.Animation,
             input.Settings, input.Media, new() { PortableLimits = limits, PreparedPortable = originalBundles }, token);
         var node = JsonNode.Parse(File.ReadAllText(path))!;
