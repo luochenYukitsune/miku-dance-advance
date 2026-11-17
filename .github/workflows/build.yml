@@ -2,45 +2,154 @@ name: modern-csharp
 on:
   workflow_call:
   push:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
+    paths-ignore: ['docs/**', '*.md']
   workflow_dispatch:
     inputs:
       run_gpu:
-        description: Run actual GPU acceptance on a Windows self-hosted runner labeled gpu
+        description: Run actual GPU acceptance (including FSR / XeSS / DLSS) on a self-hosted Windows runner labeled gpu
         required: false
         type: boolean
         default: false
+      gpu_required_providers:
+        description: Upscalers that must initialize on the GPU runner (space separated, e.g. "Fsr XeSs Dlss"; empty = report only)
+        required: false
+        type: string
+        default: ''
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+  MDA_WORK_ROOT: ${{ github.workspace }}/.mda-work
+  # Directory.Build.props keeps bin/obj outside the checkout; pin it so jobs can share the output.
+  ModernCacheRoot: ${{ github.workspace }}/.modern
 jobs:
-  build-and-test:
+  # Fast gate: source hygiene and every language catalog, before anything is compiled.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Localization catalogs (zh-CN / en / ja) and axaml references
+        run: python scripts/check-localization.py
+      - name: Pinned manifests are valid JSON
+        run: |
+          for f in tools/ffmpeg/manifest.json tools/dxc/manifest.json tools/upscaling/manifest.json; do
+            python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8-sig'))" "$f" && echo "ok $f"
+          done
+      - name: No credentials or private paths in tracked text
+        run: |
+          if git grep -nIE '(gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{25,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' -- . ':!*.lock.json'; then
+            echo "::error::Credential-like text is tracked"; exit 1
+          fi
+
+  build:
+    needs: lint
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.102
-      - name: Restore locked dependencies and build managed projects
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore locked dependencies and build every project
         shell: pwsh
         run: |
-          ./scripts/dotnet.ps1 -DotNetArguments @('restore', 'Mmd.Modern.slnx', '--locked-mode')
-          ./scripts/dotnet.ps1 -DotNetArguments @('build', 'Mmd.Modern.slnx', '-c', 'Release', '--no-restore')
-      # Native physics, codecs and GPU checks require separately prepared libraries.
-      # Do not present these portable checks as full product acceptance.
-      - name: Run portable format, scheduling and plugin checks
+          dotnet restore Mmd.Modern.slnx --locked-mode
+          dotnet build Mmd.Modern.slnx -c Release --no-restore
+      - name: Pack build output for the test matrix
+        shell: pwsh
+        run: tar -czf build-output.tgz -C "$env:ModernCacheRoot" bin obj
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build-output.tgz
+          retention-days: 1
+
+  # Every test project runs on hosted runners. Hosted runners have no GPU, so Category=Gpu is
+  # excluded there and covered by the gpu-acceptance job instead.
+  test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: formats-scheduling-plugins
+            projects: Mmd.Modern.Formats.Tests Mmd.Modern.Scheduling.Tests Mmd.Modern.Plugins.Tests
+          - name: application
+            projects: Mmd.Modern.Application.Tests
+          - name: view-output
+            projects: Mmd.Modern.ViewOutput.Tests Mmd.Modern.ViewOutput.FFmpeg.Tests
+          - name: classic-compatibility
+            projects: Mmd.Modern.Rendering.D3D9.Compatibility.Tests Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests
+          - name: editor-and-renderer
+            projects: Mmd.Modern.Tests
+    name: test (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output
+      - name: Restore build output
         shell: pwsh
         run: |
-          foreach ($project in 'Mmd.Modern.Formats.Tests', 'Mmd.Modern.Scheduling.Tests', 'Mmd.Modern.Plugins.Tests') {
-            ./scripts/dotnet.ps1 -DotNetArguments @('test', "tests/$project", '-c', 'Release', '--no-build', '--no-restore', '--logger', "trx;LogFileName=$project.trx", '--results-directory', 'artifacts/green')
+          New-Item -ItemType Directory -Force -Path $env:ModernCacheRoot | Out-Null
+          tar -xzf build-output.tgz -C "$env:ModernCacheRoot"
+          dotnet restore Mmd.Modern.slnx --locked-mode
+      - name: Fetch pinned FFmpeg for real codec cases
+        if: contains(matrix.projects, 'FFmpeg')
+        shell: pwsh
+        run: |
+          $bin = ./scripts/fetch-ffmpeg.ps1 -Destination "${{ runner.temp }}/ffmpeg"
+          "MMD_FFMPEG_PATH=$bin\ffmpeg.exe" >> $env:GITHUB_ENV
+          "MMD_FFPROBE_PATH=$bin\ffprobe.exe" >> $env:GITHUB_ENV
+      - name: Run ${{ matrix.name }}
+        shell: pwsh
+        run: |
+          $failed = @()
+          foreach ($project in '${{ matrix.projects }}'.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
+            dotnet test "tests/$project" -c Release --no-build --no-restore --filter 'Category!=Gpu' `
+              --logger "trx;LogFileName=$project.trx" --results-directory artifacts/tests `
+              --blame-hang-timeout 10m
+            if ($LASTEXITCODE) { $failed += $project }
           }
+          if ($failed) { Write-Output "::error::Failing test projects: $($failed -join ', ')"; exit 1 }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: artifacts/green/*.trx
+          name: test-results-${{ matrix.name }}
+          path: artifacts/tests/
+          retention-days: 14
+
   windows-build:
-    needs: build-and-test
+    needs: build
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -49,25 +158,61 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
       - name: Build Windows x64 app with native physics and pinned FFmpeg
         shell: pwsh
         run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+      # FSR (AMD FidelityFX), XeSS (Intel) and DLSS (NVIDIA): pinned, signed vendor runtimes plus the
+      # MDA DLSS bridge compiled here with MSVC. Availability is still decided on the user's GPU.
+      - name: Add FSR / XeSS / DLSS upscalers
+        shell: pwsh
+        run: ./scripts/ci-stage-upscalers.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-upscalers"
+      - name: Verify optional runtime install paths (no GPU needed)
+        shell: pwsh
+        run: |
+          $out = "${{ runner.temp }}/optional-runtimes"
+          ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory $out
+          if ($LASTEXITCODE) { Write-Output '::warning::Hosted runners have no D3D12 GPU; only the installation contract is checked here.' }
+        continue-on-error: true
+      - name: Summarize staged upscalers
+        shell: pwsh
+        run: |
+          $installed = Get-Content "${{ runner.temp }}/mda-windows/tools/upscaling/installed.json" -Raw | ConvertFrom-Json
+          $lines = @('### Upscalers in this build', '', '| File | Size | SHA-256 |', '| --- | ---: | --- |')
+          foreach ($f in $installed.files) { $lines += "| ``$($f.path)`` | $([math]::Round($f.bytes / 1MB, 2)) MB | ``$($f.sha256.Substring(0, 16))…`` |" }
+          $lines -join "`n" >> $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4
         with:
           name: MDA-modern-development-win-x64
           path: ${{ runner.temp }}/mda-windows/
           retention-days: 14
+
   gpu-acceptance:
     if: github.event_name == 'workflow_dispatch' && inputs.run_gpu
+    needs: windows-build
     runs-on: [self-hosted, Windows, X64, gpu]
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.102
+      - uses: actions/download-artifact@v4
+        with:
+          name: MDA-modern-development-win-x64
+          path: ${{ runner.temp }}/mda-windows
       - name: Real device render and Bepu acceptance
         shell: pwsh
         run: ./scripts/verify.ps1
+      - name: FSR / XeSS / DLSS on the real device
+        shell: pwsh
+        run: |
+          $required = '${{ inputs.gpu_required_providers }}'.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+          ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory artifacts/gpu/optional-runtimes -RequiredProviders $required
       - uses: actions/upload-artifact@v4
         if: always()
         with:
