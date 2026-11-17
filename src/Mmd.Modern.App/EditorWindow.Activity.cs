@@ -57,9 +57,9 @@ public partial class EditorWindow
         {
             Title = EditorLocalization.Text("操作失败"), Width = 520, SizeToContent = SizeToContent.Height,
             CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            RequestedThemeVariant = owner.ActualThemeVariant, FontFamily = owner.FontFamily, FontSize = 12,
-            Background = owner.Background, Foreground = owner.Foreground
+            RequestedThemeVariant = owner.ActualThemeVariant, FontFamily = owner.FontFamily, FontSize = 12, UseLayoutRounding = true
         };
+        EditorDialogTheme.Apply(dialog, owner);
         var copy = new Button { Name = "CopyOperationLogButton", Content = EditorLocalization.Text("Mda.Text.ExportStatus.CopyLog"), MinWidth = 76, Height = 26 };
         copy.Click += async (_, _) =>
         {
@@ -90,7 +90,7 @@ public partial class EditorWindow
             Margin = new Thickness(24), Spacing = 16,
             Children =
             {
-                new TextBlock { Text = summary, TextWrapping = TextWrapping.Wrap, Foreground = owner.Foreground, FontSize = 12, LineHeight = 18 },
+                new TextBlock { Text = summary, TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 18 },
                 new Expander { Header = EditorLocalization.Text("技术详情"), Content = technicalDetails, HorizontalAlignment = HorizontalAlignment.Stretch },
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Children = { copy, close } },
                 new TextBlock { Name = "OperationLogAiHint", Text = EditorLocalization.Text("Mda.Text.ExportStatus.LogAiHint"),

@@ -43,7 +43,12 @@ internal static partial class OriginalFrameShaders
                 float3 color=CharacterOutlineColor.rgb;
                 if(CharacterOutlineOptions.x>0) {
                     float3 diffuse=DiffuseMap.Sample(SelectedSampler,v.Uv).rgb;
-                    color=saturate(EgColor.rgb*MorphDiffuse(diffuse))*.55+.025;
+                    color=saturate(EgColor.rgb*MorphDiffuse(diffuse));
+                    if(CharacterOutlineOptions.z>0) {
+                        float luma=dot(color,float3(.2126,.7152,.0722));
+                        color=saturate(luma+(color-luma)*CharacterOutlineOptions.w)*CharacterOutlineOptions.z;
+                    }
+                    else color=color*.55+.025;
                 }
                 return float4(color,alpha*CharacterOutlineColor.a);
             }

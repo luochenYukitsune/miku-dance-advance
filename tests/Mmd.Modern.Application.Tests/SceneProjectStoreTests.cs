@@ -52,6 +52,117 @@ public sealed class SceneProjectStoreTests
     }
 
     [Fact]
+    public void ReceiverLayoutKeepsStableInstanceIdsAndRejectsLegacyOrUnknownTargetMetadataBeforeLoading()
+    {
+        var target = composition.Objects[1].Id;
+        var light = lighting.Lights[0] with { Receivers = new(SceneLightReceiverMode.Exclude, [target]) };
+        lighting.Update(light);
+        var json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
+        Assert.Equal(SceneProjectStore.LightingReceiversVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        var reopened = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
+        Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));
+        foreach (int version in Enumerable.Range(1, 6))
+        {
+            var forged = JsonNode.Parse(json)!; forged["version"] = version;
+            Assert.Throws<System.Text.Json.JsonException>(() => SceneProjectStore.Prepare(forged.ToJsonString(), ProjectPath,
+                (_, _) => throw new InvalidOperationException("Legacy receiver fields must fail before resource loading."), TestContext.Current.CancellationToken));
+        }
+        var invalid = JsonNode.Parse(json)!; invalid["lights"]![0]!["receivers"]!["objectIds"]![0] = Guid.NewGuid();
+        Assert.Throws<System.Text.Json.JsonException>(() => SceneProjectStore.Prepare(invalid.ToJsonString(), ProjectPath,
+            (_, _) => throw new InvalidOperationException("Unknown targets must fail before resource loading."), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void ParentedLayoutPreservesLocalTransformRangeAndOptionalGroup()
+    {
+        var group = new SceneLightGroup(Guid.NewGuid(), "跟随组", false, 2);
+        lighting.AddGroup(group);
+        var light = lighting.Lights[0] with
+        {
+            Parent = new(composition.Objects[0].Id, 0), GroupId = group.Id,
+            Position = new(2, 3, 4), Rotation = Quaternion.CreateFromYawPitchRoll(.2f, .3f, -.4f), Range = 17,
+        };
+        lighting.Update(light);
+        string json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
+        Assert.Equal(SceneProjectStore.LightingParentsVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        var loaded = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
+        Assert.Equal(light, Assert.Single(loaded.Lighting.Lights));
+        Assert.Equal(group, Assert.Single(loaded.Lighting.Groups));
+        Assert.Equal(lighting.SelectedId, loaded.Lighting.SelectedId);
+        lighting.RemoveGroup(group.Id);
+        string ungrouped = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
+        var ungroupedLoaded = SceneProjectStore.Prepare(ungrouped, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
+        Assert.Empty(ungroupedLoaded.Lighting.Groups);
+        Assert.Equal(light with { GroupId = null }, Assert.Single(ungroupedLoaded.Lighting.Lights));
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    [InlineData(3, true)]
+    [InlineData(4, false)]
+    [InlineData(4, true)]
+    public void LegacyLayoutRejectsParentFieldBeforeLoadingAssets(int version, bool nullParent)
+    {
+        lighting.Update(lighting.Lights[0] with { Parent = new(composition.Objects[0].Id) });
+        var json = JsonNode.Parse(SceneProjectStore.Serialize(ProjectPath, composition, lighting))!;
+        json["version"] = version;
+        if (version < 3) json.AsObject().Remove("groups");
+        if (version is 2 or 4) json["portableModels"] = new JsonArray();
+        if (nullParent) json["lights"]![0]!["parent"] = null;
+        bool called = false;
+        var error = Assert.Throws<System.Text.Json.JsonException>(() => SceneProjectStore.Prepare(json.ToJsonString(), ProjectPath,
+            (_, _) => { called = true; return frame; }, TestContext.Current.CancellationToken));
+        Assert.Contains("version 5 or 6", error.Message);
+        Assert.False(called);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LayoutRejectsInvalidParentBeforeLoadingAssets(bool invalidBone)
+    {
+        lighting.Update(lighting.Lights[0] with { Parent = new(composition.Objects[0].Id) });
+        var json = JsonNode.Parse(SceneProjectStore.Serialize(ProjectPath, composition, lighting))!;
+        if (invalidBone) json["lights"]![0]!["parent"]!["boneIndex"] = -1;
+        else json["lights"]![0]!["parent"]!["objectId"] = Guid.Empty;
+        bool called = false;
+        Assert.Throws<ArgumentException>(() => SceneProjectStore.Prepare(json.ToJsonString(), ProjectPath,
+            (_, _) => { called = true; return frame; }, TestContext.Current.CancellationToken));
+        Assert.False(called);
+    }
+
+    [Fact]
+    public void GroupedLayoutPreservesAuthoringMembershipSelectionAndPurposes()
+    {
+        var group = new SceneLightGroup(Guid.NewGuid(), "舞台", Enabled: false, Intensity: 2.5f);
+        var empty = new SceneLightGroup(Guid.NewGuid(), "预留");
+        lighting.AddGroup(group); lighting.AddGroup(empty);
+        lighting.AssignToGroup(lighting.Lights[0].Id, group.Id);
+        string json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
+        Assert.Equal(SceneProjectStore.LightingGroupsVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        var loaded = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
+        Assert.Equal(lighting.Lights, loaded.Lighting.Lights); Assert.Equal(lighting.Groups, loaded.Lighting.Groups);
+        Assert.Equal(lighting.SelectedId, loaded.Lighting.SelectedId); Assert.False(loaded.Lighting.CanUndo);
+        Assert.Equal(lighting.ModelRoles.OrderBy(pair => pair.Key), loaded.Lighting.ModelRoles.OrderBy(pair => pair.Key));
+        Assert.False(Assert.Single(loaded.Lighting.Snapshot.EffectiveLights).Enabled);
+        Assert.True(Assert.Single(loaded.Lighting.Lights).Enabled);
+        // No group data is silently accepted under the old static schema identity.
+        var downgraded = JsonNode.Parse(json)!; downgraded["version"] = 1;
+        bool called = false;
+        Assert.Throws<System.Text.Json.JsonException>(() => SceneProjectStore.Prepare(downgraded.ToJsonString(), ProjectPath,
+            (_, _) => { called = true; return frame; }, TestContext.Current.CancellationToken));
+        Assert.False(called);
+        var dangling = JsonNode.Parse(json)!; dangling["groups"] = new JsonArray();
+        Assert.Throws<ArgumentException>(() => SceneProjectStore.Prepare(dangling.ToJsonString(), ProjectPath,
+            (_, _) => { called = true; return frame; }, TestContext.Current.CancellationToken));
+        Assert.False(called);
+    }
+
+    [Fact]
     public void SaveAsAndMovedDirectoryResolveAssetsFromDocumentInsteadOfWorkingDirectory()
     {
         string nested = Path.Combine(directory, "projects"); Directory.CreateDirectory(nested);

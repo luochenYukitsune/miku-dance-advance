@@ -45,6 +45,104 @@ public sealed class PmaProjectStoreTests : IDisposable
     }
 
     [Fact]
+    public void FullNativeAuthoringCapacityAndThirtyTwoEnabledLightsSurvivePmaReopen()
+    {
+        using var project = Fixture(out _, out _);
+        var group = new SceneLightGroup(Guid.NewGuid(), "窗光组", Intensity: 2);
+        var lights = Enumerable.Range(0, SceneLightingSnapshot.MaxLights).Select(index => new NativeSceneLight(Guid.NewGuid(),
+            "window " + index, (SceneLightKind)(index % 3), new(index, 1, 2), Quaternion.Identity, Vector3.One,
+            Intensity: index + 1, Enabled: index < SceneLightingSnapshot.MaxActiveLights, GroupId: group.Id)).ToArray();
+        project.Edit(edit => edit.Lighting.ReplaceSnapshot(new(lights, [group]), lights[^1].Id), Token);
+        string path = Path.Combine(directory, "capacity.pma"); PmaProjectStore.Save(path, project, cancellationToken: Token);
+        using var reopened = PmaProjectStore.Load(path, Path.Combine(directory, "capacity-cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Equal(lights, reopened.Session.Lighting.Lights);
+        Assert.Equal(group, Assert.Single(reopened.Session.Lighting.Groups));
+        Assert.Equal(32, reopened.Session.Frame.Lighting!.EffectiveLights.Count(light => light.Enabled));
+        Assert.Equal(256, reopened.Session.Frame.Lighting.EffectiveLights[^1].Intensity);
+    }
+
+    [Fact]
+    public void AreaAndRetainedInactiveAreaSizeSurviveDetachedPmaCaptureAndHistory()
+    {
+        using var project = Fixture(out _, out _);
+        var area = project.Lighting.Lights[0] with { Kind = SceneLightKind.Area, AreaSize = new(8.123456f, 12.654321f) };
+        var point = project.Lighting.Lights[1] with { Kind = SceneLightKind.Point, AreaSize = new(2, 3) };
+        project.Edit(edit => edit.Lighting.ReplaceSnapshot(new([area, point]), area.Id), Token);
+        using var capture = PmaProjectStore.CaptureSnapshot(project, cancellationToken: Token);
+        project.Edit(edit => edit.Lighting.Update(area with { AreaSize = new(1, 1) }), Token);
+        Assert.True(project.Undo(Token)); Assert.Equal(area, project.Lighting.Lights[0]);
+        Assert.True(project.Redo(Token));
+        string path = Path.Combine(directory, "area.pma"); capture.Save(path, Token);
+        using var reopened = PmaProjectStore.Load(path, Path.Combine(directory, "area-cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Equal(new[] { area, point }, reopened.Session.Lighting.Lights);
+        Assert.NotEqual(project.Lighting.Lights[0].AreaSize, reopened.Session.Lighting.Lights[0].AreaSize);
+    }
+
+    [Fact]
+    public void DetachedPmaCapturePreservesGlobalLightingIndependentOfLaterEdits()
+    {
+        using var project = Fixture(out _, out _); var settings = new SceneLightingSettings(3.123456f, -7.25f);
+        project.Edit(edit => edit.Lighting.UpdateSettings(settings), Token);
+        using var capture = PmaProjectStore.CaptureSnapshot(project, cancellationToken: Token);
+        project.Edit(edit => edit.Lighting.UpdateSettings(new(1, 2)), Token);
+        Assert.True(project.Undo(Token)); Assert.Equal(settings, project.Frame.Lighting!.Settings);
+        Assert.True(project.Redo(Token));
+        string path = Path.Combine(directory, "global-lighting.pma"); capture.Save(path, Token);
+        using var reopened = PmaProjectStore.Load(path, Path.Combine(directory, "global-lighting-cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Equal(settings, reopened.Session.Lighting.Settings); Assert.Equal(settings, reopened.Session.Frame.Lighting!.Settings);
+        Assert.NotEqual(project.Lighting.Settings, reopened.Session.Lighting.Settings);
+        Assert.Contains(PmaPmmCompatibility.Inspect(reopened.Session).Issues, issue => issue.Code == "native-lighting-settings");
+    }
+
+    [Fact]
+    public void DetachedPmaCapturePreservesGroupsAndMembershipAfterLiveEditsAndSourceRemoval()
+    {
+        using var project = Fixture(out _, out _);
+        var group = new SceneLightGroup(Guid.NewGuid(), "人物柔光", Enabled: false, Intensity: 2.5f);
+        project.Edit(edit =>
+        {
+            edit.Lighting.AddGroup(group);
+            edit.Lighting.AssignToGroup(edit.Lighting.Lights.Select(light => light.Id), group.Id);
+            edit.Lighting.Update(edit.Lighting.Lights[1] with { Enabled = false, Intensity = 3 });
+        }, Token);
+        var authored = project.Lighting.Lights.ToArray();
+        using var capture = PmaProjectStore.CaptureSnapshot(project, cancellationToken: Token);
+        project.Edit(edit => edit.Lighting.RemoveGroup(group.Id), Token);
+        string path = Path.Combine(directory, "grouped.pma"); capture.Save(path, Token);
+        File.Delete(project.Objects[0].SourcePath); File.Delete(Path.Combine(directory, "texture.png"));
+        using var loaded = PmaProjectStore.Load(path, Path.Combine(directory, "group-cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Equal(group, Assert.Single(loaded.Session.Lighting.Groups));
+        Assert.Equal(authored, loaded.Session.Lighting.Lights);
+        Assert.All(loaded.Session.Frame.Lighting!.EffectiveLights, light => Assert.False(light.Enabled));
+        Assert.True(loaded.Session.Lighting.Lights[0].Enabled); Assert.False(loaded.Session.Lighting.Lights[1].Enabled);
+        loaded.Session.Edit(edit => edit.Lighting.UpdateGroup(group with { Enabled = true }), Token);
+        Assert.True(loaded.Session.Frame.Lighting!.EffectiveLights[0].Enabled);
+        Assert.False(loaded.Session.Frame.Lighting.EffectiveLights[1].Enabled);
+        Assert.Empty(project.Lighting.Groups);
+        string resaved = Path.Combine(directory, "grouped-resaved.pma"); PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
+        string layoutCopy = Path.Combine(directory, "grouped-selection.mmdscene");
+        loaded.Session.Save(layoutCopy, new() { CopyModelAssets = false }, Token);
+        using (var json = JsonDocument.Parse(File.ReadAllBytes(layoutCopy)))
+            Assert.Equal(authored[1].Id, json.RootElement.GetProperty("layout").GetProperty("selectedLightId").GetGuid());
+        using var reopened = PmaProjectStore.Load(resaved, Path.Combine(directory, "group-cache-2"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Equal(loaded.Session.Lighting.Groups, reopened.Session.Lighting.Groups);
+        Assert.Equal(authored, reopened.Session.Lighting.Lights);
+    }
+
+    [Fact]
+    public void AnEmptyAuthoredLightGroupIsStillReportedAsNonrepresentableByPmm()
+    {
+        using var project = Fixture(out _, out _);
+        project.Edit(edit =>
+        {
+            foreach (var light in edit.Lighting.Lights.ToArray()) edit.Lighting.Remove(light.Id);
+            edit.Lighting.AddGroup(new(Guid.NewGuid(), "预留灯组"));
+        }, Token);
+        Assert.Contains(PmaPmmCompatibility.Inspect(project).Issues, issue => issue.Code == "native-light-groups");
+        Assert.Throws<PmaPmmExportException>(() => project.ExportPmm());
+    }
+
+    [Fact]
     public void OptionalUnknownExtensionAndProjectIdSurviveSessionResave()
     {
         using var project = Fixture(out _, out _);

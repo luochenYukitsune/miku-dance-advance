@@ -19,7 +19,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorPluginImportTests : IAsyncDisposable
 {
-    private const string Root = "G:/MDA-Work/plugins/20261113/import681";
+    private static readonly string Root = MdaWorkRoot.Path("plugins/20261113/import681");
     private readonly string directory = Path.Combine(Root, "editor-" + Guid.NewGuid().ToString("N"));
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -65,7 +65,7 @@ public sealed class EditorPluginImportTests : IAsyncDisposable
                 Assert.False(File.Exists(Path.Combine(plugins, "imported", "constructed.txt")));
                 Assert.Equal("imported", ((PluginInfo)Find<ListBox>(window, "InstalledPlugins").SelectedItem!).Id);
                 Assert.Contains("已导入", Find<TextBlock>(window, "PluginOperationResult").Text);
-                SaveScreenshot(window, "G:/MDA-Work/plugins/20261113/hierarchy685/zh-normal-initial02.png");
+                SaveScreenshot(window, MdaWorkRoot.Path("plugins/20261113/hierarchy685/zh-normal-initial02.png"));
                 foreach (string language in new[] { "zh-CN", "en", "ja" })
                 {
                     window.Width = 680; window.Height = 560;
@@ -77,12 +77,12 @@ public sealed class EditorPluginImportTests : IAsyncDisposable
                         Assert.NotNull(origin);
                         Assert.True(new Rect(window.Bounds.Size).Contains(new Rect(origin.Value, control.Bounds.Size)), controlName + " must fit " + language);
                     }
-                    SaveScreenshot(window, $"G:/MDA-Work/plugins/20261113/hierarchy685/{language}-minimum.png");
+                    SaveScreenshot(window, MdaWorkRoot.Path($"plugins/20261113/hierarchy685/{language}-minimum.png"));
                 }
                 EditorLocalization.SetLanguage("zh-CN");
                 window.Width = 860; window.Height = 620;
                 Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                SaveScreenshot(window, "G:/MDA-Work/plugins/20261113/hierarchy685/zh-normal-final02.png");
+                SaveScreenshot(window, MdaWorkRoot.Path("plugins/20261113/hierarchy685/zh-normal-final02.png"));
                 Click(Find<Button>(window, "EnablePluginButton"));
                 await UntilAsync(() => service.Commands.Count == 2 && button.IsEffectivelyEnabled);
                 var commands = Find<ComboBox>(window, "PluginCommands"); Assert.Equal(1, commands.ItemCount); commands.SelectedIndex = 0;

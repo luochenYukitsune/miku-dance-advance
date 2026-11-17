@@ -23,7 +23,12 @@ public sealed class CharacterDirectLightPaletteGpuTests
         var source = Surface();
         var legacy = session.Capture(With(source, false, point), Width, Height);
         var selected = session.Capture(With(source, true, point), Width, Height);
-        Assert.Equal(new byte[] { 255, 255, 255, 255 }, Pixel(legacy));
+        // The ordinary path no longer hard-clips to white: its highlight shoulder keeps
+        // the light's hue and leaves headroom, so a shadow cast here would stay visible.
+        var legacyPixel = Pixel(legacy);
+        Assert.Equal(255, legacyPixel[3]);
+        Assert.True(legacyPixel[1] < 255 && legacyPixel[2] < 255, string.Join(",", legacyPixel));
+        Assert.True(legacyPixel[0] >= legacyPixel[1] && legacyPixel[1] >= legacyPixel[2], string.Join(",", legacyPixel));
         // Ordinary MMD native light has no preliminary remaining-palette factor.
         // One shared scale preserves its hue rather than filling channels separately.
         AssertPixel(selected, new(.16f, .108f, .08f));

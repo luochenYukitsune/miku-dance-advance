@@ -32,6 +32,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private D3D12SmaaPass? smaaPass;
     private D3D12Fsr1Pass? fsr1Pass;
     private D3D12DiffusionPass? diffusionPass;
+    private D3D12ExposurePass? exposurePass;
     private D3D12SpatialAccumulationPass? spatialPass;
     private D3D12AlphaResolvePass? alphaResolvePass;
     private D3D12LightGizmoPass? lightGizmoPass;
@@ -128,6 +129,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         CaptureMemoryStatistics=null;
         diffusion?.ValidateFrame(frame); // Before captures, SDK recreation or any recording.
         bool diffusionActive=diffusion?.IsActive==true;
+        float exposureEv=frame.Lighting?.Settings.ExposureEv??0;
         rayGiOptions??=frame.Options?.RayGi;
         rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
         surfaceStyles?.Validate(frame,rayGiOptions);
@@ -153,7 +155,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         ulong diffusionReservation=D3D12DiffusionMemoryBudget.Measure(runtime,width,height,diffusionActive,
             alphaCoverage:frame.Options?.AlphaOutput==FrameAlphaOutput.Straight);
-        ulong additionalReservation=checked(radialReservation+matcapReservation+metallicReservation+baseImageReservation+diffusionReservation);
+        ulong additionalReservation=checked(radialReservation+matcapReservation+metallicReservation+baseImageReservation+diffusionReservation
+            +D3D12ExposurePass.Measure(runtime,width,height,exposureEv!=0));
         bool additionalValidatedEarly=additionalReservation>0&&(!capture||captureMemory.Mode==D3D12CaptureMemoryMode.Default);
         if(additionalValidatedEarly)D3D12SsaaGiMemoryBudget.RequireFits(new(0,0,additionalReservation),D3D12SsaaGiMemoryBudget.Query(runtime),width,height,1);
         upscaling??=D3D12SpatialUpscalingOptions.Off;
@@ -346,7 +349,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             D3D12ShadowTargets.ReleaseInactive(cache,frame);
             debugQueue?.ClearStoredMessages();
             const int textureSlots = 0;
-            int nativeDescriptors=D3D12OriginalStyleRenderer.HasNativeLights(frame)?1:0;
+            int nativeDescriptors=D3D12OriginalStyleRenderer.HasNativeLights(frame)?2:0;
             int matcapDescriptors=surfaceStyles?.HasConsumedSurfaceMatcap==true?surfaceStyles.Count:0;
             int matcapSlotBase=checked(textureSlots+scene.Textures.Count+4+nativeDescriptors);
             int metallicDescriptors=surfaceStyles?.HasConsumedGenshinMetallic==true?surfaceStyles.Count:0;
@@ -551,6 +554,12 @@ public sealed class D3D12FrameRenderer : IDisposable
                 output=(alphaResolvePass??=new(runtime,cache)).Record(context,output);
                 LastPassDrawCalls++;Recorded("alpha:straight",output,defaultDepth);
                 LastTargets=LastTargets.Append(new(output.Name,width,height,output.Format.ToString())).ToArray();
+            }
+            if(exposureEv!=0)
+            {
+                output=(exposurePass??=new(runtime,cache)).Record(context,output,exposureEv);
+                LastPassDrawCalls++;Recorded("lighting:exposure",output,defaultDepth);
+                LastTargets=LastTargets.Append(new(output.Name,output.Width,output.Height,output.Format.ToString())).ToArray();
             }
             if(!capture&&frame.EditorOverlay is {Lines.Count:>0} overlay)
             {

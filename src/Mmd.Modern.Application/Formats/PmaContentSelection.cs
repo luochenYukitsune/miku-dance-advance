@@ -56,8 +56,7 @@ public sealed class PmaContentSelection
         var lighting = new SceneLightingEditor();
         if (RetainNativeLighting)
         {
-            foreach (var light in source.Lighting.Lights) lighting.Add(light);
-            lighting.Select(source.Lighting.SelectedId);
+            lighting.ReplaceSnapshot(source.Lighting.Snapshot, source.Lighting.SelectedId);
         }
         if (RetainModelPurposes)
             foreach (var pair in source.Lighting.ModelRoles)

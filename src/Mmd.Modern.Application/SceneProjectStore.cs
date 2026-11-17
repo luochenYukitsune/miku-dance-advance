@@ -20,6 +20,16 @@ public static class SceneProjectStore
     public const string Format = "mmd-modern-static-scene";
     public const int Version = 1;
     public const int PortableVersion = 2;
+    public const int LightingGroupsVersion = 3;
+    public const int PortableLightingGroupsVersion = 4;
+    public const int LightingParentsVersion = 5;
+    public const int PortableLightingParentsVersion = 6;
+    public const int LightingReceiversVersion = 7;
+    public const int PortableLightingReceiversVersion = 8;
+    public const int LightingAreasVersion = 9;
+    public const int PortableLightingAreasVersion = 10;
+    public const int LightingSettingsVersion = 11;
+    public const int PortableLightingSettingsVersion = 12;
     public const int MaxObjects = 1024;
     public const int MaxDocumentBytes = 16 * 1024 * 1024;
     private static readonly UTF8Encoding Utf8 = new(false, true);
@@ -42,9 +52,19 @@ public static class SceneProjectStore
         string parent = Path.GetDirectoryName(ValidateProjectPath(path))!;
         ArgumentNullException.ThrowIfNull(composition); ArgumentNullException.ThrowIfNull(lighting);
         if (lighting.IsEditing) throw new InvalidOperationException("Commit or cancel the light edit gesture before saving.");
+        bool hasParents = lighting.Lights.Any(light => light.Parent is not null);
+        bool hasReceivers = lighting.Lights.Any(light => light.Receivers is not null);
+        bool hasAreas = lighting.Lights.Any(light => light.Kind == SceneLightKind.Area || light.AreaSize is not null);
+        bool hasSettings = lighting.Settings != SceneLightingSettings.Default;
         var document = new Document
         {
-            Format = Format, Version = portable is null ? Version : PortableVersion,
+            Format = Format, Version = hasSettings ? (portable is null ? LightingSettingsVersion : PortableLightingSettingsVersion)
+                : hasAreas ? (portable is null ? LightingAreasVersion : PortableLightingAreasVersion)
+                : hasReceivers ? (portable is null ? LightingReceiversVersion : PortableLightingReceiversVersion)
+                : hasParents ? (portable is null ? LightingParentsVersion : PortableLightingParentsVersion)
+                : lighting.Groups.Count == 0
+                ? (portable is null ? Version : PortableVersion)
+                : (portable is null ? LightingGroupsVersion : PortableLightingGroupsVersion),
             PortableModels = portable?.Hashes,
             Objects = composition.Objects.Select(item =>
             {
@@ -64,6 +84,9 @@ public static class SceneProjectStore
             }).ToArray(),
             SelectedObjectId = composition.SelectedId, SelectedLightId = lighting.SelectedId,
             Lights = lighting.Lights.Select(SceneLightingEditor.LightData.From).ToArray(),
+            Groups = lighting.Groups.Count == 0 && !hasParents && !hasReceivers && !hasAreas && !hasSettings ? null : lighting.Groups.Select(SceneLightingEditor.GroupData.From).ToArray(),
+            Settings = hasSettings ? SceneLightingEditor.SettingsData.From(lighting.Settings) : null,
+            HasSettingsField = hasSettings,
         };
         Validate(document);
         _ = composition.Frame; // Do not overwrite a valid document with transforms that cannot form a valid scene.
@@ -154,10 +177,9 @@ public static class SceneProjectStore
         _ = composition.Frame; // A successful candidate must actually be composable.
         cancellationToken.ThrowIfCancellationRequested();
         var lighting = new SceneLightingEditor();
-        foreach (var light in lights.Lights) lighting.Add(light);
+        lighting.ReplaceSnapshot(lights, document.SelectedLightId);
         foreach (var item in document.Objects)
             lighting.SetModelRole("scene-object:" + item.Id.ToString("D"), item.Purpose.Role, item.Purpose.EnvironmentIndoor);
-        lighting.Select(document.SelectedLightId);
         // Reuse the lighting session's validated restore path to start with an empty history.
         string sidecar = lighting.SerializeSidecar();
         if (!lighting.TryLoadSidecar(sidecar, out var error)) throw new InvalidDataException(error);
@@ -199,11 +221,30 @@ public static class SceneProjectStore
 
     private static SceneLightingSnapshot Validate(Document document)
     {
-        if (document.Format != Format || document.Version is not (Version or PortableVersion)) throw new JsonException("Unsupported scene format or version.");
+        if (document.Format != Format || document.Version is not (Version or PortableVersion or LightingGroupsVersion or PortableLightingGroupsVersion
+            or LightingParentsVersion or PortableLightingParentsVersion or LightingReceiversVersion or PortableLightingReceiversVersion
+            or LightingAreasVersion or PortableLightingAreasVersion or LightingSettingsVersion or PortableLightingSettingsVersion))
+            throw new JsonException("Unsupported scene format or version.");
+        if (document.Version < LightingSettingsVersion && document.HasSettingsField)
+            throw new JsonException("Global lighting settings require static layout version 11 or 12.");
+        if (document.Version >= LightingSettingsVersion && document.Settings is null)
+            throw new JsonException("A non-null settings object is required in static layout version 11 or 12.");
         if (document.Objects is null || document.Objects.Length is < 1 or > MaxObjects || document.Lights is null)
             throw new JsonException("A scene requires an objects array within the supported budget and a lights array.");
-        if ((document.Version == Version && document.PortableModels is not null) || (document.Version == PortableVersion && document.PortableModels is null))
-            throw new JsonException("Portable model metadata requires static layout version 2.");
+        bool portable = document.Version is PortableVersion or PortableLightingGroupsVersion or PortableLightingParentsVersion or PortableLightingReceiversVersion or PortableLightingAreasVersion or PortableLightingSettingsVersion;
+        bool grouped = document.Version >= LightingGroupsVersion;
+        if (document.Version < LightingAreasVersion && document.Lights.Any(item => item?.HasAreaSizeField == true || item?.Kind == SceneLightKind.Area))
+            throw new JsonException("Area lights and dimensions require static layout version 9 or 10.");
+        if (document.Version < LightingReceiversVersion && document.Lights.Any(item => item?.HasReceiversField == true))
+            throw new JsonException("Light receivers require static layout version 7 or 8.");
+        if (document.Version < LightingParentsVersion && document.Lights.Any(item => item?.HasParentField == true))
+            throw new JsonException("Light parents require static layout version 5 or 6.");
+        if (portable != (document.PortableModels is not null))
+            throw new JsonException("Portable model metadata requires static layout version 2, 4, 6, 8, 10 or 12.");
+        if (grouped && document.Groups is null)
+            throw new JsonException("A groups array is required in static layout version 3 through 12.");
+        if (!grouped && (document.Groups is not null || document.Lights.Any(item => item?.GroupId is not null)))
+            throw new JsonException("Light groups and membership require static layout version 3 through 12.");
         var ids = new HashSet<Guid>();
         foreach (var item in document.Objects)
         {
@@ -221,7 +262,12 @@ public static class SceneProjectStore
         }
         PortableModelAssets.ValidateMetadata(document.PortableModels, document.Objects.Select(item => item.SourcePath));
         if (document.SelectedObjectId.HasValue && !ids.Contains(document.SelectedObjectId.Value)) throw new JsonException("Selected object does not exist.");
-        var lights = new SceneLightingSnapshot(document.Lights.Select(item => item?.ToLight() ?? throw new JsonException("Null light.")));
+        var lights = new SceneLightingSnapshot(document.Lights.Select(item => item?.ToLight() ?? throw new JsonException("Null light.")),
+            document.Groups?.Select(item => item?.ToGroup() ?? throw new JsonException("Null light group.")), document.Settings?.ToSettings());
+        if (lights.Lights.Any(light => light.Parent is { } parent && !ids.Contains(parent.ObjectId)))
+            throw new JsonException("A light parent must reference a model in the same layout.");
+        if (lights.Lights.Any(light => light.Receivers?.ObjectIds.Any(id => !ids.Contains(id)) == true))
+            throw new JsonException("Light receivers must reference models in the same layout.");
         if (document.SelectedLightId.HasValue && !lights.Lights.Any(item => item.Id == document.SelectedLightId.Value))
             throw new JsonException("Selected light does not exist.");
         return lights;
@@ -229,6 +275,7 @@ public static class SceneProjectStore
 
     private sealed class Document
     {
+        private SceneLightingEditor.SettingsData? settings;
         public required string Format { get; init; }
         public required int Version { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -236,7 +283,17 @@ public static class SceneProjectStore
         public required ObjectData[] Objects { get; init; }
         public required Guid? SelectedObjectId { get; init; }
         public required SceneLightingEditor.LightData[] Lights { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SceneLightingEditor.GroupData[]? Groups { get; init; }
         public required Guid? SelectedLightId { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SceneLightingEditor.SettingsData? Settings
+        {
+            get => settings;
+            init { settings = value; HasSettingsField = true; }
+        }
+        [JsonIgnore]
+        public bool HasSettingsField { get; init; }
     }
     private sealed class PurposeData
     {

@@ -42,6 +42,7 @@ public sealed class D3D9EffectDependencyCollector
         private readonly List<D3D9EffectDependencyRoot> roots = [];
         private readonly List<D3D9EffectDependencyEdge> edges = [];
         private readonly List<D3D9EffectDependencyDiagnostic> diagnostics = [];
+        private readonly Dictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>> offscreen = new(StringComparer.OrdinalIgnoreCase);
         private D3D9EffectDependencyCompilerIdentity? identity;
         private long totalBytes, referenceBytes, retainedReferenceBytes, captureRequests;
         private Context context = new();
@@ -82,6 +83,7 @@ public sealed class D3D9EffectDependencyCollector
                         if (discoveries.Count >= limits.MaximumFxInspections) Fail("inspection-budget", "The FX inspection count exceeds the configured budget.");
                         discovery = Inspect(work.Fx);
                         discoveries.Add(top, discovery);
+                        offscreen[top] = discovery.Inspection.OffscreenTargets;
                     }
                     foreach (var include in discovery.Includes)
                     {
@@ -119,7 +121,7 @@ public sealed class D3D9EffectDependencyCollector
                 cancellationToken.ThrowIfCancellationRequested();
                 return new(D3D9EffectDependencyStatus.Complete,
                     new(roots, nodes.Values.Select(n => new D3D9EffectDependencyNode(n.Id, n.Snapshot, n.Category)), edges,
-                        identity, profiles.Values), diagnostics);
+                        identity, profiles.Values, offscreen), diagnostics);
             }
             catch (OperationCanceledException)
             {

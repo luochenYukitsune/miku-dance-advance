@@ -113,7 +113,8 @@ internal sealed class D3D12TemporalHistory
         var x = a.Surface.Snapshot; var y = b.Surface.Snapshot;
         return x.VertexCount == y.VertexCount && x.Indices.SequenceEqual(y.Indices)
             && SameUvs(x, y) && x.LightDirection == y.LightDirection
-            && (a.Lighting ?? SceneLightingSnapshot.Empty).Lights.SequenceEqual((b.Lighting ?? SceneLightingSnapshot.Empty).Lights)
+            && (a.Lighting ?? SceneLightingSnapshot.Empty).EffectiveLights.SequenceEqual((b.Lighting ?? SceneLightingSnapshot.Empty).EffectiveLights)
+            && (a.Lighting?.Settings.EnvironmentStrength ?? 0) == (b.Lighting?.Settings.EnvironmentStrength ?? 0)
             && x.Materials.SequenceEqual(y.Materials) && x.Textures.SequenceEqual(y.Textures)
             && a.Surface.Materials.SequenceEqual(b.Surface.Materials) && a.Surface.Profile == b.Surface.Profile
             && a.Materials.SequenceEqual(b.Materials) && (a.Outline is null) == (b.Outline is null)

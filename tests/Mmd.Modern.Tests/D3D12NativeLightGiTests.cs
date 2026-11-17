@@ -11,7 +11,7 @@ public sealed class NativeLightGiContractTests
     [Fact]
     public void OptionalLightTableKeepsExistingAbisAndFiltersInactiveInputs()
     {
-        Assert.Equal(64,Marshal.SizeOf<NativeRayGiLight>());
+        Assert.Equal(80,Marshal.SizeOf<NativeRayGiLight>());
         Assert.Equal(96,Marshal.SizeOf<RayGiMaterialGpu>());
         var light=Light(SceneLightKind.Point);
         var frame=Fixture([light,light with {Id=Guid.NewGuid(),Enabled=false}]);
@@ -59,14 +59,14 @@ public sealed class NativeLightGiContractTests
     [InlineData(1e-30f)]
     public void DirectScaleCannotHideUnscaledMultiLightAccumulation(float directScale)
     {
-        var lights=Enumerable.Range(0,SceneLightingSnapshot.MaxLights).Select(_=>
+        var lights=Enumerable.Range(0,SceneLightingSnapshot.MaxActiveLights).Select(_=>
             Light(SceneLightKind.Directional) with {Color=Vector3.One,Intensity=float.MaxValue*.9f}).ToArray();
         var single=Fixture([lights[0]]);
         var options=Gi(LightingMode.SoftwareRayTracing) with {DirectScale=directScale};
         Assert.True(NativeRayGiLights.IrradianceBound(single)<float.MaxValue);
         D3D12RayGiRenderer.Validate(single,options);
         var combined=Fixture(lights);
-        // Four aligned lights can overflow even after the shader's Lambert 1/pi factor.
+        // Multiple aligned lights can overflow even after the shader's Lambert 1/pi factor.
         Assert.True((double)lights[0].Intensity*lights.Length/Math.PI>float.MaxValue);
         Assert.True(NativeRayGiLights.IrradianceBound(combined)>float.MaxValue);
         Assert.Throws<NotSupportedException>(()=>D3D12RayGiRenderer.Validate(combined,options));

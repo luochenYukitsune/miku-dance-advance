@@ -590,7 +590,6 @@
           "Mmd.Modern.Physics.Runtime": "[1.0.0, )",
           "Mmd.Modern.Plugins": "[1.0.0, )",
           "Mmd.Modern.Rendering.D3D12": "[1.0.0, )",
-          "Mmd.Modern.Rendering.Veldrid": "[1.0.0, )",
           "Mmd.Modern.ViewOutput": "[1.0.0, )",
           "Mmd.Modern.ViewOutput.D3D12": "[1.0.0, )",
           "Mmd.Modern.ViewOutput.D3D9.Compatibility": "[1.0.0, )",
@@ -610,6 +609,17 @@
       },
       "mmd.modern.core": {
         "type": "Project"
+      },
+      "mmd.modern.demo": {
+        "type": "Project",
+        "dependencies": {
+          "Avalonia.Desktop": "[11.3.22, )",
+          "Avalonia.Themes.Fluent": "[11.3.22, )",
+          "Mmd.Modern.App": "[1.0.0, )",
+          "Mmd.Modern.Physics.Runtime": "[1.0.0, )",
+          "Mmd.Modern.Rendering.D3D12": "[1.0.0, )",
+          "Mmd.Modern.Rendering.Veldrid": "[1.0.0, )"
+        }
       },
       "mmd.modern.effects": {
         "type": "Project"

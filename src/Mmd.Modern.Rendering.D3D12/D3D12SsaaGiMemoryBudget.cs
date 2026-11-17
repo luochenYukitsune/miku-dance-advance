@@ -135,11 +135,11 @@ internal static class D3D12SsaaGiMemoryBudget
                 workspace=checked(workspace
                     +Allocation(Texture(Format.R32_Float, ResourceFlags.AllowRenderTarget, shadow.Width, shadow.Height))
                     +Allocation(Texture(Format.D24_UNorm_S8_UInt, ResourceFlags.AllowDepthStencil, shadow.Width, shadow.Height)));
-            var lights=frame.Lighting?.Lights.Where(l=>l.Enabled&&l.Intensity>0&&l.Color!=System.Numerics.Vector3.Zero).ToArray();
-            if(lights is {Length:>0} && lights.Any(l=>l.CastShadows))
+            var nativeAtlas=NativeLightShadowAtlasLayout.Create(frame.Lighting);
+            if(nativeAtlas.FaceCount>0)
             {
-                int atlasWidth=checked(D3D12OriginalStyleRenderer.NativeShadowTileSize*6);
-                int atlasHeight=checked(D3D12OriginalStyleRenderer.NativeShadowTileSize*lights.Length);
+                int atlasWidth=nativeAtlas.Width;
+                int atlasHeight=nativeAtlas.Height;
                 workspace=checked(workspace
                     +Allocation(Texture(Format.R32_Float, ResourceFlags.AllowRenderTarget, atlasWidth, atlasHeight))
                     +Allocation(Texture(Format.D32_Float, ResourceFlags.AllowDepthStencil, atlasWidth, atlasHeight)));

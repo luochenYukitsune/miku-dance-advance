@@ -66,7 +66,7 @@ public sealed class PmmAccessorySourceSnapshotTests
     [Fact]
     public void RestoreUsesFrozenBytesAndOriginalIdentityWithoutOpeningTheOriginalPath()
     {
-        string unavailable = Path.Combine("G:/MDA-Work/compat/20261107/accessory563", "never-created-" + Guid.NewGuid().ToString("N"), "part.x");
+        string unavailable = Path.Combine(MdaWorkRoot.Path("compat/20261107/accessory563"), "never-created-" + Guid.NewGuid().ToString("N"), "part.x");
         byte[] bytes = Encoding.UTF8.GetBytes(XAccessoryTests.Triangle);
         var asset = PreparedPmmAccessory.FromOriginalBytes(7, unavailable, bytes,
             readOptions: new() { AnsiCodePage = 65001 }, unitScale: 1.7f, cancellationToken: Token);

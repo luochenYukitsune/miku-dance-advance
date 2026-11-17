@@ -13,7 +13,7 @@ namespace Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests;
 
 public sealed class ClassicEffectsPreparationTests : IDisposable
 {
-    private readonly string directory = Path.Combine("G:/MDA-Work/compat/20261106/frozen560/tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("compat/20261106/frozen560/tests"), Guid.NewGuid().ToString("N"));
     private int modelLoads;
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     public ClassicEffectsPreparationTests() => Directory.CreateDirectory(directory);
@@ -106,6 +106,76 @@ public sealed class ClassicEffectsPreparationTests : IDisposable
         Assert.Empty(Directory.EnumerateFileSystemEntries(cache));
     }
 
+    [Fact]
+    public void NewFxOffscreenPageIsGeneratedFrozenRefxReadsNoOriginalAndSurvivesPmcReopen()
+    {
+        using var project = Project();
+        string sources = Path.Combine(directory, "sources"); Directory.CreateDirectory(sources);
+        string glow = Path.Combine(sources, "glow.fx"); File.WriteAllText(glow, "glow bytes");
+        File.WriteAllText(Path.Combine(sources, "glow.fxh"), "glow include");
+        var inspector = new Inspector { Offscreen = ["GlowRT"], Include = "glow.fxh" };
+        var empty = D3D9ClassicEffectsPreparation.Capture(Plan(), _ => null, inspector, cancellationToken: Token).Preparation!;
+        var assigned = EmmDocumentEditor.SetEffect(empty.Emm.Document, "Effect", "Pmd0", -1, glow);
+
+        var first = empty.PrepareAssignments(assigned, inspector, cancellationToken: Token);
+
+        var prepared = Assert.IsType<D3D9ClassicEffectsPreparation>(first.Preparation);
+        var page = Assert.Single(prepared.Emm.Document.EffectSections, section => !section.IsDefault);
+        Assert.Equal("Effect@GlowRT", page.Name);
+        Assert.Equal(new EmmOwnerReference("Pmd0"), page.Owner);
+        Assert.Empty(page.Entries);
+        Assert.Single(empty.Emm.Document.EffectSections);
+
+        // 原件移走后，同一个已冻结的 FX 指定到材质：声明只从冻结字节重新检查。
+        Directory.Move(sources, sources + ".moved");
+        var subset = EmmDocumentEditor.SetEffect(prepared.Emm.Document, "Effect", "Pmd0", 0, glow);
+        int calls = inspector.Calls;
+        var second = Assert.IsType<D3D9ClassicEffectsPreparation>(prepared.PrepareAssignments(subset, inspector,
+            materialCounts: new Dictionary<Guid, int> { [Plan().LiveObjects[0].ObjectId] = 1 }, cancellationToken: Token).Preparation);
+        Assert.Equal(calls + 1, inspector.Calls);
+        Assert.Equal(new EmmOwnerReference("Pmd0", 0), second.Emm.Document.EffectSections.Single(section => section.Name == "Effect@GlowRT(1)").Owner);
+
+        string path = Path.Combine(directory, "offscreen.pmc");
+        D3D9ClassicProjectStore.Save(path, project, second.CreateSaveOptions(project, cancellationToken: Token), Token);
+        var reopened = Load(path);
+        using (reopened.Package)
+        {
+            Assert.Equal(second.Emm.Document.CopySourceBytes(), reopened.Emm!.Document.CopySourceBytes());
+            Assert.Equal(new[] { "Effect", "Effect@GlowRT", "Effect@GlowRT(1)" },
+                reopened.Emm.Document.EffectSections.Select(section => section.Name));
+            // 重开后不改分配再应用一次：页不重复生成，也不检查任何 FX。
+            var recovered = D3D9ClassicEffectsPreparation.Recover(reopened);
+            var again = recovered.PrepareAssignments(recovered.Emm.Document, new Inspector { FailIfCalled = true },
+                materialCounts: new Dictionary<Guid, int> { [Plan().LiveObjects[0].ObjectId] = 1 }, cancellationToken: Token);
+            Assert.Equal(second.Emm.Document.CopySourceBytes(), again.Preparation!.Emm.Document.CopySourceBytes());
+        }
+    }
+
+    [Fact]
+    public void ReplacingFxWithEditedOffscreenPageFailsBeforeAnyInspectionAndKeepsPreparation()
+    {
+        string sources = Path.Combine(directory, "sources"); Directory.CreateDirectory(sources);
+        string glow = Path.Combine(sources, "glow.fx"); File.WriteAllText(glow, "glow bytes");
+        string other = Path.Combine(sources, "other.fx"); File.WriteAllText(other, "other bytes");
+        var inspector = new Inspector { Offscreen = ["GlowRT"] };
+        var empty = D3D9ClassicEffectsPreparation.Capture(Plan(), _ => null, inspector, cancellationToken: Token).Preparation!;
+        var glowing = empty.PrepareAssignments(EmmDocumentEditor.SetEffect(empty.Emm.Document, "Effect", "Pmd0", -1, glow),
+            inspector, cancellationToken: Token).Preparation!;
+        var edited = Assert.IsType<D3D9ClassicEffectsPreparation>(glowing.PrepareAssignments(
+            EmmDocumentEditor.SetShown(glowing.Emm.Document, "Effect@GlowRT", "Pmd0", -1, false), inspector, cancellationToken: Token).Preparation);
+        byte[] bytes = edited.Emm.Document.CopySourceBytes();
+
+        var error = Assert.Throws<EmmOffscreenPageConflictException>(() => edited.PrepareAssignments(
+            EmmDocumentEditor.SetEffect(edited.Emm.Document, "Effect", "Pmd0", -1, other), new Inspector { Offscreen = [] }, cancellationToken: Token));
+
+        Assert.Equal(new[] { "Effect@GlowRT" }, error.Sections);
+        Assert.Equal(bytes, edited.Emm.Document.CopySourceBytes());
+        var reset = Assert.IsType<D3D9ClassicEffectsPreparation>(edited.PrepareAssignments(
+            EmmDocumentEditor.SetEffect(EmmDocumentEditor.SetShown(edited.Emm.Document, "Effect@GlowRT", "Pmd0", -1, null), "Effect", "Pmd0", -1, other),
+            new Inspector { Offscreen = [] }, cancellationToken: Token).Preparation);
+        Assert.Equal(new[] { "Effect" }, reset.Emm.Document.EffectSections.Select(section => section.Name));
+    }
+
     private D3D9ClassicPreparedProject Load(string path, PmaLoadOptions? options = null)
     {
         string cache = Path.Combine(directory, Guid.NewGuid().ToString("N")); Directory.CreateDirectory(cache);
@@ -160,24 +230,28 @@ public sealed class ClassicEffectsPreparationTests : IDisposable
         public bool FailIfCalled { get; init; }
         public bool AddMissingResource { get; init; }
         public CancellationTokenSource? Cancel { get; init; }
+        public string[] Offscreen { get; init; } = [];
+        public string? Include { get; init; }
         public D3D9EffectDependencyInspection Inspect(D3D9EffectDependencySnapshot topFx,
             Func<D3D9EffectDependencyIncludeRequest, D3D9EffectDependencySnapshot> captureInclude, CancellationToken cancellationToken)
         {
             Calls++; if (FailIfCalled) throw new InvalidOperationException("Inspector must not be called.");
             Cancel?.Cancel(); cancellationToken.ThrowIfCancellationRequested();
+            if (Include is not null) captureInclude(new("effect-mip-off", false, null, 1, new(Encoding.ASCII.GetBytes(Include), 936)));
             var identity = new D3D9EffectDependencyCompilerIdentity("fixture", new string('a', 64), 64, 936, new string('b', 64));
             var profiles = new[] { new D3D9EffectDependencyProfile("effect-mip-off", 0x1000, [new("_INDEX", "PSIZE15")]),
                 new D3D9EffectDependencyProfile("effect-mip-on", 0x1000, [new("_INDEX", "PSIZE15"), new("MME_MIPMAP", "")]) };
             D3D9EffectDependencySemanticReference[] references = AddMissingResource ?
                 [new("effect-mip-off", D3D9EffectDependencyReferenceKind.Resource,
                     new(Encoding.ASCII.GetBytes("missing.png"), 936), "Texture", "ResourceName")] : [];
-            return new(D3D9EffectDependencyStatus.Complete, identity, profiles, references);
+            return new(D3D9EffectDependencyStatus.Complete, identity, profiles, references,
+                offscreenTargets: Offscreen.SelectMany(name => new D3D9EffectOffscreenDeclaration[] { new("effect-mip-off", name), new("effect-mip-on", name) }));
         }
     }
     public void Dispose()
     {
         string full = Path.GetFullPath(directory);
-        if (!full.StartsWith(Path.GetFullPath("G:/MDA-Work/compat/20261106/frozen560/tests/"), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
+        if (!full.StartsWith(Path.GetFullPath(MdaWorkRoot.Path("compat/20261106/frozen560/tests/")), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
         if (Directory.Exists(full)) Directory.Delete(full, true);
     }
 }

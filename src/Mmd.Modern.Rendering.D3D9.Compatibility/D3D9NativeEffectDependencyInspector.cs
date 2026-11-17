@@ -25,6 +25,7 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
     private readonly ReferenceCall getReference;
     private readonly DiagnosticCall getDiagnostic;
     private readonly DestroyCall destroy;
+    private readonly AnnotationCall getAnnotation;
 
     public D3D9NativeEffectDependencyInspector(string nativeAbsolutePath, string d3dxAbsolutePath, string compilerAbsolutePath)
     {
@@ -49,6 +50,7 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
             getProfile = Export<ProfileCall>("MdaD3D9DependencyProfileV1"); getParameter = Export<ParameterCall>("MdaD3D9DependencyParameterV1");
             getInclude = Export<IncludeCall>("MdaD3D9DependencyIncludeV1"); getReference = Export<ReferenceCall>("MdaD3D9DependencyReferenceV1");
             getDiagnostic = Export<DiagnosticCall>("MdaD3D9DependencyDiagnosticV1"); destroy = Export<DestroyCall>("MdaD3D9DestroyDependencyInspectionV1");
+            getAnnotation = Export<AnnotationCall>("MdaD3D9DependencyAnnotationV1");
             if (NativeLibrary.TryGetExport(library, "MdaD3D9DiscoverDependencyRootV1", out nint discovery))
                 discoverRoot = Marshal.GetDelegateForFunctionPointer<RootDiscoverCall>(discovery);
         }
@@ -158,6 +160,24 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
                         new(Bytes(reference.Raw, 32767), codePage), symbol,
                         reference.Kind == 8 ? Text(reference.Value, acp) : null, reference.Kind == 8 ? Text(reference.Target, acp) : null));
                 }
+                // 离屏目标声明：宿主（sas_interpreter）只遍历顶层参数，且跳过没有任何注解的字面量参数。
+                var annotationCounts = new Dictionary<ulong, int>();
+                for (ulong index = 0; index < info.AnnotationCount; index++)
+                {
+                    var annotation = new Annotation { Size = (uint)Marshal.SizeOf<Annotation>(), Version = 1 };
+                    Check(getAnnotation(handle, index, ref annotation));
+                    annotationCounts[annotation.ParameterIndex] = annotationCounts.GetValueOrDefault(annotation.ParameterIndex) + 1;
+                }
+                var offscreenTargets = new List<D3D9EffectOffscreenDeclaration>();
+                for (ulong index = 0; index < info.ParameterCount; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var parameter = new Parameter { Size = (uint)Marshal.SizeOf<Parameter>(), Version = 1 };
+                    Check(getParameter(handle, index, ref parameter));
+                    if (parameter.SemanticId != 0x2E || parameter.ParentIndex != ulong.MaxValue) continue;
+                    if (annotationCounts.GetValueOrDefault(index) == 0 && (parameter.Flags & 1) != 0) continue;
+                    offscreenTargets.Add(new(Id(parameter.ProfileIndex), Text(parameter.Name, acp)));
+                }
                 for (ulong index = 0; index < info.IncludeCount; index++)
                 {
                     var include = new Include { Size = (uint)Marshal.SizeOf<Include>(), Version = 1 }; Check(getInclude(handle, index, ref include));
@@ -182,7 +202,7 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
                 cancellationToken.ThrowIfCancellationRequested();
                 return new(info.Status == 0 ? D3D9EffectDependencyStatus.Complete : info.Status == -6 ?
                     D3D9EffectDependencyStatus.Unsupported : D3D9EffectDependencyStatus.Incomplete,
-                    new("mda.mme.resource-semantics/1", D3dxSha, 64, codePage, CompilerSha), profiles, references, diagnostics);
+                    new("mda.mme.resource-semantics/1", D3dxSha, 64, codePage, CompilerSha), profiles, references, diagnostics, offscreenTargets);
             }
             finally
             {
@@ -253,6 +273,7 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
     [StructLayout(LayoutKind.Sequential)] private struct Info { internal uint Size, Version; internal int Status; internal uint CodePage, PointerBits, Reserved; internal ulong RootResourceId, ProfileCount, ParameterCount, AnnotationCount, IncludeCount, ReferenceCount, DiagnosticCount; internal ByteSpan D3dxPath, CompilerPath; }
     [StructLayout(LayoutKind.Sequential)] private struct Profile { internal uint Size, Version, Kind, Flags; internal int Status, HResult; internal ulong SourceParameterIndex; internal ByteSpan Entry, Target; }
     [StructLayout(LayoutKind.Sequential)] private struct Parameter { internal uint Size, Version; internal ulong ProfileIndex, ParentIndex; internal uint Ordinal, ArrayElement, Class, Type, Rows, Columns, Elements, StructMembers, Flags, SemanticId; internal ByteSpan Name, Semantic; }
+    [StructLayout(LayoutKind.Sequential)] private struct Annotation { internal uint Size, Version; internal ulong ParameterIndex; internal uint Ordinal, ParameterType; internal int StringHResult; internal uint Reserved; internal ByteSpan Name, Value; }
     [StructLayout(LayoutKind.Sequential)] private struct Include { internal uint Size, Version; internal ulong ProfileIndex, RootId, ParentId, ResourceId; internal uint Kind, Depth, RootOpen, Closed; internal int Status; internal uint Reserved; internal ByteSpan Raw, Error; }
     [StructLayout(LayoutKind.Sequential)] private struct Reference { internal uint Size, Version; internal ulong ProfileIndex, ParameterIndex; internal uint Kind, RowOrdinal; internal ulong RawOffset; internal ByteSpan Annotation, Raw, Key, Value, Target; }
     [StructLayout(LayoutKind.Sequential)] private struct Diagnostic { internal uint Size, Version; internal ulong ProfileIndex, ParameterIndex; internal uint Kind, CodePage; internal int Status, HResult; internal ByteSpan Annotation, Message; }
@@ -261,6 +282,7 @@ public sealed partial class D3D9NativeEffectDependencyInspector : ID3D9EffectDep
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int InfoCall(ulong handle, ref Info info);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int ProfileCall(ulong handle, ulong index, ref Profile value);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int ParameterCall(ulong handle, ulong index, ref Parameter value);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int AnnotationCall(ulong handle, ulong index, ref Annotation value);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int IncludeCall(ulong handle, ulong index, ref Include value);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int ReferenceCall(ulong handle, ulong index, ref Reference value);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int DiagnosticCall(ulong handle, ulong index, ref Diagnostic value);

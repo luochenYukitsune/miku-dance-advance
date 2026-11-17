@@ -131,7 +131,7 @@ public sealed class SurfaceSceneFxSessionTests
     [Fact]
     public async Task CancelledSceneInitializationRetainsAssetsUntilFailedDestroyRetrySucceeds()
     {
-        var directory = Path.Combine(@"G:\MDA-Work\compat\20261106\managed491\cpu-assets", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(MdaWorkRoot.Path(@"compat\20261106\managed491\cpu-assets"), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "root.fx");
         File.WriteAllText(path, "task-owned scene resource");

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Mmd.Modern.Tests/MdaWorkRoot.cs" Link="Shared/MdaWorkRoot.cs" />
     <ProjectReference Include="../../src/Mmd.Modern.Application/Mmd.Modern.Application.csproj" />
     <ProjectReference Include="../../src/Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />

@@ -22,7 +22,8 @@ public sealed record EditorRecoverySessionState
         IncludeFields = true,
         IgnoreReadOnlyProperties = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-        MaxDepth = 32
+        MaxDepth = 32,
+        Converters = { new EditorRecoveryLightReceiversConverter(), new EditorRecoveryLightingSettingsConverter() }
     };
 
     [JsonRequired] public int SchemaVersion { get; init; } = 1;

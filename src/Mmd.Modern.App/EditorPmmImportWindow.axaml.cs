@@ -91,7 +91,7 @@ public partial class EditorPmmImportWindow : Window
             roleBoxes.Add(row.ModelIndex, role);
             var repair = new Button
             {
-                Name = "PmmRepair_" + row.ModelIndex, Content = Text("重新定位…"), Tag = row.ModelIndex,
+                Name = "PmmRepair_" + row.ModelIndex, Content = Text("重新定位…"), Tag = row.ModelIndex, MinWidth = 100,
                 VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Stretch
             };
             AutomationProperties.SetName(repair, Format("重新定位模型 #{0}", row.ModelIndex));
@@ -199,7 +199,7 @@ public partial class EditorPmmImportWindow : Window
             });
             var grid = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitions("44,*,228,12,100"),
+                ColumnDefinitions = new ColumnDefinitions("44,*,228,12,Auto"),
                 Margin = new Thickness(0, 12)
             };
             var index = PathText("#" + row.ModelIndex); index.VerticalAlignment = VerticalAlignment.Top;

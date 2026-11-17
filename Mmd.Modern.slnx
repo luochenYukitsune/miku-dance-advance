@@ -16,11 +16,9 @@
   <Folder Name="/Compatibility/">
     <Project Path="src/Mmd.Modern.Effects/Mmd.Modern.Effects.csproj" />
     <Project Path="src/Mmd.Modern.Rendering.D3D9.Compatibility/Mmd.Modern.Rendering.D3D9.Compatibility.csproj" />
-    <Project Path="src/Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />
   </Folder>
   <Folder Name="/Gui/">
     <Project Path="src/Mmd.Modern.App/Mmd.Modern.App.csproj" />
-    <Project Path="src/Mmd.Modern.Demo/Mmd.Modern.Demo.csproj" />
   </Folder>
   <Folder Name="/Plugins/">
     <Project Path="src/Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
@@ -36,6 +34,8 @@
   <Folder Name="/tools/">
     <Project Path="tools/Mmd.Modern.ViewOutput.Stage/Mmd.Modern.ViewOutput.Stage.csproj" />
     <Project Path="src/Mmd.Modern.Smoke/Mmd.Modern.Smoke.csproj" />
+    <Project Path="src/Mmd.Modern.Demo/Mmd.Modern.Demo.csproj" />
+    <Project Path="src/Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Mmd.Modern.PluginFixture/Mmd.Modern.PluginFixture.csproj" />

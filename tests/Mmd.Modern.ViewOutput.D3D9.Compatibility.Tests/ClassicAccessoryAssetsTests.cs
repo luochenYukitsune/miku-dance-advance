@@ -9,7 +9,7 @@ namespace Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests;
 
 public sealed class ClassicAccessoryAssetsTests : IDisposable
 {
-    private readonly string directory = Path.Combine("G:/MDA-Work/compat/20261110/screen608/tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("compat/20261110/screen608/tests"), Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -164,7 +164,7 @@ public sealed class ClassicAccessoryAssetsTests : IDisposable
     public void Dispose()
     {
         string full = Path.GetFullPath(directory);
-        if (!full.StartsWith(Path.GetFullPath("G:/MDA-Work/compat/20261110/screen608/tests/"), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
+        if (!full.StartsWith(Path.GetFullPath(MdaWorkRoot.Path("compat/20261110/screen608/tests/")), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
         if (Directory.Exists(full)) Directory.Delete(full, true);
         if (Directory.Exists(full + "-away")) Directory.Delete(full + "-away", true);
     }

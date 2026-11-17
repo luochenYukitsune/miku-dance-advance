@@ -16,7 +16,7 @@ namespace Mmd.Modern.Tests;
 public sealed class EditorFileOpenRequestTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
-    private readonly string directory = Path.Combine("G:/MDA-Work/settings/20261113/associations648/unit", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("settings/20261113/associations648/unit"), Guid.NewGuid().ToString("N"));
 
     [Theory]
     [InlineData(".pma", PmaProjectStore.Format)]

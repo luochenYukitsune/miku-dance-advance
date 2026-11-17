@@ -50,12 +50,14 @@
       </StackPanel>
       <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
         <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.bec5dd6e9068}" Classes="group" /></Border>
-        <Grid ColumnDefinitions="*,10,*" RowDefinitions="20,28,12,20,28">
+        <Grid ColumnDefinitions="*,10,*" RowDefinitions="20,28,28,12,20,28">
           <TextBlock Text="{DynamicResource Mda.Text.3865483de52d}" Classes="caption" /><TextBlock Grid.Column="2" Text="{DynamicResource Mda.Text.de32bdb05238}" Classes="caption" />
           <validated:EditorNumericUpDown Name="CameraDistance" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.00" Increment="1" Value="{Binding CameraDistance, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.24a2c139c050}" />
           <validated:EditorNumericUpDown Name="CameraFov" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="1" Maximum="179" Increment="1" FormatString="0.0" Value="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.28b9f9301519}" />
-          <TextBlock Grid.Row="3" Text="{DynamicResource Mda.Text.caabf3ff858f}" Classes="caption" />
-          <ComboBox Name="CameraProjection" Grid.Row="4" Grid.ColumnSpan="3" ItemsSource="{Binding Projections}" SelectedIndex="{Binding CameraProjectionIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+          <validated:EditorValueSlider Name="CameraFovSlider" Grid.Row="2" Grid.Column="2" Minimum="1" Maximum="125" SmallChange="1" LargeChange="10" Step="0.5" DefaultValue="30"
+                       Number="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.de32bdb05238}" />
+          <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.caabf3ff858f}" Classes="caption" />
+          <ComboBox Name="CameraProjection" Grid.Row="5" Grid.ColumnSpan="3" ItemsSource="{Binding Projections}" SelectedIndex="{Binding CameraProjectionIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
         </Grid>
       </StackPanel>
       <TextBlock Text="{Binding CameraValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasCameraValidation}" />

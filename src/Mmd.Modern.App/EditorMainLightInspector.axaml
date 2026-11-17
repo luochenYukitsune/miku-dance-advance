@@ -10,18 +10,48 @@
     <StackPanel Spacing="6" IsEnabled="{Binding CanEdit}">
       <validated:EditorLightDirectionPad Name="MainLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=TwoWay}" Height="128"
                    ToolTip.Tip="{DynamicResource Mda.Text.9ab4d3b625f0}" />
-      <TextBlock Text="{DynamicResource Mda.Text.e44934d4150a}" Classes="caption" HorizontalAlignment="Center" />
+      <TextBlock Text="{DynamicResource Mda.Text.LightAim.PadHint}" Classes="caption" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+      <!-- Source angles: where the light comes from, as seen from the default camera. -->
+      <Grid ColumnDefinitions="Auto,10,*,10,64" RowDefinitions="28,6,28" Margin="0,4,0,0">
+        <TextBlock Text="{DynamicResource Mda.Text.LightAim.Azimuth}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.AzimuthHint}" />
+        <validated:EditorValueSlider Name="LightAzimuthSlider" Grid.Column="2" Minimum="0" Maximum="360" SmallChange="1" LargeChange="15" Step="0.5"
+            Number="{Binding LightAzimuth, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.AzimuthHint}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Azimuth}" />
+        <validated:EditorNumericUpDown Name="LightAzimuth" Grid.Column="4" Classes="editorNumber" Watermark="—" Minimum="-720" Maximum="720" Increment="5" FormatString="0.#"
+            Value="{Binding LightAzimuth, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Azimuth}" />
+        <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.LightAim.Elevation}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.ElevationHint}" />
+        <validated:EditorValueSlider Name="LightElevationSlider" Grid.Row="2" Grid.Column="2" Minimum="-90" Maximum="90" SmallChange="1" LargeChange="15" Step="0.5"
+            Number="{Binding LightElevation, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.ElevationHint}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Elevation}" />
+        <validated:EditorNumericUpDown Name="LightElevation" Grid.Row="2" Grid.Column="4" Classes="editorNumber" Watermark="—" Minimum="-90" Maximum="90" Increment="5" FormatString="0.#"
+            Value="{Binding LightElevation, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Elevation}" />
+      </Grid>
+      <!-- One-click aims. Each is one draft change; registering it is still one undo step. -->
+      <UniformGrid Name="MainLightAimPresets" Columns="4" Margin="0,4,0,0">
+        <UniformGrid.Styles><Style Selector="Button"><Setter Property="Margin" Value="2" /><Setter Property="Padding" Value="2,0" /><Setter Property="MinHeight" Value="26" /><Setter Property="FontSize" Value="12" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Center" /></Style></UniformGrid.Styles>
+        <Button Classes="action" Tag="top" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Top}" />
+        <Button Classes="action" Tag="front" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Front}" />
+        <Button Classes="action" Tag="frontLeft" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.FrontLeft}" />
+        <Button Classes="action" Tag="frontRight" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.FrontRight}" />
+        <Button Classes="action" Tag="left" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Left}" />
+        <Button Classes="action" Tag="right" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Right}" />
+        <Button Classes="action" Tag="back" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Back}" />
+        <Button Classes="action" Tag="default" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Default}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.DefaultHint}" />
+      </UniformGrid>
+      <Button Name="MainLightFromCameraButton" Classes="action" Click="AimMainLightFromCamera" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0"
+              Content="{DynamicResource Mda.Text.LightAim.FromCamera}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FromCameraHint}" />
     </StackPanel>
     <Grid ColumnDefinitions="*,10,*" IsEnabled="{Binding CanEdit}">
       <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
       <validated:EditorNumericUpDown Name="LightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
     </Grid>
+    <validated:EditorValueSlider Name="LightIntensitySlider" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="1"
+                 Number="{Binding LightIntensity, Mode=TwoWay}" IsEnabled="{Binding CanEdit}" Margin="0,-8,0,0"
+                 ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a2846644a638}" />
     <Grid ColumnDefinitions="*,Auto" IsEnabled="{Binding CanEdit}">
       <TextBlock Text="{DynamicResource Mda.Text.8d044de8374c}" Classes="caption" VerticalAlignment="Center" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-        <Button Width="28" Height="26" Padding="4" Tag="#FFFFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.052c09cf906e}" AutomationProperties.Name="{DynamicResource Mda.Text.052c09cf906e}"><Border Background="#FFFFFF" Width="16" Height="14" /></Button>
-        <Button Width="28" Height="26" Padding="4" Tag="#FFE2BE" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.2d96508a2884}" AutomationProperties.Name="{DynamicResource Mda.Text.2d96508a2884}"><Border Background="#FFE2BE" Width="16" Height="14" /></Button>
-        <Button Width="28" Height="26" Padding="4" Tag="#CEDFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.bce15f0bc671}" AutomationProperties.Name="{DynamicResource Mda.Text.bce15f0bc671}"><Border Background="#CEDFFF" Width="16" Height="14" /></Button>
+        <Button Width="28" Height="26" Padding="4" Tag="#FFFFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.052c09cf906e}" AutomationProperties.Name="{DynamicResource Mda.Text.052c09cf906e}"><Border Background="#FFFFFF" Width="16" Height="14" BorderBrush="{DynamicResource MdaButtonBorder}" BorderThickness="1" CornerRadius="2" /></Button>
+        <Button Width="28" Height="26" Padding="4" Tag="#FFE2BE" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.2d96508a2884}" AutomationProperties.Name="{DynamicResource Mda.Text.2d96508a2884}"><Border Background="#FFE2BE" Width="16" Height="14" BorderBrush="{DynamicResource MdaButtonBorder}" BorderThickness="1" CornerRadius="2" /></Button>
+        <Button Width="28" Height="26" Padding="4" Tag="#CEDFFF" Click="MainLightColor" ToolTip.Tip="{DynamicResource Mda.Text.bce15f0bc671}" AutomationProperties.Name="{DynamicResource Mda.Text.bce15f0bc671}"><Border Background="#CEDFFF" Width="16" Height="14" BorderBrush="{DynamicResource MdaButtonBorder}" BorderThickness="1" CornerRadius="2" /></Button>
       </StackPanel>
     </Grid>
     <Expander Name="MainLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.4db33ee938e5}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Mmd.Modern.Tests/MdaWorkRoot.cs" Link="Shared/MdaWorkRoot.cs" />
     <ProjectReference Include="../../src/Mmd.Modern.Rendering.D3D9.Compatibility/Mmd.Modern.Rendering.D3D9.Compatibility.csproj" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />

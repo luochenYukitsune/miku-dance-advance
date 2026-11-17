@@ -79,9 +79,13 @@ internal static class D3D12StylizedLightBudgetValidator
                 if (endpoint.Min[channel] < 0 || native.Min[channel] < 0) throw Unsupported();
 
             Vector3 total = Vector3.Zero;
-            foreach (var light in frame.Lighting!.Lights)
+            float environment = frame.Lighting!.Settings.EnvironmentStrength;
+            if (environment > 0)
+                for (int channel = 0; channel < 3; channel++) total[channel] = Checked(ScalarMultiply(native.Max[channel], environment));
+            foreach (var light in frame.Lighting!.EffectiveLights)
             {
-                if (!light.Enabled || light.Intensity == 0 || light.Color == Vector3.Zero) continue;
+                if (!light.Enabled || light.Intensity == 0 || light.Color == Vector3.Zero
+                    || light.Receivers?.Affects(frame.Materials[index].LightReceiverObjectId) == false) continue;
                 // NativeDirect evaluates this scalar independently of colour and diffuse.
                 // Its minimum squared distance is .0001; angular response/visibility and
                 // remaining palette each lie in [0,1]. A zero budget cannot hide Inf*0.

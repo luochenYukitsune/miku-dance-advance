@@ -47,8 +47,10 @@ public static class PmmSessionExporter
         }
         if (state.CurrentFrame != Math.Floor(state.CurrentFrame) || state.CurrentFrame > int.MaxValue)
             throw new NotSupportedException("PMM export requires an integer current frame within Int32 range; seek before exporting.");
-        if (state.Lighting.Lights.Count != 0)
-            throw new NotSupportedException("PMM cannot represent native point/spot/directional light objects; remove them or save the modern project.");
+        if (state.Lighting.Lights.Count != 0 || state.Lighting.Groups.Count != 0)
+            throw new NotSupportedException("PMM cannot represent native point/spot/directional light objects or light groups; remove them or save the modern project.");
+        if (state.Lighting.Settings != SceneLightingSettings.Default)
+            throw new NotSupportedException("PMM cannot represent modern environment fill or overall exposure; save the modern project to preserve these settings.");
         if (state.Objects.Count > 255) throw new InvalidDataException("PMM supports at most 255 model records.");
         if (options.TemplateModelIndices is null || options.StaticModels is null) throw new ArgumentException("Export model mappings cannot be null.", nameof(options));
         var actors = state.Objects.Select(o => o.Id).ToHashSet();

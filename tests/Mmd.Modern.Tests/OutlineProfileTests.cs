@@ -30,7 +30,7 @@ public sealed class OutlineProfileTests
     [Fact]
     public void SavingAsALibraryCopyRetainsIndependentWidths()
     {
-        string directory = Path.Combine("G:/MDA-Work/settings/20261113/outline659", "library-" + Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(MdaWorkRoot.Path("settings/20261113/outline659"), "library-" + Guid.NewGuid().ToString("N"));
         var profile = new D3D12MaterialBindingProfile("outline", "Outline", Fingerprint, [], outlineWidths: [new(0, .25f)]);
         var saved = new D3D12MaterialBindingProfileStore(directory).SaveAsNew(profile, "Fine outlines");
         Assert.NotEqual(profile.StableId, saved.StableId);
