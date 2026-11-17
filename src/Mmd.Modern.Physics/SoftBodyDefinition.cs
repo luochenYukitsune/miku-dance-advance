@@ -69,13 +69,27 @@ public sealed class SoftBodyDefinition
             throw new ArgumentException("Invalid soft-body configuration.", nameof(settings));
         // Bullet stores each node's inverse mass as count / total; keep both the mass and its inverse finite.
         float nodeMass = settings.Mass / ids.Length;
-        if (!float.IsFinite(nodeMass) || nodeMass <= 0 || !float.IsFinite(1 / nodeMass))
+        if (!float.IsFinite(nodeMass) || nodeMass <= 0 || !float.IsFinite(1 / nodeMass) || !NativeInverseMassFinite(settings.Mass, ids.Length))
             throw new ArgumentException("Soft-body mass per vertex is outside the float solver range.", nameof(settings));
         Name = name; Shape = shape; VertexIndices = Array.AsReadOnly(ids); Positions = Array.AsReadOnly(points);
         TriangleIndices = Array.AsReadOnly(triangles); PinVertexIndices = Array.AsReadOnly(pins); Anchors = Array.AsReadOnly(anchorArray);
         Settings = settings with { Config = Array.AsReadOnly(settings.Config.ToArray()),
             ClusterConfig = Array.AsReadOnly(settings.ClusterConfig.ToArray()), Stiffness = Array.AsReadOnly(settings.Stiffness.ToArray()),
             Iterations = Array.AsReadOnly(settings.Iterations.ToArray()) };
+    }
+
+    /// <summary>Replays btSoftBody::setTotalMass in float32 for nodes created with mass 1 (inverse mass 1):
+    /// tm = sum of node masses, itm = 1 / tm, then each m_im /= itm * mass. The managed per-node check above
+    /// rounds differently, so a mass can pass it while the native inverse mass becomes infinite or zero.</summary>
+    internal static bool NativeInverseMassFinite(float mass, int nodes)
+    {
+        float total = 0;
+        for (int i = 0; i < nodes; i++) total += 1f;
+        float inverseTotal = 1f / total;
+        float scale = inverseTotal * mass;
+        if (!float.IsFinite(scale) || scale <= 0) return false;
+        float inverseMass = 1f / scale;
+        return float.IsFinite(inverseMass) && inverseMass > 0;
     }
 }
 
@@ -87,6 +101,7 @@ public sealed record SoftBodySample(int[] VertexIndices, Vector3[] Positions, Ve
 public interface ISoftBodyRigidProxyUpdater
 {
     void UpdateRigidProxies(ReadOnlySpan<Matrix4x4> rigidWorlds);
+
 }
 
 /// <summary>Rigid transforms are externally simulated collision/anchor proxies; no reverse impulse feedback.</summary>

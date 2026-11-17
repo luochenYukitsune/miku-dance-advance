@@ -283,7 +283,8 @@ internal sealed class D3D12GpuRuntime:IDisposable
     public void Dispose()
     {
         if(disposed)return;
-        try{Abort();WaitForIdleForTeardown();}
+        // Wait for submitted work even if closing the open list fails: the GPU may still read every slot's resources.
+        try{try{Abort();}finally{WaitForIdleForTeardown();}}
         finally
         {
             disposed=true;

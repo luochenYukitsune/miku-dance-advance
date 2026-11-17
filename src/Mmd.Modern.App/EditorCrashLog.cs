@@ -61,8 +61,7 @@ internal static class EditorCrashLog
     internal static bool ShouldRecord(string source, Exception error, out string? path, string? directory = null)
     {
         // TargetSite.ToString() omits the declaring type, so A.Refresh() and B.Refresh() would share a signature.
-        var site = error.TargetSite;
-        string location = site is null ? error.Message : $"{site.DeclaringType?.AssemblyQualifiedName}::{site}#{site.MetadataToken}";
+        string location = Location(error);
         string signature = source + "|" + error.GetType().FullName + "|" + location;
         int count;
         lock (throttleGate)
@@ -76,6 +75,22 @@ internal static class EditorCrashLog
         if (count > 1 && (count & (count - 1)) != 0) return false;
         path = TryWrite(count == 1 ? source : $"{source}-repeat{count}", error, directory);
         return count == 1;
+    }
+
+    /// <summary>Throw-site identity for throttling. Never throws: a DynamicMethod's MetadataToken (and other
+    /// metadata) can throw, and an exception from this handler would skip logging and notifying the original one.</summary>
+    internal static string Location(Exception error)
+    {
+        try
+        {
+            var site = error.TargetSite;
+            if (site is null) return error.Message;
+            string method = site.ToString() ?? site.Name;
+            string type = site.DeclaringType?.AssemblyQualifiedName ?? "<dynamic>";
+            try { return $"{type}::{method}#{site.MetadataToken}"; }
+            catch (InvalidOperationException) { return $"{type}::{method}"; }
+        }
+        catch (Exception) { return error.GetType().FullName + ": " + error.Message; }
     }
 
     internal static void ResetThrottleForTests() { lock (throttleGate) seen.Clear(); }

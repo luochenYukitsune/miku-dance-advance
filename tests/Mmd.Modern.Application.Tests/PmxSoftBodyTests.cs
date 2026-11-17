@@ -63,6 +63,22 @@ public sealed class PmxSoftBodyTests
             [4, 8], [Vector3.Zero, Vector3.One], [], [], [], new() { Mass = 1e-45f }));
 
     [Fact]
+    public void PositiveNodeMassWhoseInverseOverflowsFloat32IsRejected()
+        // 1e-39 / 2 is a positive subnormal float whose reciprocal is infinite.
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("light", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, Vector3.One], [], [], [], new() { Mass = 1e-39f }));
+
+    [Fact]
+    public void MassThatPassesThePerNodeCheckButOverflowsBulletsSetTotalMassIsRejected()
+    {
+        // Replays btSoftBody::setTotalMass (itm = 1 / count; m_im /= itm * mass) for a 31-node rope.
+        float mass = 31f * MathF.ScaleB(1f, -128) + MathF.ScaleB(1f, -145);
+        var points = Enumerable.Range(0, 31).Select(i => new Vector3(i, 0, 0)).ToArray();
+        Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("rope", SoftBodyShape.Rope,
+            Enumerable.Range(0, 31), points, [], [], [], new() { Mass = mass }));
+    }
+
+    [Fact]
     public void InvalidGlobalPinFailsBeforeNativeAllocation()
         => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("bad", SoftBodyShape.Rope,
             [4, 8], [Vector3.Zero, Vector3.One], [], [0], [], new()));

@@ -365,7 +365,9 @@ internal static class PortableModelAssets
         string normalized = reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
         if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
             throw new InvalidDataException($"Model dependency '{reference}' must be a relative path inside the model directory.");
-        string folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modelDirectory)) + Path.DirectorySeparatorChar;
+        // A drive root such as "D:\" keeps its separator after trimming; append one only when it is missing.
+        string folder = Path.GetFullPath(modelDirectory);
+        if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
         string path = Path.GetFullPath(Path.Combine(folder, normalized));
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!path.StartsWith(folder, comparison))
