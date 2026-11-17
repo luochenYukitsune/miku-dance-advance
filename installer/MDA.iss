@@ -311,18 +311,13 @@ end;
 
 function CanClaimUnassignedExtension(Extension: String): Boolean;
 var
-  Existing, ClassKey: String;
+  Existing: String;
 begin
-  { Setup writes per-user defaults. Look up the user's registration first,
-    then the machine registration if the user has no default value. }
-  ClassKey := 'Software\Classes\' + Extension;
-  if not RegQueryStringValue(HKCU, ClassKey, '', Existing) then
-    if not RegQueryStringValue(HKLM, ClassKey, '', Existing) then
-      Existing := '';
-  Result := True;
-  if Existing = '' then exit;
-  ClassKey := 'Software\Classes\' + Existing;
-  Result := not RegKeyExists(HKCU, ClassKey) and not RegKeyExists(HKLM, ClassKey);
+  { Windows ignores an extension default whose ProgID is no longer registered.
+    Repair that fallback as well as empty values. Explorer's UserChoice takes
+    precedence over this registration and is managed by Windows. }
+  Result := not RegQueryStringValue(HKCR, Extension, '', Existing) or
+    (Existing = '') or not RegKeyExists(HKCR, Existing);
 end;
 
 function AssocQueryString(Flags, Kind: Cardinal; Association, Verb, Buffer: String;
