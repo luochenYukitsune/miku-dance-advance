@@ -47,6 +47,52 @@ public sealed class PmaSaveSnapshotTests : IDisposable
     }
 
     [Fact]
+    public void ReceiverSelectionSurvivesDetachedPmaCaptureReopenAndResave()
+    {
+        using var project = Fixture(out _, out var objectId);
+        var light = project.Lighting.Lights[0] with { Receivers = new(SceneLightReceiverMode.Include, [objectId]) };
+        project.Edit(edit => edit.Lighting.Update(light), Token);
+        using var captured = PmaProjectStore.CaptureSnapshot(project, Options(), Token);
+        project.Edit(edit => edit.Lighting.Update(light with { Receivers = null }), Token);
+        captured.Save(Package("receiver-captured"), Token);
+        using var loaded = Load(Package("receiver-captured"));
+        Assert.Equal(light, Assert.Single(loaded.Session.Lighting.Lights));
+        PmaProjectStore.Save(Package("receiver-resaved"), loaded.Session, Options(), Token);
+        using var resaved = Load(Package("receiver-resaved"));
+        Assert.Equal(light, Assert.Single(resaved.Session.Lighting.Lights));
+        Assert.Null(Assert.Single(project.Lighting.Lights).Receivers);
+    }
+
+    [Fact]
+    public void DetachedPmaCaptureRetainsParentGroupAndLocalTransformAfterLiveParentRemoval()
+    {
+        using var project = Fixture(out _, out var objectId);
+        var group = new SceneLightGroup(Guid.NewGuid(), "跟随灯组", false, 2.5f);
+        var light = project.Lighting.Lights[0] with
+        {
+            GroupId = group.Id, Parent = new(objectId, 0), Position = new(2, -3, 4),
+            Rotation = Quaternion.CreateFromYawPitchRoll(.2f, .3f, -.4f), Range = 17,
+        };
+        project.Edit(edit =>
+        {
+            edit.Lighting.AddGroup(group);
+            edit.Lighting.Update(light);
+        }, Token);
+        using var captured = PmaProjectStore.CaptureSnapshot(project, Options(), Token);
+        project.Edit(edit => edit.Lighting.Update(light with { Parent = null, Position = Vector3.Zero }), Token);
+        captured.Save(Package("parent-captured"), Token);
+        using var loaded = Load(Package("parent-captured"));
+        Assert.Equal(light, Assert.Single(loaded.Session.Lighting.Lights));
+        Assert.Equal(group, Assert.Single(loaded.Session.Lighting.Groups));
+        Assert.Equal(objectId, Assert.Single(loaded.Session.Objects).Id);
+        Assert.Null(Assert.Single(project.Lighting.Lights).Parent);
+        PmaProjectStore.Save(Package("parent-resaved"), loaded.Session, Options(), Token);
+        using var resaved = Load(Package("parent-resaved"));
+        Assert.Equal(light, Assert.Single(resaved.Session.Lighting.Lights));
+        Assert.Equal(group, Assert.Single(resaved.Session.Lighting.Groups));
+    }
+
+    [Fact]
     public void LoadedPackageResourcesOriginalModelsAndUnknownExtensionsArePinnedUntilLastSnapshot()
     {
         using var project = Fixture(out var original, out var id);

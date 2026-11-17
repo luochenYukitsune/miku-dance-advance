@@ -24,7 +24,8 @@ internal static class EditorLightPlacement
         // The existing renderer uses artistic I / distance^2 units, not lumens.
         // Keep the initial illuminance local and stable when zooming between scene scales.
         float intensity = kind == SceneLightKind.Directional ? .3f : .5f * Vector3.DistanceSquared(position, focus);
-        return new(id, name, kind, position, rotation, Vector3.One, intensity, span * 3);
+        return new(id, name, kind, position, rotation, Vector3.One, intensity, span * 3,
+            AreaSize: kind == SceneLightKind.Area ? new(span * .25f) : null);
     }
 
     public static SceneCamera ValidateCamera(PmmCameraPose pose)

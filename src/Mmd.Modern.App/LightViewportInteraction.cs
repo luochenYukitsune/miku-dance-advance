@@ -104,7 +104,8 @@ public static class LightViewportInteraction
     }
 
     public static LightViewportHit? HitTest(SceneLightingSnapshot lights, Guid? selected, Vector2 mouse,
-        SceneCamera camera, int width, int height, float size, bool rotate = false)
+        SceneCamera camera, int width, int height, float size, bool rotate = false, Vector3? selectionPivot = null,
+        IReadOnlyCollection<Guid>? selectedIds = null)
     {
         Guid? nearest = null;
         float distance = 144, depth = float.PositiveInfinity;
@@ -112,8 +113,11 @@ public static class LightViewportInteraction
         {
             if (!TryProject(light.Position, camera, width, height, out var center)) continue;
             float candidate = Vector2.DistanceSquared(mouse, center), candidateDepth = Vector3.DistanceSquared(light.Position, camera.Eye);
+            bool candidateSelected = selectedIds?.Contains(light.Id) ?? light.Id == selected;
+            bool previousActive = nearest is { } previous && (selectedIds?.Contains(previous) ?? previous == selected);
             if (candidate <= 144 && (nearest is null || candidate < distance || candidate == distance
-                && (candidateDepth < depth || candidateDepth == depth && light.Id.CompareTo(nearest.Value) < 0)))
+                && (candidateDepth < depth || candidateDepth == depth && (candidateSelected && !previousActive
+                    || candidateSelected == previousActive && light.Id.CompareTo(nearest.Value) < 0))))
             { nearest = light.Id; distance = candidate; depth = candidateDepth; }
         }
         // The icon always moves the light, including when rotation rings are active.
@@ -123,44 +127,54 @@ public static class LightViewportInteraction
         distance = 7;
         foreach (var axis in Axes)
         {
-            float candidate = HandleDistance(active.Position, axis, size, mouse, camera, width, height, rotate);
+            float candidate = HandleDistance(selectionPivot ?? active.Position, axis, size, mouse, camera, width, height, rotate);
             if (candidate < distance) { distance = candidate; bestAxis = axis; }
         }
         return bestAxis is { } chosen ? new(id, chosen) : null;
     }
 
     public static ViewportOverlaySnapshot CreateOverlay(SceneLightingSnapshot lights, Guid? selected,
-        SceneCamera camera, int width, int height, float size, bool rotate = false)
+        SceneCamera camera, int width, int height, float size, bool rotate = false,
+        IReadOnlyCollection<Guid>? selectedIds = null, Vector3? selectionPivot = null, bool showDetails = true)
     {
         var lines = new List<ViewportOverlayLine>();
         foreach (var light in lights.Lights)
         {
             if (!TryProject(light.Position, camera, width, height, out var center)) continue;
-            bool active = light.Id == selected;
+            bool active = selectedIds?.Contains(light.Id) ?? light.Id == selected;
             // Helper contrast must not depend on lamp RGB: a white lamp still needs a
             // readable icon over the default white world, and a black lamp over black UI.
             var border = new Vector4(.10f, .16f, .21f, 1);
             var color = active ? new Vector4(.91f, .64f, .23f, 1) : light.Enabled
                 ? new Vector4(.79f, .87f, .93f, 1) : new Vector4(.53f, .58f, .62f, 1);
             int radius = active ? 8 : 6;
-            var corners = new[] { center - new Vector2(radius, 0), center - new Vector2(0, radius),
-                center + new Vector2(radius, 0), center + new Vector2(0, radius) };
-            for (int edge = 0; edge < corners.Length; edge++)
-                Add(corners[edge], corners[(edge + 1) % corners.Length], border, 4.5f);
-            for (int edge = 0; edge < corners.Length; edge++)
-                Add(corners[edge], corners[(edge + 1) % corners.Length], color, 1.5f);
-            if (!active) continue;
+            // Native square primitives keep all 128 authoring markers within the existing
+            // overlay constant budget, leaving space for selection rings and scene guides.
+            var marker = new Vector2(center.X / width, center.Y / height);
+            lines.Add(new(marker, marker, border, Width: 4.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
+            lines.Add(new(marker, marker, color, Width: 1.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
+            if (active && light.Kind != SceneLightKind.Point)
+                WorldLine(light.Position, light.Position + light.Direction * size * 1.4f, new(1, 1, .25f, 1));
+            // Detailed coverage belongs only to the primary selection. Even 128 selected
+            // authoring lights leave room for shared handles and scene guides in the 1024 budget.
+            if (showDetails && light.Id == selected)
+                foreach (var (start, end) in DetailSegments(light)) WorldLine(start, end, new(.91f, .64f, .23f, .85f), 1.25f);
+        }
+        if (lights.Lights.FirstOrDefault(light => light.Id == selected) is { } primary
+            && TryProject(selectionPivot ?? primary.Position, camera, width, height, out var handleCenter))
+        {
+            var pivot = selectionPivot ?? primary.Position;
             foreach (var axis in Axes)
             {
                 var axisColor = AxisColor(axis);
                 if (rotate)
                 {
-                    foreach (var (a, b) in RingSegmentsFor(light.Position, axis, size)) WorldLine(a, b, axisColor);
+                    foreach (var (a, b) in RingSegmentsFor(pivot, axis, size)) WorldLine(a, b, axisColor);
                 }
-                else if (TryProject(light.Position + Axis(axis) * size, camera, width, height, out var end))
+                else if (TryProject(pivot + Axis(axis) * size, camera, width, height, out var end))
                 {
-                    Add(center, end, axisColor);
-                    var direction = end - center;
+                    Add(handleCenter, end, axisColor);
+                    var direction = end - handleCenter;
                     if (direction.LengthSquared() < 4) continue;
                     direction = Vector2.Normalize(direction);
                     var side = new Vector2(-direction.Y, direction.X) * 4;
@@ -168,16 +182,88 @@ public static class LightViewportInteraction
                     Add(end, end - direction * 8 - side, axisColor);
                 }
             }
-            if (light.Kind != SceneLightKind.Point) WorldLine(light.Position, light.Position + light.Direction * size * 1.4f, new(1, 1, .25f, 1));
         }
         return new(lines);
 
-        void WorldLine(Vector3 a, Vector3 b, Vector4 color)
+        void WorldLine(Vector3 a, Vector3 b, Vector4 color, float strokeWidth = 2.5f)
         {
-            if (TryProject(a, camera, width, height, out var start) && TryProject(b, camera, width, height, out var end)) Add(start, end, color);
+            if (TryProjectSegment(a, b, camera, width, height, out var start, out var end)) Add(start, end, color, strokeWidth);
         }
         void Add(Vector2 from, Vector2 to, Vector4 color, float strokeWidth = 2.5f) =>
             lines.Add(new(new(from.X / width, from.Y / height), new(to.X / width, to.Y / height), color, Width: strokeWidth));
+    }
+
+    /// <summary>Actual scene-unit coverage, independent of the fixed screen-size editing handles.</summary>
+    internal static IEnumerable<(Vector3 Start, Vector3 End)> DetailSegments(NativeSceneLight light)
+    {
+        if (light.Kind == SceneLightKind.Point)
+        {
+            foreach (var axis in Axes)
+                foreach (var segment in RingSegmentsFor(light.Position, axis, light.Range)) yield return segment;
+        }
+        else if (light.Kind == SceneLightKind.Spot)
+        {
+            // Range attenuates by radial distance, so the cone edge ends on the range
+            // sphere. sin/cos also stay finite for the supported PI/2 half-angle.
+            float radius = light.Range * MathF.Sin(light.OuterConeRadians);
+            var centre = light.Position + light.Direction * (light.Range * MathF.Cos(light.OuterConeRadians));
+            var right = Vector3.Transform(Vector3.UnitX, light.Rotation);
+            var up = Vector3.Transform(Vector3.UnitY, light.Rotation);
+            for (int step = 0; step < RingSegments; step++)
+            {
+                float first = MathF.Tau * step / RingSegments, next = MathF.Tau * (step + 1) / RingSegments;
+                var a = centre + (right * MathF.Cos(first) + up * MathF.Sin(first)) * radius;
+                var b = centre + (right * MathF.Cos(next) + up * MathF.Sin(next)) * radius;
+                yield return (a, b);
+                if (step % (RingSegments / 4) == 0) yield return (light.Position, a);
+            }
+        }
+        else if (light.Kind == SceneLightKind.Area && light.AreaSize is { } area)
+        {
+            var half = area * .5f;
+            var corners = new[] { new Vector3(-half.X, -half.Y, 0), new Vector3(half.X, -half.Y, 0),
+                new Vector3(half.X, half.Y, 0), new Vector3(-half.X, half.Y, 0) };
+            for (int index = 0; index < corners.Length; index++)
+                yield return (World(corners[index]), World(corners[(index + 1) % corners.Length]));
+            Vector3 World(Vector3 local) => light.Position + Vector3.Transform(local, light.Rotation);
+        }
+    }
+
+    /// <summary>Clip world coverage to the camera frustum before division. Large ranges often
+    /// cross the viewport with both original endpoints outside; those lines must remain visible.</summary>
+    internal static bool TryProjectSegment(Vector3 a, Vector3 b, SceneCamera camera, int width, int height,
+        out Vector2 start, out Vector2 end)
+    {
+        start = end = default;
+        if (width <= 0 || height <= 0 || !Finite(a) || !Finite(b)) return false;
+        var matrix = camera.ViewProjection(width, height);
+        var first = Vector4.Transform(new Vector4(a, 1), matrix);
+        var last = Vector4.Transform(new Vector4(b, 1), matrix);
+        if (!Finite(first) || !Finite(last)) return false;
+        double low = 0, high = 1;
+        if (!Clip((double)first.W + first.X, (double)last.W + last.X) || !Clip((double)first.W - first.X, (double)last.W - last.X)
+            || !Clip((double)first.W + first.Y, (double)last.W + last.Y) || !Clip((double)first.W - first.Y, (double)last.W - last.Y)
+            || !Clip(first.Z, last.Z) || !Clip((double)first.W - first.Z, (double)last.W - last.Z)
+            || !Clip(first.W - 1e-6f, last.W - 1e-6f)) return false;
+        start = Project(low); end = Project(high); return Finite(start) && Finite(end);
+
+        bool Clip(double from, double to)
+        {
+            if (from < 0 && to < 0) return false;
+            if (from >= 0 && to >= 0) return true;
+            double crossing = from / (from - to);
+            if (from < 0) low = Math.Max(low, crossing); else high = Math.Min(high, crossing);
+            return low <= high;
+        }
+        Vector2 Project(double t)
+        {
+            // Double interpolation avoids overflow from subtracting opposite finite floats.
+            double w = first.W * (1 - t) + last.W * t;
+            double x = (first.X * (1 - t) + last.X * t) / w;
+            double y = (first.Y * (1 - t) + last.Y * t) / w;
+            return new((float)Math.Clamp((x * .5 + .5) * width, 0, width),
+                (float)Math.Clamp((.5 - y * .5) * height, 0, height));
+        }
     }
 
     private static float HandleDistance(Vector3 origin, LightDragAxis axis, float size, Vector2 mouse, SceneCamera camera, int width, int height, bool rotate)
@@ -212,4 +298,5 @@ public static class LightViewportInteraction
     { var d = b - a; float n = d.LengthSquared(); return Vector2.Distance(p, n < 1e-6f ? a : a + d * Math.Clamp(Vector2.Dot(p - a, d) / n, 0, 1)); }
     private static bool Finite(Vector2 value) => float.IsFinite(value.X) && float.IsFinite(value.Y);
     private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+    private static bool Finite(Vector4 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z) && float.IsFinite(value.W);
 }

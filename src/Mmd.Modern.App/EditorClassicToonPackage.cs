@@ -10,7 +10,7 @@ namespace Mmd.Modern.App;
 
 /// <summary>Document-owned original common/default toon bytes. This narrow opaque extension uses the
 /// existing neutral package transport; authored separate toon files remain model dependencies.</summary>
-internal sealed class EditorClassicToonPackage
+internal sealed partial class EditorClassicToonPackage
 {
     internal const string ExtensionName = "org.mda.classic-toons";
     internal const string ResourcePrefix = "render-resources/classic-toons/";
@@ -23,7 +23,7 @@ internal sealed class EditorClassicToonPackage
         AllowDuplicateProperties = false
     };
     private sealed record MaterialDto([property: JsonRequired] int MaterialIndex,
-        [property: JsonRequired] int Slot, [property: JsonRequired] string ImageSha256);
+        [property: JsonRequired] int Slot, [property: JsonRequired] string ImageSha256, bool Override = false);
     private sealed record ModelDto([property: JsonRequired] Guid ObjectId, [property: JsonRequired] MaterialDto[] Materials);
     private sealed record ImageDto([property: JsonRequired] string Sha256,
         [property: JsonRequired] string AuthoredToken, [property: JsonRequired] string ResourcePath);
@@ -61,6 +61,10 @@ internal sealed class EditorClassicToonPackage
             if (obj.Source.Surface.Snapshot.Materials.Count != model.Materials.Count)
                 throw Invalid("Classic source material count disagrees with its authored PMX.");
             var required = Required(model);
+            if (previous is not null && previous.models.TryGetValue(obj.Id, out var retained))
+                foreach (var entry in retained.Where(value => value.Override))
+                    if (entry.MaterialIndex < model.Materials.Count && Slot(model.Materials[entry.MaterialIndex]) == entry.Slot)
+                        required[entry.MaterialIndex] = entry.Slot;
             var materials = new List<MaterialDto>();
             foreach (var (index, slot) in required)
             {
@@ -76,7 +80,7 @@ internal sealed class EditorClassicToonPackage
                         && SameImage(actual, candidate.Texture))
                     { prior = candidate; if (ReferenceEquals(actual, candidate.Texture)) image = candidate; }
                 }
-                var resource = selected?.Entries[slot];
+                var resource = slot <= 10 ? selected?.Entries[slot] : null;
                 // A newly prepared source may deliberately use different encoded bytes with identical
                 // pixels. Its exact provider identity wins over a previous actor's pixel-only match.
                 if (resource is not null && ReferenceEquals(actual, resource.Texture))
@@ -92,7 +96,9 @@ internal sealed class EditorClassicToonPackage
                 if (image is null)
                     throw Invalid($"Model {obj.Id}, material {index}: its actual original toon slot {slot} has no matching frozen encoded source.");
                 AddImage(images, image);
-                materials.Add(new(index, slot, image.Sha256));
+                bool overridden = previous is not null && previous.models.TryGetValue(obj.Id, out var previousBindings)
+                    && previousBindings.Any(value => value.MaterialIndex == index && value.Slot == slot && value.Override);
+                materials.Add(new(index, slot, image.Sha256, overridden));
             }
             models.Add(obj.Id, materials.ToArray());
         }
@@ -117,7 +123,7 @@ internal sealed class EditorClassicToonPackage
         ManifestDto manifest;
         try { manifest = json.Deserialize<ManifestDto>(Json) ?? throw Invalid("Classic toon metadata is null."); }
         catch (JsonException error) { throw new InvalidDataException("Classic toon metadata is malformed or contains unknown fields.", error); }
-        if (manifest.SchemaVersion != 1 || manifest.Models is null || manifest.Images is null)
+        if (manifest.SchemaVersion is not (1 or 2) || manifest.Models is null || manifest.Images is null)
             throw Invalid("Unsupported or incomplete Classic toon metadata.");
         var images = new Dictionary<string, Image>(StringComparer.Ordinal);
         long encoded = 0, decoded = 0;
@@ -149,10 +155,11 @@ internal sealed class EditorClassicToonPackage
             var seen = new HashSet<int>(); var slotImages = new Dictionary<int, string>();
             foreach (var material in entry.Materials)
             {
-                if (material is null || material.MaterialIndex < 0 || material.Slot is < 0 or > 10
+                if (material is null || material.MaterialIndex < 0 || material.Slot < 0 || (material.Slot > 10 && !material.Override)
+                    || (manifest.SchemaVersion == 1 && material.Override)
                     || !seen.Add(material.MaterialIndex) || !IsHash(material.ImageSha256) || !images.ContainsKey(material.ImageSha256))
                     throw Invalid("A Classic toon material binding is invalid, duplicated or missing its image.");
-                if (slotImages.TryGetValue(material.Slot, out string? previous) && previous != material.ImageSha256)
+                if (material.Slot is >= 1 and <= 10 && slotImages.TryGetValue(material.Slot, out string? previous) && previous != material.ImageSha256)
                     throw Invalid("One Classic model declares conflicting images for the same original toon slot.");
                 slotImages[material.Slot] = material.ImageSha256;
                 used.Add(material.ImageSha256);
@@ -175,7 +182,7 @@ internal sealed class EditorClassicToonPackage
         {
             var matching = expected.Where(value => value.Slot == slot).ToArray();
             if (matching.Length == 0) return null; // An authored zero-index material does not use an image.
-            if (matching.Any(value => value.ImageSha256 != matching[0].ImageSha256))
+            if (slot != 0 && matching.Any(value => value.ImageSha256 != matching[0].ImageSha256))
                 throw Invalid("A Classic model has conflicting original toon slot images.");
             return images[matching[0].ImageSha256].Texture;
         }
@@ -192,7 +199,7 @@ internal sealed class EditorClassicToonPackage
             { textureIndex = textures.Count; textures.Add(image.Texture); appended.Add(image.Sha256, textureIndex); }
             materials[item.MaterialIndex] = materials[item.MaterialIndex] with { ToonTexture = textureIndex };
             bindings[item.MaterialIndex] = bindings[item.MaterialIndex] with
-            { ToonShadowColor = item.Slot == 0 ? Vector3.One : OriginalStyleMath.ReadToonShadowColor(image.Texture) };
+            { ToonShadowColor = item.Slot == 0 && !item.Override ? Vector3.One : OriginalStyleMath.ReadToonShadowColor(image.Texture) };
         }
         var snapshot = new SceneSnapshot(baseline.Vertices, baseline.Indices, materials, textures, baseline.World,
             baseline.Camera, baseline.LightDirection, baseline.AdditionalUvs, baseline.RawRadialSeeds);
@@ -223,7 +230,7 @@ internal sealed class EditorClassicToonPackage
         token.ThrowIfCancellationRequested(); Validate(session);
         var extensions = options.OptionalExtensions.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
         var resources = options.AdditionalResources.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-        var manifest = new ManifestDto(1, models.OrderBy(pair => pair.Key).Select(pair => new ModelDto(pair.Key, pair.Value)).ToArray(),
+        var manifest = new ManifestDto(2, models.OrderBy(pair => pair.Key).Select(pair => new ModelDto(pair.Key, pair.Value)).ToArray(),
             images.Values.OrderBy(value => value.Sha256, StringComparer.Ordinal).Select(value => new ImageDto(value.Sha256, value.AuthoredToken, value.Path)).ToArray());
         JsonElement encoded = JsonSerializer.SerializeToElement(manifest, Json);
         if (extensions.TryGetValue(ExtensionName, out var extensionOverride) && !JsonElement.DeepEquals(extensionOverride, encoded))
@@ -247,6 +254,13 @@ internal sealed class EditorClassicToonPackage
     {
         if (!models.TryGetValue(objectId, out var expected)) throw Invalid("A model has no declared Classic toon binding.");
         var required = Required(model);
+        foreach (var entry in expected.Where(value => value.Override))
+        {
+            if (entry.MaterialIndex < 0 || entry.MaterialIndex >= model.Materials.Count
+                || Slot(model.Materials[entry.MaterialIndex]) != entry.Slot)
+                throw Invalid("A Classic toon override disagrees with its authored material.");
+            required[entry.MaterialIndex] = entry.Slot;
+        }
         if (expected.Length != required.Count || expected.Any(value => !required.TryGetValue(value.MaterialIndex, out int slot) || value.Slot != slot))
             throw Invalid("Classic toon bindings disagree with authored PMX material modes or indices.");
         return expected;

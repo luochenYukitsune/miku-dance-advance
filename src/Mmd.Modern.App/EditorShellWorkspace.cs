@@ -20,6 +20,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     public EditorSceneInspectorViewModel SceneInspector { get; } = new();
     public EditorPosePreview PosePreview { get; } = new();
     public long ContentRevision { get; private set; }
+    internal long RenderBindingRevision { get; private set; }
     public Func<Task>? ImportModelRequested { get; set; }
     public Func<Task>? ImportMotionRequested { get; set; }
     public Func<Task>? RemoveModelRequested { get; set; }
@@ -106,8 +107,9 @@ public sealed partial class EditorShellViewModel : IDisposable
         Workspace.Changed += (_, args) =>
         {
             bool preservePoseDrafts = args is EditorWorkspaceChangedEventArgs { PreservePoseDrafts: true };
-            if (Dispatcher.UIThread.CheckAccess()) RefreshWorkspace(preservePoseDrafts: preservePoseDrafts);
-            else Dispatcher.UIThread.Post(() => RefreshWorkspace(preservePoseDrafts: preservePoseDrafts));
+            bool preserveRenderBinding = args is EditorWorkspaceChangedEventArgs { PreserveRenderBinding: true };
+            if (Dispatcher.UIThread.CheckAccess()) RefreshWorkspace(preservePoseDrafts: preservePoseDrafts, preserveRenderBinding: preserveRenderBinding);
+            else Dispatcher.UIThread.Post(() => RefreshWorkspace(preservePoseDrafts: preservePoseDrafts, preserveRenderBinding: preserveRenderBinding));
         };
         playbackTimer.Tick += PlaybackTick;
         RefreshInspectorPages();
@@ -146,11 +148,13 @@ public sealed partial class EditorShellViewModel : IDisposable
         finally { CanCancelOperation = false; IsBusy = false; }
     }
 
-    public void RefreshWorkspace(Guid? preferredId = null, bool preservePoseDrafts = false)
+    public void RefreshWorkspace(Guid? preferredId = null, bool preservePoseDrafts = false, bool preserveRenderBinding = false)
     {
         RefreshAudioWorkspace();
+        using var measure = InteractionDiagnostics.Measure("shell.refresh-workspace");
         if (!preservePoseDrafts) Animation.InvalidateDrafts();
         ContentRevision++;
+        if (!preserveRenderBinding) RenderBindingRevision++;
         refreshing = true;
         try { Browser.Refresh(Workspace.Motions, Workspace.Session?.Objects ?? [], preferredId ?? Browser.SelectedModel?.ObjectId); }
         finally { refreshing = false; }

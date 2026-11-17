@@ -11,6 +11,16 @@ public sealed partial class EditorMainLightInspector : UserControl
 {
     public EditorMainLightInspector() => AvaloniaXamlLoader.Load(this);
 
+    private void AimMainLight(object? sender, RoutedEventArgs args)
+    {
+        if (DataContext is EditorSceneInspectorViewModel model && sender is Button { Tag: string preset }) model.AimLight(preset);
+    }
+
+    private void AimMainLightFromCamera(object? sender, RoutedEventArgs args)
+    {
+        if (DataContext is EditorSceneInspectorViewModel model) model.AimLightFromCamera();
+    }
+
     private void MainLightColor(object? sender, RoutedEventArgs args)
     {
         if (DataContext is not EditorSceneInspectorViewModel model || sender is not Button { Tag: string color }) return;

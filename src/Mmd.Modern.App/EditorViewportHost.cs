@@ -177,6 +177,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             quality = value; PrepareNextFrame();
         }
     }
+    // Read only for realtime preview work. Capture/export factories never read this slot,
+    // and the public Quality remains the user's complete per-view preference throughout a gesture.
+    internal ViewQualityOptions EffectivePreviewQuality => LightController?.InteractionQuality(quality) ?? quality;
 
     public SceneCamera CurrentCamera => currentCamera;
     /// <summary>Machine-local camera controls; object/bone/light gestures keep screen-space direction.</summary>
@@ -520,11 +523,12 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             long captureCompletedAt = diagnosticSession == 0 ? 0 : Stopwatch.GetTimestamp();
             var timeline = ObserveDiagnosticTimeline();
-            var candidate = new EditorPoseFrameCandidate(childWindow, width, height, version, quality, renderBinding,
+            var previewQuality = EffectivePreviewQuality;
+            var candidate = new EditorPoseFrameCandidate(childWindow, width, height, version, previewQuality, renderBinding,
                 frame, preparationToken, origin, BoneController?.PresentationIdentity, LightController?.PresentationIdentity,
                 BoneController?.IsDragging == true, LightController?.IsDragging == true,
                 BoneController?.IsDragging == true && PoseInputPending?.Invoke() == true);
-            var work = new RenderWork(childWindow, width, height, version, quality, renderBinding, frame, preparationToken, candidate,
+            var work = new RenderWork(childWindow, width, height, version, previewQuality, renderBinding, frame, preparationToken, candidate,
                 EditorInteractionTrace.InputFor(origin), diagnosticSession == 0 ? 0 : InteractionDiagnostics.NextId(),
                 diagnosticSession == 0 ? 0 : Stopwatch.GetTimestamp(), diagnosticSession,
                 diagnosticSession == 0 ? null : new(captureStartedAt, captureCompletedAt,

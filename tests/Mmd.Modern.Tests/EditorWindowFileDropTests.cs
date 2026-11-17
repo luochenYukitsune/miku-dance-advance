@@ -17,7 +17,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorWindowFileDropTests : IAsyncDisposable
 {
-    private static readonly string Root = Mmd.Modern.TestSupport.TestWorkspace.Root("editor/20261113/drop688");
+    private static readonly string Root = MdaWorkRoot.Path("editor/20261113/drop688");
     private readonly string directory = Path.Combine(Root, "ui-" + Guid.NewGuid().ToString("N"));
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
     private static CancellationToken Token => TestContext.Current.CancellationToken;

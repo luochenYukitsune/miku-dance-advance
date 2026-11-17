@@ -28,9 +28,19 @@ public sealed partial class D3D12OriginalStyleRenderer
 
     /// <summary>Modern-only textured hull; borrows the active shared descriptors and target.
     /// No submission, wait, readback, source material changes or per-frame permanent resources.</summary>
+    // 自动描边颜色：原有为“底色×0.55＋0.025”（zw 为 0 时保持不变）。四个画风家族的普通材质改为
+    // 按画风压暗并提饱和，描边贴着底色走，避免灰黑硬线。z 为压暗系数，w 为饱和倍数。
+    private static Vector4 OutlineOptions(CharacterOutlineStyle style, float scale, D3D12SurfaceStyleMap? surfaceStyles, int material)
+    {
+        if (style.Color is not null) return new(0, scale, 0, 0);
+        var shading = surfaceStyles is not null && material < surfaceStyles.Count ? surfaceStyles.EffectiveStylizedShading(material) : null;
+        return shading is null ? new(1, scale, 0, 0) : new(1, scale, shading.OutlineValue, shading.OutlineSaturation);
+    }
+
     private int RecordCharacterOutline(OriginalFrameScene frame, int width, int height, ID3D12Resource sharedSurfaceBuffer, ID3D12Resource sharedIndexBuffer,
         ID3D12DescriptorHeap srvHeap, int srvStride, int slotBase, Format depthFormat,
-        D3D12RecordingContext context, D3D12GpuCache cache, int firstMaterial = 0, int materialCount = int.MaxValue)
+        D3D12RecordingContext context, D3D12GpuCache cache, int firstMaterial = 0, int materialCount = int.MaxValue,
+        D3D12SurfaceStyleMap? surfaceStyles = null)
     {
         using var outlineCpu=MeasureSceneCpu(SceneCpuStage.ModernOutline);
         if (!frame.Materials.Any(flags => flags.CharacterOutlineStyle is not null)) return 0;
@@ -79,7 +89,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 Options = new(material.AlphaCutoff, SurfaceMode(binding), material.DiffuseTexture >= 0 ? 1 : 0, options?.Transp == true ? 1 : 0) }));
             commands.SetGraphicsRootConstantBufferView(4, context.UploadConstants(new TextureMorphConstants(binding.TextureFactors)));
             commands.SetGraphicsRootConstantBufferView(5, context.UploadConstants(new CharacterOutlineConstants(wvp,
-                style.Color ?? Vector4.One, new(style.Color is null ? 1 : 0, scale, 0, 0))));
+                style.Color ?? Vector4.One, OutlineOptions(style, scale, surfaceStyles, i))));
             commands.SetGraphicsRootDescriptorTable(1, srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(slotBase + (material.DiffuseTexture < 0 ? 0 : material.DiffuseTexture + 2), srvStride));
             commands.SetGraphicsRootDescriptorTable(2, srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(slotBase + (binding.SphereTexture < 0 ? 0 : binding.SphereTexture + 2), srvStride));
             int shadow = options is null ? slotBase : slotBase + scene.Textures.Count + 2 + (flags.ReceiveSelfShadow ? 1 : 0);

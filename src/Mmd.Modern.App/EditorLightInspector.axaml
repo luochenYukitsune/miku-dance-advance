@@ -5,21 +5,74 @@
              x:Class="Mmd.Modern.App.EditorLightInspector"
              x:DataType="local:EditorLightingViewModel">
   <StackPanel Spacing="12">
-    <ComboBox Name="LightChoice" ItemsSource="{Binding Lights}" SelectedItem="{Binding SelectedLight, Mode=TwoWay}"
+    <ComboBox Name="LightChoice" ItemsSource="{Binding Lights}" SelectedItem="{Binding SelectedLight, Mode=OneWay}" SelectionChanged="SelectLegacyLight"
               HorizontalAlignment="Stretch" AutomationProperties.Name="{DynamicResource Mda.Text.58da4654116f}">
       <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorNativeLightItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
     </ComboBox>
     <TextBlock Name="EmptyLightPrompt" Text="{DynamicResource Mda.Text.d6bf33235c3e}" Classes="caption" TextWrapping="Wrap" />
-    <ItemsControl ItemsSource="{Binding Lights}">
+    <StackPanel Name="ModernLightSelectionTools" IsVisible="{Binding IsModernWorkspace}" Spacing="12">
+    <ContentControl Name="LightGroupProperties" Content="{Binding SelectedGroup}" IsVisible="{Binding HasSelectedGroup}" HorizontalContentAlignment="Stretch">
+      <ContentControl.ContentTemplate><DataTemplate x:DataType="local:EditorLightGroupItem">
+        <StackPanel Spacing="8">
+          <TextBlock Text="{Binding NameLabel}" Classes="group" />
+          <TextBox Name="LightGroupNameInput" Classes="editorSearch" Text="{Binding Name, Mode=TwoWay}" LostFocus="CommitInput" AutomationProperties.Name="{Binding NameLabel}" />
+          <CheckBox Tag="enabled" Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" />
+          <Grid ColumnDefinitions="*,100">
+            <TextBlock Text="{Binding IntensityLabel}" VerticalAlignment="Center" />
+            <validated:EditorNumericUpDown Name="LightGroupIntensityInput" Grid.Column="1" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{Binding IntensityLabel}" />
+          </Grid>
+          <validated:EditorLightParameterSlider Name="LightGroupBrightnessSlider" Minimum="0" Maximum="8" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
+              EditStarted="BeginGroupParameterEdit" EditPreview="PreviewGroupParameterEdit" EditCompleted="CompleteGroupParameterEdit" EditCanceled="CancelGroupParameterEdit"
+              AutomationProperties.Name="{Binding IntensityLabel}" />
+        </StackPanel>
+      </DataTemplate></ContentControl.ContentTemplate>
+    </ContentControl>
+    <StackPanel IsVisible="{Binding HasSelection}" Spacing="8">
+      <TextBlock Text="{Binding SelectionSummary}" Classes="group" IsVisible="{Binding ShowBatchControls}" />
+      <WrapPanel Orientation="Horizontal">
+        <Button Name="DuplicateSelectedLightsButton" Content="{Binding DuplicateSelectionLabel}" Click="DuplicateLights" Margin="0,0,6,6" />
+        <Button Name="GroupSelectedLightsButton" Content="{Binding GroupSelectionLabel}" Click="GroupLights" IsEnabled="{Binding CanGroupSelection}" Margin="0,0,6,6" />
+        <Button Content="{Binding DissolveSelectionLabel}" Click="DissolveLightGroups" IsVisible="{Binding CanDissolveSelection}" Margin="0,0,6,6" />
+      </WrapPanel>
+      <StackPanel IsVisible="{Binding ShowBatchControls}" Spacing="8">
+        <StackPanel Spacing="4" IsVisible="{Binding HasSelectedLight}">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="{Binding RelativeBrightnessLabel}" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding RelativeBrightnessSummary}" Classes="caption" VerticalAlignment="Center" />
+          </Grid>
+          <validated:EditorLightParameterSlider Name="BatchLightBrightnessSlider" Minimum="-2" Maximum="2" SmallChange="0.02" LargeChange="0.2" Value="{Binding RelativeBrightnessPosition, Mode=OneWay}"
+              EditStarted="BeginGroupParameterEdit" EditPreview="PreviewGroupParameterEdit" EditCompleted="CompleteGroupParameterEdit" EditCanceled="CancelGroupParameterEdit"
+              AutomationProperties.Name="{Binding RelativeBrightnessLabel}" />
+        </StackPanel>
+        <WrapPanel Orientation="Horizontal">
+          <Button Content="{Binding EnableSelectionLabel}" Click="EnableLights" Margin="0,0,6,0" />
+          <Button Content="{Binding DisableSelectionLabel}" Click="DisableLights" />
+        </WrapPanel>
+        <Expander Name="BatchLightAbsoluteExpander" Header="{Binding BatchIntensityLabel}" Classes="editorAdvanced" IsVisible="{Binding HasSelectedLight}" IsExpanded="False" HorizontalContentAlignment="Stretch">
+        <Grid ColumnDefinitions="*,86,6,Auto" Margin="0,8,0,0">
+          <TextBlock Text="{Binding BatchIntensityLabel}" VerticalAlignment="Center" />
+          <validated:EditorNumericUpDown Name="BatchLightIntensityInput" Grid.Column="1" Classes="editorNumber" Value="{Binding BatchIntensity, Mode=TwoWay}" Increment="0.1" FormatString="0.###" AutomationProperties.Name="{Binding BatchIntensityLabel}" />
+          <Button Grid.Column="3" Content="{Binding ApplyIntensityLabel}" Click="SetBatchIntensity" />
+        </Grid>
+        </Expander>
+      </StackPanel>
+    </StackPanel>
+    </StackPanel>
+    <ItemsControl ItemsSource="{Binding InspectorLights}">
       <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EditorNativeLightItem">
-        <StackPanel Spacing="12" IsVisible="{Binding IsSelected}">
+        <StackPanel Spacing="12" IsVisible="{Binding IsInspectorVisible}">
           <StackPanel Spacing="8">
             <TextBlock Text="{DynamicResource Mda.Text.7cb9050d7b72}" Classes="group" />
             <TextBox Name="LightNameInput" Classes="editorSearch" Text="{Binding Name, Mode=TwoWay}" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.7cb9050d7b72}" />
-            <CheckBox Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" />
+            <ComboBox Name="InlineLightKind" ItemsSource="{Binding KindChoices}" SelectedIndex="{Binding KindIndex, Mode=OneWay}"
+                      SelectionChanged="CommitLightKind" IsVisible="{Binding UseModernControls}" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="{DynamicResource Mda.Text.0a10a5398b8a}">
+              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightKindChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+            <CheckBox Tag="enabled" Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" />
           </StackPanel>
           <StackPanel Spacing="8">
-            <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.44ba8282f5e5}" Classes="group" /></Border>
+            <Border Classes="parameterHeader"><TextBlock Text="{Binding ColorLabel}" Classes="group" /></Border>
             <Grid ColumnDefinitions="36,8,*">
               <Border Name="LightColorSwatch" Width="36" Height="28" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" />
               <TextBox Grid.Column="2" Name="LightHexColor" Classes="editorSearch" LostFocus="CommitHexColor" AutomationProperties.Name="{DynamicResource Mda.Text.2582a5c98b76}" />
@@ -35,16 +88,75 @@
             </StackPanel>
           </StackPanel>
           <Grid ColumnDefinitions="*,100">
-            <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding BrightnessLabel}" VerticalAlignment="Center" />
             <validated:EditorNumericUpDown Name="InlineLightIntensity" Grid.Column="1" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Minimum="0" Increment="0.25" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c56114268030}" />
           </Grid>
+          <validated:EditorLightParameterSlider Name="LightBrightnessSlider" Tag="brightness" IsVisible="{Binding UseModernControls}"
+              Minimum="0" Maximum="8" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
+              EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+              AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Brightness}" />
+          <StackPanel Spacing="10" IsVisible="{Binding UseModernControls}">
+            <CheckBox Tag="shadows" Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />
+            <StackPanel Spacing="2" IsVisible="{Binding HasRange}">
+              <Grid ColumnDefinitions="*,100">
+                <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Distance}" VerticalAlignment="Center" />
+                <validated:EditorNumericUpDown Name="InlineLightRangeDirect" Grid.Column="1" Classes="editorNumber" Value="{Binding Range, Mode=TwoWay}" Increment="0.5" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Distance}" />
+              </Grid>
+              <validated:EditorLightParameterSlider Name="LightDistanceSlider" Tag="distance" Minimum="-2" Maximum="5" SmallChange="0.02" LargeChange="0.2" Value="{Binding DistanceSliderPosition, Mode=OneWay}"
+                  EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                  AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Distance}" />
+            </StackPanel>
+            <StackPanel Name="AreaLightDimensions" Spacing="8" IsVisible="{Binding HasAreaSize}">
+              <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaDimensions}" Classes="group" />
+              <StackPanel Spacing="2">
+                <Grid ColumnDefinitions="*,100">
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaWidth}" VerticalAlignment="Center" />
+                  <validated:EditorNumericUpDown Name="InlineLightAreaWidth" Grid.Column="1" Classes="editorNumber" Value="{Binding AreaWidth, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaWidth}" />
+                </Grid>
+                <validated:EditorLightParameterSlider Name="LightAreaWidthSlider" Tag="areaWidth" Minimum="-2" Maximum="4" SmallChange="0.02" LargeChange="0.2" Value="{Binding AreaWidthSliderPosition, Mode=OneWay}"
+                    EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                    AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaWidth}" />
+              </StackPanel>
+              <StackPanel Spacing="2">
+                <Grid ColumnDefinitions="*,100">
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaHeight}" VerticalAlignment="Center" />
+                  <validated:EditorNumericUpDown Name="InlineLightAreaHeight" Grid.Column="1" Classes="editorNumber" Value="{Binding AreaHeight, Mode=TwoWay}" Increment="0.1" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaHeight}" />
+                </Grid>
+                <validated:EditorLightParameterSlider Name="LightAreaHeightSlider" Tag="areaHeight" Minimum="-2" Maximum="4" SmallChange="0.02" LargeChange="0.2" Value="{Binding AreaHeightSliderPosition, Mode=OneWay}"
+                    EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                    AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaHeight}" />
+              </StackPanel>
+              <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaHint}" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="8" IsVisible="{Binding HasCone}">
+              <StackPanel Spacing="2">
+                <Grid ColumnDefinitions="*,100">
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.BeamWidth}" VerticalAlignment="Center" />
+                  <validated:EditorNumericUpDown Name="InlineLightBeamWidth" Grid.Column="1" Classes="editorNumber" Value="{Binding BeamWidthDegrees, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.BeamWidth}" />
+                </Grid>
+                <validated:EditorLightParameterSlider Name="LightBeamWidthSlider" Tag="width" Minimum="1" Maximum="180" SmallChange="1" LargeChange="10" Value="{Binding BeamWidthDegrees, Mode=OneWay}"
+                    EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                    AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.BeamWidth}" />
+              </StackPanel>
+              <StackPanel Spacing="2">
+                <Grid ColumnDefinitions="*,100">
+                  <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.EdgeSoftness}" VerticalAlignment="Center" />
+                  <validated:EditorNumericUpDown Name="InlineLightEdgeSoftness" Grid.Column="1" Classes="editorNumber" Value="{Binding EdgeSoftnessPercent, Mode=TwoWay}" Increment="1" FormatString="0.##" LostFocus="CommitInput" ToolTip.Tip="{DynamicResource Mda.Text.Context.Lighting.SoftnessHint}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.EdgeSoftness}" />
+                </Grid>
+                <validated:EditorLightParameterSlider Name="LightEdgeSoftnessSlider" Tag="softness" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10" Value="{Binding EdgeSoftnessPercent, Mode=OneWay}"
+                    EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                    ToolTip.Tip="{DynamicResource Mda.Text.Context.Lighting.SoftnessHint}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.EdgeSoftness}" />
+              </StackPanel>
+            </StackPanel>
+            <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.SliderHint}" Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
           <Expander Name="InlineLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.d6e61888b078}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
             <StackPanel Spacing="12" Margin="0,10,0,0">
-              <CheckBox Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />
-              <Grid ColumnDefinitions="*,100" IsVisible="{Binding HasRange}">
+              <CheckBox Tag="shadows" Content="{DynamicResource Mda.Text.eddb92cad478}" IsVisible="{Binding UseLegacyControls}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />
+              <StackPanel IsVisible="{Binding UseLegacyControls}"><Grid ColumnDefinitions="*,100" IsVisible="{Binding HasRange}">
                 <TextBlock Text="{DynamicResource Mda.Text.3a76ebfb6233}" VerticalAlignment="Center" />
                 <validated:EditorNumericUpDown Name="InlineLightRange" Grid.Column="1" Classes="editorNumber" Value="{Binding Range, Mode=TwoWay}" Increment="0.5" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.0999a174c82d}" />
-              </Grid>
+              </Grid></StackPanel>
               <StackPanel Spacing="6" IsVisible="{Binding HasCone}">
                 <TextBlock Text="{DynamicResource Mda.Text.3466d127a0db}" Classes="group" />
                 <Grid ColumnDefinitions="*,8,*" RowDefinitions="20,28">
@@ -85,6 +197,101 @@
         </StackPanel>
       </DataTemplate></ItemsControl.ItemTemplate>
     </ItemsControl>
+    <StackPanel Name="LightParentProperties" Spacing="8" IsVisible="False">
+      <Expander Name="LightParentExpander" Header="{DynamicResource Mda.Text.Context.Lighting.ParentHeading}" IsExpanded="False" HorizontalContentAlignment="Stretch" Classes="editorAdvanced">
+      <StackPanel Spacing="8" Margin="0,8,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.ParentModel}" Classes="caption" />
+        <ComboBox Name="LightParentModelChoice" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsEnabled="False"
+                  SelectionChanged="SelectLightParentModel" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.ParentModel}">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightParentModelChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+      </StackPanel>
+      <StackPanel Spacing="4">
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.ParentBone}" Classes="caption" />
+        <ComboBox Name="LightParentBoneChoice" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsEnabled="False"
+                  SelectionChanged="SelectLightParentBone" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.ParentBone}">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightParentBoneChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+      </StackPanel>
+      <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.ParentHint}" Classes="caption" TextWrapping="Wrap" />
+      </StackPanel>
+      </Expander>
+    </StackPanel>
+    <StackPanel Name="LightReceiverProperties" IsVisible="False">
+      <Expander Name="LightReceiverExpander" Header="{DynamicResource Mda.Text.Context.Lighting.ReceiversHeading}" IsExpanded="False" HorizontalContentAlignment="Stretch" Classes="editorAdvanced">
+        <StackPanel Spacing="8" Margin="0,8,0,0">
+          <ComboBox Name="LightReceiverMode" HorizontalAlignment="Stretch" SelectionChanged="SelectLightReceiverMode" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.ReceiversHeading}">
+            <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightReceiverModeChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <StackPanel Name="LightReceiverSelection" Spacing="6" IsVisible="False">
+            <TextBox Name="LightReceiverSearch" Classes="editorSearch" Watermark="{DynamicResource Mda.Text.Context.Lighting.ReceiversSearch}" TextChanged="SearchLightReceivers" />
+            <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl Name="LightReceiverModels">
+                <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EditorLightReceiverChoice">
+                  <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="SelectLightReceiver" MinHeight="30" />
+                </DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <TextBlock Name="LightReceiverCount" Classes="caption" />
+          </StackPanel>
+          <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.ReceiversHint}" Classes="caption" TextWrapping="Wrap" />
+        </StackPanel>
+      </Expander>
+    </StackPanel>
+    <Expander Name="LightPresetExpander" Header="{DynamicResource Mda.Text.Context.Lighting.Presets.Heading}"
+              IsVisible="{Binding IsModernWorkspace}" IsExpanded="False" Classes="editorAdvanced" HorizontalContentAlignment="Stretch">
+      <StackPanel Name="LightPresetTools" Spacing="8" Margin="0,8,0,0">
+        <ComboBox Name="LightPresetChoice" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                  SelectionChanged="SelectLightPreset" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Presets.Heading}">
+          <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightPresetChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <WrapPanel>
+          <Button Name="AddLightPresetButton" Content="{DynamicResource Mda.Text.Context.Lighting.Presets.Add}" Click="AddLightPreset" Margin="0,0,6,6" />
+          <Button Name="ReplaceLightPresetButton" Content="{DynamicResource Mda.Text.Context.Lighting.Presets.ReplaceSelected}" Click="ReplaceLightPreset" IsEnabled="{Binding HasSelection}" Margin="0,0,0,6" />
+        </WrapPanel>
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Presets.StartHint}" Classes="caption" TextWrapping="Wrap" />
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Presets.Name}" Classes="caption" />
+        <TextBox Name="LightPresetName" Classes="editorSearch" MaxLength="200" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Presets.Name}" />
+        <WrapPanel>
+          <Button Name="LoadLightPresetButton" Content="{DynamicResource Mda.Text.Context.Lighting.Presets.Load}" Click="LoadLightPreset" Margin="0,0,6,6" />
+          <Button Name="SaveLightPresetButton" Content="{DynamicResource Mda.Text.Context.Lighting.Presets.SaveSelected}" Click="SaveLightPreset" IsEnabled="{Binding HasSelectedLight}" Margin="0,0,0,6" />
+        </WrapPanel>
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Presets.PortableHint}" Classes="caption" TextWrapping="Wrap" />
+      </StackPanel>
+    </Expander>
+    <Expander Name="GlobalEnvironmentExpander" Header="{DynamicResource Mda.Text.Context.Lighting.Global.EnvironmentHeading}"
+              IsVisible="{Binding IsModernWorkspace}" IsExpanded="False" Classes="editorAdvanced" HorizontalContentAlignment="Stretch">
+      <StackPanel Spacing="6" Margin="0,8,0,0">
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Global.EnvironmentHint}" Classes="caption" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="*,88">
+          <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Global.EnvironmentStrength}" VerticalAlignment="Center" />
+          <validated:EditorNumericUpDown Name="GlobalEnvironmentInput" Grid.Column="1" Classes="editorNumber" Value="{Binding EnvironmentStrength, Mode=TwoWay}"
+              Minimum="0" Maximum="4" Increment="0.05" FormatString="0.###" LostFocus="CommitGlobalInput"
+              AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Global.EnvironmentStrength}" />
+        </Grid>
+        <validated:EditorLightParameterSlider Name="GlobalEnvironmentSlider" Tag="environment" Minimum="0" Maximum="4" SmallChange="0.05" LargeChange="0.5" Value="{Binding EnvironmentStrength, Mode=OneWay}"
+            EditStarted="BeginGlobalParameterEdit" EditPreview="PreviewGlobalParameterEdit" EditCompleted="CompleteGlobalParameterEdit" EditCanceled="CancelGlobalParameterEdit"
+            AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Global.EnvironmentStrength}" />
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Global.GiHint}" Classes="caption" TextWrapping="Wrap" />
+        <Button Name="GlobalPreviewQualityButton" Content="{DynamicResource Mda.Text.Context.Lighting.Global.PreviewQuality}" Click="OpenGlobalPreviewQuality" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Expander>
+    <Expander Name="GlobalExposureExpander" Header="{DynamicResource Mda.Text.Context.Lighting.Global.ExposureHeading}"
+              IsVisible="{Binding IsModernWorkspace}" IsExpanded="False" Classes="editorAdvanced" HorizontalContentAlignment="Stretch">
+      <StackPanel Spacing="6" Margin="0,8,0,0">
+        <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Global.ExposureHint}" Classes="caption" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="*,88">
+          <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Global.ExposureEv}" VerticalAlignment="Center" />
+          <validated:EditorNumericUpDown Name="GlobalExposureInput" Grid.Column="1" Classes="editorNumber" Value="{Binding ExposureEv, Mode=TwoWay}"
+              Minimum="-8" Maximum="8" Increment="0.1" FormatString="0.###" LostFocus="CommitGlobalInput"
+              AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Global.ExposureEv}" />
+        </Grid>
+        <validated:EditorLightParameterSlider Name="GlobalExposureSlider" Tag="exposure" Minimum="-8" Maximum="8" SmallChange="0.1" LargeChange="1" Value="{Binding ExposureEv, Mode=OneWay}"
+            EditStarted="BeginGlobalParameterEdit" EditPreview="PreviewGlobalParameterEdit" EditCompleted="CompleteGlobalParameterEdit" EditCanceled="CancelGlobalParameterEdit"
+            AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Global.ExposureEv}" />
+      </StackPanel>
+    </Expander>
     <TextBlock Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" Classes="caption" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
     <TextBlock Text="{DynamicResource Mda.Text.20a423f97da8}" Classes="caption" TextWrapping="Wrap" />
   </StackPanel>

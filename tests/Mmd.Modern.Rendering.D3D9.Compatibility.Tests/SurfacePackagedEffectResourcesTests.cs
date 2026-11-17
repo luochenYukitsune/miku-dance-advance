@@ -390,7 +390,7 @@ public sealed class SurfacePackagedEffectResourcesTests
 
     private sealed class ResourceTree : IDisposable
     {
-        private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261105/resources460/managed-tests"), Guid.NewGuid().ToString("N"));
+        private readonly string directory = Path.Combine(MdaWorkRoot.Path(@"compat\20261105\resources460\managed-tests"), Guid.NewGuid().ToString("N"));
         internal string RootFx => Path.Combine(directory, "root.fx");
         internal string Include => Path.Combine(directory, "common.fxh");
         internal string[] Paths => new[] { RootFx, Include };

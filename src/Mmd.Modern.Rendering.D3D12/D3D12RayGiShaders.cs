@@ -171,12 +171,24 @@ internal static class D3D12RayGiShaders
     // Reference: Microsoft's MIT D3D12RaytracingSimpleLighting hit-position diffuse example;
     // no sample source copied. Visibility is the shared alpha-aware TraceAny implementation.
     private const string NativeLightSource="""
-        struct GiNativeLight { float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; };
+        struct GiNativeLight { float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; float4 AreaRightTile; };
         StructuredBuffer<GiNativeLight> GiNativeLights:register(t9);
         float3 GiNativeOutgoing(uint triangleIndex,float2 bary,float3 q,float3 normal) {
             float3 incident=0;
+            if(GiReserved.z>0) incident=GiReserved.z.xxx;
+            uint receiverMask=0xffffffffu;
+            if(GiReserved.y>0) receiverMask=asuint(GiNativeLights[(uint)GiReserved.x+GiTriangles[triangleIndex].Meta.x].PositionKind.x);
             [loop] for(uint i=0;i<(uint)GiReserved.x;i++) {
-                GiNativeLight light=GiNativeLights[i];
+                if((receiverMask & (1u<<i))==0) continue;
+                GiNativeLight source=GiNativeLights[i];
+                [loop] for(uint sample=0;sample<(source.PositionKind.w==3?4u:1u);sample++) {
+                GiNativeLight light=source;
+                if(light.PositionKind.w==3) {
+                    float2 sign=float2((sample&1)?1:-1,(sample&2)?1:-1);
+                    float3 up=cross(light.AreaRightTile.xyz,light.DirectionRange.xyz);
+                    light.PositionKind.xyz+=(light.AreaRightTile.xyz*(sign.x*light.ConeShadow.x)+up*(sign.y*light.ConeShadow.y))*.5773502691896258;
+                    light.ColorIntensity.w*=.25;
+                }
                 float3 delta=light.PositionKind.xyz-q;
                 float rawDistanceSquared=dot(delta,delta);
                 if(light.PositionKind.w!=0 && rawDistanceSquared<1e-12) continue;
@@ -192,6 +204,7 @@ internal static class D3D12RayGiShaders
                     float angular=saturate((dot(-toward,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
                     attenuation*=angular*angular;
                 }
+                if(light.PositionKind.w==3) attenuation*=saturate(dot(-toward,light.DirectionRange.xyz));
                 float cosine=max(dot(normal,toward),0);
                 if(cosine<=0 || attenuation<=0) continue;
                 if(light.ConeShadow.z>0) {
@@ -206,6 +219,7 @@ internal static class D3D12RayGiShaders
                 precise float3 irradiance=light.ColorIntensity.rgb*light.ColorIntensity.w;
                 precise float angularRadiance=attenuation*(cosine/3.14159265359);
                 incident+=irradiance*angularRadiance;
+                }
             }
             return GetAlbedo(triangleIndex,bary)*incident*GiTuning.y;
         }

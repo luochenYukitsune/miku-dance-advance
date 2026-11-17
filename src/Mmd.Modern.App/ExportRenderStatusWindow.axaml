@@ -5,7 +5,7 @@
         x:Class="Mmd.Modern.App.ExportRenderStatusWindow"
         x:DataType="local:ExportRenderStatusViewModel"
         Title="{DynamicResource Mda.Text.ExportStatus.Title}"
-        Width="720" Height="720" MinWidth="620" MinHeight="550"
+        Width="720" Height="660" MinWidth="620" MinHeight="550"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="True"
         Background="{DynamicResource StatusSurface}" Foreground="{DynamicResource StatusText}"
         FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
@@ -14,27 +14,25 @@
     <ResourceDictionary>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="StatusSurface" Color="#0C0E11" />
-          <SolidColorBrush x:Key="StatusText" Color="#F2F2F2" />
-          <SolidColorBrush x:Key="StatusMuted" Color="#B0B0B0" />
-          <SolidColorBrush x:Key="StatusDisabled" Color="#707070" />
-          <SolidColorBrush x:Key="StatusBorder" Color="#2E3B48" />
-          <SolidColorBrush x:Key="StatusInput" Color="#18222C" />
-          <SolidColorBrush x:Key="StatusHover" Color="#202D39" />
-          <SolidColorBrush x:Key="StatusSelected" Color="#182633" />
-          <SolidColorBrush x:Key="StatusProgress" Color="#94B3CB" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="StatusSurface" Color="#0F1216" />
+          <SolidColorBrush x:Key="StatusText" Color="#ECEFF2" />
+          <SolidColorBrush x:Key="StatusMuted" Color="#A4ACB6" />
+          <SolidColorBrush x:Key="StatusDisabled" Color="#69717B" />
+          <SolidColorBrush x:Key="StatusBorder" Color="#2B333D" />
+          <SolidColorBrush x:Key="StatusInput" Color="#1B2129" />
+          <SolidColorBrush x:Key="StatusHover" Color="#222A34" />
+          <SolidColorBrush x:Key="StatusSelected" Color="#19302A" />
+          <SolidColorBrush x:Key="StatusProgress" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="StatusSurface" Color="#FFFFFF" />
-          <SolidColorBrush x:Key="StatusText" Color="#171717" />
-          <SolidColorBrush x:Key="StatusMuted" Color="#555555" />
-          <SolidColorBrush x:Key="StatusDisabled" Color="#8A8A8A" />
-          <SolidColorBrush x:Key="StatusBorder" Color="#D8E0E7" />
-          <SolidColorBrush x:Key="StatusInput" Color="#F3F6F8" />
-          <SolidColorBrush x:Key="StatusHover" Color="#F0F4F7" />
-          <SolidColorBrush x:Key="StatusSelected" Color="#E3ECF3" />
-          <SolidColorBrush x:Key="StatusProgress" Color="#3F607C" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="StatusSurface" Color="#F6F7F9" />
+          <SolidColorBrush x:Key="StatusText" Color="#1A1D21" />
+          <SolidColorBrush x:Key="StatusMuted" Color="#5B636E" />
+          <SolidColorBrush x:Key="StatusDisabled" Color="#9AA1AA" />
+          <SolidColorBrush x:Key="StatusBorder" Color="#D9DEE5" />
+          <SolidColorBrush x:Key="StatusInput" Color="#EEF1F4" />
+          <SolidColorBrush x:Key="StatusHover" Color="#E9EDF2" />
+          <SolidColorBrush x:Key="StatusSelected" Color="#DFF2E7" />
+          <SolidColorBrush x:Key="StatusProgress" Color="#12844A" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Window.Resources>
@@ -56,7 +54,7 @@
     </Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
-      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource StatusInput}" />
+      <Setter Property="CornerRadius" Value="4" /><Setter Property="Background" Value="{DynamicResource StatusInput}" />
       <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
       <Setter Property="Transitions"><Transitions /></Setter>
       <Setter Property="Template"><ControlTemplate>
@@ -76,7 +74,7 @@
       <Setter Property="Foreground" Value="{DynamicResource StatusProgress}" /><Setter Property="Background" Value="{DynamicResource StatusBorder}" />
       <Setter Property="Transitions"><Transitions /></Setter>
       <Setter Property="Template"><ControlTemplate>
-        <Border Background="{TemplateBinding Background}" CornerRadius="2" ClipToBounds="True">
+        <Border Background="{TemplateBinding Background}" CornerRadius="4" ClipToBounds="True">
           <Panel>
             <Border Name="PART_Indicator" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left"
                     IsVisible="{Binding !IsIndeterminate, RelativeSource={RelativeSource TemplatedParent}}" />
@@ -96,6 +94,26 @@
         </Animation>
       </Style.Animations>
     </Style>
+  
+    <!-- MDA shared button roles (same in every window):
+         default  = input surface + border; .primary = solid brand green; .quiet = flat (cancel/close). -->
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter, ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="TabItem:selected /template/ Border"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
   </Window.Styles>
   <Grid RowDefinitions="*,Auto">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -167,7 +185,7 @@
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
         <TextBlock Text="{Binding FooterText}" Classes="caption" VerticalAlignment="Center" Margin="0,0,16,0" />
         <Button Name="CancelRenderButton" Grid.Column="1" Content="{Binding CancelText}" IsEnabled="{Binding CanCancel}" IsVisible="{Binding IsRunning}" Click="CancelExport" />
-        <Button Name="CloseStatusButton" Grid.Column="2" Content="{DynamicResource Mda.Text.ExportStatus.Close}" IsEnabled="{Binding CanClose}" Click="CloseStatus" />
+        <Button Classes="quiet" Name="CloseStatusButton" Grid.Column="2" Content="{DynamicResource Mda.Text.ExportStatus.Close}" IsEnabled="{Binding CanClose}" Click="CloseStatus" />
       </Grid>
     </Border>
   </Grid>

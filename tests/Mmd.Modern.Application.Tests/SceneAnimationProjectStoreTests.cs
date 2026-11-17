@@ -155,6 +155,7 @@ public sealed class SceneAnimationProjectStoreTests : IDisposable
     [InlineData("transform")]
     [InlineData("objects")]
     [InlineData("lights")]
+    [InlineData("groups")]
     public void EditedLayoutCannotBeSavedWithAnOlderAnimationSnapshot(string edit)
     {
         var model = Model(); var (scene, lighting, first, _) = Scene(model);
@@ -163,6 +164,7 @@ public sealed class SceneAnimationProjectStoreTests : IDisposable
         SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, ExternalAssets, Token); var before = SavedFiles();
         if (edit == "transform") scene.SetTransform(first.Id, new(99, 0, 0), Quaternion.Identity, 1);
         else if (edit == "objects") scene.Add("extra", first.SourcePath, ModelRole.Prop, Rest(model));
+        else if (edit == "groups") lighting.AddGroup(new(Guid.NewGuid(), "新的灯组"));
         else lighting.Update(lighting.Lights[0] with { Intensity = 4 });
         Assert.ThrowsAny<Exception>(() => SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, ExternalAssets, Token));
         AssertFilesUnchanged(before);

@@ -10,8 +10,9 @@ namespace Mmd.Modern.App;
 
 internal static class EditorDialogs
 {
-    public static async Task<bool> ConfirmAsync(Window owner, string title, string message, string action = "确认") =>
-        await ChooseAsync(owner, title, message, ["取消", action]) == 1;
+    /// <param name="destructive">确认操作会删除内容时为 true，确认按钮显示为危险色。</param>
+    public static async Task<bool> ConfirmAsync(Window owner, string title, string message, string action = "确认", bool destructive = false) =>
+        await ChooseAsync(owner, title, message, ["取消", action], destructive ? -1 : 1, destructive ? 1 : -1) == 1;
 
     public static async Task<ModelRole?> ChooseRoleAsync(Window owner, string file)
     {
@@ -33,9 +34,9 @@ internal static class EditorDialogs
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             RequestedThemeVariant = owner.ActualThemeVariant,
             FontFamily = owner.FontFamily, FontSize = 14,
-            Background = owner.Background, Foreground = owner.Foreground,
             UseLayoutRounding = true
         };
+        EditorDialogTheme.Apply(dialog, owner);
         var choices = new (ModelPurpose Purpose, string Label, string Help)[]
         {
             (new(ModelRole.Character), "角色", "Mda.Text.Context.Room.CharacterHelp"),
@@ -47,7 +48,7 @@ internal static class EditorDialogs
         var explanation = new TextBlock
         {
             Name = "IndoorImportLightingNote", TextWrapping = TextWrapping.Wrap, LineHeight = 20,
-            Foreground = owner.Foreground, IsVisible = false
+            IsVisible = false
         };
         var apply = new Button
         {
@@ -74,8 +75,8 @@ internal static class EditorDialogs
                 Name = "ModelImportPurpose" + index, GroupName = "ModelImportPurpose", HorizontalAlignment = HorizontalAlignment.Stretch,
                 Content = new StackPanel { Spacing = 2, Children =
                 {
-                    new TextBlock { Text = EditorLocalization.Text(choice.Label), TextWrapping = TextWrapping.Wrap, Foreground = owner.Foreground },
-                    new TextBlock { Text = EditorLocalization.Text(choice.Help), TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 18, Foreground = owner.Foreground }
+                    new TextBlock { Text = EditorLocalization.Text(choice.Label), TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = EditorLocalization.Text(choice.Help), TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 18 }
                 } }
             };
             AutomationProperties.SetName(radio, EditorLocalization.Text(choice.Label));
@@ -101,9 +102,9 @@ internal static class EditorDialogs
                 new StackPanel { Spacing = 6, Children =
                 {
                     new TextBlock { Text = System.IO.Path.GetFileName(file), TextTrimming = TextTrimming.CharacterEllipsis,
-                        FontWeight = FontWeight.SemiBold, Foreground = owner.Foreground },
+                        FontWeight = FontWeight.SemiBold },
                     new TextBlock { Text = EditorLocalization.Text("Mda.Text.Context.Room.ImportPrompt"), TextWrapping = TextWrapping.Wrap,
-                        LineHeight = 20, Foreground = owner.Foreground }
+                        LineHeight = 20 }
                 } },
                 options, explanation,
                 new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right,
@@ -114,28 +115,32 @@ internal static class EditorDialogs
         return dialog.ShowDialog<EditorModelImportOptions?>(owner);
     }
 
-    public static Task<int> ChooseAsync(Window owner, string title, string message, IReadOnlyList<string> choices)
+    /// <param name="primary">推荐操作的序号：品牌绿、回车触发。-1 表示没有推荐项（例如几个并列的用途）。</param>
+    /// <param name="danger">会删除内容的操作序号，显示为危险色；-1 表示没有。</param>
+    public static Task<int> ChooseAsync(Window owner, string title, string message, IReadOnlyList<string> choices,
+        int primary = -1, int danger = -1)
     {
         var dialog = new Window
         {
             Title = EditorLocalization.Text(title), Width = 480, SizeToContent = SizeToContent.Height, CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             RequestedThemeVariant = owner.ActualThemeVariant,
-            FontFamily = owner.FontFamily, FontSize = 14,
-            Background = owner.Background, Foreground = owner.Foreground
+            FontFamily = owner.FontFamily, FontSize = 14, UseLayoutRounding = true
         };
+        EditorDialogTheme.Apply(dialog, owner);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
         for (int i = 0; i < choices.Count; i++)
         {
             int result = i;
-            var button = new Button { Content = EditorLocalization.Text(choices[i]), MinWidth = 64, Padding = new Thickness(14, 6), IsCancel = i == 0 };
+            var button = new Button { Content = EditorLocalization.Text(choices[i]), MinWidth = 72, IsCancel = i == 0, IsDefault = i == primary };
+            if (i == danger) button.Classes.Add("danger");
             button.Click += (_, _) => dialog.Close(result);
             buttons.Children.Add(button);
         }
         dialog.Content = new StackPanel
         {
             Margin = new Thickness(24), Spacing = 24,
-            Children = { new TextBlock { Text = EditorLocalization.Text(message), TextWrapping = TextWrapping.Wrap, LineHeight = 22, Foreground = owner.Foreground }, buttons }
+            Children = { new TextBlock { Text = EditorLocalization.Text(message), TextWrapping = TextWrapping.Wrap, LineHeight = 22 }, buttons }
         };
         return dialog.ShowDialog<int>(owner);
     }
@@ -144,8 +149,8 @@ internal static class EditorDialogs
     {
         var dialog = new Window { Title = EditorLocalization.Text(title), Width = 500, SizeToContent = SizeToContent.Height,
             CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            RequestedThemeVariant = owner.ActualThemeVariant, FontFamily = owner.FontFamily, FontSize = 14,
-            Background = owner.Background, Foreground = owner.Foreground };
+            RequestedThemeVariant = owner.ActualThemeVariant, FontFamily = owner.FontFamily, FontSize = 14, UseLayoutRounding = true };
+        EditorDialogTheme.Apply(dialog, owner);
         var input = new TextBox { Text = initial, MaxLength = 256 };
         var cancel = new Button { Content = EditorLocalization.Text("取消"), IsCancel = true };
         var apply = new Button { Content = EditorLocalization.Text("确认"), IsDefault = true };

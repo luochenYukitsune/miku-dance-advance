@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($LegacyPreview) {
-    & (Join-Path $PSScriptRoot 'dotnet.ps1') -DotNetArguments @('run', '--project', 'src/Mmd.Modern.App', '-c', 'Release', '--', '--legacy-preview')
+    & (Join-Path $PSScriptRoot 'dotnet.ps1') -DotNetArguments @('run', '--project', 'src/Mmd.Modern.Demo', '-c', 'Release', '--', '--legacy-preview')
 } else {
     & (Join-Path $PSScriptRoot 'run-frame-viewer.ps1') -Model $Model -Project $Project -Motion $Motion -PlayMotion:$PlayMotion -ToonDirectory $ToonDirectory -DemoRoom:$DemoRoom -ShadowProjection $ShadowProjection -GiComposition $GiComposition -GiDenoiser $GiDenoiser -Antialiasing $Antialiasing -RoomEmission $RoomEmission
 }

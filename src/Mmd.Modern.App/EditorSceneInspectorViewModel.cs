@@ -362,7 +362,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         Changed(nameof(CameraParentBone)); Changed(nameof(CameraParentHint));
         if (CameraIsValid) CameraPoseChanged?.Invoke(cameraPose);
     }
-    private void PublishLight() { Changed(nameof(LightPose)); Changed(nameof(LightDirectionVector)); if (LightIsValid) LightPoseChanged?.Invoke(lightPose); }
+    private void PublishLight() { Changed(nameof(LightPose)); Changed(nameof(LightDirectionVector)); Changed(nameof(LightAzimuth)); Changed(nameof(LightElevation)); if (LightIsValid) LightPoseChanged?.Invoke(lightPose); }
     private void DraftChanged()
     {
         Changed(nameof(HasCameraDraft)); Changed(nameof(HasLightDraft)); Changed(nameof(HasDraft)); Changed(nameof(FrameSummary));

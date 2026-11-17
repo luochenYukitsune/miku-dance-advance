@@ -48,6 +48,47 @@ public sealed class D3D12NativeLightTests
     }
 
     [Fact]
+    public void OverlappingBrightLightsKeepAShadowInsteadOfClippingBothToWhite()
+    {
+        // Several bright lights on one spot used to saturate the 8-bit target, so the
+        // shadowed pixel ("all lights but one") and the lit pixel were both 255.
+        using var session = new D3D12FrameSession();
+        var fixture = Fixture();
+        int center = (48 * 129 + 64) * 4;
+        var caster = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = 8 };
+        var fills = Enumerable.Range(0, 3).Select(i => Light(SceneLightKind.Point) with
+            { Color = Vector3.One, Position = new(i - 1, 1.5f, -2), CastShadows = false, Intensity = 8 }).ToArray();
+        var shadow = session.Capture(WithLight(fixture, [caster, .. fills]), 129, 97);
+        var lit = session.Capture(WithLight(fixture, [caster with { CastShadows = false }, .. fills]), 129, 97);
+        Assert.True(lit.Rgba[center] < 255, $"lit={lit.Rgba[center]}");
+        Assert.True(lit.Rgba[center] >= shadow.Rgba[center] + 10, $"lit={lit.Rgba[center]}, shadow={shadow.Rgba[center]}");
+        // Below the shoulder the accepted additive result is unchanged: a dim light adds exactly.
+        var dim = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = .5f, CastShadows = false };
+        var single = session.Capture(WithLight(fixture, [dim]), 129, 97);
+        var doubled = session.Capture(WithLight(fixture, [dim, dim with { Id = Guid.NewGuid() }]), 129, 97);
+        var original = session.Capture(fixture, 129, 97);
+        Assert.InRange(doubled.Rgba[center] - original.Rgba[center] - 2 * (single.Rgba[center] - original.Rgba[center]), -1, 1);
+    }
+
+    [Fact]
+    public void ResolvedParentLightsMatchEquivalentWorldLightsThroughTheRenderingBoundary()
+    {
+        using var session = new D3D12FrameSession(); var fixture = Fixture();
+        var transform = Matrix4x4.CreateTranslation(4, 2, 0);
+        var parent = new SceneLightParent(Guid.NewGuid(), 0);
+        foreach (var kind in Enum.GetValues<SceneLightKind>())
+        {
+            var world = Light(kind);
+            var local = SceneLightTransform.ToLocal(world, parent, transform);
+            var resolved = new SceneLightingSnapshot([local]).ResolveParents(_ => transform);
+            var input = new OriginalFrameScene(fixture.Surface, options: fixture.Options, materials: fixture.Materials, lighting: resolved);
+            Assert.Equal(session.Capture(WithLight(fixture, [world]), 129, 97).Rgba,
+                session.Capture(input, 129, 97).Rgba);
+            Assert.Equal(kind == SceneLightKind.Area ? 24 : kind == SceneLightKind.Point ? 6 : 1, session.NativeLightStatistics!.ShadowFaces);
+        }
+    }
+
+    [Fact]
     public void MovingPointAndRotatingSpotChangesOnlyTheirActualWorldSpaceInfluence()
     {
         using var session = new D3D12FrameSession();
@@ -63,13 +104,14 @@ public sealed class D3D12NativeLightTests
         Assert.Equal(lit.Rgba, session.Capture(WithLight(fixture, [point]), 129, 97).Rgba);
     }
 
-    private static NativeSceneLight Light(SceneLightKind kind) => new(Guid.NewGuid(), "test " + kind, kind, new(0, 0, -2),
-        Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), new(1, .3f, .1f), kind == SceneLightKind.Directional ? 1 : 4, 8);
+    internal static NativeSceneLight Light(SceneLightKind kind) => new(Guid.NewGuid(), "test " + kind, kind, new(0, 0, -2),
+        Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), new(1, .3f, .1f), kind == SceneLightKind.Directional ? 1 : 4, 8,
+        AreaSize: kind == SceneLightKind.Area ? new Vector2(2, 2) : null);
 
-    private static OriginalFrameScene WithLight(OriginalFrameScene frame, IEnumerable<NativeSceneLight> lights) =>
+    internal static OriginalFrameScene WithLight(OriginalFrameScene frame, IEnumerable<NativeSceneLight> lights) =>
         new(frame.Surface, options: frame.Options, materials: frame.Materials, lighting: new(lights));
 
-    private static OriginalFrameScene Fixture(bool transparentCaster = false)
+    internal static OriginalFrameScene Fixture(bool transparentCaster = false)
     {
         SceneVertex[] Quad(float z, float half) => [new(new(-half, -half, z), -Vector3.UnitZ, Vector2.Zero),
             new(new(half, -half, z), -Vector3.UnitZ, Vector2.Zero), new(new(half, half, z), -Vector3.UnitZ, Vector2.Zero),

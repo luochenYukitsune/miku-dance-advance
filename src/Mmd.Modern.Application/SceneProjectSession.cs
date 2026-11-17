@@ -37,7 +37,8 @@ public sealed partial class SceneProjectEdit
 
 /// <summary>Single-owner project transaction boundary. Layout, lighting, animation, media and settings
 /// are prepared as one candidate before publication. Animation-affecting content edits and undo restart
-/// solvers at the current clock; style-only transactions retain them. Solver histories are never serialized. No GUI or GPU dependency.</summary>
+/// solvers at the current clock; style-only and additional-light-only transactions retain them.
+/// Solver histories are never serialized. No GUI or GPU dependency.</summary>
 public sealed partial class SceneProjectSession : IDisposable
 {
     private sealed record Content(SceneCompositionEditor Composition, SceneLightingEditor Lighting,
@@ -45,7 +46,7 @@ public sealed partial class SceneProjectSession : IDisposable
         ProjectSettings Settings, SceneMediaTrack[] Media, ScenePmmControlState? PmmControls, PmaRenderingStyleState RenderingStyles,
         ValidatedSceneLayout Layout, SceneProjectAccessory[] Accessories)
     {
-        // Style-only copies keep this marker. Ordinary candidates always receive a fresh marker.
+        // Style-only and additional-light-only copies keep this marker. Prepared candidates receive a fresh marker.
         public object AnimationIdentity { get; init; } = new();
     }
     private readonly IProjectPhysicsBackendProvider physics;
@@ -127,6 +128,13 @@ public sealed partial class SceneProjectSession : IDisposable
         try
         {
             var detached = ToEdit(content); edit(detached);
+            DetachLightsFromRemovedParents(detached);
+            if (validateCandidate is null && TryFreezeLightingOnly(detached, out var lightingOnly))
+            {
+                animation.UpdateLighting(lightingOnly.Lighting.Snapshot, cancellationToken);
+                undo.Push(content); redo.Clear(); content = lightingOnly;
+                return;
+            }
             var next = Freeze(detached);
             var candidate = Prepare(next, animation.CurrentFrame, cancellationToken);
             try
@@ -154,7 +162,10 @@ public sealed partial class SceneProjectSession : IDisposable
     {
         RequireIdle(); token.ThrowIfCancellationRequested(); if (!source.TryPeek(out var next)) return false;
         if (ReferenceEquals(next.AnimationIdentity, content.AnimationIdentity))
-        { source.Pop(); destination.Push(content); content = next; return true; }
+        {
+            animation.UpdateLighting(next.Lighting.Snapshot, token);
+            source.Pop(); destination.Push(content); content = next; return true;
+        }
         var candidate = Prepare(next, animation.CurrentFrame, token);
         source.Pop(); destination.Push(content); Publish(next, candidate); return true;
     }

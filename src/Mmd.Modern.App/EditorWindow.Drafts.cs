@@ -24,7 +24,7 @@ public partial class EditorWindow
         if (!shell.Animation.HasAnyDraft && !shell.SceneInspector.HasCameraDraft && !shell.SceneInspector.HasLightDraft) return true;
         shell.StopPlayback();
         int answer = await EditorDialogs.ChooseAsync(this, Text("未登记姿态"), Text("当前工程有尚未登记的姿态。"),
-            [Text("取消"), Text("放弃草稿"), Text("登记后继续")]);
+            [Text("取消"), Text("放弃草稿"), Text("登记后继续")], primary: 2);
         if (answer == 0) return false;
         if (answer == 1) { shell.SceneInspector.DiscardAllDrafts(); shell.RefreshWorkspace(); this.FindControl<EditorViewportHost>("SceneViewport")!.SetCameraPose(null); return true; }
         try

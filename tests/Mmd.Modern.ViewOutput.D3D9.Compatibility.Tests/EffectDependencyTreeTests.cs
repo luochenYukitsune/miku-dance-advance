@@ -18,7 +18,7 @@ public sealed class EffectDependencyTreeTests : IDisposable
     private const string Include = @"C:\unavailable-source\ソ.inc";
     private const string AbsoluteInclude = @"D:\shared-source\absolute.inc";
     private const string Image = @"Q:\unavailable-assets\色.png";
-    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261106/dependency549/tests"), Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("compat/20261106/dependency549/tests"), Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -290,7 +290,7 @@ public sealed class EffectDependencyTreeTests : IDisposable
     public void Dispose()
     {
         string full = Path.GetFullPath(directory);
-        if (!full.StartsWith(Path.GetFullPath((Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261106/dependency549/tests") + "/")), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
+        if (!full.StartsWith(Path.GetFullPath(MdaWorkRoot.Path("compat/20261106/dependency549/tests/")), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException();
         if (Directory.Exists(full)) Directory.Delete(full, recursive: true);
     }
 }

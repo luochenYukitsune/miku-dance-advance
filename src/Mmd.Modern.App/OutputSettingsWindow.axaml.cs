@@ -49,8 +49,14 @@ public partial class OutputSettingsWindow : Window
     public OutputSettingsViewModel ViewModel => (OutputSettingsViewModel)DataContext!;
     public bool ExportRequested { get; private set; }
 
-    private void RefreshLocalization() => this.FindControl<TextBlock>("ExportAvailability")!.Text =
-        Text(canExport ? "使用当前工程快照导出" : "载入模型后可导出");
+    private void RefreshLocalization()
+    {
+        string availability = Text(canExport ? "使用当前工程快照导出" : "载入模型后可导出");
+        this.FindControl<TextBlock>("ExportAvailability")!.Text = availability;
+        // A disabled export button explains itself on hover instead of looking merely broken.
+        var start = this.FindControl<Button>("StartExportButton")!;
+        ToolTip.SetTip(start, availability); ToolTip.SetShowOnDisabled(start, true);
+    }
 
     private Task<bool> EnsureGiCapabilitiesAsync() => ViewModel.GiCapabilitiesReady
         ? Task.FromResult(true) : giCapabilityQuery ??= LoadGiCapabilitiesAsync();

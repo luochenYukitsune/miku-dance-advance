@@ -107,8 +107,12 @@ internal static partial class OriginalFrameShaders
         """;
 
     private const string EndfieldLiveNativeLoop="""
+            if(NativeAtlasLayout.z>0) result+=NativeAtlasLayout.z.xxx;
             [loop] for(uint i=0;i<(uint)NativeInfo.x;i++) {
-                NativeLight light=NativeLights[i];
+                if((NativeInfo.y & (1u<<i))==0) continue;
+                NativeLight source=NativeLights[i];
+                [loop] for(uint sample=0;sample<(source.PositionKind.w==3?4u:1u);sample++) {
+                NativeLight light=NativeSample(source,sample);
                 float3 delta=light.PositionKind.xyz-v.WorldPosition;
                 float distanceSquared=max(dot(delta,delta),.0001);
                 float3 l=light.PositionKind.w==0?-light.DirectionRange.xyz:delta*rsqrt(distanceSquared);
@@ -121,10 +125,12 @@ internal static partial class OriginalFrameShaders
                     float angular=saturate((dot(-l,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
                     attenuation*=angular*angular;
                 }
+                if(light.PositionKind.w==3) attenuation*=saturate(dot(-l,light.DirectionRange.xyz));
                 // Bias uses the evaluated geometric normal. Mapped normal only
                 // affects irradiance, never the atlas's surface-position offset.
-                float visibility=NativeVisibility(i,light,v.WorldPosition,geometric,l);
+                float visibility=NativeVisibility(i,light,v.WorldPosition,geometric,l,0,0,sample);
                 result+=max(light.ColorIntensity.rgb,0)*(light.ColorIntensity.w*attenuation*saturate(dot(normal,l))*visibility);
+                }
             }
         """;
 

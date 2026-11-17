@@ -432,7 +432,9 @@ public static class PmaProjectStore
             throw new InvalidDataException("Package contains a resource excluded by its content selection.");
         var layout = project.GetProperty("layout");
         if (!selection.RetainNativeLighting && (layout.GetProperty("lights").GetArrayLength() != 0
-            || layout.GetProperty("selectedLightId").ValueKind != JsonValueKind.Null))
+            || layout.GetProperty("selectedLightId").ValueKind != JsonValueKind.Null
+            || (layout.TryGetProperty("groups", out var groups) && groups.ValueKind != JsonValueKind.Null && groups.GetArrayLength() != 0)
+            || layout.TryGetProperty("settings", out _)))
             throw new InvalidDataException("Package contains native lighting excluded by its content selection.");
         if (!selection.RetainModelPurposes)
             foreach (var item in layout.GetProperty("objects").EnumerateArray())

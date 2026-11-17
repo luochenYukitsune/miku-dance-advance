@@ -106,18 +106,17 @@ internal sealed class D3D12PreviewAdaptiveSampling
 
     private readonly record struct ResourceShape(int Vertices, int Indices, int Materials, int Textures,
         int OutlineVertices, bool DynamicVertices, bool AdditionalUvs, bool RawRadialSeeds,
-        int ShadowWidth, int ShadowHeight, int NativeShadowLights, bool Stencil, FrameAlphaOutput AlphaOutput,
+        int ShadowWidth, int ShadowHeight, int NativeShadowWidth, int NativeShadowHeight, bool Stencil, FrameAlphaOutput AlphaOutput,
         FrameAntialiasing Antialiasing)
     {
         internal static ResourceShape Create(OriginalFrameScene frame)
         {
             var scene = frame.Surface.Snapshot;
             var shadow = frame.Options?.SelfShadow;
-            var lights = frame.Lighting?.Lights.Where(light => light.Enabled && light.Intensity > 0 && light.Color != Vector3.Zero).ToArray();
-            int shadowLights = lights is { Length: > 0 } && lights.Any(light => light.CastShadows) ? lights.Length : 0;
+            var nativeAtlas = NativeLightShadowAtlasLayout.Create(frame.Lighting);
             return new(scene.VertexCount, scene.Indices.Length, scene.Materials.Count, scene.Textures.Count,
                 frame.Outline?.Vertices.Count ?? 0, scene.HasDynamicVertices, scene.AdditionalUvs is not null, scene.RawRadialSeeds is not null,
-                shadow is { Generate: true } ? shadow.Width : 0, shadow is { Generate: true } ? shadow.Height : 0, shadowLights,
+                shadow is { Generate: true } ? shadow.Width : 0, shadow is { Generate: true } ? shadow.Height : 0, nativeAtlas.Width, nativeAtlas.Height,
                 frame.Options?.GroundShadow?.UseStencil == true, frame.Options?.AlphaOutput ?? FrameAlphaOutput.LegacyMax,
                 frame.Options?.Antialiasing ?? FrameAntialiasing.Off);
         }

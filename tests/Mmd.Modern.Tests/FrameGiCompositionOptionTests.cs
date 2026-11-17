@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Reflection;
 using System.Text;
+using Mmd.Modern.Demo;
 using Mmd.Modern.App;
 using Mmd.Modern.Core;
 using Xunit;

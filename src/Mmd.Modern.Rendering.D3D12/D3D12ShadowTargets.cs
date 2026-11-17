@@ -48,7 +48,7 @@ internal sealed class D3D12ShadowTargets:IDisposable
     {
         bool scene=!frame.Surface.Snapshot.IsEmpty&&frame.Options is not null;
         if(!scene||frame.Options?.SelfShadow is not {Generate:true})ReleaseSlots(cache,"original-primary-shadow");
-        if(!scene||frame.Lighting?.Lights.Any(light=>light.Enabled&&light.Intensity>0
+        if(!scene||frame.Lighting?.EffectiveLights.Any(light=>light.Enabled&&light.Intensity>0
             &&light.Color!=System.Numerics.Vector3.Zero&&light.CastShadows)!=true)ReleaseSlots(cache,"original-native-shadow");
     }
 
