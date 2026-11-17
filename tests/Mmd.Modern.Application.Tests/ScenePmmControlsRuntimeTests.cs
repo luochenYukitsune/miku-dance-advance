@@ -279,6 +279,31 @@ public sealed class ScenePmmControlsRuntimeTests : IDisposable
     }
 
     [Fact]
+    public void ModelAddedAfterASparsePmmDrawOrderTakesTheLowestFreeSourceIndex()
+    {
+        // An imported PMM model may carry draw-order byte 255. The added model used to get max + 1 = 256 and hit
+        // the 256-model limit with only three models in the scene.
+        var f = Fixture(lastDrawOrder: 255);
+        var provider = new ProjectSettingsBackendProvider((_, _) => new Probe(), _ => new Probe());
+        using var project = new SceneProjectSession(f.Layout, new(), f.Motions, provider, pmmControls: f.Controls);
+        var extra = RigidModel("extra", ["root"], 0, false);
+        string path = Path.Combine(directory, "sparse-extra.pmx"); File.WriteAllBytes(path, PmxWriter.ToBytes(extra));
+        Guid added = Guid.Empty;
+        project.Edit(edit =>
+        {
+            var obj = edit.Composition.Add("extra", path, ModelRole.Character, Rest(extra)); added = obj.Id;
+            var asset = SceneMotionAsset.FromMotion(new() { BoneKeyframes = [new() { BoneName = "root" }] });
+            edit.Motions.Add(new(obj.Id, extra, asset.Motion, Asset: asset));
+        }, Token);
+        var order = project.CaptureRenderSnapshot().MixedDrawOrder;
+        var models = order.Where(item => item.Kind == PmmDrawableKind.Model).ToArray();
+        Assert.Equal(3, models.Length);
+        Assert.Contains(models, item => item.SourceDrawOrderIndex == 255);
+        Assert.Equal(models.Length, models.Select(item => item.SourceDrawOrderIndex).Distinct().Count());
+        Assert.True(order.Single(item => item.ObjectId == added).SourceDrawOrderIndex < 255);
+    }
+
+    [Fact]
     public void ModelAddedToAPmmProjectStepsPhysicsAndJoinsTheMixedDrawOrder()
     {
         // ValidateActors deliberately allows an actor added after the import. It used to fail later: physics
@@ -302,10 +327,10 @@ public sealed class ScenePmmControlsRuntimeTests : IDisposable
         Assert.Equal(order.Max(item => item.DrawOrderIndex), last.DrawOrderIndex);
     }
 
-    private (SceneCompositionEditor Layout, SceneActorMotion[] Motions, ScenePmmControlState Controls) Fixture()
+    private (SceneCompositionEditor Layout, SceneActorMotion[] Motions, ScenePmmControlState Controls) Fixture(byte? lastDrawOrder = null)
     {
         var layout = new SceneCompositionEditor(); var models = new[] { RigidModel("subject", ["unused", "root"], 1, false), RigidModel("parent", ["root"], 0, true) };
-        var raw = Document([ModelTrack(7, "subject", ["root", "unused"], true), ModelTrack(42, "parent", ["root"], false)]);
+        var raw = Document([ModelTrack(7, "subject", ["root", "unused"], true), ModelTrack(42, "parent", ["root"], false, lastDrawOrder ?? 0)]);
         var doc = PmmReader.Read(new MemoryStream(PmmWriter.ToBytes(raw)), new() { AnsiCodePage = 932 });
         var motions = models.Select((model, i) =>
         {
@@ -324,7 +349,7 @@ public sealed class ScenePmmControlsRuntimeTests : IDisposable
             CameraLookAtModelIndex = -1, CameraLookAtBoneIndex = -1 },
         Gravity = new() { InitialKeyframe = new() { Acceleration = 1, Direction = gravityX ? Vector3.UnitX : -Vector3.UnitY, NoiseEnabled = !gravityX, Noise = 2 } }
     };
-    private static PmmModel ModelTrack(byte id, string name, string[] bones, bool switches)
+    private static PmmModel ModelTrack(byte id, string name, string[] bones, bool switches, byte drawOrder = 0)
     {
         PmmString S(string value) => new(0, value, []);
         byte[] linear = Enumerable.Repeat(new byte[] { 20, 20, 107, 107 }, 4).SelectMany(b => b).ToArray();
@@ -340,7 +365,7 @@ public sealed class ScenePmmControlsRuntimeTests : IDisposable
             keys.Add(new() { ObjectIndex = count + (switches ? 2 : 0) + bone, PreviousIndex = switches && bone == 0 ? count + 1 : bone,
                 Frame = 60, Translation = name == "parent" ? new(20, 0, 0) : Vector3.Zero, Rotation = Quaternion.Identity, Interpolation = linear });
         }
-        return new() { Index = id, Name = S(name), Path = S(name + ".pmx"), BoneNames = bones.Select(S).ToArray(), SelectedMorphIndices = [-1, -1, -1, -1], Visible = true,
+        return new() { Index = id, DrawOrderIndex = drawOrder, Name = S(name), Path = S(name + ".pmx"), BoneNames = bones.Select(S).ToArray(), SelectedMorphIndices = [-1, -1, -1, -1], Visible = true,
             LastFrame = 60, OutsideParentSubjectBoneIndices = switches ? [0] : [],
             InitialBoneKeyframes = bones.Select((_, i) => new PmmBoneKeyframe { ObjectIndex = i, NextIndex = switches && i == 0 ? count : count + (switches ? 2 : 0) + i,
                 Translation = name == "parent" ? new(10, 0, 0) : Vector3.Zero, Rotation = Quaternion.Identity, Interpolation = linear }).ToArray(), BoneKeyframes = keys,

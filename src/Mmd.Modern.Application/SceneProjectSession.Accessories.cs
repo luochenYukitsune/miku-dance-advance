@@ -131,11 +131,16 @@ public sealed partial class SceneProjectSession
         // Models added after the PMM import have no PMM draw-order record. Draw them after the PMM models, in
         // scene order, so the traditional renderer still receives a complete object table.
         var mapped = controls.ModelIndices.Keys.ToHashSet();
-        int nextSource = draw.Where(value => value.Kind == PmmDrawableKind.Model).Select(value => (int)value.SourceDrawOrderIndex).DefaultIfEmpty(-1).Max() + 1;
+        // PMM source indices can be sparse (an imported model may use 255), so take the lowest free byte rather than
+        // max + 1; the 256-model limit applies only when every byte value is taken. Existing indices are unchanged.
+        var usedSource = draw.Where(value => value.Kind == PmmDrawableKind.Model).Select(value => (int)value.SourceDrawOrderIndex).ToHashSet();
+        int nextSource = 0;
         int nextOrder = draw.Select(value => value.DrawOrderIndex).DefaultIfEmpty(-1).Max() + 1;
         foreach (var obj in content.Composition.Objects.Where(value => !mapped.Contains(value.Id) && !content.Accessories.Any(a => a.ObjectId == value.Id)))
         {
+            while (nextSource <= byte.MaxValue && usedSource.Contains(nextSource)) nextSource++;
             if (nextSource > byte.MaxValue) throw new NotSupportedException("A PMM-based project supports at most 256 drawn models.");
+            usedSource.Add(nextSource);
             draw.Add(new(obj.Id, PmmDrawableKind.Model, -1, (byte)nextSource++, nextOrder++,
                 byActor.TryGetValue(obj.Id, out var actor) ? actor.Visible : true, false));
         }
