@@ -44,7 +44,7 @@ internal static class EditorCrashLog
             args.Handled = true;
             if (!ShouldRecord("ui", args.Exception, out string? path)) return;
             try { UiExceptionRecorded?.Invoke(args.Exception, path); }
-            catch (Exception notify) { System.Diagnostics.Trace.WriteLine("Crash notice failed: " + notify); }
+            catch (Exception notify) { System.Diagnostics.Trace.WriteLine("Crash notice failed: " + Describe(notify)); }
         };
     }
 
@@ -90,7 +90,17 @@ internal static class EditorCrashLog
             try { return $"{type}::{method}#{site.MetadataToken}"; }
             catch (InvalidOperationException) { return $"{type}::{method}"; }
         }
-        catch (Exception) { return error.GetType().FullName + ": " + error.Message; }
+        // The final fallback touches no exception member: a custom Message (or TargetSite) getter may itself throw,
+        // and anything thrown here escapes the handler before the exception is logged or reported.
+        catch (Exception) { return UnknownLocation; }
+    }
+    internal const string UnknownLocation = "<unknown site>";
+
+    /// <summary>Exception text for trace output that never throws, even when ToString/Message are overridden badly.</summary>
+    private static string Describe(Exception error)
+    {
+        try { return error.ToString(); }
+        catch (Exception) { return error.GetType().FullName ?? "Exception"; }
     }
 
     internal static void ResetThrottleForTests() { lock (throttleGate) seen.Clear(); }
@@ -119,12 +129,12 @@ internal static class EditorCrashLog
             text.Append(ExportDiagnosticException.Readable(error));
             File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
             Prune(root);
-            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception recorded at " + path + ": " + error);
+            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception recorded at " + path + ": " + Describe(error));
             return path;
         }
         catch (Exception logging)
         {
-            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception (log write failed: " + logging.Message + "): " + error);
+            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception (log write failed: " + Describe(logging) + "): " + Describe(error));
             return null;
         }
     }

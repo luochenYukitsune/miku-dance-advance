@@ -62,6 +62,26 @@ public sealed class EditorCrashLogTests : IDisposable
         EditorCrashLog.ResetThrottleForTests();
     }
 
+    private sealed class HostileException : Exception
+    {
+        public override string Message => throw new InvalidOperationException("Message getter");
+        public override string ToString() => throw new InvalidOperationException("ToString");
+        public override string? StackTrace => throw new InvalidOperationException("StackTrace getter");
+    }
+
+    [Fact]
+    public void AnExceptionWhoseMessageAndToStringThrowIsStillRecordedAndCounted()
+    {
+        // TargetSite is null (never thrown) and every text member throws: the handler must not throw a second time.
+        var hostile = new HostileException();
+        Assert.Equal(EditorCrashLog.UnknownLocation, EditorCrashLog.Location(hostile));
+        EditorCrashLog.ResetThrottleForTests();
+        Assert.True(EditorCrashLog.ShouldRecord("ui", hostile, out string? path, directory));
+        Assert.NotNull(path);
+        Assert.False(EditorCrashLog.ShouldRecord("ui", hostile, out _, directory));
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
     [Fact]
     public void SameNamedMethodsOnDifferentTypesAreDistinctSignatures()
     {
