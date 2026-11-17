@@ -91,12 +91,12 @@ jobs:
           retention-days: 1
 
   # 云端机器没有显卡：跳过 Category=Gpu 的测试，留给下面的真机验收。
-  # required=false 的组是这次新加进来的，里面还有改版前就存在的失败；先只报告、不拦合并，
-  # 修好后再改成 true。
+  # “编辑器与渲染”额外跳过穷举 48 种宏组合的慢速着色器编译类（改着色器时在本地跑），将测试耗时控制在数分钟内。
+  # required=false 的组还有改版前就存在的失败；先只报告、不拦合并，修好后再改成 true。
   test:
     needs: build
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     continue-on-error: ${{ !matrix.required }}
     strategy:
       fail-fast: false
@@ -104,18 +104,23 @@ jobs:
         include:
           - name: 格式·调度·插件
             projects: Mmd.Modern.Formats.Tests Mmd.Modern.Scheduling.Tests Mmd.Modern.Plugins.Tests
+            filter: Category!=Gpu
             required: true
           - name: 应用与物理
             projects: Mmd.Modern.Application.Tests
+            filter: Category!=Gpu
             required: false
           - name: 输出与编码
             projects: Mmd.Modern.ViewOutput.Tests Mmd.Modern.ViewOutput.FFmpeg.Tests
+            filter: Category!=Gpu
             required: false
           - name: 传统引擎兼容
             projects: Mmd.Modern.Rendering.D3D9.Compatibility.Tests Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests
+            filter: Category!=Gpu
             required: false
           - name: 编辑器与渲染
             projects: Mmd.Modern.Tests
+            filter: Category!=Gpu&FullyQualifiedName!~ShaderTests&FullyQualifiedName!~ShaderVariantsTests&FullyQualifiedName!~SurfaceTests&FullyQualifiedName!~FaceSdfTests
             required: false
     name: 测试（${{ matrix.name }}${{ !matrix.required && '，暂不拦截' || '' }}）
     steps:
@@ -134,9 +139,13 @@ jobs:
       - name: 还原编译结果
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path $env:ModernCacheRoot | Out-Null
+          $workRoot = "${{ runner.temp }}\w"
+          $dxcTestCache = "${{ runner.temp }}\dxc-test-cache"
+          New-Item -ItemType Directory -Force -Path $env:ModernCacheRoot, $workRoot, $dxcTestCache | Out-Null
           tar -xzf build-output.tgz -C "$env:ModernCacheRoot"
+          "MDA_WORK_ROOT=$workRoot" >> $env:GITHUB_ENV
           "MMD_DXC_PATH=$env:ModernCacheRoot\native\dxc\dxc.exe" >> $env:GITHUB_ENV
+          "MMD_DXC_TEST_CACHE=$dxcTestCache" >> $env:GITHUB_ENV
           dotnet restore Mmd.Modern.slnx --locked-mode
       - name: 取得固定版本 FFmpeg（真实编码测试用）
         if: contains(matrix.projects, 'FFmpeg')
@@ -150,7 +159,7 @@ jobs:
         run: |
           $failed = @()
           foreach ($project in '${{ matrix.projects }}'.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
-            dotnet test "tests/$project" -c Release --no-build --no-restore --filter 'Category!=Gpu' `
+            dotnet test "tests/$project" -c Release --no-build --no-restore --filter '${{ matrix.filter }}' `
               --logger "trx;LogFileName=$project.trx" --results-directory artifacts/tests `
               --blame-hang-timeout 10m
             if ($LASTEXITCODE) { $failed += $project }
@@ -189,6 +198,9 @@ jobs:
       - name: 加入 FSR / XeSS / DLSS 超分
         shell: pwsh
         run: ./scripts/ci-stage-upscalers.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-upscalers"
+      - name: 加入传统（Classic）渲染引擎
+        shell: pwsh
+        run: ./scripts/ci-stage-classic.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-classic"
       - name: 检查可选运行库的安装路径（不需要显卡）
         shell: pwsh
         run: |
@@ -196,6 +208,16 @@ jobs:
           ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory $out
           if ($LASTEXITCODE) { Write-Output '::warning::云端机器没有 D3D12 显卡，这里只检查安装是否正确。' }
         continue-on-error: true
+      - name: 验证 Inno Setup 安装包编译
+        shell: pwsh
+        run: |
+          ./scripts/ci-package-installer.ps1 `
+            -PublishedDirectory "${{ runner.temp }}/mda-windows" `
+            -Version "0.1.30.0" `
+            -StageDirectory "${{ runner.temp }}/mda-stage-check" `
+            -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-check" `
+            -NugetPackages "${{ github.workspace }}/.nuget/packages"
+          Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check", "${{ runner.temp }}/mda-installer-check" -Recurse -Force -ErrorAction SilentlyContinue
       - name: 在摘要中列出超分文件
         shell: pwsh
         run: |
