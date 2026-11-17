@@ -1,13 +1,19 @@
-name: 发布预发布版
+name: 发布 GitHub Release
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 要发布的版本标签（例如 v0.1.30）
-        required: true
+        description: 要发布的版本标签（如 v0.1.30；留空则按上一版末位自动 +1）
+        required: false
         type: string
+        default: ''
+      prerelease:
+        description: 勾选为预发布版（Pre-release）；取消勾选则发布为正式版
+        required: false
+        type: boolean
+        default: true
       previous_tag:
         description: 对比提交日志的上一版标签（留空则自动查找上一版 v* 标签）
         required: false
@@ -34,16 +40,24 @@ jobs:
     name: 发布前文案与标签检查
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.resolve-tag.outputs.tag }}
+      release_version: ${{ steps.resolve-tag.outputs.version }}
+      previous_tag: ${{ steps.resolve-tag.outputs.previous_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 校验版本号标签格式
+      - name: 解析或自动递增发布版本号
+        id: resolve-tag
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          python -c "import os,re,sys; t=os.environ['RELEASE_TAG']; sys.exit(0 if re.fullmatch(r'v\d+\.\d+\.\d+(?:\.\d+)?', t) else f'非法的版本标签: {t}')"
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          INPUT_PREVIOUS_TAG: ${{ inputs.previous_tag || '' }}
+        run: python scripts/resolve-release-tag.py --repo "$GITHUB_REPOSITORY" --write-github-output
       - name: 三语文案及固定版本清单检查
         run: |
           python scripts/check-localization.py
@@ -57,7 +71,7 @@ jobs:
           fi
 
   publish:
-    name: 构建双引擎安装包并发布预发布版
+    name: 构建双引擎安装包并推送 GitHub Release
     needs: lint
     runs-on: windows-latest
     timeout-minutes: 60
@@ -65,8 +79,10 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-      PREVIOUS_TAG: ${{ inputs.previous_tag || '' }}
+      RELEASE_TAG: ${{ needs.lint.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.lint.outputs.release_version }}
+      PREVIOUS_TAG: ${{ needs.lint.outputs.previous_tag }}
+      IS_PRERELEASE: ${{ github.event_name == 'push' || inputs.prerelease }}
       EXTRA_ZH: ${{ inputs.extra_zh || '' }}
       EXTRA_EN: ${{ inputs.extra_en || '' }}
     steps:
@@ -96,11 +112,10 @@ jobs:
       - name: 使用 Inno Setup 编译安装程序
         shell: pwsh
         run: |
-          $ver = $env:RELEASE_TAG.TrimStart('v')
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-build", "${{ runner.temp }}/mda-upscalers", "${{ runner.temp }}/mda-classic" -Recurse -Force -ErrorAction SilentlyContinue
           ./scripts/ci-package-installer.ps1 `
             -PublishedDirectory "${{ runner.temp }}/mda-windows" `
-            -Version $ver `
+            -Version $env:RELEASE_VERSION `
             -StageDirectory "${{ runner.temp }}/mda-stage" `
             -InstallerOutputDirectory "${{ runner.temp }}/mda-installer" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
@@ -113,14 +128,14 @@ jobs:
             --target-ref $env:GITHUB_SHA `
             --output "${{ runner.temp }}/release-notes.md"
           Get-Content -LiteralPath "${{ runner.temp }}/release-notes.md" -Raw >> $env:GITHUB_STEP_SUMMARY
-      - name: 校验附件哈希并公开为 GitHub Pre-release
+      - name: 校验附件哈希并推送到 GitHub Releases
         shell: pwsh
         run: |
-          $ver = $env:RELEASE_TAG.TrimStart('v')
           python -X utf8 scripts/ci-publish-release.py `
             --repo $env:GITHUB_REPOSITORY `
             --tag $env:RELEASE_TAG `
             --commit $env:GITHUB_SHA `
-            --installer "${{ runner.temp }}/mda-installer/MDA-$ver-win-x64-setup.exe" `
+            --installer "${{ runner.temp }}/mda-installer/MDA-$($env:RELEASE_VERSION)-win-x64-setup.exe" `
             --notes "${{ runner.temp }}/release-notes.md" `
-            --staging-dir "${{ runner.temp }}/release-upload"
+            --staging-dir "${{ runner.temp }}/release-upload" `
+            --prerelease $env:IS_PRERELEASE
