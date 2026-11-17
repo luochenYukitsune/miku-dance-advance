@@ -9,14 +9,16 @@ $app = Join-Path $work 'MDA App'
 $inf = Join-Path $work 'setup.inf'
 $classes = 'HKEY_CURRENT_USER\Software\Classes'
 foreach ($ext in '.pma', '.pmc', '.pmm') {
-    if (Test-Path "Registry::HKEY_CLASSES_ROOT\$ext") { throw "运行器已有 $ext 关联" }
+    $machineDefault = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\Software\Classes\$ext", '', '')
+    Write-Output "运行器原有系统关联 $ext = '$machineDefault'"
 }
-# An empty default and a reference to an unregistered ProgID both occur after uninstall.
+# Override only the disposable runner's per-user defaults. The image may ship
+# machine-wide PMA/PMC handlers; the test should exercise the merged HKCR view.
 [Microsoft.Win32.Registry]::SetValue("$classes\.pma", '', '')
 [Microsoft.Win32.Registry]::SetValue("$classes\.pmc", '', 'MDA.Test.RemovedHandler')
 # A selected type that already has a registered handler keeps that default.
 [Microsoft.Win32.Registry]::SetValue("$classes\.pmm", '', 'MDA.Test.OtherHandler')
-$otherExe = Join-Path $env:SystemRoot 'System32\notepad.exe'
+$otherExe = (Get-Process -Id $PID).Path
 [Microsoft.Win32.Registry]::SetValue("$classes\MDA.Test.OtherHandler\shell\open\command", '', ('"{0}" "%1"' -f $otherExe))
 
 $argsList = @('/VERYSILENT', '/SP-', '/SUPPRESSMSGBOXES', '/NORESTART', '/LANG=chinesesimplified',
@@ -49,8 +51,9 @@ if (-not (Test-Path -LiteralPath $editor -PathType Leaf)) { throw "缺少已安�
 foreach ($ext in '.pma', '.pmc') {
     # ASSOCSTR_COMMAND (1) and ASSOCSTR_EXECUTABLE (2) for the effective Shell open verb.
     $command = Get-ShellOpenValue $ext 1
-    if ((Get-ShellOpenValue $ext 2) -ne $editor -or $command -ne ('"{0}" --open "%1"' -f $editor)) {
-        throw "Windows 的 $ext 打开命令与本次安装不符：$command"
+    $exe = Get-ShellOpenValue $ext 2
+    if ($exe -ne $editor -or $command -ne ('"{0}" --open "%1"' -f $editor)) {
+        throw "Windows 的 $ext 打开方式与本次安装不符：程序=$exe，命令=$command"
     }
 }
 if ((Get-ShellOpenValue '.pmm' 2) -ne $otherExe) {
