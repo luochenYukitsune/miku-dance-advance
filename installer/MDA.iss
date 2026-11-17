@@ -53,8 +53,11 @@ ChangesAssociations=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-#if FileExists(CompilerPath + "Languages\ChineseSimplified.isl")
+; Prefer the compiler translation when available. The fallback is from jrsoftware/issrc is-6_7_4.
+#if FileExists(AddBackslash(CompilerPath) + "Languages\ChineseSimplified.isl")
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+#else
+Name: "chinesesimplified"; MessagesFile: "Languages\ChineseSimplified.isl"
 #endif
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
@@ -101,7 +104,7 @@ Source: "{#StageDir}\tools\classic\licenses\Microsoft.DXSDK.D3DX\LICENSE.txt"; D
 ; Register capabilities so Windows Default Apps can offer the selected file types.
 ; https://learn.microsoft.com/windows/apps/develop/launch/launch-default-apps-settings
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "MDA.MikuDanceAdvance"; ValueData: "Software\MDA\MikuDanceAdvance\Capabilities"; Flags: uninsdeletevalue; Check: HasFileAssociationTasks
-Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "MDA (MikuDance Advance)"; Flags: uninsdeletekey; Check: HasFileAssociationTasks
+Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "MDA.MikuDanceAdvance"; Flags: uninsdeletekey; Check: HasFileAssociationTasks
 Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{cm:AssociationDescription}"; Check: HasFileAssociationTasks
 Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Check: HasFileAssociationTasks
 Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pma"; ValueData: "MDA.AdvanceProject"; Flags: uninsdeletevalue; Tasks: associatepma
@@ -114,43 +117,43 @@ Root: HKCU; Subkey: "Software\MDA\MikuDanceAdvance\Capabilities\FileAssociations
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "MDA (MikuDance Advance)"; Flags: uninsdeletevalue; Check: HasFileAssociationTasks
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: HasFileAssociationTasks
 Root: HKCU; Subkey: "Software\Classes\.pma\OpenWithProgids"; ValueType: string; ValueName: "MDA.AdvanceProject"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepma
-Root: HKCU; Subkey: "Software\Classes\.pma"; ValueType: string; ValueName: ""; ValueData: "MDA.AdvanceProject"; Flags: createvalueifdoesntexist; Tasks: associatepma; Check: CanClaimUnassignedExtension('.pma')
+Root: HKCU; Subkey: "Software\Classes\.pma"; ValueType: string; ValueName: ""; ValueData: "MDA.AdvanceProject"; Tasks: associatepma; Check: CanClaimUnassignedExtension('.pma')
 Root: HKCU; Subkey: "Software\Classes\MDA.AdvanceProject"; ValueType: string; ValueName: ""; ValueData: "MDA Advance project"; Flags: uninsdeletekey; Tasks: associatepma
 Root: HKCU; Subkey: "Software\Classes\MDA.AdvanceProject\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatepma
 Root: HKCU; Subkey: "Software\Classes\MDA.AdvanceProject\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatepma
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".pma"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepma
 Root: HKCU; Subkey: "Software\Classes\.pmc\OpenWithProgids"; ValueType: string; ValueName: "MDA.ClassicProject"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepmc
-Root: HKCU; Subkey: "Software\Classes\.pmc"; ValueType: string; ValueName: ""; ValueData: "MDA.ClassicProject"; Flags: createvalueifdoesntexist; Tasks: associatepmc; Check: CanClaimUnassignedExtension('.pmc')
+Root: HKCU; Subkey: "Software\Classes\.pmc"; ValueType: string; ValueName: ""; ValueData: "MDA.ClassicProject"; Tasks: associatepmc; Check: CanClaimUnassignedExtension('.pmc')
 Root: HKCU; Subkey: "Software\Classes\MDA.ClassicProject"; ValueType: string; ValueName: ""; ValueData: "MDA Classic project"; Flags: uninsdeletekey; Tasks: associatepmc
 Root: HKCU; Subkey: "Software\Classes\MDA.ClassicProject\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatepmc
 Root: HKCU; Subkey: "Software\Classes\MDA.ClassicProject\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatepmc
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".pmc"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepmc
 Root: HKCU; Subkey: "Software\Classes\.pmm\OpenWithProgids"; ValueType: string; ValueName: "MDA.MmdProject"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepmm
-Root: HKCU; Subkey: "Software\Classes\.pmm"; ValueType: string; ValueName: ""; ValueData: "MDA.MmdProject"; Flags: createvalueifdoesntexist; Tasks: associatepmm; Check: CanClaimUnassignedExtension('.pmm')
+Root: HKCU; Subkey: "Software\Classes\.pmm"; ValueType: string; ValueName: ""; ValueData: "MDA.MmdProject"; Tasks: associatepmm; Check: CanClaimUnassignedExtension('.pmm')
 Root: HKCU; Subkey: "Software\Classes\MDA.MmdProject"; ValueType: string; ValueName: ""; ValueData: "MMD project"; Flags: uninsdeletekey; Tasks: associatepmm
 Root: HKCU; Subkey: "Software\Classes\MDA.MmdProject\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatepmm
 Root: HKCU; Subkey: "Software\Classes\MDA.MmdProject\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatepmm
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".pmm"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatepmm
 Root: HKCU; Subkey: "Software\Classes\.pmx\OpenWithProgids"; ValueType: string; ValueName: "MDA.PmxModel"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemodels
-Root: HKCU; Subkey: "Software\Classes\.pmx"; ValueType: string; ValueName: ""; ValueData: "MDA.PmxModel"; Flags: createvalueifdoesntexist; Tasks: associatemodels; Check: CanClaimUnassignedExtension('.pmx')
+Root: HKCU; Subkey: "Software\Classes\.pmx"; ValueType: string; ValueName: ""; ValueData: "MDA.PmxModel"; Tasks: associatemodels; Check: CanClaimUnassignedExtension('.pmx')
 Root: HKCU; Subkey: "Software\Classes\MDA.PmxModel"; ValueType: string; ValueName: ""; ValueData: "MMD PMX model"; Flags: uninsdeletekey; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\MDA.PmxModel\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\MDA.PmxModel\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".pmx"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\.pmd\OpenWithProgids"; ValueType: string; ValueName: "MDA.PmdModel"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemodels
-Root: HKCU; Subkey: "Software\Classes\.pmd"; ValueType: string; ValueName: ""; ValueData: "MDA.PmdModel"; Flags: createvalueifdoesntexist; Tasks: associatemodels; Check: CanClaimUnassignedExtension('.pmd')
+Root: HKCU; Subkey: "Software\Classes\.pmd"; ValueType: string; ValueName: ""; ValueData: "MDA.PmdModel"; Tasks: associatemodels; Check: CanClaimUnassignedExtension('.pmd')
 Root: HKCU; Subkey: "Software\Classes\MDA.PmdModel"; ValueType: string; ValueName: ""; ValueData: "MMD PMD model"; Flags: uninsdeletekey; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\MDA.PmdModel\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\MDA.PmdModel\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".pmd"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemodels
 Root: HKCU; Subkey: "Software\Classes\.vmd\OpenWithProgids"; ValueType: string; ValueName: "MDA.VmdMotion"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemotions
-Root: HKCU; Subkey: "Software\Classes\.vmd"; ValueType: string; ValueName: ""; ValueData: "MDA.VmdMotion"; Flags: createvalueifdoesntexist; Tasks: associatemotions; Check: CanClaimUnassignedExtension('.vmd')
+Root: HKCU; Subkey: "Software\Classes\.vmd"; ValueType: string; ValueName: ""; ValueData: "MDA.VmdMotion"; Tasks: associatemotions; Check: CanClaimUnassignedExtension('.vmd')
 Root: HKCU; Subkey: "Software\Classes\MDA.VmdMotion"; ValueType: string; ValueName: ""; ValueData: "MMD motion"; Flags: uninsdeletekey; Tasks: associatemotions
 Root: HKCU; Subkey: "Software\Classes\MDA.VmdMotion\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associatemotions
 Root: HKCU; Subkey: "Software\Classes\MDA.VmdMotion\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associatemotions
 Root: HKCU; Subkey: "Software\Classes\Applications\Mmd.Modern.App.exe\SupportedTypes"; ValueType: string; ValueName: ".vmd"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatemotions
 Root: HKCU; Subkey: "Software\Classes\.vpd\OpenWithProgids"; ValueType: string; ValueName: "MDA.VpdPose"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associateposes
-Root: HKCU; Subkey: "Software\Classes\.vpd"; ValueType: string; ValueName: ""; ValueData: "MDA.VpdPose"; Flags: createvalueifdoesntexist; Tasks: associateposes; Check: CanClaimUnassignedExtension('.vpd')
+Root: HKCU; Subkey: "Software\Classes\.vpd"; ValueType: string; ValueName: ""; ValueData: "MDA.VpdPose"; Tasks: associateposes; Check: CanClaimUnassignedExtension('.vpd')
 Root: HKCU; Subkey: "Software\Classes\MDA.VpdPose"; ValueType: string; ValueName: ""; ValueData: "MMD pose"; Flags: uninsdeletekey; Tasks: associateposes
 Root: HKCU; Subkey: "Software\Classes\MDA.VpdPose\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"",0"; Tasks: associateposes
 Root: HKCU; Subkey: "Software\Classes\MDA.VpdPose\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Mmd.Modern.App.exe"" --open ""%1"""; Tasks: associateposes
@@ -162,7 +165,7 @@ Name: "{autodesktop}\MDA"; Filename: "{app}\Mmd.Modern.App.exe"; WorkingDir: "{a
 
 [Run]
 Filename: "{app}\Mmd.Modern.App.exe"; Description: "{cm:LaunchProgram,MDA}"; Flags: nowait postinstall skipifsilent
-Filename: "{code:DefaultAppsSettingsUri}"; Description: "{cm:OpenDefaultApps}"; Flags: shellexec nowait postinstall skipifsilent; Check: HasFileAssociationTasks
+Filename: "{code:DefaultAppsSettingsUri}"; Description: "{cm:OpenDefaultApps}"; Flags: shellexec nowait postinstall skipifsilent; Check: NeedsDefaultAppsSettings
 
 ; Personal files are managed below with an ownership marker and explicit uninstall
 ; consent. No wildcard [UninstallDelete] entry may remove a personal-data root.
@@ -171,17 +174,15 @@ Filename: "{code:DefaultAppsSettingsUri}"; Description: "{cm:OpenDefaultApps}"; 
 english.SelectDirDesc=Where should the MDA program be installed?
 english.SelectDirLabel3=This folder holds the MDA program. The next page lets you choose a separate location for settings, plugins, and recovery copies.
 english.SelectComponentsLabel2=Shared files include the editor, runtime, and export tools. Engine sizes count only their additional files. Classic supports original MMD / MME effects.
-english.SelectTasksLabel2=Choose the file types MDA can open. To change the default, open Windows Default Apps after setup. On Windows 10, choose “Set defaults by app” and find MDA.
-#if FileExists(CompilerPath + "Languages\ChineseSimplified.isl")
+english.SelectTasksLabel2=Select the file types to open with MDA. Unassigned types are associated automatically. If another app is the default, confirm your choice in Windows Settings after setup.
 chinesesimplified.SelectDirDesc=MDA 程序安装到哪里？
 chinesesimplified.SelectDirLabel3=这里保存 MDA 程序。下一页可单独选择设置、插件和自动恢复副本的保存位置。
 chinesesimplified.SelectComponentsLabel2=公共组件包含编辑器、运行库和导出工具；引擎栏只计算各自新增的文件。传统引擎用于原版 MMD／MME 特效。
-chinesesimplified.SelectTasksLabel2=勾选希望由 MDA 打开的文件类型。更换默认程序需在 Windows 设置中确认。Windows 10 请点“按应用设置默认值”，再找到 MDA。
-#endif
+chinesesimplified.SelectTasksLabel2=勾选希望由 MDA 打开的文件类型。未指定默认应用的类型会自动关联；已有默认应用的类型可在安装完成后到 Windows 设置中更改。
 japanese.SelectDirDesc=MDA プログラムのインストール先
 japanese.SelectDirLabel3=MDA 本体を保存するフォルダーです。次のページで、設定・プラグイン・復元用コピーの保存先を別に選べます。
 japanese.SelectComponentsLabel2=共通ファイルにはエディター、ランタイム、書き出しツールが含まれます。各エンジンのサイズは追加分です。従来エンジンは MMD / MME 用です。
-japanese.SelectTasksLabel2=MDA で開くファイル形式を選んでください。既定のアプリは Windows の設定で変更します。Windows 10 では「アプリごとに既定値を設定」で MDA を選びます。
+japanese.SelectTasksLabel2=MDA で開くファイル形式を選んでください。既定のアプリがない形式は自動で関連付けられます。別のアプリが既定の場合は、インストール後に Windows の設定で変更できます。
 
 [CustomMessages]
 english.SharedComponent=Editor and shared files (includes FFmpeg)
@@ -209,7 +210,6 @@ english.UserDataKeep=Keep personal files (default)
 english.UserDataDelete=Delete personal files
 english.UserDataCancel=Cancel uninstall
 english.UserDataDeleteFailed=Some personal files could not be safely removed. Their location has been kept so that MDA can find them after reinstalling.
-#if FileExists(CompilerPath + "Languages\ChineseSimplified.isl")
 chinesesimplified.UserDataTitle=设置、插件与自动保存
 chinesesimplified.UserDataDescription=选择 MDA 个人文件夹，也可以保留默认位置。
 chinesesimplified.UserDataPrompt=设置、插件、自动保存副本、临时文件和日志会分类保存在这里。已有设置和插件会保留；工程、原始模型和导出视频留在原位置。通常直接使用默认位置即可；要放到其他磁盘，请选择一个 MDA 专用文件夹。卸载时默认保留这些文件。
@@ -235,7 +235,6 @@ chinesesimplified.associatemodels=MMD 模型（.pmx / .pmd）
 chinesesimplified.associatemotions=MMD 动作（.vmd）
 chinesesimplified.associateposes=MMD 姿势（.vpd）
 chinesesimplified.RelocationUninstallFailed=无法移除原来的 MDA 安装。请关闭 MDA 后重试，或先卸载原安装，再选择其他文件夹。
-#endif
 japanese.SharedComponent=エディターと共通ファイル（FFmpeg を含む）
 japanese.ModernComponent=モダンエンジン（Direct3D 12 とアップスケーリング）
 japanese.FileAssociations=MDA で開くファイル形式
@@ -269,14 +268,12 @@ english.ClassicLicenseDescription=The Classic component includes Microsoft.DXSDK
 english.ClassicLicensePrompt=Read the Microsoft terms below. These runtime files retain their own license.
 english.ClassicLicenseAccept=I accept the Microsoft runtime license terms.
 english.ClassicLicenseRequired=Accept the Microsoft runtime license terms to install the Classic component.
-#if FileExists(CompilerPath + "Languages\ChineseSimplified.isl")
 chinesesimplified.ClassicComponent=传统 MMD / MME 渲染引擎（可选）
 chinesesimplified.ClassicLicenseTitle=传统引擎运行库许可
 chinesesimplified.ClassicLicenseDescription=传统引擎组件包含 Microsoft.DXSDK.D3DX 9.29.952.8。
 chinesesimplified.ClassicLicensePrompt=请阅读下列 Microsoft 条款。运行库文件保留其独立许可。
 chinesesimplified.ClassicLicenseAccept=我接受 Microsoft 运行库许可条款。
 chinesesimplified.ClassicLicenseRequired=安装传统引擎组件需要接受 Microsoft 运行库许可条款。
-#endif
 japanese.ClassicComponent=従来の MMD / MME レンダリングエンジン（任意）
 japanese.ClassicLicenseTitle=従来エンジンのランタイムライセンス
 japanese.ClassicLicenseDescription=従来エンジンには Microsoft.DXSDK.D3DX 9.29.952.8 が含まれます。
@@ -316,12 +313,42 @@ function CanClaimUnassignedExtension(Extension: String): Boolean;
 var
   Existing: String;
 begin
-  { Don't shadow an existing machine default with a per-user fallback. A
-    UserChoice is only queried here; Windows Settings owns updates to it. }
-  Result := not (RegQueryStringValue(HKCU,
-    'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\' + Extension + '\UserChoice',
-    'ProgId', Existing) and (Existing <> '')) and
-    not (RegQueryStringValue(HKCR, Extension, '', Existing) and (Existing <> ''));
+  { Windows ignores an extension default whose ProgID is no longer registered.
+    Repair that fallback as well as empty values. Explorer's UserChoice takes
+    precedence over this registration and is managed by Windows. }
+  Result := not RegQueryStringValue(HKCR, Extension, '', Existing) or
+    (Existing = '') or not RegKeyExists(HKCR, Existing);
+end;
+
+function AssocQueryString(Flags, Kind: Cardinal; Association, Verb, Buffer: String;
+  var Characters: Cardinal): Integer;
+  external 'AssocQueryStringW@shlwapi.dll stdcall';
+
+function NeedsDefaultConfirmation(Task, Extension: String): Boolean;
+var
+  Characters: Cardinal;
+  Buffer: String;
+begin
+  Result := False;
+  if not WizardIsTaskSelected(Task) then exit;
+  { ASSOCSTR_EXECUTABLE for the effective open verb, including the user's choice. }
+  Characters := 32768;
+  SetLength(Buffer, Characters);
+  Result := AssocQueryString(0, 2, Extension, 'open', Buffer, Characters) <> 0;
+  if not Result then
+    Result := CompareText(Copy(Buffer, 1, Characters - 1),
+      ExpandConstant('{app}\Mmd.Modern.App.exe')) <> 0;
+end;
+
+function NeedsDefaultAppsSettings: Boolean;
+begin
+  Result := NeedsDefaultConfirmation('associatepma', '.pma') or
+    NeedsDefaultConfirmation('associatepmc', '.pmc') or
+    NeedsDefaultConfirmation('associatepmm', '.pmm') or
+    NeedsDefaultConfirmation('associatemodels', '.pmx') or
+    NeedsDefaultConfirmation('associatemodels', '.pmd') or
+    NeedsDefaultConfirmation('associatemotions', '.vmd') or
+    NeedsDefaultConfirmation('associateposes', '.vpd');
 end;
 
 function DefaultAppsSettingsUri(Param: String): String;
