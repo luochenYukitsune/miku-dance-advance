@@ -165,7 +165,7 @@ internal static class PortableModelAssets
             if (!capture.Snapshots.TryGetValue(dependency, out var resource))
             {
                 try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
-                catch (IOException exception)
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
                 {
                     // Explicit manual-save opt-in only: the user chose to keep this texture missing. Autosave and
                     // recovery never set it, so they keep failing and preserve the last good package.

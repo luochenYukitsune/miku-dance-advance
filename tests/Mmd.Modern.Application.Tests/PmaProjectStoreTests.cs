@@ -256,25 +256,28 @@ public sealed class PmaProjectStoreTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(path));
     }
 
-    [Fact]
-    public void DefaultSaveReportsWhichInFolderTextureDisappearedAfterLoading()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ManualSaveCanRetryWhenAnInFolderTextureBecomesUnavailable(bool replaceWithDirectory)
     {
-        using var project = Fixture(out _, out _); string path = Path.Combine(directory, "strict.pma");
-        PmaProjectStore.Save(path, project, cancellationToken: Token); byte[] before = File.ReadAllBytes(path);
-        File.Delete(Path.Combine(directory, "texture.png"));
+        using var project = Fixture(out _, out _);
+        string path = Path.Combine(directory, "scene.pma");
+        PmaProjectStore.Save(path, project, cancellationToken: Token);
+        byte[] before = File.ReadAllBytes(path);
+        string texturePath = Path.Combine(directory, "texture.png");
+        File.Delete(texturePath);
+        // Opening a directory as a file is denied even when the test runs with elevated privileges.
+        if (replaceWithDirectory) Directory.CreateDirectory(texturePath);
+
         var error = Assert.ThrowsAny<IOException>(() => PmaProjectStore.Save(path, project, cancellationToken: Token));
         var missing = MissingModelDependencyException.Find(error);
         Assert.NotNull(missing);
         Assert.Equal(Path.GetFullPath(project.Objects[0].SourcePath), missing.ModelPath);
         Assert.Equal("texture.png", missing.TextureReference);
+        Assert.IsType(replaceWithDirectory ? typeof(UnauthorizedAccessException) : typeof(FileNotFoundException), missing.InnerException);
         Assert.Equal(before, File.ReadAllBytes(path));
-    }
 
-    [Fact]
-    public void ExplicitOptInSavesMissingInFolderTextureAsEmptySlot()
-    {
-        using var project = Fixture(out _, out _); string path = Path.Combine(directory, "anyway.pma");
-        File.Delete(Path.Combine(directory, "texture.png"));
         PmaProjectStore.Save(path, project, new() { LeaveMissingModelDependenciesEmpty = true }, Token);
         using var loaded = PmaProjectStore.Load(path, Path.Combine(directory, "cache"), LoadModel, new NoPhysics(), cancellationToken: Token);
         var version = Assert.Single(loaded.Models);
