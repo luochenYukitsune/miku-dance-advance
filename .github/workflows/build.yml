@@ -1,46 +1,64 @@
-name: modern-csharp
+name: 构建与测试
 on:
   workflow_call:
   push:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
+    paths-ignore: ['docs/**', '*.md']
   workflow_dispatch:
     inputs:
       run_gpu:
-        description: Run actual GPU acceptance on a Windows self-hosted runner labeled gpu
+        description: 在标记为 gpu 的自托管 Windows 机器上做真机验收（含 FSR / XeSS / DLSS）
         required: false
         type: boolean
         default: false
+      gpu_required_providers:
+        description: 真机上必须能初始化的超分（空格分隔，如 "Fsr XeSs Dlss"；留空只记录结果）
+        required: false
+        type: string
+        default: ''
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+  MDA_WORK_ROOT: ${{ github.workspace }}/.mda-work
+  # Directory.Build.props 把 bin/obj 放在仓库外；固定位置，方便各任务共用编译结果。
+  ModernCacheRoot: ${{ github.workspace }}/.modern
 jobs:
-  build-and-test:
-    runs-on: windows-latest
+  # 先做不需要编译的快速检查。
+  lint:
+    name: 文案与清单检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-python@v5
         with:
-          dotnet-version: 10.0.102
-      - name: Restore locked dependencies and build managed projects
-        shell: pwsh
+          python-version: '3.12'
+      - name: 三语文案（zh-CN / en / ja）及界面引用
+        run: python scripts/check-localization.py
+      - name: 固定版本清单是合法 JSON
         run: |
-          ./scripts/dotnet.ps1 -DotNetArguments @('restore', 'Mmd.Modern.slnx', '--locked-mode')
-          ./scripts/dotnet.ps1 -DotNetArguments @('build', 'Mmd.Modern.slnx', '-c', 'Release', '--no-restore')
-      # Native physics, codecs and GPU checks require separately prepared libraries.
-      # Do not present these portable checks as full product acceptance.
-      - name: Run portable format, scheduling and plugin checks
-        shell: pwsh
+          for f in tools/ffmpeg/manifest.json tools/dxc/manifest.json tools/upscaling/manifest.json; do
+            python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8-sig'))" "$f" && echo "通过 $f"
+          done
+      - name: 仓库文本中没有凭据
         run: |
-          foreach ($project in 'Mmd.Modern.Formats.Tests', 'Mmd.Modern.Scheduling.Tests', 'Mmd.Modern.Plugins.Tests') {
-            ./scripts/dotnet.ps1 -DotNetArguments @('test', "tests/$project", '-c', 'Release', '--no-build', '--no-restore', '--logger', "trx;LogFileName=$project.trx", '--results-directory', 'artifacts/green')
-          }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: artifacts/green/*.trx
-  windows-build:
-    needs: build-and-test
+          if git grep -nIE '(gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{25,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' -- . ':!*.lock.json'; then
+            echo "::error::仓库里有疑似凭据的文本"; exit 1
+          fi
+
+  build:
+    name: 编译
+    needs: lint
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -49,29 +67,197 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build Windows x64 app with native physics and pinned FFmpeg
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      # 物理、切线和着色器测试要用真实的原生库；先编好，再随编译结果一起交给测试任务。
+      - name: 编译原生依赖（Bullet 刚体／软体、MikkTSpace）并取得 DXC
         shell: pwsh
-        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+        run: ./scripts/ci-native-deps.ps1 -OutputDirectory "${{ github.workspace }}/.modern/native"
+      - name: 按锁定版本还原依赖并编译全部项目
+        shell: pwsh
+        run: |
+          dotnet restore Mmd.Modern.slnx --locked-mode
+          dotnet build Mmd.Modern.slnx -c Release --no-restore $env:MDA_NATIVE_PROPERTIES.Split(' ')
+      - name: 打包编译结果给测试任务
+        shell: pwsh
+        run: tar -czf build-output.tgz -C "$env:ModernCacheRoot" bin obj native/dxc
       - uses: actions/upload-artifact@v4
         with:
-          name: MDA-modern-development-win-x64
-          path: ${{ runner.temp }}/mda-windows/
-          retention-days: 14
-  gpu-acceptance:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_gpu
-    runs-on: [self-hosted, Windows, X64, gpu]
+          name: build-output
+          path: build-output.tgz
+          retention-days: 1
+
+  # 云端机器没有显卡：跳过 Category=Gpu 的测试，留给下面的真机验收。
+  # “编辑器与渲染”额外跳过穷举 48 种宏组合的慢速着色器编译类（改着色器时在本地跑），将测试耗时控制在数分钟内。
+  # required=false 的组还有改版前就存在的失败；先只报告、不拦合并，修好后再改成 true。
+  test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 25
+    continue-on-error: ${{ !matrix.required }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 格式·调度·插件
+            projects: Mmd.Modern.Formats.Tests Mmd.Modern.Scheduling.Tests Mmd.Modern.Plugins.Tests
+            filter: Category!=Gpu
+            required: true
+          - name: 应用与物理
+            projects: Mmd.Modern.Application.Tests
+            filter: Category!=Gpu
+            required: false
+          - name: 输出与编码
+            projects: Mmd.Modern.ViewOutput.Tests Mmd.Modern.ViewOutput.FFmpeg.Tests
+            filter: Category!=Gpu
+            required: false
+          - name: 传统引擎兼容
+            projects: Mmd.Modern.Rendering.D3D9.Compatibility.Tests Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests
+            filter: Category!=Gpu
+            required: false
+          - name: 编辑器与渲染
+            projects: Mmd.Modern.Tests
+            filter: Category!=Gpu&FullyQualifiedName!~ShaderTests&FullyQualifiedName!~ShaderVariantsTests&FullyQualifiedName!~SurfaceTests&FullyQualifiedName!~FaceSdfTests
+            required: false
+    name: 测试（${{ matrix.name }}${{ !matrix.required && '，暂不拦截' || '' }}）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.102
-      - name: Real device render and Bepu acceptance
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output
+      - name: 还原编译结果
         shell: pwsh
-        run: ./scripts/verify.ps1
+        run: |
+          $workRoot = "${{ runner.temp }}\w"
+          $dxcTestCache = "${{ runner.temp }}\dxc-test-cache"
+          New-Item -ItemType Directory -Force -Path $env:ModernCacheRoot, $workRoot, $dxcTestCache | Out-Null
+          tar -xzf build-output.tgz -C "$env:ModernCacheRoot"
+          "MDA_WORK_ROOT=$workRoot" >> $env:GITHUB_ENV
+          "MMD_DXC_PATH=$env:ModernCacheRoot\native\dxc\dxc.exe" >> $env:GITHUB_ENV
+          "MMD_DXC_TEST_CACHE=$dxcTestCache" >> $env:GITHUB_ENV
+          dotnet restore Mmd.Modern.slnx --locked-mode
+      - name: 取得固定版本 FFmpeg（真实编码测试用）
+        if: contains(matrix.projects, 'FFmpeg')
+        shell: pwsh
+        run: |
+          $bin = ./scripts/fetch-ffmpeg.ps1 -Destination "${{ runner.temp }}/ffmpeg"
+          "MMD_FFMPEG_PATH=$bin\ffmpeg.exe" >> $env:GITHUB_ENV
+          "MMD_FFPROBE_PATH=$bin\ffprobe.exe" >> $env:GITHUB_ENV
+      - name: 运行测试
+        shell: pwsh
+        run: |
+          $failed = @()
+          foreach ($project in '${{ matrix.projects }}'.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
+            dotnet test "tests/$project" -c Release --no-build --no-restore --filter '${{ matrix.filter }}' `
+              --logger "trx;LogFileName=$project.trx" --results-directory artifacts/tests `
+              --blame-hang-timeout 10m
+            if ($LASTEXITCODE) { $failed += $project }
+          }
+          if ($failed) { Write-Output "::error::以下测试项目有失败：$($failed -join '、')"; exit 1 }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gpu-acceptance
+          name: 测试结果-${{ matrix.name }}
+          path: artifacts/tests/
+          retention-days: 14
+
+  windows-build:
+    name: Windows 构建包
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: 编译 Windows x64 版（含原生物理库和固定版本 FFmpeg）
+        shell: pwsh
+        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+      # FSR（AMD FidelityFX）、XeSS（Intel）、DLSS（NVIDIA）：固定版本、带厂商签名的运行库，
+      # 外加在这里用 MSVC 现编的 MDA DLSS 桥接库。能否使用仍由用户的显卡决定。
+      - name: 加入 FSR / XeSS / DLSS 超分
+        shell: pwsh
+        run: ./scripts/ci-stage-upscalers.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-upscalers"
+      - name: 加入传统（Classic）渲染引擎
+        shell: pwsh
+        run: ./scripts/ci-stage-classic.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-classic"
+      - name: 检查可选运行库的安装路径（不需要显卡）
+        shell: pwsh
+        run: |
+          $out = "${{ runner.temp }}/optional-runtimes"
+          ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory $out
+          if ($LASTEXITCODE) { Write-Output '::warning::云端机器没有 D3D12 显卡，这里只检查安装是否正确。' }
+        continue-on-error: true
+      - name: 验证 Inno Setup 安装包编译
+        shell: pwsh
+        run: |
+          ./scripts/ci-package-installer.ps1 `
+            -PublishedDirectory "${{ runner.temp }}/mda-windows" `
+            -Version "0.1.30.0" `
+            -StageDirectory "${{ runner.temp }}/mda-stage-check" `
+            -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-check" `
+            -NugetPackages "${{ github.workspace }}/.nuget/packages"
+          Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check", "${{ runner.temp }}/mda-installer-check" -Recurse -Force -ErrorAction SilentlyContinue
+      - name: 在摘要中列出超分文件
+        shell: pwsh
+        run: |
+          $installed = Get-Content "${{ runner.temp }}/mda-windows/tools/upscaling/installed.json" -Raw | ConvertFrom-Json
+          $lines = @('### 本次构建包含的超分组件', '', '| 文件 | 大小 | SHA-256 |', '| --- | ---: | --- |')
+          foreach ($f in $installed.files) { $lines += "| ``$($f.path)`` | $([math]::Round($f.bytes / 1MB, 2)) MB | ``$($f.sha256.Substring(0, 16))…`` |" }
+          $lines -join "`n" >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MDA-modern-development-win-x64
+          path: ${{ runner.temp }}/mda-windows/
+          retention-days: 14
+
+  gpu-acceptance:
+    name: 真机 GPU 验收
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gpu
+    needs: windows-build
+    runs-on: [self-hosted, Windows, X64, gpu]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.102
+      - uses: actions/download-artifact@v4
+        with:
+          name: MDA-modern-development-win-x64
+          path: ${{ runner.temp }}/mda-windows
+      - name: 真机渲染与 Bepu 物理验收
+        shell: pwsh
+        run: ./scripts/verify.ps1
+      - name: 真机上检查 FSR / XeSS / DLSS
+        shell: pwsh
+        run: |
+          $required = '${{ inputs.gpu_required_providers }}'.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+          ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory artifacts/gpu/optional-runtimes -RequiredProviders $required
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 真机验收结果
           path: |
             artifacts/gpu/
             artifacts/green/*.trx

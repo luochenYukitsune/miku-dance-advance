@@ -12,7 +12,7 @@ if (-not (Get-Command $Compiler -ErrorAction SilentlyContinue)) { throw 'Run fro
 $source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../native/Mmd.Modern.Dlss/mmd_dlss.cpp'))
 $library = Join-Path $sdk 'nvsdk_ngx_d.lib'
 $dll = Join-Path $output 'mmd_dlss.dll'
-$arguments = @('/nologo','/LD','/MD','/O2','/EHsc','/std:c++17',('/I'+$sdk),$source,('/Fo'+(Join-Path $output 'mmd_dlss.obj')),'/link',('/OUT:'+$dll),('/IMPLIB:'+(Join-Path $output 'mmd_dlss.lib')),$library,'advapi32.lib','shell32.lib','ole32.lib','version.lib','wintrust.lib','crypt32.lib')
+$arguments = @('/nologo','/LD','/MD','/O2','/EHsc','/std:c++17',('/I'+$sdk),$source,('/Fo'+(Join-Path $output 'mmd_dlss.obj')),'/link',('/OUT:'+$dll),('/IMPLIB:'+(Join-Path $output 'mmd_dlss.lib')),$library,'advapi32.lib','user32.lib','shell32.lib','ole32.lib','version.lib','wintrust.lib','crypt32.lib')
 & $Compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw "DLSS bridge compiler failed: $LASTEXITCODE" }
 $manifest = [ordered]@{source=$source;sourceSha256=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant();sdkLibrary=$library;sdkLibrarySha256=(Get-FileHash -LiteralPath $library -Algorithm SHA256).Hash.ToLowerInvariant();sdkCommit='9981c6350dc58c0ce21f024fd65e31e851c31689';compiler=$Compiler;arguments=$arguments;output=$dll;sha256=(Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()}
