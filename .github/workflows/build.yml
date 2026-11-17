@@ -247,10 +247,10 @@ jobs:
           if ($LASTEXITCODE) { Write-Output '::warning::云端机器没有 D3D12 显卡，这里只检查安装是否正确。' }
         continue-on-error: true
       - name: 编译 Inno Setup 安装包
+        id: installer
         shell: pwsh
         env:
           RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
-          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         run: |
           $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.1.30.0' }
           ./scripts/ci-package-installer.ps1 `
@@ -260,9 +260,13 @@ jobs:
             -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-out" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check" -Recurse -Force -ErrorAction SilentlyContinue
-          if ($env:PUBLISH_RELEASE -ne 'true') {
-            Remove-Item -LiteralPath "${{ runner.temp }}/mda-installer-out" -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          "setup=$env:RUNNER_TEMP/mda-installer-out/MDA-$ver-win-x64-setup.exe" >> $env:GITHUB_OUTPUT
+      - name: 实装验证简体中文与文件关联
+        shell: pwsh
+        run: |
+          ./scripts/ci-check-installer-associations.ps1 `
+            -Installer "${{ steps.installer.outputs.setup }}" `
+            -WorkDirectory "${{ runner.temp }}/mda-associations"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release
         with:
