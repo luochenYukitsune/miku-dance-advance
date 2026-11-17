@@ -123,8 +123,10 @@ public sealed class PmxCharacterRigAdapterTests
         Assert.NotEqual("A", rig.Bones[1].Name);
     }
 
-    [Fact]
-    public void ControllerBindsADuplicateIkNameToTheFirstBone()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IkSwitchOnlyControlsTheFirstBoneWithTheAuthoredName(bool firstIsIk)
     {
         var template = Model(3, 1f);
         var goal = template.Bones[2];
@@ -132,15 +134,36 @@ public sealed class PmxCharacterRigAdapterTests
         {
             Header = template.Header, Name = template.Name, EnglishName = "", Comment = "", EnglishComment = "",
             Vertices = template.Vertices, Faces = template.Faces, Textures = template.Textures, Materials = template.Materials,
-            Bones = [template.Bones[0], template.Bones[1], goal, new() { Name = goal.Name, EnglishName = "", Position = Vector3.UnitZ,
-                ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.Ik, IkTargetBoneIndex = 1, IkIterationCount = 3, IkLimit = 1,
-                IkLinks = [new(0, false, default, default)] }],
+            Bones =
+            [
+                template.Bones[0], template.Bones[1],
+                firstIsIk ? goal : new() { Name = goal.Name, EnglishName = "", Position = goal.Position,
+                    ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.None },
+                new() { Name = "second link", EnglishName = "", Position = Vector3.Zero,
+                    ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.None },
+                new() { Name = "second tip", EnglishName = "", Position = Vector3.UnitX,
+                    ParentIndex = 3, DeformDepth = 0, Flags = PmxBoneFlags.None },
+                new() { Name = goal.Name, EnglishName = "", Position = goal.Position,
+                    ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.Ik, IkTargetBoneIndex = 4, IkIterationCount = 3, IkLimit = 1,
+                    IkLinks = [new(3, false, default, default)] }
+            ],
             Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = []
         };
         var rest = EditedMotionProjectTests.Rest(model);
-        var motion = new VmdMotion { BoneKeyframes = [new() { BoneName = "link" }, new() { BoneName = "link", Frame = 10 }] };
+        var motion = new VmdMotion { IkKeyframes = [new() { Frame = 1, Switches = [new(goal.Name, false)] }] };
         using var controller = new CharacterAnimationController(model, motion, rest.Surface, rest.Outline!);
-        Assert.Contains(controller.Diagnostics, d => d.Contains("bone 3") && d.Contains("renamed"));
+        Assert.Contains(controller.Diagnostics, d => d.Contains("bone 5") && d.Contains("renamed"));
+        Assert.Equal(!firstIsIk, controller.Diagnostics.Contains($"IK switch '{goal.Name}' has no matching IK controller."));
+
+        controller.Sample(0);
+        Vector3 firstTip = controller.BoneWorldMatrices[1].Translation;
+        Vector3 secondTip = controller.BoneWorldMatrices[4].Translation;
+        Assert.Equal(firstIsIk, Vector3.Distance(firstTip, Vector3.UnitX) > 0.1f);
+        Assert.True(Vector3.Distance(secondTip, Vector3.UnitX) > 0.1f);
+
+        controller.Sample(1);
+        Assert.Equal(Vector3.UnitX, controller.BoneWorldMatrices[1].Translation);
+        Assert.Equal(secondTip, controller.BoneWorldMatrices[4].Translation);
     }
 
     private static SceneSnapshot Rest(PmxModel model) => EditedMotionProjectTests.Rest(model).Surface.Snapshot;
