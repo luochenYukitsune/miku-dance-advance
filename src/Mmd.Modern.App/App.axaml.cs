@@ -20,11 +20,8 @@ public sealed partial class App : Avalonia.Application
         EditorCrashLog.InstallUiThread();
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var options = FrameViewportOptions.Parse(desktop.Args ?? []);
-            if (options.Enabled) FrameViewportApplication.Start(desktop, options);
-            else if ((desktop.Args ?? []).Contains("--legacy-preview"))
-                desktop.MainWindow = new MainWindow { DataContext = new MainWindowViewModel() };
-            else EditorStartupApplication.Start(desktop, startupConfiguration);
+            // The developer frame viewer / engine demo lives in Mmd.Modern.Demo, outside the editor.
+            EditorStartupApplication.Start(desktop, startupConfiguration);
         }
         base.OnFrameworkInitializationCompleted();
     }

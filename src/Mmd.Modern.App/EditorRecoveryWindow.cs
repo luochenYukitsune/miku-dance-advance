@@ -17,12 +17,8 @@ internal sealed class EditorRecoveryWindow : Window
         Title = Text("Title"); Width = 700; Height = 520; MinWidth = 520; MinHeight = 400;
         ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         RequestedThemeVariant = owner.ActualThemeVariant;
-        Background = owner.Background; Foreground = owner.Foreground;
         FontFamily = owner.FontFamily; FontSize = 14; UseLayoutRounding = true;
-        Styles.Add(new StyleInclude(new Uri("avares://Mmd.Modern.App/"))
-        {
-            Source = new Uri("avares://Mmd.Modern.App/EditorPopupStyles.axaml")
-        });
+        EditorDialogTheme.Apply(this, owner);
         var copies = sessions.SelectMany(session => session.Checkpoints)
             .OrderByDescending(copy => copy.CreatedUtc).ToArray();
         var list = new ListBox { Name = "RecoveryCopies", Classes = { "recoveryCopies" } };
@@ -36,7 +32,9 @@ internal sealed class EditorRecoveryWindow : Window
                 {
                     Spacing = 4, Margin = new Thickness(8), Children =
                     {
-                        new TextBlock { Text = copy.DisplayName + " (" + copy.ProjectFormat.Extension + ")",
+                        // The display name usually already ends with the extension; only add it when it does not.
+                        new TextBlock { Text = copy.DisplayName.EndsWith(copy.ProjectFormat.Extension, StringComparison.OrdinalIgnoreCase)
+                                ? copy.DisplayName : copy.DisplayName + " (" + copy.ProjectFormat.Extension + ")",
                             FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap },
                         new TextBlock { Text = EditorLocalization.Format("Mda.Text.Recovery.Checkpoint",
                             copy.CreatedUtc.ToLocalTime().ToString("g"), (copy.PackageSizeBytes / (1024d * 1024d)).ToString("0.0")), FontSize = 12 },

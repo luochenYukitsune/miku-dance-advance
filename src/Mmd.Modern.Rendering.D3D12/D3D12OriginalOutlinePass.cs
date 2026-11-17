@@ -64,7 +64,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     private int RecordCombinedOutline(ID3D12Device device,ID3D12GraphicsCommandList commands,OutlinePipeline pipeline,
         OriginalFrameScene frame,int width,int height,ID3D12Resource sharedSurfaceBuffer,ID3D12Resource sharedIndexBuffer,FrameBufferUpload upload,
         Func<ID3D12Resource,ID3D12Resource> own,D3D12RecordingContext context,ID3D12DescriptorHeap srvHeap,int srvStride,
-        int slotBase,Format depthFormat,D3D12GpuCache cache)
+        int slotBase,Format depthFormat,D3D12GpuCache cache,D3D12SurfaceStyleMap? surfaceStyles=null)
     {
         using var combinedCpu=MeasureSceneCpu(SceneCpuStage.CombinedOutline);
         // Contiguous runs retain source material order when blended modern and original
@@ -76,7 +76,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             int end=first+1;
             while(end<frame.Materials.Count&&(frame.Materials[end].CharacterOutlineStyle is not null)==modern)end++;
             draws+=modern
-                ?RecordCharacterOutline(frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,srvHeap,srvStride,slotBase,depthFormat,context,cache,first,end-first)
+                ?RecordCharacterOutline(frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,srvHeap,srvStride,slotBase,depthFormat,context,cache,first,end-first,surfaceStyles)
                 :RecordOutline(device,commands,pipeline,frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,upload,own,context,cache,first,end-first);
             first=end;
         }

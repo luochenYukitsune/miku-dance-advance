@@ -12,17 +12,27 @@ public sealed record EditorRecoveryNativeLightingState
     public required Guid? SelectedLightId { get; init; }
     // The hidden inspector can remember a row after its viewport handle was deselected.
     public Guid? ActiveLightId { get; init; }
+    public ImmutableArray<Guid> SelectedLightIds { get; init; } = [];
+    public ImmutableArray<Guid> SelectedGroupIds { get; init; } = [];
+    public ImmutableArray<Guid> ActiveLightIds { get; init; } = [];
     public bool RotateHandle { get; init; }
     public required ImmutableArray<NativeSceneLight> CommittedLights { get; init; }
+    public ImmutableArray<SceneLightGroup> CommittedGroups { get; init; } = [];
+    public SceneLightingSettings CommittedSettings { get; init; } = SceneLightingSettings.Default;
+    public EditorRecoveryGlobalLightingDraft? GlobalDraft { get; init; }
     public required ImmutableArray<EditorRecoveryNativeLightDraft> Lights { get; init; }
+    public ImmutableArray<EditorRecoveryLightGroupDraft> GroupDrafts { get; init; } = [];
 
     internal void Validate()
     {
-        if (!Enum.IsDefined(InspectorPage) || CommittedLights.IsDefault || Lights.IsDefault
+        if (!Enum.IsDefined(InspectorPage) || CommittedLights.IsDefault || Lights.IsDefault || CommittedGroups.IsDefault
+            || GroupDrafts.IsDefault || SelectedLightIds.IsDefault || SelectedGroupIds.IsDefault || ActiveLightIds.IsDefault
             || CommittedLights.Length > SceneLightingSnapshot.MaxLights || Lights.Length != CommittedLights.Length)
             throw EditorRecoverySessionState.Invalid("Recovery native lighting state is invalid.");
-        try { _ = new SceneLightingSnapshot(CommittedLights); }
+        try { _ = new SceneLightingSnapshot(CommittedLights, CommittedGroups, CommittedSettings); }
         catch (ArgumentException error) { throw EditorRecoverySessionState.Invalid("Recovery committed lighting is invalid.", error); }
+        if (CommittedSettings is null) throw EditorRecoverySessionState.Invalid("Recovery global lighting is missing.");
+        GlobalDraft?.Validate();
         var ids = new HashSet<Guid>();
         for (int index = 0; index < Lights.Length; index++)
         {
@@ -35,13 +45,38 @@ public sealed record EditorRecoveryNativeLightingState
             throw EditorRecoverySessionState.Invalid("Recovery selected native light is absent.");
         if (ActiveLightId is { } active && !ids.Contains(active))
             throw EditorRecoverySessionState.Invalid("Recovery active native light is absent.");
+        var groupIds = CommittedGroups.Select(group => group.Id).ToHashSet();
+        if (GroupDrafts.Length != CommittedGroups.Length)
+            throw EditorRecoverySessionState.Invalid("Recovery light group drafts are incomplete.");
+        for (int index = 0; index < GroupDrafts.Length; index++)
+        {
+            var group = GroupDrafts[index];
+            if (group is null || group.Original is null || group.Original.Id != CommittedGroups[index].Id)
+                throw EditorRecoverySessionState.Invalid("Recovery light group identities are inconsistent.");
+            try { group.Validate(); }
+            catch (ArgumentException error) { throw EditorRecoverySessionState.Invalid("Recovery light group baseline is invalid.", error); }
+        }
+        ValidateSelection(SelectedLightIds, ids);
+        ValidateSelection(ActiveLightIds, ids);
+        ValidateSelection(SelectedGroupIds, groupIds);
+        if (SelectedLightIds.Length > 0 && SelectedLightId is { } selectedId && !SelectedLightIds.Contains(selectedId)
+            || ActiveLightIds.Length > 0 && ActiveLightId is { } activeId && !ActiveLightIds.Contains(activeId))
+            throw EditorRecoverySessionState.Invalid("Recovery primary light is outside its selection.");
+    }
+
+    private static void ValidateSelection(ImmutableArray<Guid> selection, HashSet<Guid> available)
+    {
+        if (selection.Length > available.Count || selection.Distinct().Count() != selection.Length
+            || selection.Any(id => !available.Contains(id)))
+            throw EditorRecoverySessionState.Invalid("Recovery light selection is invalid.");
     }
 
     internal void ValidateAgainst(SceneLightingSnapshot committed)
     {
         ArgumentNullException.ThrowIfNull(committed);
         Validate();
-        if (!CommittedLights.SequenceEqual(committed.Lights))
+        if (!CommittedLights.SequenceEqual(committed.Lights) || !CommittedGroups.SequenceEqual(committed.Groups)
+            || CommittedSettings != committed.Settings)
             throw EditorRecoverySessionState.Invalid("Recovery native lighting does not match the project.");
     }
 }
@@ -67,6 +102,9 @@ public sealed record EditorRecoveryNativeLightDraft
     public required decimal? Range { get; init; }
     public required decimal? InnerConeDegrees { get; init; }
     public required decimal? OuterConeDegrees { get; init; }
+    public decimal? AreaWidth { get; init; }
+    public decimal? AreaHeight { get; init; }
+    public bool AreaSizeSpecified { get; init; }
     // Null means that the hex editor has not acquired an independent raw input.
     public string? HexText { get; init; }
     public ImmutableSortedDictionary<string, string> NumericText { get; init; } = ImmutableSortedDictionary<string, string>.Empty;
@@ -74,6 +112,8 @@ public sealed record EditorRecoveryNativeLightDraft
     internal static readonly IReadOnlySet<string> NumericNames = new HashSet<string>(StringComparer.Ordinal)
     {
         "InlineLightIntensity", "InlineLightRange", "InlineLightInnerCone", "InlineLightOuterCone",
+        "InlineLightRangeDirect", "InlineLightBeamWidth", "InlineLightEdgeSoftness",
+        "InlineLightAreaWidth", "InlineLightAreaHeight",
         "InlineLightPositionX", "InlineLightPositionY", "InlineLightPositionZ",
         "InlineLightRotationX", "InlineLightRotationY", "InlineLightRotationZ",
         "InlineLightRed", "InlineLightGreen", "InlineLightBlue"
@@ -82,7 +122,7 @@ public sealed record EditorRecoveryNativeLightDraft
     internal void Validate()
     {
         if (Original is null) throw EditorRecoverySessionState.Invalid("Recovery native light baseline is missing.");
-        try { _ = new SceneLightingSnapshot([Original]); }
+        try { SceneLightingSnapshot.ValidateLight(Original); }
         catch (ArgumentException error) { throw EditorRecoverySessionState.Invalid("Recovery native light baseline is invalid.", error); }
         EditorRecoverySessionState.ValidateText(Original.Name);
         EditorRecoverySessionState.ValidateText(Name);

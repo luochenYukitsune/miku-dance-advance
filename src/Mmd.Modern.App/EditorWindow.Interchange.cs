@@ -170,7 +170,7 @@ public partial class EditorWindow
         {
             int choice = await EditorDialogs.ChooseAsync(this, Text("工程文字编码"),
                 Text("模型名称或路径无法按 CP932（日文）保存。可选择 CP936（中文）重试，名称与原文件保持不变。"),
-                [Text("取消"), Text("使用 CP936 重试")]);
+                [Text("取消"), Text("使用 CP936 重试")], primary: 1);
             if (choice != 1) return;
             options = new() { AnsiCodePage = 936 };
             report = EditorProjectInterchange.InspectPmmExport(shell.Workspace.Session, options);

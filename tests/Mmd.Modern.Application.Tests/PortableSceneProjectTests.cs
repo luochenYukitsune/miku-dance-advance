@@ -49,6 +49,53 @@ public sealed class PortableSceneProjectTests : IDisposable
     }
 
     [Fact]
+    public void PortableParentedLayoutRetainsObjectIdentityLocalPoseAndGroupsAfterSourceMoves()
+    {
+        string path = WritePmx(); var composition = Composition(path);
+        var group = new SceneLightGroup(Guid.NewGuid(), "跟随柔光", Intensity: 2);
+        var light = new NativeSceneLight(Guid.NewGuid(), "骨骼补光", SceneLightKind.Spot, new(2, -3, 4),
+            Quaternion.CreateFromYawPitchRoll(.2f, .3f, -.4f), Vector3.One, Range: 17,
+            GroupId: group.Id, Parent: new(composition.Objects[0].Id, 0));
+        var lighting = new SceneLightingEditor(); lighting.ReplaceSnapshot(new([light], [group]), light.Id);
+        SceneProjectStore.Save(Project, composition, lighting, Portable, Token);
+        var json = JsonNode.Parse(File.ReadAllText(Project))!;
+        Assert.Equal(SceneProjectStore.PortableLightingParentsVersion, json["version"]!.GetValue<int>());
+        string moved = MoveAndHideSource();
+        var reopened = SceneProjectStore.Load(moved, (_, _) => Frame, Token);
+        Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));
+        Assert.Equal(group, Assert.Single(reopened.Lighting.Groups));
+        Assert.Equal(light.Parent!.ObjectId, Assert.Single(reopened.Composition.Objects).Id);
+        Assert.Equal(light.Id, reopened.Lighting.SelectedId);
+    }
+
+    [Fact]
+    public void PortableAreaLayoutUsesVersionTenAndRetainsDimensionsAfterSourceMoves()
+    {
+        string path = WritePmx(); var composition = Composition(path);
+        var light = new NativeSceneLight(Guid.NewGuid(), "窗光", SceneLightKind.Area, new(2, -3, 4),
+            Quaternion.Identity, Vector3.One, AreaSize: new(9.123456f, 13.654321f));
+        var lighting = new SceneLightingEditor(); lighting.Add(light);
+        SceneProjectStore.Save(Project, composition, lighting, Portable, Token);
+        Assert.Equal(10, JsonNode.Parse(File.ReadAllText(Project))!["version"]!.GetValue<int>());
+        string moved = MoveAndHideSource();
+        var reopened = SceneProjectStore.Load(moved, (_, _) => Frame, Token);
+        Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));
+    }
+
+    [Fact]
+    public void PortableGlobalLightingUsesVersionTwelveAndSurvivesSourceMoves()
+    {
+        string path = WritePmx(); var composition = Composition(path); var lighting = new SceneLightingEditor();
+        lighting.UpdateSettings(new(1.234567f, -3.25f));
+        SceneProjectStore.Save(Project, composition, lighting, Portable, Token);
+        Assert.Equal(12, JsonNode.Parse(File.ReadAllText(Project))!["version"]!.GetValue<int>());
+        string moved = MoveAndHideSource(); var reopened = SceneProjectStore.Load(moved, (_, _) => Frame, Token);
+        Assert.Equal(lighting.Settings, reopened.Lighting.Settings); Assert.Empty(reopened.Lighting.Lights);
+        reopened.Lighting.UpdateSettings(SceneLightingSettings.Default);
+        Assert.Equal(1, JsonNode.Parse(SceneProjectStore.Serialize(moved, reopened.Composition, reopened.Lighting))!["version"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void PortablePmdKeepsTwoTextureFieldWithinTwentyBytesAndCustomToon()
     {
         var model = Pmd() with { HasAnimationTail = true, HasToonExtension = true,

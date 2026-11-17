@@ -19,7 +19,8 @@ public sealed partial class D3D12OriginalStyleRenderer
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct FrameConstants(Matrix4x4 World,Matrix4x4 NormalWorld,Matrix4x4 ViewProjection,Matrix4x4 SphereRotation,Matrix4x4 LightViewProjection,
         Vector4 EgColor,Vector4 SpecularPower,Vector4 IncomingLight,Vector4 EyePosition,Vector4 ToonShadowColor,Vector4 Options,Vector4 ShadowOptions,Vector4 GroundDirection,
-        Vector4 PmxMaterialTreatmentParams=default);
+        Vector4 PmxMaterialTreatmentParams=default,Vector4 StylizedShadeParams=default,Vector4 StylizedTintParams=default,
+        Vector4 StylizedWarmParams=default,Vector4 StylizedGradeParams=default);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct FaceSdfConstants(Vector4 Forward,Vector4 Right,Vector4 Parameters)
@@ -241,6 +242,10 @@ public sealed partial class D3D12OriginalStyleRenderer
             SetNativeGiParticipation(gi is not null);
             if(firstPreparation)draws+=LastNativeLightStatistics?.ShadowDrawCalls??0;
             device.CreateShaderResourceView(ready.Native.Atlas,null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot+1,srvStride));
+            device.CreateConstantBufferView(new ConstantBufferViewDescription {
+                BufferLocation=ready.Native.FrameAddress,
+                SizeInBytes=(Marshal.SizeOf<NativeFrameConstants>()+255)&~255
+            },srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot+2,srvStride));
         }
         commands.OMSetRenderTargets(rtv,dsv); commands.RSSetViewport(0,0,width,height,0,1); commands.RSSetScissorRect(new RawRect(0,0,width,height));
         commands.SetGraphicsRootSignature(pipeline.Root); commands.SetDescriptorHeaps(srvHeap);
@@ -261,7 +266,10 @@ public sealed partial class D3D12OriginalStyleRenderer
             commands.SetGraphicsRootShaderResourceView(5,gi.Indirect.GPUVirtualAddress);
             commands.SetGraphicsRootDescriptorTable(6,gi.Inputs);
         }
-        if(nativeLights)commands.SetGraphicsRootDescriptorTable(nativeRoot+1,srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(realSlot+1,srvStride));
+        if(nativeLights)
+        {
+            commands.SetGraphicsRootDescriptorTable(nativeRoot+1,srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(realSlot+1,srvStride));
+        }
         using(var surfaceCpu=MeasureSceneCpu(SceneCpuStage.SurfaceLoop))
         {
         foreach(int i in SurfaceDrawOrderPlanner.Plan(frame)) {
@@ -284,6 +292,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             }
             else commands.SetPipelineState(both?pipeline.SurfaceBoth:pipeline.SurfaceBack);
             var materialTreatment=surfaceStyles?.EffectivePmxMaterialTreatment(i);
+            var stylizedShading=stylized?surfaceStyles!.EffectiveStylizedShading(i):null;
             var materialToon=SurfaceToon(binding,flags.UseSceneLighting);
             if(materialTreatment is not null)materialToon=materialTreatment.TransformShade(materialToon);
             Constants(common with {EgColor=host.EgColor,SpecularPower=host.SpecularPower,ToonShadowColor=materialToon,
@@ -298,6 +307,9 @@ public sealed partial class D3D12OriginalStyleRenderer
                 // tail. Identity is explicit; no new root or per-value PSO key.
                 PmxMaterialTreatmentParams=new(materialTreatment?.Saturation??1,materialTreatment?.ValueContrast??0,
                     materialTreatment?.HairHighlightStrength??0,materialTreatment?.HairHighlightWidth??.12f),
+                // 风格化明暗只由四个画风家族的普通表面声明；全零表示不启用。
+                StylizedShadeParams=stylizedShading?.Shade??default,StylizedTintParams=stylizedShading?.Tint??default,
+                StylizedWarmParams=stylizedShading?.Warm??default,StylizedGradeParams=stylizedShading?.Grade??default,
                 IncomingLight=new(common.IncomingLight.X,common.IncomingLight.Y,common.IncomingLight.Z,response?.TransitionWidth??0),
                 ShadowOptions=new(common.ShadowOptions.X,common.ShadowOptions.Y,common.ShadowOptions.Z,response?.Threshold??0),
                 Options=new(material.AlphaCutoff,SurfaceMode(binding),material.DiffuseTexture>=0?1:0,options.Transp?1:0)});
@@ -379,7 +391,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 ID3D12Resource corners;
                 if(matcap is not null)
                 {
-                    colorSlot=slotBase+scene.Textures.Count+4+(nativeLights?1:0)+i;
+                    colorSlot=slotBase+scene.Textures.Count+4+(nativeLights?2:0)+i;
                     device.CreateShaderResourceView(cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),null,
                         srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(colorSlot,srvStride));
                     var data=surfaceStyles!.EndfieldMatcapGeometry(i,frame);
@@ -397,7 +409,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                     context.UploadConstants(metal is null?default:GenshinMetallicConstants.From(metal,camera)));
                 commands.SetGraphicsRootDescriptorTable(pipeline.GenshinMetallicRoot+1,
                     srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(slotBase+(metal is null?0:metal.LightmapCombinedTextureIndex+2),srvStride));
-                int metalColorSlot=metal is null?slotBase:slotBase+scene.Textures.Count+4+(nativeLights?1:0)
+                int metalColorSlot=metal is null?slotBase:slotBase+scene.Textures.Count+4+(nativeLights?2:0)
                     +(surfaceStyles!.HasConsumedSurfaceMatcap?surfaceStyles.Count:0)+i;
                 commands.SetGraphicsRootDescriptorTable(pipeline.GenshinMetallicRoot+2,
                     srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(metalColorSlot,srvStride));
@@ -430,7 +442,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                     context.UploadConstants(baseImage is null?default:EndfieldBaseImageConstants.From(baseImage,camera)));
                 int colorSlot=slotBase;
                 if(baseImage is {ConsumesBaseTexture:true})
-                    colorSlot=slotBase+scene.Textures.Count+4+(nativeLights?1:0)
+                    colorSlot=slotBase+scene.Textures.Count+4+(nativeLights?2:0)
                         +(surfaceStyles!.HasConsumedSurfaceMatcap?surfaceStyles.Count:0)
                         +(surfaceStyles.HasConsumedGenshinMetallic?surfaceStyles.Count:0)+i;
                 commands.SetGraphicsRootDescriptorTable(pipeline.EndfieldBaseImageRoot+1,
@@ -451,14 +463,13 @@ public sealed partial class D3D12OriginalStyleRenderer
                 commands.SetGraphicsRootConstantBufferView(4,context.UploadConstants(new GiSurfaceConstants((uint)(material.StartIndex/3),(uint)width,gi.Strength,gi.OcclusionStrength,new(OriginalStyleMath.ResolveAmbientShare(material,style.Profile,flags.UseSceneLighting),compositionTag))));
             }
             if(nativeLights) {
-                var native=ready.Native!.Constants;
-                native.Info.Z=flags.UseSceneLighting?1:0;
-                native.Info.W=flags.ReceiveSelfShadow?1:0;
-                native.Diffuse=material.Diffuse;
+                var info=new NativeMaterialInfo((uint)ready.Native!.Count,ready.Native.ReceiverMasks[i],
+                    flags.UseSceneLighting?1u:0u, flags.ReceiveSelfShadow?1u:0u);
+                var diffuse=material.Diffuse;
                 // Native shaders consume diffuse RGB only. W is an independent
                 // per-material policy; coverage still uses EgColor/raw texture alpha.
-                native.Diffuse.W=flags.PreserveDirectLightPalette?1:0;
-                commands.SetGraphicsRootConstantBufferView(nativeRoot,context.UploadConstants(native));
+                diffuse.W=flags.PreserveDirectLightPalette?1:0;
+                commands.SetGraphicsRootConstantBufferView(nativeRoot,context.UploadConstants(new NativeMaterialConstants(info,diffuse)));
             }
             commands.SetGraphicsRootDescriptorTable(1,srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(slotBase+(material.DiffuseTexture<0?0:material.DiffuseTexture+2),srvStride));
             commands.SetGraphicsRootDescriptorTable(2,srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(slotBase+(binding.SphereTexture<0?0:binding.SphereTexture+2),srvStride));
@@ -468,7 +479,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         }
         if(frame.Outline is not null&&frame.OutlineOptions is {Eligible:true,ModelWidth:>0})
             draws+=RecordCombinedOutline(device,commands,pipeline.Outline,frame,width,height,vertexBuffer,indexBuffer,upload,own,context,
-                srvHeap,srvStride,slotBase,depthFormat,cache);
+                srvHeap,srvStride,slotBase,depthFormat,cache,surfaceStyles);
         return draws;
     }
 
@@ -487,7 +498,10 @@ public sealed partial class D3D12OriginalStyleRenderer
             new(RootParameterType.ShaderResourceView,new RootDescriptor(3,0),ShaderVisibility.Pixel),
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,2,4)),ShaderVisibility.Pixel)];
         if(key.NativeLights)parameters=[..parameters,new(RootParameterType.ConstantBufferView,new RootDescriptor(2,0),ShaderVisibility.Pixel),
-            new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,6)),ShaderVisibility.Pixel)];
+            // One table holds the atlas SRV and frame CBV. Its root cost remains one DWORD,
+            // even when a mixed-style scene enables every optional material resource family.
+            new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,6),
+                new DescriptorRange(DescriptorRangeType.ConstantBufferView,1,0,1)),ShaderVisibility.Pixel)];
         int textureMorphRoot=key.TextureMorph?parameters.Length:-1;
         if(key.TextureMorph)parameters=[..parameters,new(RootParameterType.ConstantBufferView,new RootDescriptor(3,0),ShaderVisibility.Pixel)];
         int faceSdfRoot=key.FaceSdf?parameters.Length:-1;

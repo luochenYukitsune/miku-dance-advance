@@ -327,6 +327,255 @@ public sealed class ProjectPoseInitializationTests : IDisposable
         AssertSteps(Assert.Single(factory.Worlds), steps); Assert.Equal(0, project.CurrentFrame);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AdditionalLightEditsAndHistoryRetainTheSolvedPoseAndFractionalPhysicsProgress(bool shared)
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        var light = new NativeSceneLight(Guid.NewGuid(), "key", SceneLightKind.Point, new(0, 4, 0), Quaternion.Identity, Vector3.One);
+        var lights = new SceneLightingEditor(); lights.Add(light);
+        using var project = new SceneProjectSession(f.Layout, lights, f.Motions, factory.Provider(6), Settings(shared), initialFrame: 7.5, cancellationToken: Token);
+        project.Advance(1d / 240, Token); // Half a fixed step must survive every lighting/history update.
+        var world = Assert.Single(factory.Worlds); int steps = world.StepSeconds.Count;
+        var before = project.Frame; var actors = project.Actors;
+        var changed = light with { Color = new(.2f, .4f, .8f), Intensity = 3, Position = new(2, 8, 1), Range = 20 };
+        project.Edit(edit => edit.Lighting.Update(changed), Token);
+        var after = project.Frame;
+        Assert.Same(before.Surface, after.Surface); Assert.Same(before.Outline, after.Outline);
+        Assert.Equal(light, Assert.Single(before.Lighting!.Lights));
+        Assert.Same(actors, project.Actors); Assert.Equal(7.625, project.CurrentFrame);
+        Assert.Equal(changed, Assert.Single(after.Lighting!.Lights));
+        Assert.Same(after, project.CaptureRenderSnapshot().Scene);
+        Assert.True(project.Undo(Token));
+        Assert.Equal(light, Assert.Single(project.Frame.Lighting!.Lights));
+        Assert.Same(before.Surface, project.Frame.Surface);
+        Assert.True(project.Redo(Token));
+        Assert.Equal(changed, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        project.SetDefaultRenderingStyle(RenderingStyleId.Genshin, Token);
+        Assert.True(project.Undo(Token)); Assert.True(project.Redo(Token));
+        Assert.Equal(changed, Assert.Single(project.Frame.Lighting!.Lights));
+        Assert.Single(factory.Worlds); Assert.False(world.Disposed); Assert.Equal(steps, world.StepSeconds.Count);
+
+        project.AdvancePreview(1d / 240, Token);
+        var sampled = project.CaptureRenderSnapshot();
+        Assert.Equal(7.75, sampled.SourceFrame); Assert.Equal(steps + 1, world.StepSeconds.Count);
+        Assert.Equal(changed, Assert.Single(sampled.Scene.Lighting!.Lights));
+        Assert.Single(factory.Worlds); Assert.False(world.Disposed);
+        Assert.True(sampled.Scene.Surface.Snapshot.Vertices[0].Position.Y < after.Surface.Snapshot.Vertices[0].Position.Y);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GlobalLightingOnlyEditsAndHistoryRetainSolvedPoseAndFractionalPhysicsProgress(bool shared)
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), f.Motions, factory.Provider(6), Settings(shared),
+            initialFrame: 7.5, cancellationToken: Token);
+        project.Advance(1d / 240, Token); var before = project.Frame; var actors = project.Actors;
+        var world = Assert.Single(factory.Worlds); int steps = world.StepSeconds.Count;
+        var settings = new SceneLightingSettings(.75f, -2.5f);
+        project.Edit(edit => edit.Lighting.UpdateSettings(settings), Token);
+        var changed = project.CaptureRenderSnapshot().Scene;
+        Assert.Equal(settings, changed.Lighting!.Settings); Assert.Equal(SceneLightingSettings.Default, before.Lighting!.Settings);
+        Assert.Same(before.Surface, changed.Surface); Assert.Same(actors, project.Actors); Assert.Equal(7.625, project.CurrentFrame);
+        Assert.True(project.Undo(Token)); Assert.Equal(SceneLightingSettings.Default, project.Frame.Lighting!.Settings);
+        Assert.True(project.Redo(Token)); Assert.Equal(settings, project.Frame.Lighting!.Settings);
+        Assert.Single(factory.Worlds); Assert.False(world.Disposed); Assert.Equal(steps, world.StepSeconds.Count);
+        string path = Path.Combine(directory, "global-lighting.mmdscene"); project.Save(path, new() { CopyModelAssets = false }, Token);
+        project.AdvancePreview(1d / 240, Token);
+        Assert.Equal(7.75, project.CurrentFrame); Assert.Equal(steps + 1, world.StepSeconds.Count);
+        Assert.Equal(settings, project.CaptureRenderSnapshot().Scene.Lighting!.Settings); Assert.Single(factory.Worlds);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GroupOnlyEditsAndHistoryRetainSolvedPoseAndFractionalPhysicsProgress(bool shared)
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        var group = new SceneLightGroup(Guid.NewGuid(), "人物");
+        var light = new NativeSceneLight(Guid.NewGuid(), "key", SceneLightKind.Point, Vector3.UnitY,
+            Quaternion.Identity, Vector3.One, Intensity: 2, GroupId: group.Id);
+        var lighting = new SceneLightingEditor(); lighting.ReplaceSnapshot(new([light], [group]), light.Id);
+        using var project = new SceneProjectSession(f.Layout, lighting, f.Motions, factory.Provider(6), Settings(shared),
+            initialFrame: 7.5, cancellationToken: Token);
+        project.Advance(1d / 240, Token);
+        var world = Assert.Single(factory.Worlds); int steps = world.StepSeconds.Count;
+        var before = project.Frame; var actors = project.Actors; SceneLightingEditor? escaped = null;
+        var changed = group with { Name = "舞台", Enabled = false, Intensity = 3 };
+        project.Edit(edit => { escaped = edit.Lighting; edit.Lighting.UpdateGroup(changed); }, Token);
+        escaped!.RemoveGroup(group.Id);
+        var after = project.CaptureRenderSnapshot().Scene;
+        Assert.Equal(group, Assert.Single(before.Lighting!.Groups));
+        Assert.Equal(changed, Assert.Single(after.Lighting!.Groups));
+        Assert.Equal(light, Assert.Single(after.Lighting.Lights));
+        var effective = Assert.Single(after.Lighting.EffectiveLights); Assert.False(effective.Enabled); Assert.Equal(6, effective.Intensity);
+        Assert.Same(before.Surface, after.Surface); Assert.Same(before.Outline, after.Outline);
+        Assert.Same(actors, project.Actors); Assert.Equal(7.625, project.CurrentFrame);
+        Assert.True(project.Undo(Token)); Assert.Equal(group, Assert.Single(project.Frame.Lighting!.Groups));
+        Assert.True(Assert.Single(project.Frame.Lighting.EffectiveLights).Enabled);
+        Assert.True(project.Redo(Token)); Assert.Equal(changed, Assert.Single(project.Frame.Lighting!.Groups));
+        Assert.Single(factory.Worlds); Assert.False(world.Disposed); Assert.Equal(steps, world.StepSeconds.Count);
+        string saved = Path.Combine(directory, "group-selection.mmdscene");
+        project.Save(saved, new() { CopyModelAssets = false }, Token);
+        using (var json = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(saved)))
+            Assert.Equal(light.Id, json.RootElement.GetProperty("layout").GetProperty("selectedLightId").GetGuid());
+        project.AdvancePreview(1d / 240, Token);
+        Assert.Equal(7.75, project.CurrentFrame); Assert.Equal(steps + 1, world.StepSeconds.Count);
+        Assert.Equal(changed, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Groups));
+        Assert.Single(factory.Worlds); Assert.False(world.Disposed);
+    }
+
+    [Fact]
+    public void LightPublicationKeepsFrozenGeometryCapturesAndSavedAnimationInputsConsistent()
+    {
+        var f = Fixture(end: 0); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), [f.Motions[0] with { PhysicsEnabled = false }],
+            factory.Provider(0), cancellationToken: Token);
+        var before = project.Frame;
+        var light = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point, Vector3.UnitY, Quaternion.Identity, Vector3.One);
+        project.Edit(edit => edit.Lighting.Add(light), Token);
+        var captured = project.CaptureRenderSnapshot();
+        Assert.Empty(before.Lighting!.Lights); Assert.Same(before.Surface, captured.Scene.Surface);
+        Assert.Same(captured.Scene, project.Advance(1d / 30, Token));
+        Assert.Equal(light, Assert.Single(captured.Scene.Lighting!.Lights));
+        var changed = light with { Intensity = 2, Position = Vector3.UnitX };
+        project.Edit(edit => edit.Lighting.Update(changed), Token);
+        Assert.Equal(light, Assert.Single(captured.Scene.Lighting!.Lights));
+        Assert.Equal(changed, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        string path = Path.Combine(directory, "lights.mmdscene"); project.Save(path, cancellationToken: Token);
+        using var loaded = SceneProjectSession.Load(path, (_, _) => new(f.Motions[0].Model, f.Layout.Objects[0].Source), factory.Provider(0), Token);
+        Assert.Equal(changed, Assert.Single(loaded.Lighting.Lights));
+        Assert.Equal(changed, Assert.Single(loaded.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.Empty(factory.Worlds);
+    }
+
+    [Fact]
+    public void LightHistorySurvivesSharedSeekCompositionWithOnlyStaticObjects()
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), [], factory.Provider(0), Settings(shared: true), cancellationToken: Token);
+        var before = project.Frame;
+        var light = new NativeSceneLight(Guid.NewGuid(), "static fill", SceneLightKind.Point, Vector3.UnitY, Quaternion.Identity, Vector3.One);
+        project.Edit(edit => edit.Lighting.Add(light), Token);
+        var lit = project.Frame;
+        // Shared Seek always composes, including an unchanged static scene with no controllers.
+        // The composition cache must retain the current baseline's lights with its geometry.
+        Assert.Same(lit, project.Seek(7, Token));
+        Assert.Same(before.Surface, project.Frame.Surface);
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.True(project.Undo(Token)); var unlit = project.Frame;
+        Assert.Same(unlit, project.Seek(0, Token)); Assert.Empty(project.Frame.Lighting!.Lights);
+        Assert.True(project.Redo(Token)); var relit = project.Frame;
+        Assert.Same(relit, project.Seek(3, Token));
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.Empty(before.Lighting!.Lights);
+        var world = Assert.Single(factory.Worlds); Assert.Empty(world.StepSeconds); Assert.False(world.Disposed);
+    }
+
+    [Fact]
+    public void GlobalLightingSurvivesStaticSharedCompositionAndHistory()
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), [], factory.Provider(0), Settings(shared: true), cancellationToken: Token);
+        var before = project.Frame; var settings = new SceneLightingSettings(.25f, -1);
+        project.Edit(edit => edit.Lighting.UpdateSettings(settings), Token); var changed = project.Frame;
+        Assert.Same(changed, project.Seek(7, Token)); Assert.Equal(settings, project.Frame.Lighting!.Settings);
+        Assert.Same(before.Surface, changed.Surface); Assert.Equal(SceneLightingSettings.Default, before.Lighting!.Settings);
+        Assert.True(project.Undo(Token)); var neutral = project.Frame;
+        Assert.Same(neutral, project.Seek(0, Token)); Assert.Equal(SceneLightingSettings.Default, neutral.Lighting!.Settings);
+        Assert.True(project.Redo(Token)); var restored = project.Frame;
+        Assert.Same(restored, project.Seek(3, Token)); Assert.Equal(settings, project.Frame.Lighting!.Settings);
+        var world = Assert.Single(factory.Worlds); Assert.Empty(world.StepSeconds); Assert.False(world.Disposed);
+    }
+
+    [Fact]
+    public void LightUpdatesSurviveEmptyCompositionHiddenPlaybackAndReappearance()
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        var asset = SceneMotionAsset.FromMotion(new()
+        {
+            BoneKeyframes = f.Motions[0].Motion.BoneKeyframes,
+            IkKeyframes = [new() { Frame = 0, Visible = false }, new() { Frame = 10, Visible = true }, new() { Frame = 20, Visible = false }]
+        });
+        var motion = f.Motions[0] with { Motion = asset.Motion, Asset = asset, PhysicsEnabled = false };
+        using var project = new SceneProjectSession(f.Layout, new(), [motion], factory.Provider(0), initialFrame: 5, cancellationToken: Token);
+        var light = new NativeSceneLight(Guid.NewGuid(), "hidden fill", SceneLightKind.Point, Vector3.UnitY, Quaternion.Identity, Vector3.One);
+        project.Edit(edit => edit.Lighting.Add(light), Token); var hidden = project.Frame;
+        var nextHidden = project.Seek(6, Token);
+        Assert.NotSame(hidden, nextHidden); Assert.True(nextHidden.Surface.Snapshot.IsEmpty);
+        Assert.Equal(light, Assert.Single(nextHidden.Lighting!.Lights));
+        Assert.False(project.Seek(10, Token).Surface.Snapshot.IsEmpty);
+        project.AdvancePreview(1d / 30, Token);
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        var changed = light with { Intensity = 3, Color = Vector3.UnitX };
+        project.Edit(edit => edit.Lighting.Update(changed), Token);
+        Assert.True(project.Seek(20, Token).Surface.Snapshot.IsEmpty);
+        Assert.True(project.Advance(1d / 30, Token).Surface.Snapshot.IsEmpty);
+        Assert.Equal(changed, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.True(project.Undo(Token));
+        Assert.False(project.Seek(10, Token).Surface.Snapshot.IsEmpty);
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.Equal(light, Assert.Single(nextHidden.Lighting!.Lights)); Assert.Empty(factory.Worlds);
+    }
+
+    [Theory]
+    [InlineData("placement")]
+    [InlineData("motion")]
+    [InlineData("physics")]
+    [InlineData("purpose")]
+    public void LightTransactionsThatAlsoChangeAnimationOrShadingKeepCompleteCandidatePreparation(string change)
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), f.Motions, factory.Provider(5), initialFrame: 7.5, cancellationToken: Token);
+        var oldWorld = Assert.Single(factory.Worlds);
+        var light = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point, Vector3.UnitY, Quaternion.Identity, Vector3.One);
+        var replacement = SceneMotionAsset.FromMotion(Motion(30, 60));
+        project.Edit(edit =>
+        {
+            edit.Lighting.Add(light);
+            switch (change)
+            {
+                case "placement": edit.Composition.SetTransform(f.Motions[0].ObjectId, Vector3.UnitX, Quaternion.Identity, 1); break;
+                case "motion": edit.Motions[0] = edit.Motions[0] with { Motion = replacement.Motion, Asset = replacement }; break;
+                case "physics": edit.Settings = edit.Settings with { Physics = edit.Settings.Physics with { GravityY = -20 } }; break;
+                case "purpose": edit.Lighting.SetModelRole(project.Objects[0].Key, ModelRole.Environment, true); break;
+            }
+        }, Token);
+        Assert.Equal(2, factory.Worlds.Count); Assert.True(oldWorld.Disposed);
+        AssertSteps(factory.Worlds[1], 5); Assert.Equal(7.5, project.CurrentFrame);
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.True(project.Undo(Token)); Assert.Equal(3, factory.Worlds.Count); AssertSteps(factory.Worlds[2], 5);
+        Assert.Empty(project.Frame.Lighting!.Lights);
+        Assert.True(project.Redo(Token)); Assert.Equal(4, factory.Worlds.Count); AssertSteps(factory.Worlds[3], 5);
+        Assert.Equal(light, Assert.Single(project.Frame.Lighting!.Lights));
+    }
+
+    [Fact]
+    public void RejectedCancelledAndEscapedLightEditsRetainThePublishedFrameAndHistory()
+    {
+        var f = Fixture(); var factory = new BackendFactory();
+        using var project = new SceneProjectSession(f.Layout, new(), f.Motions, factory.Provider(5), cancellationToken: Token);
+        var light = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point, Vector3.UnitY, Quaternion.Identity, Vector3.One);
+        project.Edit(edit => edit.Lighting.Add(light), Token); Assert.True(project.Undo(Token));
+        var before = project.Frame; var world = Assert.Single(factory.Worlds);
+        Assert.Throws<ArgumentException>(() => project.Edit(edit => edit.Lighting.Add(light with { Intensity = -1 }), Token));
+        Assert.Throws<InvalidOperationException>(() => project.Edit(edit =>
+        { edit.Lighting.Add(light); edit.Lighting.BeginEdit(); }, Token));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        Assert.Throws<OperationCanceledException>(() => project.Edit(edit =>
+        { edit.Lighting.Add(light); cancellation.Cancel(); }, cancellation.Token));
+        Assert.Same(before, project.Frame); Assert.True(project.CanRedo); Assert.False(project.CanUndo);
+        SceneProjectEdit? escaped = null;
+        project.Edit(edit => { escaped = edit; edit.Lighting.Add(light); }, Token);
+        escaped!.Lighting.Update(light with { Intensity = 99 });
+        Assert.Equal(light, Assert.Single(project.Lighting.Lights));
+        Assert.Equal(light, Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights));
+        Assert.False(project.CanRedo); Assert.Single(factory.Worlds); AssertSteps(world, 5); Assert.False(world.Disposed);
+    }
+
     private (SceneCompositionEditor Layout, SceneActorMotion[] Motions) Fixture(uint end = 30, bool twoActors = false, bool impulse = false,
         SceneTexture? texture = null, SceneTexture? secondTexture = null)
     {

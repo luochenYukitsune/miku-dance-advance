@@ -16,6 +16,9 @@ public enum SmaaQuality { Low, Medium, High, Ultra }
 public sealed record OriginalFrameMaterialFlags(bool CastSelfShadow,bool ReceiveSelfShadow,bool CastGroundShadow,
     bool SurfaceEnabled=true,bool ShadowDoubleSided=false,bool CullTransparentSurface=false)
 {
+    /// <summary>Stable scene-instance identity for modern additional-light receiver selection.
+    /// Null is unbound standalone geometry; this does not alter material or shadow eligibility.</summary>
+    public Guid? LightReceiverObjectId { get; init; }
     /// <summary>Derived from an explicit indoor Environment purpose. Uses actual scene lights without the
     /// fixed PMX ambient or toon shadow floor; source materials and character responses remain unchanged.</summary>
     public bool UseSceneLighting { get; init; }

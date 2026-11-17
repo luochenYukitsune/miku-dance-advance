@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text.Json;
+using Mmd.Modern.Demo;
 using Mmd.Modern.App;
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;

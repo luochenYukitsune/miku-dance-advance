@@ -41,4 +41,45 @@ public sealed class EditorMainLightDirectionTests
             Assert.False(model.HasLightDraft);
         }
     }
+
+    [Fact]
+    public void AnglesRoundTripAndKeepTheVectorLength()
+    {
+        var model = new EditorSceneInspectorViewModel();
+        float length = model.LightPose.Direction.Length();
+        model.LightAzimuth = 90; model.LightElevation = 30;
+        var direction = model.LightPose.Direction;
+        Assert.InRange(direction.Length(), length - 1e-4f, length + 1e-4f);
+        // Source on the right and above: the light travels left and down.
+        Assert.True(direction.X < 0 && direction.Y < 0);
+        Assert.Equal(90m, model.LightAzimuth);
+        Assert.Equal(30m, model.LightElevation);
+        Assert.True(model.HasLightDraft);
+    }
+
+    [Fact]
+    public void QuickAimsAndDefaultAreSingleDraftChanges()
+    {
+        var model = new EditorSceneInspectorViewModel();
+        var original = model.LightPose.Direction;
+        model.AimLight("top");
+        var top = Vector3.Normalize(model.LightPose.Direction);
+        Assert.InRange(top.Y, -1.0001f, -.9999f);
+        model.AimLight("back");
+        Assert.True(model.LightPose.Direction.Z < 0); // from behind the subject, towards the camera
+        model.AimLight("default");
+        Assert.Equal(original, model.LightPose.Direction);
+        model.AimLight("unknown");
+        Assert.Equal(original, model.LightPose.Direction);
+    }
+
+    [Fact]
+    public void LightFromCameraFollowsTheCameraView()
+    {
+        var model = new EditorSceneInspectorViewModel();
+        model.AimLightFromCamera();
+        var camera = model.CameraPose.CreateCamera();
+        var forward = Vector3.Normalize(camera.Target - camera.Eye);
+        Assert.InRange(Vector3.Dot(Vector3.Normalize(model.LightPose.Direction), forward), .9999f, 1.0001f);
+    }
 }

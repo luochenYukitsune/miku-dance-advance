@@ -40,6 +40,8 @@ public partial class EditorWindow
             "Ctrl+N — " + Text("新建工程") + "\nCtrl+O — " + Text("打开工程…") + "\nCtrl+S — " + Text("保存工程")
             + "\nCtrl+Shift+S — " + Text("另存为…") + "\nCtrl+Z / Ctrl+Y — " + Text("撤销") + " / " + Text("重做")
             + "\nEnter / K — " + Text("登记骨骼关键帧（视口焦点）")
+            + "\n" + Text("Mda.Text.Shortcuts.Playback") + "\n" + Text("Mda.Text.Shortcuts.Keyframes")
+            + "\n" + Text("Mda.Text.Shortcuts.Timeline") + "\n" + Text("Mda.Text.Shortcuts.Slider")
             + "\nEsc — " + Text("取消"), [Text("关闭")]);
 
     private async void OpenPreviewSettings(object? sender, RoutedEventArgs args) => await OpenPreviewSettingsAsync(this);
@@ -104,7 +106,8 @@ public partial class EditorWindow
     private void InitializeLightController(EditorShellViewModel shell)
     {
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
-        lightController = new(shell.Workspace, CommitViewportLighting, viewport.RequestRender);
+        lightController = new(shell.Workspace, CommitViewportLighting, viewport.RequestRender, shell.SupportsModernLightingWorkspace);
+        InitializeLightHelperTools(shell);
         if (boneController is not null) boneController.Changed -= BoneToolsChanged;
         boneController = new(shell, viewport.RequestRender)
         { ShowBones = this.FindControl<ToggleButton>("BoneGuidesToggle")!.IsChecked == true };

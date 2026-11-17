@@ -120,8 +120,9 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
             if(SubTextureState(frame.Surface,i)!=SubTextureState(previous.Frame.Surface,i))return "MaterialChanged";
         if(a.Textures.Count!=b.Textures.Count)return "TexturesChanged";
         for(int i=0;i<a.Textures.Count;i++)if(!ReferenceEquals(a.Textures[i],b.Textures[i]))return "TexturesChanged";
-        if(a.LightDirection!=b.LightDirection||!MemoryMarshal.AsBytes(NativeRayGiLights.From(frame).Values.AsSpan()).SequenceEqual(
-            MemoryMarshal.AsBytes(NativeRayGiLights.From(previous.Frame).Values.AsSpan())))return "LightingChanged";
+        if((frame.Lighting?.Settings.EnvironmentStrength??0)!=(previous.Frame.Lighting?.Settings.EnvironmentStrength??0)
+            ||a.LightDirection!=b.LightDirection||!MemoryMarshal.AsBytes(NativeRayGiLights.From(frame).UploadRows.AsSpan()).SequenceEqual(
+            MemoryMarshal.AsBytes(NativeRayGiLights.From(previous.Frame).UploadRows.AsSpan())))return "LightingChanged";
         return null;
     }
 

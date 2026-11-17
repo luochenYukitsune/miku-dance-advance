@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Application;
+using Mmd.Modern.Demo;
 using Mmd.Modern.App;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;

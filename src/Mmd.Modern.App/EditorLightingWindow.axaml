@@ -13,19 +13,17 @@
       <FontFamily x:Key="OutputFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="OutputSurface" Color="#0C0E11" /><SolidColorBrush x:Key="OutputText" Color="#F2F2F2" />
-          <SolidColorBrush x:Key="OutputMuted" Color="#B0B0B0" /><SolidColorBrush x:Key="OutputDisabled" Color="#707070" />
-          <SolidColorBrush x:Key="OutputBorder" Color="#2E3B48" /><SolidColorBrush x:Key="OutputFocus" Color="#F2F2F2" />
-          <SolidColorBrush x:Key="OutputHover" Color="#202D39" /><SolidColorBrush x:Key="OutputSelected" Color="#182633" />
-          <SolidColorBrush x:Key="OutputInput" Color="#18222C" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="OutputSurface" Color="#0F1216" /><SolidColorBrush x:Key="OutputText" Color="#ECEFF2" />
+          <SolidColorBrush x:Key="OutputMuted" Color="#A4ACB6" /><SolidColorBrush x:Key="OutputDisabled" Color="#69717B" />
+          <SolidColorBrush x:Key="OutputBorder" Color="#2B333D" /><SolidColorBrush x:Key="OutputFocus" Color="#3DD68C" />
+          <SolidColorBrush x:Key="OutputHover" Color="#222A34" /><SolidColorBrush x:Key="OutputSelected" Color="#19302A" />
+          <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="OutputSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="OutputText" Color="#171717" />
-          <SolidColorBrush x:Key="OutputMuted" Color="#555555" /><SolidColorBrush x:Key="OutputDisabled" Color="#8A8A8A" />
-          <SolidColorBrush x:Key="OutputBorder" Color="#D8E0E7" /><SolidColorBrush x:Key="OutputFocus" Color="#171717" />
-          <SolidColorBrush x:Key="OutputHover" Color="#F0F4F7" /><SolidColorBrush x:Key="OutputSelected" Color="#E3ECF3" />
-          <SolidColorBrush x:Key="OutputInput" Color="#F3F6F8" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="OutputSurface" Color="#F6F7F9" /><SolidColorBrush x:Key="OutputText" Color="#1A1D21" />
+          <SolidColorBrush x:Key="OutputMuted" Color="#5B636E" /><SolidColorBrush x:Key="OutputDisabled" Color="#9AA1AA" />
+          <SolidColorBrush x:Key="OutputBorder" Color="#D9DEE5" /><SolidColorBrush x:Key="OutputFocus" Color="#12844A" />
+          <SolidColorBrush x:Key="OutputHover" Color="#E9EDF2" /><SolidColorBrush x:Key="OutputSelected" Color="#DFF2E7" />
+          <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Window.Resources>
@@ -41,7 +39,7 @@
     <Style Selector="TextBlock.label"><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
-      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
       <Setter Property="Transitions"><Transitions /></Setter>
       <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
         <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -55,7 +53,7 @@
     <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
     <Style Selector="TextBox">
       <Setter Property="MinHeight" Value="30" /><Setter Property="Height" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
-      <Setter Property="CornerRadius" Value="2" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="Background" Value="{DynamicResource OutputInput}" />
+      <Setter Property="CornerRadius" Value="4" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="Background" Value="{DynamicResource OutputInput}" />
       <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="SelectionBrush" Value="{DynamicResource OutputSelected}" /><Setter Property="CaretBrush" Value="{DynamicResource OutputText}" />
       <!-- Avalonia 11.3.22 Simple TextBox named parts, with no extra Suki 5.3.0 outer inset. -->
       <Setter Property="Template"><ControlTemplate>
@@ -107,7 +105,7 @@
     <Style Selector="TextBox:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
     <Style Selector="NumericUpDown">
       <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
-      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" />
       <Setter Property="ShowButtonSpinner" Value="False" /><Setter Property="TextAlignment" Value="Right" /><Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Template"><ControlTemplate><ButtonSpinner Name="PART_Spinner" AllowSpin="{TemplateBinding AllowSpin}" ShowButtonSpinner="False" HorizontalContentAlignment="Stretch" Padding="0"><ButtonSpinner.Template><ControlTemplate><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" /></ControlTemplate></ButtonSpinner.Template><TextBox Name="PART_TextBox" Text="{TemplateBinding Text}" Watermark="{TemplateBinding Watermark}" IsReadOnly="{TemplateBinding IsReadOnly}" TextAlignment="{TemplateBinding TextAlignment}"
         FontFamily="{TemplateBinding FontFamily}" FontSize="{TemplateBinding FontSize}" Foreground="{TemplateBinding Foreground}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}" /></ButtonSpinner></ControlTemplate></Setter>
@@ -117,7 +115,7 @@
     <Style Selector="NumericUpDown:disabled /template/ TextBox"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
     <Style Selector="ComboBox">
       <Setter Property="MinHeight" Value="30" /><Setter Property="Height" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
-      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="2" /><Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="PlaceholderForeground" Value="{DynamicResource OutputMuted}" />
       <!-- Preserve Avalonia 11.3.22 ComboBox selection, popup and editable named parts without the Suki outer inset. -->
       <Setter Property="Template"><ControlTemplate>
@@ -218,6 +216,26 @@
     <Style Selector="ListBoxItem:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
     <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource OutputBorder}" /><Setter Property="Margin" Value="0,4" /></Style>
     <StyleInclude Source="avares://Mmd.Modern.App/EditorPopupStyles.axaml" />
+  
+    <!-- MDA shared button roles (same in every window):
+         default  = input surface + border; .primary = solid brand green; .quiet = flat (cancel/close). -->
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter, ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="TabItem:selected /template/ Border"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto">
     <Border Background="{DynamicResource OutputInput}" Padding="20,10">
@@ -231,10 +249,11 @@
         <StackPanel Spacing="8">
           <TextBlock Text="{DynamicResource Mda.Text.0bb6877c08de}" Classes="caption" Margin="8,0" />
           <Grid ColumnDefinitions="*,4,*,4,*">
-            <Button Content="{DynamicResource Mda.Text.03538630cc37}" Click="AddPoint" IsEnabled="{Binding CanAddLight}" Padding="6,0" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.164901accbd4}" />
-            <Button Grid.Column="2" Content="{DynamicResource Mda.Text.2c6e4ffdbe4d}" Click="AddSpot" IsEnabled="{Binding CanAddLight}" Padding="6,0" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.5af0185beb3e}" />
-            <Button Grid.Column="4" Content="{DynamicResource Mda.Text.f23a01a41c32}" Click="AddDirectional" IsEnabled="{Binding CanAddLight}" Padding="6,0" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.dcf867d64ba7}" />
+            <Button Content="{DynamicResource Mda.Text.03538630cc37}" Click="AddPoint" IsEnabled="{Binding CanAddLight}" Padding="6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.164901accbd4}" />
+            <Button Grid.Column="2" Content="{DynamicResource Mda.Text.2c6e4ffdbe4d}" Click="AddSpot" IsEnabled="{Binding CanAddLight}" Padding="6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.5af0185beb3e}" />
+            <Button Grid.Column="4" Content="{DynamicResource Mda.Text.f23a01a41c32}" Click="AddDirectional" IsEnabled="{Binding CanAddLight}" Padding="6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.dcf867d64ba7}" />
           </Grid>
+          <Button Content="{DynamicResource Mda.Text.Context.Lighting.Area}" Click="AddArea" IsEnabled="{Binding CanAddLight}" Padding="6,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="action" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Area}" />
         </StackPanel>
         <Grid Grid.Row="1" Margin="0,16,0,12">
           <ListBox Name="NativeLightsList" ItemsSource="{Binding Lights}" SelectedItem="{Binding SelectedLight, Mode=TwoWay}"
@@ -258,8 +277,13 @@
                 <StackPanel Spacing="10">
                   <TextBlock Text="{DynamicResource Mda.Text.ca251de3d3f7}" Classes="section" />
                   <Grid ColumnDefinitions="94,*"><TextBlock Text="{DynamicResource Mda.Text.d44e9b3d3b31}" Classes="label" /><TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.7cb9050d7b72}" /></Grid>
-                  <Grid ColumnDefinitions="94,*,100"><TextBlock Text="{DynamicResource Mda.Text.ba40014ff496}" Classes="label" /><ComboBox Grid.Column="1" ItemsSource="{Binding KindChoices}" SelectedIndex="{Binding KindIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.0a10a5398b8a}" /></Grid>
+                  <Grid ColumnDefinitions="94,*,100"><TextBlock Text="{DynamicResource Mda.Text.ba40014ff496}" Classes="label" /><ComboBox Grid.Column="1" ItemsSource="{Binding KindChoices}" SelectedIndex="{Binding KindIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.0a10a5398b8a}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightKindChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
                   <Grid ColumnDefinitions="94,*,*"><CheckBox Grid.Column="1" Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" /><CheckBox Grid.Column="2" Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" /></Grid>
+                  <StackPanel Spacing="6" IsVisible="{Binding HasAreaSize}">
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaDimensions}" Classes="section" />
+                    <Grid ColumnDefinitions="94,*"><TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaWidth}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="1" Value="{Binding AreaWidth, Mode=TwoWay}" FormatString="0.####" Increment="0.1" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaWidth}" /></Grid>
+                    <Grid ColumnDefinitions="94,*"><TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AreaHeight}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="1" Value="{Binding AreaHeight, Mode=TwoWay}" FormatString="0.####" Increment="0.1" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.AreaHeight}" /></Grid>
+                  </StackPanel>
                 </StackPanel>
                 <StackPanel Spacing="10">
                   <TextBlock Text="{DynamicResource Mda.Text.64412f9ebb77}" Classes="section" />
@@ -308,8 +332,8 @@
           <TextBlock Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
           <TextBlock Text="{DynamicResource Mda.Text.409713583939}" Classes="caption" />
         </StackPanel>
-        <Button Grid.Column="1" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelLighting" MinWidth="76" AutomationProperties.Name="{DynamicResource Mda.Text.1927a05b954a}" />
-        <Button Grid.Column="3" Name="ApplyLightingButton" Content="{DynamicResource Mda.Text.63c73c4730f4}" Classes="action" Click="ApplyLighting" MinWidth="76" AutomationProperties.Name="{DynamicResource Mda.Text.5f3d6efa7e48}" />
+        <Button Classes="quiet" Grid.Column="1" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelLighting" MinWidth="76" AutomationProperties.Name="{DynamicResource Mda.Text.1927a05b954a}" />
+        <Button Grid.Column="3" Name="ApplyLightingButton" Content="{DynamicResource Mda.Text.63c73c4730f4}" Classes="primary" Click="ApplyLighting" MinWidth="76" AutomationProperties.Name="{DynamicResource Mda.Text.5f3d6efa7e48}" />
       </Grid>
     </Border>
   </Grid>

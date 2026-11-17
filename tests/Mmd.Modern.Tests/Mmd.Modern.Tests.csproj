@@ -1,6 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsTestProject>true</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
-  <ItemGroup><Compile Include="../Shared/TestWorkspace.cs" Link="Shared/TestWorkspace.cs" /></ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
     <ProjectReference Include="../../src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj" />
@@ -12,6 +11,7 @@
     <ProjectReference Include="../../src/Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
     <ProjectReference Include="../../src/Mmd.Modern.ViewOutput.D3D12/Mmd.Modern.ViewOutput.D3D12.csproj" />
     <ProjectReference Include="../../src/Mmd.Modern.App/Mmd.Modern.App.csproj" />
+    <ProjectReference Include="../../src/Mmd.Modern.Demo/Mmd.Modern.Demo.csproj" />
     <ProjectReference Include="../Mmd.Modern.PluginFixture/Mmd.Modern.PluginFixture.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="Avalonia.Headless" Version="$(AvaloniaVersion)" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />

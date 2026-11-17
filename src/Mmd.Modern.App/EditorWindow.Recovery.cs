@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Threading;
@@ -115,7 +116,10 @@ public partial class EditorWindow
                 NumericInputText = EditorRecoveryNumericInputs.Capture(this),
                 NativeLighting = this.FindControl<EditorLightInspector>("NativeLightInspector")!
                     .CaptureRecoveryState(shell.Workspace.Session.Lighting, shell.InspectorPage, capturedDocument) with
-                    { RotateHandle = lightController?.RotateHandle == true, ActiveLightId = lightController?.SelectedLightId }
+                    {
+                        RotateHandle = lightController?.RotateHandle == true, ActiveLightId = lightController?.SelectedLightId,
+                        ActiveLightIds = lightController?.SelectedLightIds.ToImmutableArray() ?? []
+                    }
             };
             state = shell.Workspace.ProjectRecoveryState(state);
             using var json = JsonDocument.Parse(state.ToJsonBytes());
@@ -268,7 +272,8 @@ public partial class EditorWindow
                 _observedInspectorPage = native.InspectorPage;
                 nativeInspector.RestoreRecoveryState(native, shell.Workspace.Session!.Lighting, shell.Workspace.DocumentId);
                 lightController?.CancelDrag();
-                lightController?.Select(native.ActiveLightId);
+                lightController?.SelectMany(native.ActiveLightIds.Length > 0 ? native.ActiveLightIds
+                    : native.ActiveLightId is { } id ? [id] : [], native.ActiveLightId);
                 if (lightController is { } controller) controller.RotateHandle = native.RotateHandle;
                 this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = native.RotateHandle;
                 ApplyInspectorPagePresentation(shell);

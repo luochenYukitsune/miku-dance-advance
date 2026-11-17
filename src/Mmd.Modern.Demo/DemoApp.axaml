@@ -1,0 +1,10 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Mmd.Modern.Demo.DemoApp" RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" />
+    </Style>
+  </Application.Styles>
+</Application>

@@ -21,6 +21,9 @@ internal static class NativeLightShadowProjection
     /// <summary>World-position to light clip; model World must be applied exactly once by the vertex shader.</summary>
     internal static Matrix4x4[] Create(SceneSnapshot scene, NativeSceneLight light)
     {
+        if (light.Kind == SceneLightKind.Area)
+            return Enumerable.Range(0, NativeAreaLight.Samples).SelectMany(sample => Create(scene,
+                light with { Kind = SceneLightKind.Point, Position = NativeAreaLight.SamplePosition(light, sample) })).ToArray();
         if (light.Kind == SceneLightKind.Directional)
         {
             Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
@@ -67,7 +70,7 @@ internal static class NativeLightShadowProjection
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    internal const int NativeShadowTileSize = 512;
+    internal const int NativeShadowTileSize = NativeLightShadowAtlasLayout.TileSize;
     public D3D12NativeLightStatistics? LastNativeLightStatistics { get; private set; }
     internal void ResetNativeLightStatistics() => LastNativeLightStatistics = null;
     internal void SetNativeGiParticipation(bool active)
@@ -75,48 +78,57 @@ public sealed partial class D3D12OriginalStyleRenderer
         if(LastNativeLightStatistics is { } statistics)
             LastNativeLightStatistics=statistics with {NativeLightsContributeToGi=active};
     }
-    internal static bool HasNativeLights(OriginalFrameScene frame) => frame.Lighting?.Lights.Any(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero) == true;
+    internal static bool HasNativeLights(OriginalFrameScene frame) => frame.Lighting is { } lighting &&
+        (lighting.Settings.EnvironmentStrength > 0 || lighting.EffectiveLights.Any(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero));
 
     [StructLayout(LayoutKind.Sequential)]
-    internal readonly record struct NativeLightConstants(Vector4 PositionKind, Vector4 DirectionRange, Vector4 ColorIntensity, Vector4 ConeShadow);
-    [InlineArray(4)]
+    internal readonly record struct NativeLightConstants(Vector4 PositionKind, Vector4 DirectionRange, Vector4 ColorIntensity, Vector4 ConeShadow, Vector4 AreaRightTile);
+    [InlineArray(SceneLightingSnapshot.MaxActiveLights)]
     internal struct NativeLightArray { private NativeLightConstants first; }
-    [InlineArray(24)]
+    [InlineArray(SceneLightingSnapshot.MaxActiveLights * 6 * NativeAreaLight.Samples)]
     internal struct NativeMatrixArray { private Matrix4x4 first; }
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeFrameConstants
     {
         internal Vector4 Info;
-        internal Vector4 Diffuse;
         internal NativeLightArray Lights;
         internal NativeMatrixArray Matrices;
     }
-    internal sealed record PreparedNativeLights(ID3D12Resource Atlas, NativeFrameConstants Constants);
+    [StructLayout(LayoutKind.Sequential)]
+    internal readonly record struct NativeMaterialInfo(uint Count, uint ReceiverMask, uint SceneLighting, uint ReceiveShadows);
+    [StructLayout(LayoutKind.Sequential)]
+    internal readonly record struct NativeMaterialConstants(NativeMaterialInfo Info, Vector4 Diffuse);
+    internal sealed record PreparedNativeLights(ID3D12Resource Atlas, int Count, ulong FrameAddress, uint[] ReceiverMasks);
 
     private PreparedNativeLights RecordNativeLights(D3D12RecordingContext context, D3D12GpuCache cache, FramePipelines pipeline,
         OriginalFrameScene frame, ID3D12Resource vertexBuffer, ID3D12Resource indexBuffer,
         ID3D12DescriptorHeap srvHeap, int srvStride, int slotBase, ID3D12Resource white, FrameConstants common)
     {
         var scene = frame.Surface.Snapshot;
-        var lights = frame.Lighting!.Lights.Where(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero).ToArray();
-        var constants = new NativeFrameConstants { Info = new(lights.Length, NativeShadowTileSize, 0, 1) };
+        var lights = frame.Lighting!.EffectiveLights.Where(NativeLightShadowAtlasLayout.Contributes).ToArray();
+        var layout = NativeLightShadowAtlasLayout.Create(frame.Lighting);
+        var constants = new NativeFrameConstants { Info = new(layout.Columns, layout.Rows, frame.Lighting.Settings.EnvironmentStrength, 0) };
         var projections = new Matrix4x4[lights.Length][];
+        int faceCount = 0, atlasTile = 0;
         for (int i = 0; i < lights.Length; i++)
         {
             var light = lights[i];
+            NativeAreaLight.Validate(light);
             projections[i] = light.CastShadows ? NativeLightShadowProjection.Create(scene, light) : [];
             float worldBias = 0;
             if (light.Kind == SceneLightKind.Directional && projections[i].Length > 0)
                 worldBias = .00015f / MathF.Sqrt(projections[i][0].M11 * projections[i][0].M11 + projections[i][0].M21 * projections[i][0].M21 + projections[i][0].M31 * projections[i][0].M31);
             constants.Lights[i] = new(new(light.Position, (float)light.Kind), new(NativeLightShadowProjection.Direction(light), light.Range),
-                new(light.Color, light.Intensity), new(MathF.Cos(light.InnerConeRadians), MathF.Cos(light.OuterConeRadians), light.CastShadows ? i * 6 : -1, worldBias));
-            for (int face = 0; face < projections[i].Length; face++) constants.Matrices[i * 6 + face] = projections[i][face];
+                new(light.Color, light.Intensity), NativeAreaLight.Cone(light, projections[i].Length > 0 ? faceCount : -1, worldBias),
+                new(light.Kind == SceneLightKind.Area ? NativeAreaLight.Right(light) : Vector3.Zero, atlasTile));
+            for (int face = 0; face < projections[i].Length; face++) constants.Matrices[faceCount++] = projections[i][face];
+            atlasTile += light.Kind == SceneLightKind.Area ? projections[i].Length / NativeAreaLight.Samples : projections[i].Length;
         }
-        int faceCount = projections.Sum(p => p.Length), draws = 0;
+        int draws = 0;
         ID3D12Resource atlas = white;
         if (faceCount > 0)
         {
-            int atlasWidth = NativeShadowTileSize * 6, atlasHeight = NativeShadowTileSize * lights.Length;
+            int atlasWidth = layout.Width, atlasHeight = layout.Height;
             var targets=D3D12ShadowTargets.Get(context,cache,"original-native-shadow",atlasWidth,atlasHeight,Format.D32_Float);
             atlas=targets.Color;targets.Begin(context);
             var commands = context.Commands;
@@ -127,13 +139,18 @@ public sealed partial class D3D12OriginalStyleRenderer
             // Its cache entry is retained by the recording context through the submit fence.
             if (HasSubTexture(frame)) BindAdditionalUvs(context,cache,scene);
             commands.IASetIndexBuffer(new IndexBufferView(indexBuffer.GPUVirtualAddress, checked(scene.Indices.Length * 4), Format.R32_UInt));
+            int tile = 0;
             for (int i = 0; i < lights.Length; i++)
             {
                 for (int face = 0; face < projections[i].Length; face++)
                 {
-                    int x = face * NativeShadowTileSize, y = i * NativeShadowTileSize;
-                    commands.RSSetViewport(x, y, NativeShadowTileSize, NativeShadowTileSize, 0, 1);
-                    commands.RSSetScissorRect(new RawRect(x, y, x + NativeShadowTileSize, y + NativeShadowTileSize));
+                    bool area = lights[i].Kind == SceneLightKind.Area;
+                    int cell = area ? tile + face % 6 : tile + face;
+                    var (x, y) = layout.TileOrigin(cell);
+                    int size = area ? NativeShadowTileSize / 2 : NativeShadowTileSize;
+                    if (area) { int sample = face / 6; x += (sample & 1) * size; y += (sample >> 1) * size; }
+                    commands.RSSetViewport(x, y, size, size, 0, 1);
+                    commands.RSSetScissorRect(new RawRect(x, y, x + size, y + size));
                     for (int m = 0; m < scene.Materials.Count; m++)
                     {
                         var material = scene.Materials[m]; var flags = frame.Materials[m]; var binding = frame.Surface.Materials[m];
@@ -150,11 +167,19 @@ public sealed partial class D3D12OriginalStyleRenderer
                         commands.DrawIndexedInstanced(material.IndexCount, 1, material.StartIndex, 0, 0); draws++;
                     }
                 }
+                tile += lights[i].Kind == SceneLightKind.Area ? projections[i].Length / NativeAreaLight.Samples : projections[i].Length;
             }
             targets.End(context);
         }
         LastNativeLightStatistics = new(lights.Length, faceCount, draws, NativeShadowTileSize);
-        return new(atlas, constants);
+        var masks = new Dictionary<Guid, uint>();
+        var materialMasks = frame.Materials.Select(flags =>
+        {
+            var id = flags.LightReceiverObjectId ?? Guid.Empty;
+            if (!masks.TryGetValue(id, out var mask)) masks.Add(id, mask = frame.Lighting.ReceiverMask(flags.LightReceiverObjectId));
+            return mask;
+        }).ToArray();
+        return new(atlas, lights.Length, context.UploadConstants(constants), materialMasks);
     }
 
     private readonly Dictionary<(string, bool), byte[]> nativeFrameShaders = [];

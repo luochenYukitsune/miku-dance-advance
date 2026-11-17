@@ -1,4 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><ApplicationManifest>../Mmd.Modern.App/app.manifest</ApplicationManifest></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../Mmd.Modern.App/Mmd.Modern.App.csproj" /></ItemGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><ApplicationManifest>../Mmd.Modern.App/app.manifest</ApplicationManifest><AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Mmd.Modern.App/Mmd.Modern.App.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Physics.Runtime/Mmd.Modern.Physics.Runtime.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />
+    <None Include="../../fixtures/humanoid.pmd" Link="fixtures/humanoid.pmd" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+  </ItemGroup>
 </Project>

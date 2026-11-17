@@ -1,0 +1,219 @@
+using System.Numerics;
+using System.Reflection;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Mmd.Modern.App;
+using Mmd.Modern.App.Controls;
+using Mmd.Modern.Application;
+using Mmd.Modern.Core;
+using Mmd.Modern.ViewOutput;
+using Xunit;
+
+namespace Mmd.Modern.Tests;
+
+[Collection(QualityLoadingCollection.Name)]
+public sealed class EditorLightParameterTests : IAsyncDisposable
+{
+    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+
+    [Fact]
+    public void BeamControlsMapFullAngleAndSoftnessWithoutChangingUntouchedFloats()
+    {
+        var light = Light() with { Intensity = 1000, Range = 10000, InnerConeRadians = .001234f, OuterConeRadians = .004567f };
+        var item = new EditorNativeLightItem(light);
+        Assert.Equal(light, item.Build());
+        item.BeamWidthDegrees = 80;
+        Assert.InRange(item.Build().OuterConeRadians, .69813f, .69814f);
+        Assert.InRange((float)item.EdgeSoftnessPercent!.Value, 72.97f, 72.99f);
+        item.EdgeSoftnessPercent = 25;
+        var changed = item.Build();
+        Assert.InRange(changed.InnerConeRadians, .52359f, .52360f);
+        Assert.Equal(light.Intensity, changed.Intensity); Assert.Equal(light.Range, changed.Range);
+    }
+
+    [Fact]
+    public void DefaultCreatedLightsHaveUsableSliderPositionsAndBrightnessCanReachZero()
+    {
+        foreach (var kind in Enum.GetValues<SceneLightKind>())
+        {
+            var light = EditorLightPlacement.Create(Guid.NewGuid(), "created", kind, EditorLightPlacement.DefaultCamera);
+            var item = new EditorNativeLightItem(light);
+            Assert.InRange(item.BrightnessSliderPosition, 1, 7);
+            Assert.InRange(item.DistanceSliderPosition, -1, 4);
+            Assert.InRange(Math.Abs((float)EditorLightParameterScale.BrightnessValue(item.BrightnessSliderPosition) - light.Intensity), 0, .001f);
+            Assert.InRange(Math.Abs((float)EditorLightParameterScale.DistanceValue(item.DistanceSliderPosition) - light.Range), 0, .001f);
+            Assert.Equal(light, item.Build());
+        }
+        Assert.Equal(0m, EditorLightParameterScale.BrightnessValue(0));
+    }
+
+    [Theory]
+    [InlineData(.00001f)]
+    [InlineData(.001f)]
+    [InlineData(.7f)]
+    [InlineData(1.5707963f)]
+    public void ZeroSoftnessAuthorsAValidNearHardEdgeWithoutRewritingHistoricalCones(float outer)
+    {
+        var light = Light() with { OuterConeRadians = outer, InnerConeRadians = MathF.BitDecrement(outer) };
+        var item = new EditorNativeLightItem(light);
+        Assert.Equal(light, item.Build());
+        item.EdgeSoftnessPercent = 0;
+        var hard = item.Build();
+        Assert.True(hard.InnerConeRadians < hard.OuterConeRadians);
+        Assert.Equal(light.OuterConeRadians, hard.OuterConeRadians);
+        Assert.InRange((float)item.EdgeSoftnessPercent!.Value, 0, .00011f);
+        Assert.Equal("0", item.EdgeSoftnessPercent.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task SliderTicksPreviewAndReleaseMakesOneUndoWhileEscapeMakesNone() => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var slider = inspector.GetVisualDescendants().OfType<EditorLightParameterSlider>().Single(control => control.Name == "LightBrightnessSlider");
+            var controller = (EditorLightViewportController)typeof(EditorWindow).GetField("lightController", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
+            var original = shell.Workspace.Session!.Lighting;
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.Value = EditorLightParameterScale.BrightnessPosition(3); slider.Value = EditorLightParameterScale.BrightnessPosition(4); slider.Value = EditorLightParameterScale.BrightnessPosition(5);
+            Assert.Same(original, shell.Workspace.Session.Lighting);
+            Assert.Equal(5f, Assert.Single(controller.PreviewLighting.Lights).Intensity);
+            var snapshot = shell.Workspace.Session.CaptureRenderSnapshot();
+            var frame = new PreviewFrame(800, 600, 0, snapshot.Scene, snapshot.Camera, snapshot.Light, snapshot.SelfShadow);
+            Assert.Equal(5f, Assert.Single(controller.DecorateFrame(frame).Scene.Lighting!.Lights).Intensity);
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyUpEvent, Key = Key.Right });
+            Assert.Equal(5f, Assert.Single(shell.Workspace.Session.Lighting.Lights).Intensity);
+            Assert.True(shell.Workspace.Undo());
+            Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            slider = inspector.GetVisualDescendants().OfType<EditorLightParameterSlider>().Single(control => control.Name == "LightBrightnessSlider");
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.Value = EditorLightParameterScale.BrightnessPosition(6);
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            Assert.Equal(light, Assert.Single(controller.PreviewLighting.Lights));
+            Assert.True(shell.Workspace.Undo()); // Escape adds no entry; this removes the original added light.
+            Assert.Empty(shell.Workspace.Session.Lighting.Lights);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task EscapeSuppressesHeldKeyRepeatsUntilReleaseAndNextPressCanEdit() => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var slider = inspector.GetVisualDescendants().OfType<EditorLightParameterSlider>().Single(control => control.Name == "LightBrightnessSlider");
+            var controller = (EditorLightViewportController)typeof(EditorWindow).GetField("lightController", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
+            var committed = shell.Workspace.Session!.Lighting;
+            int started = 0; slider.EditStarted += (_, _) => started++;
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            Assert.Equal(1, started);
+            Assert.NotEqual(light.Intensity, Assert.Single(controller.PreviewLighting.Lights).Intensity);
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            double canceledValue = slider.Value;
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyUpEvent, Key = Key.Right });
+            Assert.Equal(1, started);
+            Assert.Equal(canceledValue, slider.Value);
+            Assert.Same(committed, shell.Workspace.Session.Lighting);
+            Assert.Equal(light, Assert.Single(controller.PreviewLighting.Lights));
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Right });
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyUpEvent, Key = Key.Right });
+            Assert.Equal(2, started);
+            Assert.NotEqual(light.Intensity, Assert.Single(shell.Workspace.Session.Lighting.Lights).Intensity);
+            Assert.True(shell.Workspace.Undo());
+            Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            Assert.True(shell.Workspace.Undo()); // The canceled/repeated segment created no additional entry.
+            Assert.Empty(shell.Workspace.Session.Lighting.Lights);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task LoadingOutOfSliderRangeDoesNotRewriteProjectAndUnfinishedHexSurvivesUndo() => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var large = light with { Intensity = 1e9f, Range = 1e7f };
+            shell.Workspace.EditLighting(new(new SceneLightingSnapshot([large]), light.Id));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            Assert.True(inspector.TryCommit());
+            Assert.Equal(large, Assert.Single(shell.Workspace.Session!.Lighting.Lights));
+            var hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor");
+            hex.Text = "#12";
+            Assert.True(shell.Workspace.Undo());
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor");
+            Assert.Equal("#12", hex.Text);
+            Assert.False(inspector.TryCommit());
+            Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task DraftsStayWithTheirDocumentAndDeletedLightsDoNotReviveOldInput() => await session.Dispatch(() =>
+    {
+        var light = Light(); var first = new SceneLightingSnapshot([light]);
+        var second = new SceneLightingSnapshot([light with { Intensity = 10 }]);
+        Guid firstDocument = Guid.NewGuid(), secondDocument = Guid.NewGuid();
+        var inspector = new EditorLightInspector(); inspector.SetLighting(first, light.Id, firstDocument);
+        var window = new Window { Width = 500, Height = 1000, Content = inspector };
+        try
+        {
+            window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var input = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightIntensity");
+            input.Text = "unfinished";
+            var hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor"); hex.Text = "#12";
+            inspector.SetLighting(second, light.Id, secondDocument); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal(10m, inspector.ViewModel!.SelectedLight!.Intensity);
+            Assert.Equal("#FFFFFF", inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor").Text);
+            inspector.SetLighting(first, light.Id, firstDocument); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal("unfinished", inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightIntensity").Text);
+            Assert.Equal("#12", inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor").Text);
+            inspector.SetLighting(SceneLightingSnapshot.Empty, null, firstDocument); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            inspector.SetLighting(first, light.Id, firstDocument); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.True(inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightIntensity").IsInputValid);
+            Assert.Equal("#FFFFFF", inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor").Text);
+            return true;
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
+    private static NativeSceneLight Light() => new(Guid.NewGuid(), "fill", SceneLightKind.Spot, Vector3.One, Quaternion.Identity, Vector3.One);
+    private static (EditorWindow, EditorShellViewModel, NativeSceneLight) Editor()
+    {
+        var window = new EditorWindow(false);
+        var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+        viewport.IsSuspended = true; viewport.IsVisible = false;
+        var shell = new EditorShellViewModel(); window.DataContext = shell; window.Show();
+        string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+        using var input = File.OpenRead(path);
+        var asset = EditorProjectWorkspace.CreateModelAsset(Mmd.Modern.Formats.PmdPmxAdapter.Convert(PmdReader.Read(input)), path);
+        shell.Workspace.AddModel(path, asset, ModelRole.Character);
+        var light = Light(); shell.Workspace.EditLighting(new(new SceneLightingSnapshot([light]), light.Id));
+        shell.ShowInspectorPage(EditorInspectorPage.Lighting);
+        window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        return (window, shell, light);
+    }
+    private static void Close(EditorWindow window)
+    {
+        typeof(EditorWindow).GetField("_closingConfirmed", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, true);
+        window.Close(); Dispatcher.UIThread.RunJobs();
+    }
+    public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
+}

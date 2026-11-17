@@ -174,7 +174,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         }
             if(frame?.Outline is not null && frame.OutlineOptions is {Eligible:true,ModelWidth:>0})
                 draws+=RecordCombinedOutline(device,commands,GetOutlinePipeline(depth.Format,frame),frame,width,height,vb,ib,UploadBuffer,resource=>Own(resource),context,
-                    srvHeap,srvStride,slotBase,depth.Format,cache);
+                    srvHeap,srvStride,slotBase,depth.Format,cache,surfaceStyles);
         return draws;
     }
     public void Dispose()

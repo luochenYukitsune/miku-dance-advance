@@ -82,7 +82,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         {
             var material=frame.Surface.Snapshot.Materials[i];
             if(!frame.Materials[i].SurfaceEnabled||material.IndexCount==0)continue;
-            ValidateTextureFactors(frame.Surface,material,i,toonPalette,nativeLights,frame.Materials[i].UseSceneLighting);
+            ValidateTextureFactors(frame.Surface,material,i,toonPalette,nativeLights &&
+                (frame.Lighting!.Settings.EnvironmentStrength>0 || frame.Lighting.ReceiverMask(frame.Materials[i].LightReceiverObjectId)!=0),frame.Materials[i].UseSceneLighting);
             maxEmission=Math.Max(maxEmission,Math.Max(material.Emission.X,Math.Max(material.Emission.Y,material.Emission.Z)));
             if(!toonPalette)continue;
             var eg=OriginalStyleMath.ResolveHostColors(material,frame.Surface.Profile,frame.Materials[i].UseSceneLighting).EgColor;
@@ -267,8 +268,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         bool subTexture=!scene.SubTextureUvs.IsEmpty;
         var subTextureUvs=subTexture?Upload("subtexture-uv1",scene.SubTextureUvs,scene.SubTextureUvIdentity):null;
         var texels=Upload("texels",scene.Texels,scene.TexelIdentity);
-        var nativeLights=NativeRayGiLights.From(frame);bool hasNativeLights=nativeLights.Values.Length>0;
-        var nativeLightBuffer=hasNativeLights?Upload<NativeRayGiLight>("native-lights",nativeLights.Values,nativeLights):null;
+        var nativeLights=NativeRayGiLights.From(frame);bool hasNativeLights=nativeLights.HasContribution;
+        var nativeLightBuffer=hasNativeLights?Upload<NativeRayGiLight>("native-lights",nativeLights.UploadRows,nativeLights):null;
         EndCpuStage("MaterialAndTextureUpload");
         // DXR does not read the software BVH. Keep its existing root slots bound without
         // forcing the lazy CPU build or replacing these fixed buffers for every pose.
@@ -317,7 +318,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
             EndCpuStage("TemporalPrepare");
         }
         var constants=new RayGiConstants(new((uint)width,(uint)height,(uint)options.SamplesPerPixel,actualSeed),new((uint)scene.TriangleCount,(uint)scene.Materials.Length,(uint)nodes.Length,hardware?1u:0u),
-            new(light,options.MaxRayDistance),new(options.DirectionalIrradiance??new Vector3(3),options.Strength),new(options.RayEpsilon,options.DirectScale,options.EffectiveOcclusionRadius,0),new(nativeLights.Values.Length,0,0,0),scene.SphereRotation);
+            new(light,options.MaxRayDistance),new(options.DirectionalIrradiance??new Vector3(3),options.Strength),new(options.RayEpsilon,options.DirectScale,options.EffectiveOcclusionRadius,0),new(nativeLights.Values.Length,nativeLights.HasReceiverMasks?1:0,nativeLights.EnvironmentStrength,0),scene.SphereRotation);
         // Millions of rays must not contend on shared diagnostic atomics in ordinary playback.
         // Only the existing explicit debug capture compiles them; overflow protection stays active.
         bool diagnosticCapture=capture&&Environment.GetEnvironmentVariable("MMD_RAYGI_DIAGNOSTICS") is not null;

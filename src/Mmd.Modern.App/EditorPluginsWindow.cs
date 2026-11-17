@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -44,25 +45,14 @@ internal sealed class EditorPluginsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false; RequestedThemeVariant = owner.ActualThemeVariant;
         FontFamily = owner.FontFamily; FontSize = 14; FontWeight = FontWeight.Normal;
-        Background = owner.Background; Foreground = owner.Foreground;
-        UseLayoutRounding = true;
-        bool dark = owner.ActualThemeVariant != ThemeVariant.Light;
-        IBrush Brush(string key, string fallback) => owner.TryFindResource(key, out var value) && value is IBrush brush
-            ? brush : new SolidColorBrush(Color.Parse(fallback));
-        var selectedSurface = Brush("EditorSelectedSurface", dark ? "#182633" : "#E3ECF3");
-        var panelSurface = Brush("EditorPanelSurface", dark ? "#13171C" : "#FFFFFF");
-        var muted = Brush("EditorMuted", dark ? "#ADB7C1" : "#53616F");
-        foreach (var text in new[] { intro, importHint, pluginState, noCommands }) { text.Foreground = muted; text.Opacity = 1; }
+        UseLayoutRounding = true; EditorDialogTheme.Apply(this, owner);
+        // 颜色全部取共享对话框样式里的动态资源，切换深浅主题时自动跟随。
+        foreach (var text in new[] { intro, importHint, pluginState, noCommands })
+        { text.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("EditorMuted")); text.Opacity = 1; }
         intro.FontSize = 13;
-        plugins.Background = panelSurface;
-        details.FontSize = 12; details.BorderThickness = new(0); details.Padding = new(0);
-        details.Background = Brushes.Transparent; details.Foreground = muted; details.MaxHeight = 145;
-        plugins.Styles.Add(new Style(selector => selector.OfType<ListBoxItem>().Class(":selected"))
-        { Setters = { new Setter(ListBoxItem.BackgroundProperty, selectedSurface) } });
-        plugins.Styles.Add(new Style(selector => selector.OfType<ListBoxItem>().Class(":selected").Template().OfType<ContentPresenter>())
-        { Setters = { new Setter(ContentPresenter.BackgroundProperty, selectedSurface) } });
-        foreach (var button in new[] { enable, disable, rescan, run, directory, close, import })
-        { button.MinWidth = 80; button.Padding = new(12, 6); }
+        details.FontSize = 12; details.BorderThickness = new(0); details.Padding = new(0); details.MaxHeight = 145;
+        details.Background = Brushes.Transparent; details.Bind(TemplatedControl.ForegroundProperty, this.GetResourceObservable("EditorMuted"));
+        foreach (var button in new[] { enable, disable, rescan, run, directory, close, import }) button.MinWidth = 80;
         plugins.ItemTemplate = new FuncDataTemplate<PluginInfo>((plugin, _) =>
         {
             if (plugin is null) return null;
@@ -93,7 +83,9 @@ internal sealed class EditorPluginsWindow : Window
         listHeader.Children.Add(installedLabel); listHeader.Children.Add(rescan); Grid.SetColumn(rescan, 1);
         list.Children.Add(listHeader);
         list.Children.Add(plugins); Grid.SetRow(plugins, 1); list.Children.Add(empty); Grid.SetRow(empty, 1);
-        empty.Margin = new(16); body.Children.Add(list);
+        empty.Margin = new(20); empty.TextAlignment = TextAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center;
+        empty.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("EditorMuted"));
+        body.Children.Add(list);
         var right = new Grid { RowDefinitions = new("Auto,Auto,Auto,*,Auto,Auto"), RowSpacing = 10 };
         right.Children.Add(pluginName); right.Children.Add(pluginState); Grid.SetRow(pluginState, 1);
         right.Children.Add(details); Grid.SetRow(details, 2);
@@ -106,7 +98,8 @@ internal sealed class EditorPluginsWindow : Window
         commandRow.Children.Add(commands); commandRow.Children.Add(run); Grid.SetColumn(run, 1);
         commandPanel.Children.Add(commandRow); commandPanel.Children.Add(noCommands);
         right.Children.Add(commandPanel); Grid.SetRow(commandPanel, 5);
-        var detailSurface = new Border { Background = panelSurface, Padding = new(18), Child = right };
+        var detailSurface = new Border { Padding = new(18), Child = right, CornerRadius = new(4) };
+        detailSurface.Bind(Border.BackgroundProperty, this.GetResourceObservable("EditorPanelSurface"));
         body.Children.Add(detailSurface); Grid.SetColumn(detailSurface, 1);
         root.Children.Add(body); Grid.SetRow(body, 1);
         root.Children.Add(result); Grid.SetRow(result, 2);

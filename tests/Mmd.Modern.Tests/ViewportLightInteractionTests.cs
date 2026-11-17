@@ -33,4 +33,16 @@ public sealed class ViewportLightInteractionTests
         Assert.NotEmpty(overlay.Lines);
         Assert.Throws<ArgumentException>(()=>new ViewportOverlaySnapshot([new(new(float.NaN,0),Vector2.One,Vector4.One)]));
     }
+
+    [Fact] public void ExactOverlapsPickTheSelectedCopyBeforeTheOriginalIdentity()
+    {
+        var original = new NativeSceneLight(Guid.Parse("00000000-0000-0000-0000-000000000001"), "original",
+            SceneLightKind.Point, Vector3.Zero, Quaternion.Identity, Vector3.One);
+        var copy = original with { Id = Guid.Parse("00000000-0000-0000-0000-000000000002"), Name = "copy" };
+        var lights = new SceneLightingSnapshot([original, copy]);
+        Assert.Equal(copy.Id, LightViewportInteraction.HitTest(lights, copy.Id, new(400, 300), Camera, 800, 600, 1)?.LightId);
+        Assert.Equal(copy.Id, LightViewportInteraction.HitTest(lights, original.Id, new(400, 300), Camera, 800, 600, 1,
+            selectedIds: [copy.Id])?.LightId);
+        Assert.Equal(original.Id, LightViewportInteraction.HitTest(lights, null, new(400, 300), Camera, 800, 600, 1)?.LightId);
+    }
 }

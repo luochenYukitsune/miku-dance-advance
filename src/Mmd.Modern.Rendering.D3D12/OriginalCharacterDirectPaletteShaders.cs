@@ -90,10 +90,10 @@ internal static partial class OriginalFrameShaders
                 "giIncrement=transport.rgb*GiSurfaceStrength; hasGiIncrement=true;");
             helper += "\n" + giBase;
             source = Replace(source,
-                "float4 color=PSSurfaceGi(v,primitive); color.rgb+=NativeDirect(v); return color;",
+                "float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;",
                 """
                 if(NativeDiffuse.a<=0) {
-                    float4 color=PSSurfaceGi(v,primitive); color.rgb+=NativeDirect(v); return color;
+                    float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
                 }
                 if(GiAmbientShare.w<1) {
                     float4 color=PSSurfaceGi(v,primitive);
@@ -114,11 +114,11 @@ internal static partial class OriginalFrameShaders
                 return color;
                 """);
         }
-        source = Replace(source, "float4 color=PSSurface(v); color.rgb+=NativeDirect(v); return color;",
+        source = Replace(source, "float4 color=PSSurface(v); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;",
             """
             float4 color=PSSurface(v);
             float3 directIncrement=NativeDirect(v);
-            if(NativeDiffuse.a<=0) { color.rgb+=directIncrement; return color; }
+            if(NativeDiffuse.a<=0) { color.rgb=NativeAddSoft(color.rgb,directIncrement); return color; }
             float scale=CharacterAddedLightScale(CharacterRemainingLightBudget(v),directIncrement,0);
             if(scale==1) color.rgb+=directIncrement;
             else color.rgb+=scale*directIncrement;

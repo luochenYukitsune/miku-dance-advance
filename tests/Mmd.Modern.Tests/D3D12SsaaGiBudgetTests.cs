@@ -116,7 +116,7 @@ public sealed class D3D12SsaaGiBudgetTests
     }
 
     [Fact,Trait("Category","Gpu")]
-    public void NativeShadowAtlasUsesAllActiveRowsOnlyWhenAtLeastOneActiveLightCastsShadows()
+    public void NativeShadowAtlasReservesOnlyThePackedContributingFaces()
     {
         using var runtime=new D3D12GpuRuntime();
         var baseline=D3D12RayGiTests.Bounce();
@@ -126,15 +126,19 @@ public sealed class D3D12SsaaGiBudgetTests
             options:baseline.Options,materials:baseline.Materials,lighting:new(lights));
         var noShadow=Measure(runtime,Frame(Light(false),Light(false),Light(false),Light(false)),2);
         var caster=Light(true);
-        var fourRows=Measure(runtime,Frame(caster,Light(false),Light(false),Light(false)),2);
+        var packed=Measure(runtime,Frame(caster,Light(false),Light(false),Light(false)),2);
         int tile=D3D12OriginalStyleRenderer.NativeShadowTileSize;
-        ulong Atlas(int count)=>ImageAllocation(runtime,Format.R32_Float,ResourceFlags.AllowRenderTarget,tile*6,tile*count)
-            +ImageAllocation(runtime,Format.D32_Float,ResourceFlags.AllowDepthStencil,tile*6,tile*count);
-        Assert.Equal(Atlas(4),fourRows.PerFrameBytes-noShadow.PerFrameBytes);
-        Assert.Equal(noShadow.PerSampleBytes,fourRows.PerSampleBytes);
+        ulong Atlas(int columns,int rows)=>ImageAllocation(runtime,Format.R32_Float,ResourceFlags.AllowRenderTarget,tile*columns,tile*rows)
+            +ImageAllocation(runtime,Format.D32_Float,ResourceFlags.AllowDepthStencil,tile*columns,tile*rows);
+        Assert.Equal(Atlas(3,2),packed.PerFrameBytes-noShadow.PerFrameBytes);
+        Assert.Equal(noShadow.PerSampleBytes,packed.PerSampleBytes);
         var filtered=Frame(caster,Light(true) with {Enabled=false},Light(true) with {Intensity=0},Light(true) with {Color=Vector3.Zero});
-        var oneRow=Measure(runtime,filtered,2);
-        Assert.Equal(Atlas(1),oneRow.PerFrameBytes-noShadow.PerFrameBytes);
+        var filteredAtlas=Measure(runtime,filtered,2);
+        Assert.Equal(packed,filteredAtlas);
+        var allPoints=Frame(Enumerable.Range(0,32).Select(_=>Light(true)).ToArray());
+        Assert.Equal(Atlas(14,14),Measure(runtime,allPoints,2).PerFrameBytes-noShadow.PerFrameBytes);
+        var allSpots=Frame(Enumerable.Range(0,32).Select(_=>Light(true) with {Kind=SceneLightKind.Spot}).ToArray());
+        Assert.Equal(Atlas(6,6),Measure(runtime,allSpots,2).PerFrameBytes-noShadow.PerFrameBytes);
         // A disabled caster does not create an atlas for the remaining active nonshadow light.
         Assert.Equal(noShadow,Measure(runtime,Frame(caster with {Enabled=false},Light(false)),2));
         Assert.Equal(0,runtime.FrameId);Assert.False(runtime.IsRecording);Assert.Equal(0,runtime.LiveFrameResources);
@@ -158,8 +162,8 @@ public sealed class D3D12SsaaGiBudgetTests
         int tile=D3D12OriginalStyleRenderer.NativeShadowTileSize;
         ulong images=ImageAllocation(runtime,Format.R32_Float,ResourceFlags.AllowRenderTarget,1024,512)
             +ImageAllocation(runtime,Format.D24_UNorm_S8_UInt,ResourceFlags.AllowDepthStencil,1024,512)
-            +ImageAllocation(runtime,Format.R32_Float,ResourceFlags.AllowRenderTarget,tile*6,tile)
-            +ImageAllocation(runtime,Format.D32_Float,ResourceFlags.AllowDepthStencil,tile*6,tile);
+            +ImageAllocation(runtime,Format.R32_Float,ResourceFlags.AllowRenderTarget,tile,tile)
+            +ImageAllocation(runtime,Format.D32_Float,ResourceFlags.AllowDepthStencil,tile,tile);
         Assert.Equal(images,Measure(runtime,both,2).PerFrameBytes-whiteOnly.PerFrameBytes);
         Assert.Equal(0,runtime.FrameId);Assert.False(runtime.IsRecording);Assert.Equal(0,runtime.LiveFrameResources);
     }

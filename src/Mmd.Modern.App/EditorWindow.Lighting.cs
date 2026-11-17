@@ -1,7 +1,9 @@
+using Mmd.Modern.Application;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using System.ComponentModel;
 using Mmd.Modern.Core;
 using static Mmd.Modern.App.EditorLocalization;
 
@@ -12,12 +14,26 @@ namespace Mmd.Modern.App;
 public partial class EditorWindow
 {
     private bool _publishingInlineLight, _refreshingLightingInspector;
+    private bool _synchronizingLightBrowser;
+    private EditorLightingViewModel? _lightBrowserModel;
 
     private void InitializeLightingInspector(EditorShellViewModel shell)
     {
         var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
         inspector.CommitRequested = CommitInlineLighting;
         inspector.SelectionRequested = id => lightController?.Select(id);
+        inspector.SelectionSetRequested = (ids, primary) =>
+        {
+            lightController?.SelectMany(ids, primary);
+            RefreshLightingInspector(); // An empty group or another row context can keep the same viewport IDs.
+        };
+        inspector.EditStartingRequested = () =>
+        {
+            if (_shell is not { IsBusy: false, HasProject: true } current) return false;
+            current.StopPlayback(); return true;
+        };
+        inspector.PreviewRequested = draft => lightController?.SetParameterPreview(draft) == true;
+        inspector.PreviewQualityRequested = () => OpenPreviewSettings(this, new RoutedEventArgs());
         if (lightController is not null)
         {
             lightController.Changed += LightToolsChanged;
@@ -98,37 +114,57 @@ public partial class EditorWindow
         var snapshot = shell.Workspace.Session?.Lighting ?? SceneLightingSnapshot.Empty;
         if (this.FindControl<Button>("AddViewportLightButton") is { } addLight)
             addLight.IsEnabled = shell.HasProject && snapshot.Lights.Count < SceneLightingSnapshot.MaxLights;
+        if (this.FindControl<Button>("AddBrowserLightButton") is { } browserAddLight)
+            browserAddLight.IsEnabled = shell.HasProject && snapshot.Lights.Count < SceneLightingSnapshot.MaxLights;
         bool lighting = shell.InspectorPage == EditorInspectorPage.Lighting;
         if (this.FindControl<Control>("BoneToolsContainer") is { } boneTools) boneTools.IsVisible = !lighting;
         if (this.FindControl<Control>("LightToolsBar") is { } lightTools) lightTools.IsVisible = lighting;
         if (!lighting) return;
         _refreshingLightingInspector = true;
+        using var measure = InteractionDiagnostics.Measure("lighting.inspector-refresh", relatedId: snapshot.Lights.Count);
         try
         {
             var selected = lightController?.SelectedLightId;
             if (selected is { } selectedId && snapshot.Lights.All(light => light.Id != selectedId))
             {
-                lightController?.Select(null);
-                selected = null;
+                lightController?.SelectMany(lightController.SelectedLightIds.Where(id => snapshot.Lights.Any(light => light.Id == id)));
+                selected = lightController?.SelectedLightId;
             }
             var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
-            inspector.SetLighting(snapshot, selected, _shell.Workspace.DocumentId);
+            using (InteractionDiagnostics.Measure("lighting.inspector-set"))
+                inspector.SetLighting(snapshot, selected, _shell.Workspace.DocumentId, lightController?.SelectedLightIds);
+            if (lightController is { } active && inspector.ViewModel is { } selection
+                && (!active.SelectedLightIds.SequenceEqual(selection.SelectedLightIds) || active.SelectedLightId != selection.SelectedLight?.Id))
+            {
+                active.SelectMany(selection.SelectedLightIds, selection.SelectedLight?.Id);
+                selected = active.SelectedLightId;
+            }
+            inspector.UseWorkspaceBrowser(shell.SupportsModernLightingWorkspace);
+            var session = shell.Workspace.Session;
+            var motions = shell.SupportsModernLightingWorkspace ? shell.Workspace.Motions : [];
+            inspector.ConfigureParentContext(shell.SupportsModernLightingWorkspace && session is not null
+                ? session.Objects.Select(item => new EditorLightParentModel(item.Id, item.Name,
+                    motions.FirstOrDefault(motion => motion.ObjectId == item.Id)?.Model.Bones.Select(bone => bone.Name).ToArray() ?? []))
+                : [], session is not null && shell.SupportsModernLightingWorkspace ? session.ResolveLightParentTransform : null);
+            using (InteractionDiagnostics.Measure("lighting.browser-bind")) BindLightingBrowser(inspector.ViewModel);
             var light = selected is { } id ? snapshot.Lights.FirstOrDefault(item => item.Id == id) : null;
-            if (light is { Kind: SceneLightKind.Point } && lightController is { RotateHandle: true } pointController)
+            bool multiple = lightController?.SelectedLightIds.Count > 1;
+            if (!multiple && light is { Kind: SceneLightKind.Point } && lightController is { RotateHandle: true } pointController)
             {
                 pointController.RotateHandle = false;
                 this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = false;
             }
             if (this.FindControl<TextBlock>("SelectedLightName") is { } selectedName)
-                selectedName.Text = light?.Name ?? Text("未选择灯光");
+                selectedName.Text = inspector.ViewModel is { ShowBatchControls: true } batch ? batch.SelectionSummary : light?.Name ?? Text("未选择灯光");
             if (this.FindControl<ToggleButton>("LightMoveMode") is { } moveMode)
                 moveMode.IsChecked = lightController?.RotateHandle != true;
             if (this.FindControl<ToggleButton>("LightRotateMode") is { } rotateMode)
                 rotateMode.IsChecked = lightController?.RotateHandle == true;
             if (this.FindControl<Control>("LightMoveMode") is { } moveControl) moveControl.IsEnabled = light is not null;
             if (this.FindControl<Control>("LightRotateMode") is { } rotateControl)
-                rotateControl.IsEnabled = light is { Kind: not SceneLightKind.Point };
-            if (this.FindControl<Control>("DeleteLightButton") is { } deleteLight) deleteLight.IsEnabled = light is not null;
+                rotateControl.IsEnabled = multiple || light is { Kind: not SceneLightKind.Point };
+            if (this.FindControl<Control>("DeleteLightButton") is { } deleteLight) deleteLight.IsEnabled = inspector.ViewModel?.HasSelection == true;
+            if (this.FindControl<Control>("LegacyDeleteLightButton") is { } legacyDeleteLight) legacyDeleteLight.IsEnabled = light is not null;
         }
         finally { _refreshingLightingInspector = false; }
     }
@@ -140,6 +176,55 @@ public partial class EditorWindow
     private bool TryCommitInlineLighting() =>
         this.FindControl<EditorLightInspector>("NativeLightInspector")!.TryCommit();
 
+    private void CommitBrowserLight(object? sender, RoutedEventArgs args) =>
+        this.FindControl<EditorLightInspector>("NativeLightInspector")!.CommitSwitch(sender);
+
+    private void BindLightingBrowser(EditorLightingViewModel? model)
+    {
+        if (!ReferenceEquals(_lightBrowserModel, model))
+        {
+            if (_lightBrowserModel is { } previous) previous.PropertyChanged -= LightingBrowserChanged;
+            _lightBrowserModel = model;
+            _synchronizingLightBrowser = true;
+            try { using (InteractionDiagnostics.Measure("lighting.browser-datacontext")) this.FindControl<Grid>("LightBrowserPanel")!.DataContext = model; }
+            finally { _synchronizingLightBrowser = false; }
+            if (model is not null) model.PropertyChanged += LightingBrowserChanged;
+        }
+        SynchronizeLightingBrowser();
+    }
+    private void LightingBrowserChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(EditorLightingViewModel.SelectedRows)) SynchronizeLightingBrowser();
+        else if (args.PropertyName == nameof(EditorLightingViewModel.BrowserRows))
+            Dispatcher.UIThread.Post(SynchronizeLightingBrowser);
+    }
+    private void SynchronizeLightingBrowser()
+    {
+        if (_synchronizingLightBrowser || _lightBrowserModel is not { } model
+            || this.FindControl<ListBox>("WorkspaceLightList") is not { } list) return;
+        _synchronizingLightBrowser = true;
+        try
+        {
+            using var measure = InteractionDiagnostics.Measure("lighting.browser-sync");
+            var visible = list.Items.Cast<object>().ToHashSet();
+            var wanted = model.SelectedRows.Where(visible.Contains).ToArray();
+            if (list.SelectedItems is { } selected)
+            {
+                foreach (var item in selected.Cast<object>().Where(item => !wanted.Contains(item)).ToArray()) selected.Remove(item);
+                foreach (var item in wanted.Where(item => !selected.Contains(item))) selected.Add(item);
+            }
+            if (model.SelectedRows.LastOrDefault(visible.Contains) is { } last)
+                using (InteractionDiagnostics.Measure("lighting.browser-scroll")) list.ScrollIntoView(last);
+        }
+        finally { _synchronizingLightBrowser = false; }
+    }
+    private void SelectBrowserLights(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_synchronizingLightBrowser || _refreshingLightingInspector || _lightBrowserModel is not { IsRefreshingBrowser: false } model
+            || sender is not ListBox { SelectedItems: { } items } list) return;
+        model.SelectRows(items.Cast<object>().ToArray(), args.AddedItems.Cast<object>().LastOrDefault() ?? list.SelectedItem);
+    }
+
     private bool CommitInlineLighting(EditorLightingDraft draft)
     {
         if (_shell is not { IsBusy: false, HasProject: true } shell) return false;
@@ -147,8 +232,8 @@ public partial class EditorWindow
         try
         {
             shell.StopPlayback();
-            shell.Workspace.EditLighting(draft);
-            lightController?.Select(draft.SelectedLightId);
+            using (InteractionDiagnostics.Measure("lighting.workspace-edit")) shell.Workspace.EditLighting(draft);
+            lightController?.SelectMany(draft.SelectedLightIds, draft.SelectedLightId);
             return true;
         }
         catch (Exception error) { shell.ReportActivityFailure(error); return false; }
@@ -167,13 +252,14 @@ public partial class EditorWindow
     private void AddDirectionalLight(object? sender, RoutedEventArgs args) => AddViewportLight(SceneLightKind.Directional);
     private void AddPointLight(object? sender, RoutedEventArgs args) => AddViewportLight(SceneLightKind.Point);
     private void AddSpotLight(object? sender, RoutedEventArgs args) => AddViewportLight(SceneLightKind.Spot);
+    private void AddAreaLight(object? sender, RoutedEventArgs args) => AddViewportLight(SceneLightKind.Area);
     private void AddViewportLight(SceneLightKind kind)
     {
         if (_shell is not { IsBusy: false, HasProject: true } shell || !CommitPendingInlineLighting()) return;
         shell.StopPlayback();
         var model = new EditorLightingViewModel(shell.Workspace.Session!.Lighting, lightController?.SelectedLightId);
         model.SetCreationCamera(this.FindControl<EditorViewportHost>("SceneViewport")!.LightCreationCamera);
-        model.AddLight(kind);
+        if (!model.AddLight(kind)) { shell.OperationStatus = model.ValidationMessage; return; }
         if (!model.TryCreate(out var draft) || draft is null) { shell.OperationStatus = model.ValidationMessage; return; }
         _ = NavigateInspectorPage(EditorInspectorPage.Lighting);
         if (CommitInlineLighting(draft))
@@ -181,14 +267,19 @@ public partial class EditorWindow
             if (lightController is { } controller) controller.RotateHandle = false;
             this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = false;
             RefreshLightingInspector();
-            shell.OperationStatus = Text("灯光已添加。直接拖动图标移动，或切换旋转调整方向。");
+            shell.OperationStatus = draft.Snapshot.Lights.Single(light => light.Id == draft.SelectedLightId).Enabled
+                ? Text("灯光已添加。直接拖动图标移动，或切换旋转调整方向。")
+                : Format("Mda.Text.Context.Lighting.AddedDisabledAtCapacity", SceneLightingSnapshot.MaxActiveLights);
         }
     }
 
     private void DeleteViewportLight(object? sender, RoutedEventArgs args)
     {
-        if (_shell is not { IsBusy: false, HasProject: true } shell || lightController?.SelectedLightId is not { } id
+        if (_shell is not { IsBusy: false, HasProject: true } shell
             || !CommitPendingInlineLighting()) return;
+        var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
+        if (shell.SupportsModernLightingWorkspace) { inspector.RemoveSelectedLights(); return; }
+        if (lightController?.SelectedLightId is not { } id) return;
         var model = new EditorLightingViewModel(shell.Workspace.Session!.Lighting, id);
         model.RemoveSelectedLight();
         if (model.TryCreate(out var draft) && draft is not null && CommitInlineLighting(draft)) RefreshLightingInspector();

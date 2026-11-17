@@ -135,7 +135,8 @@ public static class D3D12ViewRenderingStyles
         IEnumerable<D3D12ViewEndfieldMatcapBinding>? endfieldMatcapDataBindings = null,
         IEnumerable<D3D12ViewGenshinMetallicBinding>? genshinMetallicDataBindings = null,
         IEnumerable<D3D12ViewStarMcBodyBinding>? starMcBodyDataBindings = null,
-        IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null)
+        IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null,
+        bool guessMaterialRoles = true)
     {
         var selected = Validate(scene, catalog, bindings);
         var outlineScales = D3D12ViewOutlineWidths.Resolve(selected, D3D12ViewOutlineWidths.Detach(outlineWidths));
@@ -225,7 +226,17 @@ public static class D3D12ViewRenderingStyles
                 int index = instance.MaterialStart + mapped.MaterialIndex;
                 materialStyles[index] = D3D12PmxMaterialTreatmentCatalog.ApplyDefault(surfaces[index], materialStyles[index]);
             }
-        var surfaceStyles = new D3D12SurfaceStyleMap(surfaces, materialStyles);
+        // 风格化明暗的材质类型：手动标记优先；未标记的按材质名猜测（脸、眼、头发，其余为身体）。
+        var stylizedRoles = new D3D12CharacterMaterialRole[surfaces.Length];
+        var explicitIndices = new HashSet<int>();
+        foreach (var mapped in explicitMaterials)
+            if (selectedById.TryGetValue(mapped.ObjectId, out var owner) && owner.Visible)
+                explicitIndices.Add(owner.MaterialStart + mapped.MaterialIndex);
+        var snapshotMaterials = scene.Surface.Snapshot.Materials;
+        for (int index = 0; index < stylizedRoles.Length; index++)
+            stylizedRoles[index] = explicitIndices.Contains(index) || !guessMaterialRoles || surfaces[index] == D3D12SurfaceStyle.Mmd
+                ? materialStyles[index].Role : D3D12CharacterMaterialRoleGuess.Guess(snapshotMaterials[index].Name);
+        var surfaceStyles = new D3D12SurfaceStyleMap(surfaces, materialStyles) { StylizedRoles = stylizedRoles };
         if (selected.Length == 0)
         {
             surfaceStyles.Validate(scene);

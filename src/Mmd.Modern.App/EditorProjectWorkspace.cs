@@ -10,9 +10,10 @@ namespace Mmd.Modern.App;
 
 /// <summary>A native-light transaction changes no authored pose source, so its refresh and Undo/Redo
 /// retain unregistered animation input. All ordinary project changes keep their invalidation policy.</summary>
-internal sealed class EditorWorkspaceChangedEventArgs(bool preservePoseDrafts) : EventArgs
+internal sealed class EditorWorkspaceChangedEventArgs(bool preservePoseDrafts, bool preserveRenderBinding = false) : EventArgs
 {
     public bool PreservePoseDrafts { get; } = preservePoseDrafts;
+    public bool PreserveRenderBinding { get; } = preserveRenderBinding;
 }
 
 /// <summary>Single UI-thread owner of the editable project. Preview borrows snapshots; export opens
@@ -57,7 +58,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     private sealed record HistoryStep(SceneProjectSession? Before, SceneProjectSession? After, bool SessionEdit,
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
-        bool PreservePoseDrafts = false);
+        bool PreservePoseDrafts = false, bool PreserveRenderBinding = false);
     private readonly Stack<HistoryStep> undo = [], redo = [];
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
@@ -404,12 +405,17 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         ArgumentNullException.ThrowIfNull(draft);
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        if (session.Lighting.Lights.SequenceEqual(draft.Snapshot.Lights)) return;
-        Edit(edit => draft.ApplyTo(edit.Lighting), null, preservePoseDrafts: true);
+        if (session.Lighting.Lights.SequenceEqual(draft.Snapshot.Lights)
+            && session.Lighting.Groups.SequenceEqual(draft.Snapshot.Groups)
+            && session.Lighting.Settings == draft.Snapshot.Settings) return;
+        // Modern bindings contain materials/styles/roles, never the per-frame additional lights.
+        // Other engines retain their existing binding invalidation contract.
+        Edit(edit => draft.ApplyTo(edit.Lighting), null, preservePoseDrafts: true,
+            preserveRenderBinding: ReferenceEquals(RenderEngine, EditorModernRenderEngine.Instance));
     }
 
     private void Edit(Action<SceneProjectEdit> edit, Action? commitMappings, IReadOnlyList<(Guid ObjectId, int BoneIndex)>? preserveWorld = null,
-        bool preservePoseDrafts = false)
+        bool preservePoseDrafts = false, bool preserveRenderBinding = false)
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         var before = SnapshotMappings();
@@ -424,8 +430,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts)); redo.Clear();
-        MarkChanged(preservePoseDrafts);
+        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts, preserveRenderBinding)); redo.Clear();
+        MarkChanged(preservePoseDrafts, preserveRenderBinding);
     }
 
     public void ApplyRigSettings(EditorRigSettingsDraft draft)
@@ -690,14 +696,14 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (!undo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Undo() != true) return false;
         undo.Pop(); redo.Push(step); Session = step.Before; ProjectMetadata = step.BeforeMetadata;
-        RestoreMappings(step.BeforeMappings); MarkChanged(step.PreservePoseDrafts); return true;
+        RestoreMappings(step.BeforeMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     public bool Redo()
     {
         if (!redo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Redo() != true) return false;
         redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
-        RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts); return true;
+        RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
     {
@@ -710,8 +716,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     private void RestoreMappings(Dictionary<Guid, D3D12MaterialBindingProfile> values)
     { MaterialBindings.Clear(); foreach (var value in values) MaterialBindings.Add(value.Key, value.Value); }
     public void MarkChanged() => MarkChanged(false);
-    private void MarkChanged(bool preservePoseDrafts)
-    { IsDirty = true; Changed?.Invoke(this, new EditorWorkspaceChangedEventArgs(preservePoseDrafts)); }
+    private void MarkChanged(bool preservePoseDrafts, bool preserveRenderBinding = false)
+    { IsDirty = true; Changed?.Invoke(this, new EditorWorkspaceChangedEventArgs(preservePoseDrafts, preserveRenderBinding)); }
     public void New()
     {
         ObjectDisposedException.ThrowIf(disposed, this);

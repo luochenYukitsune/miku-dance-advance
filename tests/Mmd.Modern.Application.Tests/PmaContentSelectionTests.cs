@@ -101,6 +101,8 @@ public sealed class PmaContentSelectionTests : IDisposable
 
     [Theory]
     [InlineData("lights")]
+    [InlineData("groups")]
+    [InlineData("global-lighting")]
     [InlineData("purposes")]
     [InlineData("styles")]
     [InlineData("extension")]
@@ -108,9 +110,19 @@ public sealed class PmaContentSelectionTests : IDisposable
     public void SelectedOutContentRejectsLoadBeforeHostCallbacksOrPhysics(string content)
     {
         using var project = Fixture(new());
+        if (content == "groups") project.Edit(edit =>
+        {
+            foreach (var light in edit.Lighting.Lights.ToArray()) edit.Lighting.Remove(light.Id);
+            edit.Lighting.AddGroup(new(Guid.NewGuid(), "空灯组"));
+        }, Token);
+        if (content == "global-lighting") project.Edit(edit =>
+        {
+            foreach (var light in edit.Lighting.Lights.ToArray()) edit.Lighting.Remove(light.Id);
+            edit.Lighting.UpdateSettings(new(.5f, 2));
+        }, Token);
         var selection = content switch
         {
-            "lights" => new PmaContentSelection(retainNativeLighting: false),
+            "lights" or "groups" or "global-lighting" => new PmaContentSelection(retainNativeLighting: false),
             "purposes" => new PmaContentSelection(retainModelPurposes: false),
             "styles" => new PmaContentSelection(retainRenderingStyles: false),
             "extension" => new PmaContentSelection([ExcludedExtension]),
@@ -138,10 +150,24 @@ public sealed class PmaContentSelectionTests : IDisposable
     public void TypedSelectionsAreIndependentAndDefaultSaveRetainsExistingBehavior(bool lights, bool purposes, bool styles)
     {
         using var project = Fixture(new());
+        var group = new SceneLightGroup(Guid.NewGuid(), "窗口", Intensity: 2);
+        project.Edit(edit =>
+        {
+            edit.Lighting.AddGroup(group);
+            edit.Lighting.AssignToGroup(edit.Lighting.Lights[0].Id, group.Id);
+            edit.Lighting.UpdateSettings(new(.25f, -3));
+        }, Token);
         var selection = new PmaContentSelection(retainNativeLighting: lights, retainModelPurposes: purposes, retainRenderingStyles: styles);
         PmaProjectStore.Save(Package("independent"), project, Options() with { ContentSelection = selection }, Token);
         using var loaded = Load(Package("independent"), new() { ContentSelection = selection });
         Assert.Equal(lights ? 1 : 0, loaded.Session.Lighting.Lights.Count);
+        Assert.Equal(lights ? 1 : 0, loaded.Session.Lighting.Groups.Count);
+        Assert.Equal(lights ? project.Lighting.Settings : SceneLightingSettings.Default, loaded.Session.Lighting.Settings);
+        if (lights)
+        {
+            Assert.Equal(group, Assert.Single(loaded.Session.Lighting.Groups));
+            Assert.Equal(group.Id, Assert.Single(loaded.Session.Lighting.Lights).GroupId);
+        }
         // SceneProjectStore persists the effective lighting purpose, including an override of the layout role.
         Assert.Equal(purposes ? project.GetModelPurpose(project.Objects[0].Id).Role : ModelRole.Unspecified, loaded.Session.Objects[0].Role);
         Assert.Equal(purposes ? new(ModelRole.Environment, true) : new ModelPurpose(ModelRole.Unspecified),

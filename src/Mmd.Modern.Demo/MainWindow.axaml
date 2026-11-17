@@ -1,0 +1,25 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Mmd.Modern.Demo"
+        x:Class="Mmd.Modern.Demo.MainWindow" x:DataType="local:MainWindowViewModel"
+        Title="MMD Modern" Width="1160" Height="800" MinWidth="820" MinHeight="600">
+  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="230,*" Margin="18">
+    <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="16" Margin="0,0,0,16">
+      <TextBlock Text="MMD Modern" FontSize="24" FontWeight="SemiBold" />
+      <TextBlock Text="PMD · 现代渲染预览" VerticalAlignment="Center" Opacity="0.65" />
+    </StackPanel>
+    <StackPanel Grid.Row="1" Margin="0,0,18,0" Spacing="12">
+      <TextBlock Text="示例人形" FontWeight="SemiBold" />
+      <TextBlock Text="{Binding ModelSummary}" TextWrapping="Wrap" Opacity="0.7" />
+      <CheckBox Content="抬起手臂骨骼" IsChecked="{Binding RaiseArm}" />
+      <TextBlock Text="模型转向" />
+      <Slider Minimum="-1.2" Maximum="1.2" Value="{Binding Yaw}" />
+      <Button Content="渲染首帧" Command="{Binding RenderCommand}" HorizontalAlignment="Stretch" />
+      <TextBlock Text="调整姿态与朝向后，点击渲染更新预览。" TextWrapping="Wrap" FontSize="12" Opacity="0.6" />
+    </StackPanel>
+    <Border Grid.Row="1" Grid.Column="1" Background="#141820" CornerRadius="8">
+      <Image Name="Viewport" Source="{Binding Preview}" Stretch="Uniform" />
+    </Border>
+    <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,14,0,0" Opacity="0.8" />
+  </Grid>
+</Window>

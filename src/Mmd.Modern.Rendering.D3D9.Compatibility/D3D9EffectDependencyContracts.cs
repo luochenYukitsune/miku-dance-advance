@@ -119,19 +119,46 @@ public sealed class D3D9EffectDependencyInspection
     public D3D9EffectDependencyInspection(D3D9EffectDependencyStatus status,
         D3D9EffectDependencyCompilerIdentity identity, IEnumerable<D3D9EffectDependencyProfile> profiles,
         IEnumerable<D3D9EffectDependencySemanticReference> references,
-        IEnumerable<D3D9EffectDependencyInspectorDiagnostic>? diagnostics = null)
+        IEnumerable<D3D9EffectDependencyInspectorDiagnostic>? diagnostics = null,
+        IEnumerable<D3D9EffectOffscreenDeclaration>? offscreenTargets = null)
     {
         ArgumentNullException.ThrowIfNull(profiles); ArgumentNullException.ThrowIfNull(references);
         Status = status; Identity = identity ?? throw new ArgumentNullException(nameof(identity));
         Profiles = Array.AsReadOnly(profiles.ToArray()); References = Array.AsReadOnly(references.ToArray());
         Diagnostics = Array.AsReadOnly((diagnostics ?? []).ToArray());
+        OffscreenTargets = Array.AsReadOnly((offscreenTargets ?? []).ToArray());
     }
     public D3D9EffectDependencyStatus Status { get; }
     public D3D9EffectDependencyCompilerIdentity Identity { get; }
     public IReadOnlyList<D3D9EffectDependencyProfile> Profiles { get; }
     public IReadOnlyList<D3D9EffectDependencySemanticReference> References { get; }
     public IReadOnlyList<D3D9EffectDependencyInspectorDiagnostic> Diagnostics { get; }
+    /// <summary>宿主会为其建立离屏资源的顶层 OFFSCREENRENDERTARGET 参数（按编译 profile 分别列出）。
+    /// 只是声明信息，不参与依赖闭包；EMM 命名分配页以参数名作为基名。</summary>
+    public IReadOnlyList<D3D9EffectOffscreenDeclaration> OffscreenTargets { get; }
+
+    /// <summary>两个主 profile 声明的离屏目标参数名（按序数排序，与宿主写出 EMM 时 std::map 的顺序一致）。
+    /// 两个 profile 不一致时宿主选哪个取决于设备的 mip 能力，此时不猜，直接报不支持。</summary>
+    public IReadOnlyList<string> MainOffscreenTargetNames() => MainOffscreenTargetNames(OffscreenTargets);
+
+    /// <summary>同上，作用于已记录的原始声明。只在真正需要为某个 FX 生成命名页时调用：
+    /// 依赖收集本身不做这项检查，以免与离屏页无关的工程（含冻结重放）因此无法载入。</summary>
+    public static IReadOnlyList<string> MainOffscreenTargetNames(IEnumerable<D3D9EffectOffscreenDeclaration> declarations)
+    {
+        ArgumentNullException.ThrowIfNull(declarations);
+        var all = declarations.ToArray();
+        string[] Names(string profile) => all.Where(value => value.ProfileId == profile)
+            .Select(value => value.Parameter).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var off = Names("effect-mip-off");
+        if (!off.SequenceEqual(Names("effect-mip-on"), StringComparer.Ordinal))
+            throw new D3D9EffectDependencyException(D3D9EffectDependencyStatus.Unsupported, "offscreen-profile-mismatch",
+                "The mip-off and mip-on profiles declare different OFFSCREENRENDERTARGET parameters.");
+        return off;
+    }
 }
+
+/// <summary>一个顶层 OFFSCREENRENDERTARGET 参数声明。</summary>
+public sealed record D3D9EffectOffscreenDeclaration(string ProfileId, string Parameter);
 
 public sealed record D3D9EffectDependencyInspectorDiagnostic(string Code, string Message, string? ProfileId = null,
     string? Parameter = null, string? Annotation = null, D3D9EffectDependencyReference? RawMessage = null, int? HResult = null);
@@ -172,11 +199,18 @@ public sealed class D3D9EffectDependencyClosure
 {
     internal D3D9EffectDependencyClosure(IReadOnlyList<D3D9EffectDependencyRoot> roots,
         IEnumerable<D3D9EffectDependencyNode> nodes, IEnumerable<D3D9EffectDependencyEdge> edges,
-        D3D9EffectDependencyCompilerIdentity? identity, IEnumerable<D3D9EffectDependencyProfile> profiles)
+        D3D9EffectDependencyCompilerIdentity? identity, IEnumerable<D3D9EffectDependencyProfile> profiles,
+        IReadOnlyDictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>>? offscreenTargets = null)
     {
         Roots = Array.AsReadOnly(roots.ToArray()); Nodes = Array.AsReadOnly(nodes.ToArray());
         Edges = Array.AsReadOnly(edges.ToArray()); CompilerIdentity = identity; Profiles = Array.AsReadOnly(profiles.ToArray());
+        OffscreenTargets = new System.Collections.ObjectModel.ReadOnlyDictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>>(
+            new Dictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>>(
+                offscreenTargets ?? new Dictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>>(), StringComparer.OrdinalIgnoreCase));
     }
+    /// <summary>本次收集中检查过的每个 FX（原件绝对路径）按 profile 记录的原始离屏声明。
+    /// 两个主 profile 是否一致不在收集时检查，见 <see cref="D3D9EffectDependencyInspection.MainOffscreenTargetNames(IEnumerable{D3D9EffectOffscreenDeclaration})"/>。</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<D3D9EffectOffscreenDeclaration>> OffscreenTargets { get; }
     public IReadOnlyList<D3D9EffectDependencyRoot> Roots { get; }
     public IReadOnlyList<D3D9EffectDependencyNode> Nodes { get; }
     public IReadOnlyList<D3D9EffectDependencyEdge> Edges { get; }

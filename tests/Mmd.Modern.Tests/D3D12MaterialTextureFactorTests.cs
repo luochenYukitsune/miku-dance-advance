@@ -20,13 +20,15 @@ public sealed class D3D12MaterialTextureFactorTests
     {
         // Surface/style literals remain at dd9e153; GI includes b00d31b's palette-band receiver.
         // NativeSource includes e9ff9d6's explicit scene receiver-plane PCF correction, verified
-        // by IndoorSceneLightingGpuTests and the retained RoomLight02 actual-station captures.
+        // by IndoorSceneLightingGpuTests and the retained RoomLight02 actual-station captures,
+        // plus the 2026-11-17 additional-light highlight shoulder (shadows survive overlapping
+        // bright lights; below the knee the additive arithmetic is unchanged).
         // Identity-factor variants must preserve these accepted literals; only line endings normalize.
         var assembly=typeof(D3D12OriginalStyleRenderer).Assembly;
         foreach(var item in new[] {
             ("OriginalFrameShaders","Source","afd46ca86380b2e4033737ec0f91cad29ed61eed7da58994a178a07f6b45dd37"),
             ("OriginalFrameShaders","GiSource","0652d09be883cd8cbfee190bc8aab766b4aa9b5f5938eff6731a61e15d40e1b3"),
-            ("OriginalFrameShaders","NativeSource","e3825419ced8d31b85ad716bd212f0e13c6b8589222f6ce25e6aa46240d3b8d3"),
+            ("OriginalFrameShaders","NativeSource","54a94d5b19f72c2aa4084aba2b8457051fabe052b9479cf6626c380ab45bb00c"),
             ("OriginalStyleShaders","Source","2551ead7464322716fbb188f711f68a85e6d47bd802d221cb006a8cad5c4592e") })
         {
             var type=assembly.GetType("Mmd.Modern.Rendering.D3D12."+item.Item1,true)!;

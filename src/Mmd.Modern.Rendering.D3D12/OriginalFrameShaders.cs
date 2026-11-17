@@ -141,14 +141,43 @@ internal static partial class OriginalFrameShaders
     // primary MMD shadow map or the independently optional GI transport/composition.
     private const string NativeSource="""
         struct NativeLight {
-            float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow;
+            float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; float4 AreaRightTile;
         };
         cbuffer NativeLightConstants:register(b2) {
-            float4 NativeInfo; float4 NativeDiffuse;
-            NativeLight NativeLights[4];
-            row_major float4x4 NativeShadowMatrices[24];
+            uint4 NativeInfo; float4 NativeDiffuse;
+        };
+        cbuffer NativeSharedLightConstants:register(b0,space1) {
+            float4 NativeAtlasLayout;
+            NativeLight NativeLights[32];
+            row_major float4x4 NativeShadowMatrices[768];
         };
         Texture2D<float> NativeShadowAtlas:register(t6);
+        // Additional lights are summed into an 8-bit target. A hard clip makes a light's
+        // shadow vanish once the other lights already saturate the receiver: lit and shadowed
+        // pixels both become the ceiling. Below the knee the accepted additive arithmetic is
+        // unchanged; above it a C1-continuous rational shoulder approaches the room
+        // asymptotically, so a pixel receiving less light always stays strictly darker.
+        static const float NativeHighlightKnee=.6;
+        float NativeHighlightShoulder(float t) {
+            if(t<=NativeHighlightKnee) return t;
+            float u=(t-NativeHighlightKnee)/(1-NativeHighlightKnee);
+            return NativeHighlightKnee+(1-NativeHighlightKnee)*u/(1+u);
+        }
+        // One scale for all channels keeps the added light's hue. Channels already at or
+        // above their ceiling clip regardless and do not drive the scale.
+        float NativeSoftAddScale(float3 room,float3 addition) {
+            if(!all(isfinite(room)) || !all(isfinite(addition)) || any(addition<0)) return 1;
+            float t=0;
+            if(room.x>0) t=max(t,addition.x/room.x);
+            if(room.y>0) t=max(t,addition.y/room.y);
+            if(room.z>0) t=max(t,addition.z/room.z);
+            if(t<=NativeHighlightKnee || !isfinite(t)) return 1;
+            return NativeHighlightShoulder(t)/t;
+        }
+        float3 NativeAddSoft(float3 color,float3 addition) {
+            float scale=NativeSoftAddScale(max(1-color,0),addition);
+            return scale==1?color+addition:color+scale*addition;
+        }
         SurfaceOutput VSNativeDepth(Input v) {
             SurfaceOutput o=VSSurface(v);
             o.Position=mul(mul(float4(v.Position,1),World),LightViewProjection);
@@ -168,20 +197,34 @@ internal static partial class OriginalFrameShaders
             if(a.y>=a.z) return fromLight.y>=0?2:3;
             return fromLight.z>=0?4:5;
         }
-        float NativeVisibility(uint index,NativeLight light,float3 position,float3 normal,float3 towardLight,float3 worldDx,float3 worldDy) {
+        NativeLight NativeSample(NativeLight light,uint sample) {
+            if(light.PositionKind.w==3) {
+                float2 sign=float2((sample&1)?1:-1,(sample&2)?1:-1);
+                float3 up=cross(light.AreaRightTile.xyz,light.DirectionRange.xyz);
+                light.PositionKind.xyz+=(light.AreaRightTile.xyz*(sign.x*light.ConeShadow.x)+up*(sign.y*light.ConeShadow.y))*.5773502691896258;
+                light.ColorIntensity.w*=.25;
+                if(light.ConeShadow.z>=0) light.ConeShadow.z+=sample*6;
+            }
+            return light;
+        }
+        float NativeVisibility(uint index,NativeLight light,float3 position,float3 normal,float3 towardLight,float3 worldDx,float3 worldDy,uint sample) {
             if(light.ConeShadow.z<0 || NativeInfo.w==0) return 1;
-            uint face=light.PositionKind.w==1?NativePointFace(position-light.PositionKind.xyz):0;
+            uint face=(light.PositionKind.w==1||light.PositionKind.w==3)?NativePointFace(position-light.PositionKind.xyz):0;
             uint tile=(uint)light.ConeShadow.z+face;
             // Bias the receiver in world units before projection, then compare real geometry
             // depth. This is independent of the original PMM projective shadow convention.
             float offset=light.PositionKind.w==0?light.ConeShadow.w:max(light.DirectionRange.w*.00015,.0001);
-            float4 clipPosition=mul(float4(position+normal*offset,1),NativeShadowMatrices[index*6+face]);
+            float4 clipPosition=mul(float4(position+normal*offset,1),NativeShadowMatrices[tile]);
             if(clipPosition.w<=0) return 1;
             float3 q=clipPosition.xyz/clipPosition.w;
             float2 uv=float2(.5+.5*q.x,.5-.5*q.y);
             if(any(uv<0)||any(uv>1)||q.z<0||q.z>1) return 1;
-            int tileSize=(int)NativeInfo.y;
-            int2 origin=int2(tile%6,tile/6)*tileSize;
+            bool area=light.PositionKind.w==3;
+            int tileSize=area?256:512;
+            uint atlasTile=(uint)light.AreaRightTile.w+face;
+            uint columns=(uint)NativeAtlasLayout.x;
+            int2 origin=int2(atlasTile%columns,atlasTile/columns)*512;
+            if(area) origin+=int2(sample&1,sample>>1)*tileSize;
             int2 pixel=(int2)(uv*tileSize);
             float2 receiverDepthGradient=0;
             if(NativeInfo.z>0) {
@@ -189,8 +232,8 @@ internal static partial class OriginalFrameShaders
                 // pre-loop world derivatives through THIS selected cube face, rather than ddx(q),
                 // whose neighbouring pixel may have selected another face. The common /clip.w
                 // cancels when solving this 2x2 projected derivative Jacobian.
-                float4 tx=mul(float4(worldDx,0),NativeShadowMatrices[index*6+face]);
-                float4 ty=mul(float4(worldDy,0),NativeShadowMatrices[index*6+face]);
+                float4 tx=mul(float4(worldDx,0),NativeShadowMatrices[tile]);
+                float4 ty=mul(float4(worldDy,0),NativeShadowMatrices[tile]);
                 float3 dx=tx.xyz-q*tx.w,dy=ty.xyz-q*ty.w;
                 float determinant=dx.x*dy.y-dx.y*dy.x;
                 float scale=max(abs(dx.x*dy.y)+abs(dx.y*dy.x),1e-20);
@@ -199,6 +242,33 @@ internal static partial class OriginalFrameShaders
                     gradient*=float2(2,-2); // NDC to texture UV, including the flipped Y.
                     if(all(isfinite(gradient))) receiverDepthGradient=gradient;
                 }
+            }
+            if(area) {
+                // Contact-hardening filtering integrates each quadrature stratum instead of
+                // leaving four disconnected hard silhouettes. The blocker/receiver distance
+                // ratio is reconstructed in range-normalized cube-view Z to avoid far^2 overflow.
+                float receiverZ=.001/max(1-q.z*.999,1e-6);
+                float span=min(max(light.ConeShadow.x,light.ConeShadow.y)/light.DirectionRange.w,4);
+                float searchRadius=clamp(span*tileSize*.25/max(receiverZ,1e-4),1,24);
+                float blockers=0,blockerZ=0;
+                [unroll] for(int by=-1;by<=1;by++) [unroll] for(int bx=-1;bx<=1;bx++) {
+                    int2 local=clamp((int2)(uv*tileSize+float2(bx,by)*searchRadius),int2(0,0),int2(tileSize-1,tileSize-1));
+                    float expected=q.z+dot(receiverDepthGradient,((float2)local+.5)/tileSize-uv);
+                    float depth=NativeShadowAtlas.Load(int3(origin+local,0));
+                    if(depth<expected-.00002) { blockers++;blockerZ+=.001/max(1-depth*.999,1e-6); }
+                }
+                if(blockers==0) return 1;
+                blockerZ/=blockers;
+                float radius=clamp(span*tileSize*.25*max(receiverZ-blockerZ,0)/max(receiverZ*blockerZ,1e-6),1,32);
+                float soft=0;
+                [unroll] for(int tap=0;tap<16;tap++) {
+                    float angle=tap*2.399963229728653;
+                    float2 offset=float2(cos(angle),sin(angle))*sqrt((tap+.5)/16)*radius;
+                    int2 local=clamp((int2)(uv*tileSize+offset),int2(0,0),int2(tileSize-1,tileSize-1));
+                    float expected=q.z+dot(receiverDepthGradient,((float2)local+.5)/tileSize-uv);
+                    soft+=(expected-.00002<=NativeShadowAtlas.Load(int3(origin+local,0)))?1.0:0.0;
+                }
+                return soft/16;
             }
             // A 3x3 depth comparison filter softens only the geometric shadow boundary.
             // Clamp within each face so adjacent lights cannot leak across atlas tiles.
@@ -216,7 +286,7 @@ internal static partial class OriginalFrameShaders
         // Existing specialised character sources retain their original comparison, as do all
         // materials outside the explicit scene response (NativeInfo.z=0).
         float NativeVisibility(uint index,NativeLight light,float3 position,float3 normal,float3 towardLight) {
-            return NativeVisibility(index,light,position,normal,towardLight,0,0);
+            return NativeVisibility(index,light,position,normal,towardLight,0,0,0);
         }
         float3 NativeDirect(SurfaceOutput v) {
             // Derivatives must be evaluated before per-light face selection or divergent continue.
@@ -226,8 +296,12 @@ internal static partial class OriginalFrameShaders
             float3 diffuse=NativeDiffuse.rgb*texel;
             if(Options.y==1) diffuse*=SphereMap.Sample(SelectedSampler,float2(.5*v.SphereProjection.x+.5,-.5*v.SphereProjection.y+.5)).rgb;
             float3 result=0;
+            if(NativeAtlasLayout.z>0) result=diffuse*NativeAtlasLayout.z;
             [loop] for(uint i=0;i<(uint)NativeInfo.x;i++) {
-                NativeLight light=NativeLights[i];
+                if((NativeInfo.y & (1u<<i))==0) continue;
+                NativeLight source=NativeLights[i];
+                [loop] for(uint sample=0;sample<(source.PositionKind.w==3?4u:1u);sample++) {
+                NativeLight light=NativeSample(source,sample);
                 float3 delta=light.PositionKind.xyz-v.WorldPosition;
                 float distanceSquared=max(dot(delta,delta),.0001);
                 float3 l=light.PositionKind.w==0?-light.DirectionRange.xyz:delta*rsqrt(distanceSquared);
@@ -240,20 +314,22 @@ internal static partial class OriginalFrameShaders
                     float angular=saturate((dot(-l,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
                     attenuation*=angular*angular;
                 }
+                if(light.PositionKind.w==3) attenuation*=saturate(dot(-l,light.DirectionRange.xyz));
                 // Reuse the original three-times-clamped toon response. No ambient dimming,
                 // continuous AO, exposure or screen overlay is introduced by these lights.
                 float toon=saturate(dot(n,l)*3);
                 if(toon<=0 || attenuation<=0) continue;
-                float visibility=NativeVisibility(i,light,v.WorldPosition,n,l,worldDx,worldDy);
+                float visibility=NativeVisibility(i,light,v.WorldPosition,n,l,worldDx,worldDy,sample);
                 result+=diffuse*light.ColorIntensity.rgb*(light.ColorIntensity.w*attenuation*toon*visibility);
+                }
             }
             return result;
         }
         float4 PSSurfaceNative(SurfaceOutput v):SV_Target {
-            float4 color=PSSurface(v); color.rgb+=NativeDirect(v); return color;
+            float4 color=PSSurface(v); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
         }
         float4 PSSurfaceGiNative(SurfaceOutput v,uint primitive:SV_PrimitiveID):SV_Target {
-            float4 color=PSSurfaceGi(v,primitive); color.rgb+=NativeDirect(v); return color;
+            float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
         }
         """;
     internal static byte[] CompileNative(string entry,bool vertex)=>Compiler.Compile(Source+GiSource+NativeSource,entry,"OriginalFrameNative.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
