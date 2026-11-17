@@ -1,4 +1,6 @@
 ﻿using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -64,6 +66,13 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectsReload")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicToonSettings")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicToonSlots")!.IsEnabled);
+                window.Show();
+                var workArea = window.Screens.Primary!.WorkingArea;
+                window.Position = new PixelPoint(workArea.Right - (int)(window.Bounds.Width * window.RenderScaling), workArea.Y);
+                var menus = window.GetVisualDescendants().OfType<Menu>().SelectMany(bar => bar.Items.OfType<MenuItem>()).ToArray();
+                Assert.Contains(menu, menus);
+                foreach (var top in menus)
+                    AssertMenuTextFits(top);
                 window.DataContext = modern;
                 Assert.False(menu.IsVisible);
             }
@@ -135,6 +144,29 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
         finally { dialog.Close(); owner.Close(); EditorLocalization.SetLanguage(before); Dispatcher.UIThread.RunJobs(); }
         return true;
     }, TestContext.Current.CancellationToken);
+
+    private static void AssertMenuTextFits(MenuItem top)
+    {
+        top.IsSubMenuOpen = true;
+        Dispatcher.UIThread.RunJobs();
+        var popup = top.GetVisualDescendants().OfType<Popup>().First();
+        Assert.True(popup.IsOpen);
+        var viewport = popup.Child!.GetVisualDescendants().OfType<ScrollViewer>().First();
+        foreach (var entry in top.Items.OfType<MenuItem>())
+        {
+            var labels = entry.GetVisualDescendants().OfType<TextBlock>()
+                .Where(label => !string.IsNullOrEmpty(label.Text)).ToArray();
+            Assert.NotEmpty(labels);
+            foreach (var label in labels)
+            {
+                var origin = label.TranslatePoint(default, viewport)!.Value;
+                var width = label.TextLayout.Width;
+                Assert.True(origin.X >= -1 && origin.X + width <= viewport.Bounds.Width + 1,
+                    $"{label.Text}: x={origin.X}, width={width}, menu={viewport.Bounds.Width}");
+            }
+        }
+        top.IsSubMenuOpen = false;
+    }
 
     private sealed class NoPhysics : IProjectPhysicsBackendProvider
     {
