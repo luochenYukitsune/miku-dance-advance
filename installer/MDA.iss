@@ -196,6 +196,8 @@ english.associatepmm=MMD projects (.pmm)
 english.associatemodels=MMD models (.pmx / .pmd)
 english.associatemotions=MMD motions (.vmd)
 english.associateposes=MMD poses (.vpd)
+english.RelocationDriveMissing=The previous MDA installation is registered at %1, but that drive is not available. If it is a removable or network drive, choose No, reconnect it and run Setup again. Choose Yes only if that installation is gone for good: its uninstall entry will be removed.
+english.RelocationDriveMissingKept=The previous MDA installation at %1 is on a drive that is not available. Reconnect it and run Setup again, or install to that same folder.
 english.RelocationUninstallFailed=The previous MDA installation could not be removed. Close MDA and retry, or uninstall it before choosing a different folder.
 english.UserDataTitle=Settings, plugins, and autosave
 english.UserDataDescription=Choose a folder for MDA personal files, or keep the default.
@@ -234,6 +236,8 @@ chinesesimplified.associatepmm=MMD 工程（.pmm）
 chinesesimplified.associatemodels=MMD 模型（.pmx / .pmd）
 chinesesimplified.associatemotions=MMD 动作（.vmd）
 chinesesimplified.associateposes=MMD 姿势（.vpd）
+chinesesimplified.RelocationDriveMissing=原来的 MDA 安装登记在 %1，但该磁盘当前不可用。如果它是移动硬盘或网络驱动器，请选“否”，重新连接后再运行安装程序。只有确定原安装已经不存在时才选“是”：它的卸载登记将被删除。
+chinesesimplified.RelocationDriveMissingKept=原来的 MDA 安装位于 %1，所在磁盘当前不可用。请重新连接该磁盘后再运行安装程序，或安装到同一文件夹。
 chinesesimplified.RelocationUninstallFailed=无法移除原来的 MDA 安装。请关闭 MDA 后重试，或先卸载原安装，再选择其他文件夹。
 #endif
 japanese.SharedComponent=エディターと共通ファイル（FFmpeg を含む）
@@ -248,6 +252,8 @@ japanese.associatepmm=MMD プロジェクト（.pmm）
 japanese.associatemodels=MMD モデル（.pmx / .pmd）
 japanese.associatemotions=MMD モーション（.vmd）
 japanese.associateposes=MMD ポーズ（.vpd）
+japanese.RelocationDriveMissing=以前の MDA は %1 に登録されていますが、そのドライブは現在使用できません。リムーバブルまたはネットワーク ドライブの場合は「いいえ」を選び、再接続してからセットアップを再実行してください。以前のインストールが完全に失われている場合のみ「はい」を選んでください。アンインストール情報が削除されます。
+japanese.RelocationDriveMissingKept=以前の MDA (%1) のドライブは現在使用できません。ドライブを再接続してからセットアップを再実行するか、同じフォルダーにインストールしてください。
 japanese.RelocationUninstallFailed=以前の MDA を削除できませんでした。MDA を終了して再試行するか、以前のインストールをアンインストールしてから別のフォルダーを選択してください。
 japanese.UserDataTitle=設定・プラグイン・自動保存
 japanese.UserDataDescription=MDA 個人ファイルの保存先です。既定の場所も使えます。
@@ -628,9 +634,21 @@ begin
   end;
   if not FileExists(PreviousDir + 'Mmd.Modern.App.exe') and not DirExists(PreviousDir) then
   begin
-    { The registered installation folder no longer exists (deleted by hand, drive removed). Its uninstaller is
-      gone too, so the user could not follow the "uninstall first" advice; clear the stale registration. }
-    Log('Removing stale MDA uninstall registration for missing folder: ' + PreviousDir);
+    { DirExists cannot tell a deleted folder from one on a drive that is only disconnected (a USB or network
+      drive). Clear the registration automatically only when the drive itself is present; otherwise the old
+      installation may come back, so keep its uninstall entry unless the user explicitly gives it up. }
+    if not DirExists(AddBackslash(ExtractFileDrive(PreviousDir))) then
+    begin
+      if WizardSilent or (SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationDriveMissing'), [PreviousDir]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES) then
+      begin
+        Result := FmtMessage(CustomMessage('RelocationDriveMissingKept'), [PreviousDir]);
+        Exit;
+      end;
+      Log('User abandoned the MDA installation on an unavailable drive: ' + PreviousDir);
+    end
+    else
+      Log('Removing stale MDA uninstall registration for missing folder: ' + PreviousDir);
     RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey);
     Result := '';
     Exit;

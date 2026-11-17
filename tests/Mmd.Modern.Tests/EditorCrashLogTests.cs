@@ -46,6 +46,23 @@ public sealed class EditorCrashLogTests : IDisposable
     private sealed class Second { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
 
     [Fact]
+    public void ADynamicMethodThrowSiteGetsASignatureInsteadOfThrowingFromTheHandler()
+    {
+        var method = new System.Reflection.Emit.DynamicMethod("Boom", typeof(void), Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldstr, "dynamic");
+        il.Emit(System.Reflection.Emit.OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)])!);
+        il.Emit(System.Reflection.Emit.OpCodes.Throw);
+        var boom = method.CreateDelegate<Action>();
+        Exception thrown = Assert.ThrowsAny<Exception>(() => boom());
+        string location = EditorCrashLog.Location(thrown);
+        Assert.False(string.IsNullOrEmpty(location));
+        EditorCrashLog.ResetThrottleForTests();
+        Assert.True(EditorCrashLog.ShouldRecord("ui", thrown, out _, directory));
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
+    [Fact]
     public void SameNamedMethodsOnDifferentTypesAreDistinctSignatures()
     {
         EditorCrashLog.ResetThrottleForTests();
