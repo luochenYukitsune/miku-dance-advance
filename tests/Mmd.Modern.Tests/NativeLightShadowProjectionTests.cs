@@ -59,10 +59,14 @@ public sealed class NativeLightShadowProjectionTests
     }
 
     [Fact]
-    public void ConstantLayoutMatchesTheFourLightTwentyFourMatrixShaderContract()
+    public void SharedConstantLayoutFitsThirtyTwoAreaLightsWithinOneCbv()
     {
-        Assert.Equal(64, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeLightConstants>());
-        Assert.Equal(1824, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeFrameConstants>());
+        Assert.Equal(80, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeLightConstants>());
+        Assert.Equal(16 + 32 * 80 + 768 * 64, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeFrameConstants>());
+        Assert.Equal(16, Marshal.OffsetOf<D3D12OriginalStyleRenderer.NativeFrameConstants>("Lights").ToInt32());
+        Assert.Equal(16 + 32 * 80, Marshal.OffsetOf<D3D12OriginalStyleRenderer.NativeFrameConstants>("Matrices").ToInt32());
+        Assert.Equal(32, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeMaterialConstants>());
+        Assert.InRange(Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeFrameConstants>(), 1, 65536);
     }
 
     private static NativeSceneLight Light(SceneLightKind kind) => new(Guid.NewGuid(), "test", kind, Vector3.Zero, Quaternion.Identity, Vector3.One);

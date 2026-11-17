@@ -34,6 +34,9 @@ public static class PmaPmmCompatibility
         var issues = new List<PmaPmmCompatibilityIssue>();
         void Add(string code, string message, Guid? id = null) => issues.Add(new(code, message, id));
         if (state.Lighting.Lights.Count != 0) Add("native-lights", $"{state.Lighting.Lights.Count} native light objects have no PMM representation.");
+        if (state.Lighting.Groups.Count != 0) Add("native-light-groups", $"{state.Lighting.Groups.Count} native light groups have no PMM representation.");
+        if (state.Lighting.Settings != SceneLightingSettings.Default)
+            Add("native-lighting-settings", "Modern environment fill and overall exposure have no PMM representation.");
         if (state.CurrentFrame != Math.Floor(state.CurrentFrame) || state.CurrentFrame > int.MaxValue)
             Add("current-frame", "PMM needs an integer current frame within Int32 range.");
         foreach (var item in state.Objects)

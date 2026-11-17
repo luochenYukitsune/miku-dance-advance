@@ -55,7 +55,9 @@ public sealed class D3D12FaceSdfViewTests
         // on opposite plateaus despite unchanged +X geometric normals and diffuse.
         AssertRgb(left, Height / 3, new(.6f, .4f, .2f));
         AssertRgb(right, Height / 3, new(.12f, .08f, .04f));
-        Assert.Equal(baseline.Pixels.ToArray(), left);
+        // The Face/SDF material skips stylized shading. In the baseline the same
+        // material is an unbound Body with stylized shading, so compare only coverage.
+        for (int i = 3; i < left.Length; i += 4) Assert.Equal(baseline.Pixels.Span[i], left[i]);
 
         int changed = 0, covered = 0;
         for (int y = 0; y < Height; y++)

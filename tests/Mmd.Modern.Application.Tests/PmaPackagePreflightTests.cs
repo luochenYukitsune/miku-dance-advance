@@ -14,7 +14,7 @@ public sealed class PmaPackagePreflightTests : IDisposable
 {
     private const string Resource = "render-resources/unknown/opaque.bin";
     private const string Extension = "org.example.unknown";
-    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261105/preflight435"), "tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("compat/20261105/preflight435"), "tests", Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     public PmaPackagePreflightTests() => Directory.CreateDirectory(directory);
 

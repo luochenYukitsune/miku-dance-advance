@@ -52,14 +52,13 @@ internal static class EditorModelReplacementDialog
         return dialog.ShowDialog<bool>(owner);
     }
 
-    private static Window Create(Window owner, string name, string title) => new()
+    private static Window Create(Window owner, string name, string title) => EditorDialogTheme.Apply(new Window
     {
         Name = name, Title = title, Width = 620, MaxHeight = 760, SizeToContent = SizeToContent.Height,
         Padding = new Thickness(22), CanResize = true, ShowInTaskbar = false,
         WindowStartupLocation = WindowStartupLocation.CenterOwner, RequestedThemeVariant = owner.ActualThemeVariant,
-        Background = owner.Background, Foreground = owner.Foreground, FontFamily = owner.FontFamily,
-        FontSize = 13, UseLayoutRounding = true
-    };
+        FontFamily = owner.FontFamily, FontSize = 13, UseLayoutRounding = true
+    }, owner);
 
     private static Control NoticeList(IReadOnlyList<SceneModelDataNotice> notices, Window owner)
     {
@@ -77,7 +76,7 @@ internal static class EditorModelReplacementDialog
     }
     private static TextBlock Copy(string text, Window owner, bool strong = false) => new()
     {
-        Text = text, TextWrapping = TextWrapping.Wrap, Foreground = owner.Foreground, LineHeight = 21,
+        Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 21,
         FontWeight = strong ? FontWeight.SemiBold : FontWeight.Normal
     };
     private static Button Action(string name, string text)

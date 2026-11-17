@@ -15,7 +15,7 @@ namespace Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests;
 
 public sealed class ClassicPackagePreflightTests : IDisposable
 {
-    private readonly string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261105/preflight436"), "tests", Guid.NewGuid().ToString("N"));
+    private readonly string directory = Path.Combine(MdaWorkRoot.Path("compat/20261105/preflight436"), "tests", Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private string LoadCache => Path.Combine(directory, "load-cache");
     public ClassicPackagePreflightTests() => Directory.CreateDirectory(directory);

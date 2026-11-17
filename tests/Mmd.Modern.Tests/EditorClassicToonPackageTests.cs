@@ -10,12 +10,12 @@ using Xunit;
 
 namespace Mmd.Modern.Tests;
 
-public sealed class EditorClassicToonPackageTests
+public sealed partial class EditorClassicToonPackageTests
 {
     [Fact]
     public void UsedOriginalImagesFreezeBeforeHostLoadAndSurviveMovedOriginalsAndDetachedResave()
     {
-        string directory = Path.Combine(Mmd.Modern.TestSupport.TestWorkspace.Root("compat/20261110/toon-package598"), "tests", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(MdaWorkRoot.Path("compat/20261110/toon-package598"), "tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
@@ -90,14 +90,14 @@ public sealed class EditorClassicToonPackageTests
         writer.Write(0); writer.Write(4); writer.Write(0); writer.Write(0); writer.Write(0); writer.Write(0);
         writer.Write(new byte[] { 51, 34, 17, 0 }); return bytes;
     }
-    private static PmxModel Model()
+    private static PmxModel Model(IReadOnlyList<PmxMaterial>? materials = null)
     {
         var template = EditorRecoveryPmaIntegrationTests.Model();
         return new()
         {
             Header = template.Header, Name = "portable toons", EnglishName = "", Comment = "", EnglishComment = "",
             Vertices = template.Vertices, Faces = [new(0, 1, 2), new(0, 1, 2), new(0, 1, 2)], Textures = ["authored.bmp"],
-            Materials = [Material(PmxToonMode.Separate, -1), Material(PmxToonMode.Common, 4), Material(PmxToonMode.Separate, 0)],
+            Materials = materials ?? [Material(PmxToonMode.Separate, -1), Material(PmxToonMode.Common, 4), Material(PmxToonMode.Separate, 0)],
             Bones = template.Bones, Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = []
         };
     }
@@ -111,7 +111,7 @@ public sealed class EditorClassicToonPackageTests
     private sealed class Resources : IPmaPackageResources
     {
         private readonly byte[] bytes;
-        public Resources(Guid id, byte[] bytes, int schema = 1)
+        public Resources(Guid id, byte[] bytes, int schema = 1, bool extraCommon = false)
         {
             this.bytes = bytes;
             string sha = Convert.ToHexString(SHA256.HashData(bytes));
@@ -123,7 +123,8 @@ public sealed class EditorClassicToonPackageTests
                 {
                     schemaVersion = schema,
                     models = new[] { new { objectId = id, materials = new[]
-                    { new { materialIndex = 0, slot = 0, imageSha256 = sha }, new { materialIndex = 1, slot = 5, imageSha256 = sha } } } },
+                    { new { materialIndex = 0, slot = 0, imageSha256 = sha }, new { materialIndex = 1, slot = 5, imageSha256 = sha } }
+                    .Concat(extraCommon ? [new { materialIndex = 2, slot = 5, imageSha256 = sha }] : []).ToArray() } },
                     images = new[] { new { sha256 = sha, authoredToken = "toon00.bmp", resourcePath = path } }
                 })
             };

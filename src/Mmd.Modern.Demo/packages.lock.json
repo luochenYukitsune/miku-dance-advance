@@ -2,6 +2,28 @@
   "version": 1,
   "dependencies": {
     "net10.0": {
+      "Avalonia.Desktop": {
+        "type": "Direct",
+        "requested": "[11.3.22, )",
+        "resolved": "11.3.22",
+        "contentHash": "TXdIJ5WA473KqFd/b3EqnXUIgFDhPuOx2OkzG7Fm8EkCPF5JKkCwg+i7yq8IRsYKcQ4I8X/4HkUyCb8DcfgfYg==",
+        "dependencies": {
+          "Avalonia": "11.3.22",
+          "Avalonia.Native": "11.3.22",
+          "Avalonia.Skia": "11.3.22",
+          "Avalonia.Win32": "11.3.22",
+          "Avalonia.X11": "11.3.22"
+        }
+      },
+      "Avalonia.Themes.Fluent": {
+        "type": "Direct",
+        "requested": "[11.3.22, )",
+        "resolved": "11.3.22",
+        "contentHash": "tCui436MQuxeIXj/eA/Mq9neAgNTud0Jk22HDWSo05KT+vaH5oJa53xI8PxEi3uRSsWK2l9yoQciLKrzzIrqCw==",
+        "dependencies": {
+          "Avalonia": "11.3.22"
+        }
+      },
       "Avalonia": {
         "type": "Transitive",
         "resolved": "11.3.22",
@@ -29,18 +51,6 @@
         "dependencies": {
           "Avalonia": "11.0.5",
           "Avalonia.Remote.Protocol": "11.0.5"
-        }
-      },
-      "Avalonia.Desktop": {
-        "type": "Transitive",
-        "resolved": "11.3.22",
-        "contentHash": "TXdIJ5WA473KqFd/b3EqnXUIgFDhPuOx2OkzG7Fm8EkCPF5JKkCwg+i7yq8IRsYKcQ4I8X/4HkUyCb8DcfgfYg==",
-        "dependencies": {
-          "Avalonia": "11.3.22",
-          "Avalonia.Native": "11.3.22",
-          "Avalonia.Skia": "11.3.22",
-          "Avalonia.Win32": "11.3.22",
-          "Avalonia.X11": "11.3.22"
         }
       },
       "Avalonia.FreeDesktop": {
@@ -77,14 +87,6 @@
           "SkiaSharp": "2.88.9",
           "SkiaSharp.NativeAssets.Linux": "2.88.9",
           "SkiaSharp.NativeAssets.WebAssembly": "2.88.9"
-        }
-      },
-      "Avalonia.Themes.Fluent": {
-        "type": "Transitive",
-        "resolved": "11.3.22",
-        "contentHash": "tCui436MQuxeIXj/eA/Mq9neAgNTud0Jk22HDWSo05KT+vaH5oJa53xI8PxEi3uRSsWK2l9yoQciLKrzzIrqCw==",
-        "dependencies": {
-          "Avalonia": "11.3.22"
         }
       },
       "Avalonia.Themes.Simple": {
@@ -425,7 +427,6 @@
           "Mmd.Modern.Physics.Runtime": "[1.0.0, )",
           "Mmd.Modern.Plugins": "[1.0.0, )",
           "Mmd.Modern.Rendering.D3D12": "[1.0.0, )",
-          "Mmd.Modern.Rendering.Veldrid": "[1.0.0, )",
           "Mmd.Modern.ViewOutput": "[1.0.0, )",
           "Mmd.Modern.ViewOutput.D3D12": "[1.0.0, )",
           "Mmd.Modern.ViewOutput.D3D9.Compatibility": "[1.0.0, )",

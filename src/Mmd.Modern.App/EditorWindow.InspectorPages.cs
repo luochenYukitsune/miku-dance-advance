@@ -45,6 +45,20 @@ public partial class EditorWindow
         finally { _syncingInspectorTabs = false; }
     }
 
+    private bool _syncingWorkspaceTabs;
+    private void SelectWorkspacePage(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_syncingWorkspaceTabs || sender is not TabControl tabs || _shell is not { } shell) return;
+        if (tabs.SelectedIndex is < 0 or > 1 || tabs.SelectedIndex == shell.WorkspacePageIndex) return;
+        _syncingWorkspaceTabs = true;
+        try
+        {
+            var target = tabs.SelectedIndex == 1 ? EditorInspectorPage.Lighting : EditorInspectorPage.Animation;
+            if (!NavigateInspectorPage(target)) tabs.SelectedIndex = shell.WorkspacePageIndex;
+        }
+        finally { _syncingWorkspaceTabs = false; }
+    }
+
     private void OnInspectorPageChanged(EditorShellViewModel shell)
     {
         if (_adjustingInspectorPage) return;
@@ -70,6 +84,7 @@ public partial class EditorWindow
             else if (leavingLighting)
             {
                 lightController?.CancelDrag();
+                lightController?.SetParameterPreview(null);
                 lightController?.Select(null);
                 if (shell.SceneSelectionIndex == 2) shell.SceneSelectionIndex = -1;
             }

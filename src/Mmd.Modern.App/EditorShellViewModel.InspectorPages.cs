@@ -33,12 +33,17 @@ public sealed partial class EditorShellViewModel
             OnPropertyChanged(nameof(IsStylePage));
             OnPropertyChanged(nameof(IsMaterialPage));
             OnPropertyChanged(nameof(IsLightingPage));
+            OnPropertyChanged(nameof(IsModernLightingPage));
+            OnPropertyChanged(nameof(WorkspacePageIndex));
         }
     }
     public bool IsAnimationPage => inspectorPage == EditorInspectorPage.Animation;
     public bool IsStylePage => inspectorPage == EditorInspectorPage.Style;
     public bool IsMaterialPage => inspectorPage == EditorInspectorPage.Material;
     public bool IsLightingPage => inspectorPage == EditorInspectorPage.Lighting;
+    public bool SupportsModernLightingWorkspace => Workspace.ProjectFormat == EditorProjectFormat.Modern;
+    public bool IsModernLightingPage => IsLightingPage && SupportsModernLightingWorkspace;
+    public int WorkspacePageIndex => IsModernLightingPage ? 1 : 0;
 
     /// <summary>Explicit navigation entry used by edit actions and direct light interaction.</summary>
     public void ShowInspectorPage(EditorInspectorPage page) => RightInspectorPageIndex = (int)page;

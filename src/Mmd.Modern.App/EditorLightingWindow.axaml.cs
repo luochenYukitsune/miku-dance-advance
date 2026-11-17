@@ -25,6 +25,7 @@ public partial class EditorLightingWindow : Window
     private void AddPoint(object? sender, RoutedEventArgs args) => ViewModel.AddLight(SceneLightKind.Point);
     private void AddSpot(object? sender, RoutedEventArgs args) => ViewModel.AddLight(SceneLightKind.Spot);
     private void AddDirectional(object? sender, RoutedEventArgs args) => ViewModel.AddLight(SceneLightKind.Directional);
+    private void AddArea(object? sender, RoutedEventArgs args) => ViewModel.AddLight(SceneLightKind.Area);
     private void RemoveLight(object? sender, RoutedEventArgs args) => ViewModel.RemoveSelectedLight();
     private void CancelLighting(object? sender, RoutedEventArgs args) => Close(null);
     private void ApplyLighting(object? sender, RoutedEventArgs args)

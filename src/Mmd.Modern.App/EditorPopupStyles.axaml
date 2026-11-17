@@ -11,39 +11,113 @@
            the popup styles; EditorWindow's own resources remain authoritative. -->
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="EditorSurface" Color="#0C0E11" />
-          <SolidColorBrush x:Key="EditorPanelSurface" Color="#13171C" />
-          <SolidColorBrush x:Key="EditorText" Color="#F2F2F2" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#B0B0B0" />
-          <SolidColorBrush x:Key="EditorDisabledText" Color="#707070" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#2E3B48" />
-          <SolidColorBrush x:Key="EditorSelection" Color="#A9BDCA" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#18222C" />
-          <SolidColorBrush x:Key="EditorHover" Color="#202D39" />
-          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#182633" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="EditorSurface" Color="#0F1216" />
+          <SolidColorBrush x:Key="EditorPanelSurface" Color="#151A20" />
+          <SolidColorBrush x:Key="EditorText" Color="#ECEFF2" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#A4ACB6" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#69717B" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#2B333D" />
+          <SolidColorBrush x:Key="EditorSelection" Color="#3DD68C" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#1B2129" />
+          <SolidColorBrush x:Key="EditorHover" Color="#222A34" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#19302A" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaDanger" Color="#C2453A" /><SolidColorBrush x:Key="MdaDangerHover" Color="#D35248" /><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="EditorSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="EditorSurface" Color="#F6F7F9" />
           <SolidColorBrush x:Key="EditorPanelSurface" Color="#FFFFFF" />
-          <SolidColorBrush x:Key="EditorText" Color="#171717" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#555555" />
-          <SolidColorBrush x:Key="EditorDisabledText" Color="#8A8A8A" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#CFDAE3" />
-          <SolidColorBrush x:Key="EditorSelection" Color="#4E6B80" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#F3F6F8" />
-          <SolidColorBrush x:Key="EditorHover" Color="#F0F4F7" />
-          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#E3ECF3" />
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="EditorText" Color="#1A1D21" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#5B636E" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#9AA1AA" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#D9DEE5" />
+          <SolidColorBrush x:Key="EditorSelection" Color="#12844A" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#EEF1F4" />
+          <SolidColorBrush x:Key="EditorHover" Color="#E9EDF2" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#DFF2E7" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaDanger" Color="#B3382E" /><SolidColorBrush x:Key="MdaDangerHover" Color="#9C2F26" /><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Styles.Resources>
+
+  <!-- One CheckBox for every window. The SukiUI 5.3.0 box takes its fill from fixed translucent
+       resources, so an unchecked box disappears on both palettes. Same named parts as Simple. -->
+  <Style Selector="CheckBox">
+    <Setter Property="Background" Value="{DynamicResource MdaButton}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid ColumnDefinitions="Auto,*" Background="Transparent">
+          <Border Name="CheckBoxBox" Width="18" Height="18" CornerRadius="4" VerticalAlignment="Center"
+                  Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <Panel>
+              <Path Name="CheckMark" Data="M 3.5 9 L 7.5 13 L 14.5 5" Stroke="{DynamicResource MdaAccentText}" StrokeThickness="2"
+                    StrokeLineCap="Round" StrokeJoin="Round" IsVisible="False" />
+              <Rectangle Name="IndeterminateMark" Width="8" Height="2" Fill="{DynamicResource MdaAccentText}" IsVisible="False" />
+            </Panel>
+          </Border>
+          <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"
+                            Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" IsVisible="{TemplateBinding Content, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="CheckBox:pointerover /template/ Border#CheckBoxBox"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
+  <Style Selector="CheckBox:checked /template/ Border#CheckBoxBox, CheckBox:indeterminate /template/ Border#CheckBoxBox">
+    <Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaAccent}" /></Style>
+  <Style Selector="CheckBox:checked /template/ Path#CheckMark"><Setter Property="IsVisible" Value="True" /></Style>
+  <Style Selector="CheckBox:indeterminate /template/ Rectangle#IndeterminateMark"><Setter Property="IsVisible" Value="True" /></Style>
+  <Style Selector="CheckBox:disabled /template/ Border#CheckBoxBox"><Setter Property="Opacity" Value="0.45" /></Style>
+  <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+  <!-- A window-wide TextBlock foreground would otherwise keep a disabled label at full contrast. -->
+  <Style Selector="CheckBox:disabled TextBlock, RadioButton:disabled TextBlock, Button:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+  <Style Selector="CheckBox:focus-visible /template/ Border#CheckBoxBox"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
+
+  <!-- One horizontal slider for every window (EditorValueSlider and the light sliders). A 4 px track with
+       an accent fill and a 14 px thumb, inside a 24 px hit area so it is easy to grab; the whole track
+       is clickable. The SukiUI 5.3.0 slider is thinner and uses its own primary colour. -->
+  <Style Selector="Slider:horizontal">
+    <Setter Property="MinHeight" Value="24" /><Setter Property="Height" Value="24" /><Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Foreground" Value="{DynamicResource MdaAccent}" /><Setter Property="Background" Value="{DynamicResource MdaButtonBorder}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid Background="Transparent">
+          <Track Name="PART_Track" Orientation="Horizontal" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                 Value="{TemplateBinding Value, Mode=TwoWay}" IsDirectionReversed="{TemplateBinding IsDirectionReversed}">
+            <Track.DecreaseButton>
+              <RepeatButton Name="PART_DecreaseButton" Focusable="False" Background="Transparent">
+                <RepeatButton.Template><ControlTemplate>
+                  <Border Background="Transparent"><Border Name="SliderFill" Height="4" CornerRadius="2,0,0,2" VerticalAlignment="Center" Background="{DynamicResource MdaAccent}" /></Border>
+                </ControlTemplate></RepeatButton.Template>
+              </RepeatButton>
+            </Track.DecreaseButton>
+            <Track.IncreaseButton>
+              <RepeatButton Name="PART_IncreaseButton" Focusable="False" Background="Transparent">
+                <RepeatButton.Template><ControlTemplate>
+                  <Border Background="Transparent"><Border Name="SliderRest" Height="4" CornerRadius="0,2,2,0" VerticalAlignment="Center" Background="{DynamicResource MdaButtonBorder}" /></Border>
+                </ControlTemplate></RepeatButton.Template>
+              </RepeatButton>
+            </Track.IncreaseButton>
+            <Thumb Name="SliderThumb" Width="14" Height="14">
+              <Thumb.Template><ControlTemplate>
+                <Border Name="ThumbKnob" Width="14" Height="14" CornerRadius="7" Background="{DynamicResource EditorPanelSurface}"
+                        BorderBrush="{DynamicResource MdaAccent}" BorderThickness="3" />
+              </ControlTemplate></Thumb.Template>
+            </Thumb>
+          </Track>
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Slider:horizontal:pointerover /template/ Thumb#SliderThumb"><Setter Property="RenderTransform" Value="scale(1.15)" /></Style>
+  <Style Selector="Slider:horizontal:focus-visible /template/ Thumb#SliderThumb"><Setter Property="RenderTransform" Value="scale(1.15)" /></Style>
+  <Style Selector="Slider:disabled"><Setter Property="Opacity" Value="0.4" /><Setter Property="Cursor" Value="Arrow" /></Style>
+  <Style Selector="Slider:empty /template/ Thumb#SliderThumb"><Setter Property="IsVisible" Value="False" /></Style>
 
   <Style Selector="MenuFlyoutPresenter, ContextMenu, ToolTip">
     <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
     <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
     <Setter Property="FontFamily" Value="{DynamicResource EditorFont}" />
-    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
   </Style>
   <Style Selector="ToolTip TextBlock, ToolTip AccessText">
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
@@ -65,7 +139,7 @@
   <Style Selector="MenuItem:selected /template/ Border#root">
     <Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" />
     <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
-    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="CornerRadius" Value="4" />
   </Style>
   <Style Selector="MenuItem:selected:pointerover /template/ Border#root">
     <Setter Property="Background" Value="{DynamicResource EditorHover}" />
@@ -118,7 +192,7 @@
   <Style Selector="Button.recoveryAction">
     <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="Foreground" Value="{DynamicResource EditorText}" />
     <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
-    <Setter Property="Padding" Value="12,5" /><Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="12,5" /><Setter Property="CornerRadius" Value="4" />
     <Setter Property="Template"><ControlTemplate>
       <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
               BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">

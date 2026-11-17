@@ -19,7 +19,7 @@ namespace Mmd.Modern.Tests;
 public sealed class OutlineEditorTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
-    private static readonly string Root = Mmd.Modern.TestSupport.TestWorkspace.Root("settings/20261113/outline659");
+    private static readonly string Root = MdaWorkRoot.Path("settings/20261113/outline659");
     private readonly string directory = Path.Combine(Root, "editor-" + Guid.NewGuid().ToString("N"));
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 

@@ -72,12 +72,12 @@ internal static partial class OriginalFrameShaders
                 "giIncrement=transport.rgb*GiSurfaceStrength; hasGiIncrement=true;");
             helper+="\n"+giBase;
             source=ReplaceRequired(source,
-                "float4 color=PSSurfaceGi(v,primitive); color.rgb+=NativeDirect(v); return color;",
+                "float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;",
                 """
                 // Additive GI keeps its accepted independent composition. Only the
                 // explicitly selected ToonPalette contract spends a shared budget.
                 if(GiAmbientShare.w<1) {
-                    float4 color=PSSurfaceGi(v,primitive); color.rgb+=NativeDirect(v); return color;
+                    float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
                 }
                 float3 giIncrement; bool hasGiIncrement;
                 float4 color=StylizedGiSurfaceBase(v,primitive,giIncrement,hasGiIncrement);
@@ -92,7 +92,7 @@ internal static partial class OriginalFrameShaders
         }
 
         source=ReplaceRequired(source,
-            "float4 color=PSSurface(v); color.rgb+=NativeDirect(v); return color;",
+            "float4 color=PSSurface(v); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;",
             """
             float4 color=PSSurface(v);
             float3 directIncrement=NativeDirect(v);

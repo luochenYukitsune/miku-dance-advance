@@ -145,6 +145,19 @@ public sealed class PreviewAdaptiveSamplingTests
         Assert.Null(quality.SpatialSamples);
     }
 
+    [Fact]
+    public void AChangedShadowFaceLayoutReconsidersAdmissionWithoutResettingForEqualLayouts()
+    {
+        var planner = new D3D12PreviewAdaptiveSampling(); var quality = new ViewQualityOptions(SpatialSamples: 8);
+        var point = new NativeSceneLight(Guid.NewGuid(), "point", SceneLightKind.Point, Vector3.Zero, Quaternion.Identity, Vector3.One);
+        planner.Prepare(1400, 621, quality, Scene(8, lighting: new([point])));
+        planner.Reduce("budget");
+        planner.Prepare(1400, 621, quality, Scene(8, lighting: new([point with { Intensity = 3 }])));
+        Assert.Equal(4, planner.SpatialSamples);
+        planner.Prepare(1400, 621, quality, Scene(8, lighting: new([point with { Kind = SceneLightKind.Spot }])));
+        Assert.Equal(8, planner.SpatialSamples);
+    }
+
     private static OriginalFrameScene Scene(int samples, SceneSnapshot? snapshot = null, SceneLightingSnapshot? lighting = null)
     {
         snapshot ??= SceneSnapshot.CreateEmpty();

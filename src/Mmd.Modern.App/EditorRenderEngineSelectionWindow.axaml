@@ -13,27 +13,25 @@
       <FontFamily x:Key="SelectionFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="SelectionSurface">#0C0E11</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionText">#F2F2F2</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionMuted">#B0B0B0</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionDisabled">#707070</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionBorder">#2E3B48</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionHover">#202D39</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionSelected">#182633</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionAccent">#7995AB</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionInput">#18222C</SolidColorBrush>
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="SelectionSurface">#0F1216</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionText">#ECEFF2</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionMuted">#A4ACB6</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionDisabled">#69717B</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionBorder">#2B333D</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionHover">#222A34</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionSelected">#19302A</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionAccent">#3DD68C</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionInput">#1B2129</SolidColorBrush><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="SelectionSurface">#FFFFFF</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionText">#171717</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionMuted">#555555</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionDisabled">#8A8A8A</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionBorder">#D8E0E7</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionHover">#F0F4F7</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionSelected">#E3ECF3</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionAccent">#516F88</SolidColorBrush>
-          <SolidColorBrush x:Key="SelectionInput">#F3F6F8</SolidColorBrush>
-        </ResourceDictionary>
+          <SolidColorBrush x:Key="SelectionSurface">#F6F7F9</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionText">#1A1D21</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionMuted">#5B636E</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionDisabled">#9AA1AA</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionBorder">#D9DEE5</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionHover">#E9EDF2</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionSelected">#DFF2E7</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionAccent">#12844A</SolidColorBrush>
+          <SolidColorBrush x:Key="SelectionInput">#EEF1F4</SolidColorBrush><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Window.Resources>
@@ -77,7 +75,7 @@
     <Style Selector="ListBoxItem:disabled TextBlock.engineName"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="32" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="14,0" />
-      <Setter Property="CornerRadius" Value="2" /><Setter Property="Background" Value="{DynamicResource SelectionSurface}" />
+      <Setter Property="CornerRadius" Value="4" /><Setter Property="Background" Value="{DynamicResource SelectionSurface}" />
       <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
       <Setter Property="Transitions"><Transitions /></Setter>
       <Setter Property="Template"><ControlTemplate>
@@ -93,6 +91,26 @@
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /></Style>
     <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /></Style>
     <Style Selector="Button:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource SelectionDisabled}" /></Style>
+  
+    <!-- MDA shared button roles (same in every window):
+         default  = input surface + border; .primary = solid brand green; .quiet = flat (cancel/close). -->
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter, ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
+    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="TabItem:selected /template/ Border"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Margin="24">
     <TextBlock Name="RenderEngineSelectionPrompt" Text="{DynamicResource Mda.Text.RenderEngineSelection.Prompt}" Margin="0,0,0,20" />
@@ -104,8 +122,8 @@
                  Classes="muted" IsVisible="False" Margin="12" />
     </Grid>
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,20,0,0">
-      <Button Name="CancelRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Cancel}" MinWidth="80" IsCancel="True" Click="CancelSelection" />
-      <Button Name="ConfirmRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Confirm}" MinWidth="104" IsDefault="True" Classes="action" Click="ConfirmSelection" />
+      <Button Classes="quiet" Name="CancelRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Cancel}" MinWidth="80" IsCancel="True" Click="CancelSelection" />
+      <Button Name="ConfirmRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Confirm}" MinWidth="104" IsDefault="True" Classes="primary" Click="ConfirmSelection" />
     </StackPanel>
   </Grid>
 </Window>

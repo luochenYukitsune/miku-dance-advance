@@ -68,7 +68,8 @@ public sealed class D3D12StarRailViewTests : IDisposable
         Assert.Equal(inputs[2].Style.FaceNormalShadeStrength, result.SurfaceStyles.EffectiveNormalShadeStrength(2));
         Assert.Equal(inputs[2].Style.FaceGeometricShadowStrength, result.SurfaceStyles.EffectiveGeometricShadowStrength(2));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles,
-            new(result.SurfaceStyles.Materials, result.SurfaceStyles.CharacterMaterials)));
+            new(result.SurfaceStyles.Materials, result.SurfaceStyles.CharacterMaterials)
+            { StylizedRoles = result.SurfaceStyles.StylizedRoles }));
         inputs[2] = inputs[2] with { Style = inputs[2].Style with { FaceGeometricShadowStrength = .75f } };
         var changed = D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles, changed.SurfaceStyles));
@@ -187,8 +188,9 @@ public sealed class D3D12StarRailViewTests : IDisposable
                 mixed.Pixels.Span.Slice(offset, length).ToArray());
         }
         byte Pixel(int material) => mixed.Pixels.Span[(height / 2 * width + ProjectX(source, (material - 1) * 1.1f, width, height)) * 4];
+        // 风格化明暗：两个画风都明显不同于 MMD，彼此之间也看得出差别。
         Assert.True(Pixel(1) > Pixel(0) + 5);
-        Assert.True(Pixel(2) > Pixel(1) + 20);
+        Assert.True(Math.Abs(Pixel(2) - Pixel(1)) > 8);
         for (int i = 3; i < mixed.Pixels.Length; i += 4) Assert.Equal(baseline.Pixels.Span[i], mixed.Pixels.Span[i]);
         using var restored = await renderer.CaptureAsync(At(2, defaults), token);
         Assert.Equal(baseline.Pixels.ToArray(), restored.Pixels.ToArray());
@@ -212,7 +214,9 @@ public sealed class D3D12StarRailViewTests : IDisposable
         using var original = await renderer.CaptureAsync(At(0, "star-rail"), token);
         using var dark = await renderer.CaptureAsync(At(1, darker.StableId), token);
         int center = (height / 2 * width + width / 2) * 4;
-        Assert.True(original.Pixels.Span[center] > dark.Pixels.Span[center] + 20);
+        // 中间的材质 1 是脸，风格化明暗几乎压平脸部，阈值的变化在身体材质（材质 2）上检查。
+        int bodyPixel = (height / 2 * width + ProjectX(source, 1.1f, width, height)) * 4;
+        Assert.True(original.Pixels.Span[bodyPixel] > dark.Pixels.Span[bodyPixel] + 20);
         var viewScene = D3D12ViewScene.Resolve(source, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality);
         var resolved = D3D12ViewRenderingStyles.Resolve(viewScene, store.Load(), [binding], face);

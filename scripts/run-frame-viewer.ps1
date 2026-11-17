@@ -16,7 +16,7 @@ param(
     [ValidateRange(0,1)][double]$RoomEmission = 0
 )
 $ErrorActionPreference = 'Stop'
-$arguments = @('run', '--project', 'src/Mmd.Modern.App', '-c', 'Release')
+$arguments = @('run', '--project', 'src/Mmd.Modern.Demo', '-c', 'Release')
 if ($CacheRoot) { $arguments += "-p:ModernCacheRoot=$([IO.Path]::GetFullPath($CacheRoot))/" }
 $arguments += @('--', '--frame-viewer')
 $arguments += @('--shadow-projection', $ShadowProjection)

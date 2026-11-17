@@ -111,7 +111,8 @@ public static class SceneAnimationProjectStore
             settings = new() { Physics = new() { CoupledSoftBodies = true, SharedWorld = state.SharedPhysicsWorld } };
         if (state.CoupledSoftBodies != (settings?.Physics.CoupledSoftBodies ?? false))
             throw new InvalidOperationException("Saved coupled-physics selection must match the active animation session.");
-        if (!composition.Objects.SequenceEqual(state.Objects) || !lighting.Lights.SequenceEqual(state.Lighting.Lights))
+        if (!composition.Objects.SequenceEqual(state.Objects) || !lighting.Lights.SequenceEqual(state.Lighting.Lights)
+            || !lighting.Groups.SequenceEqual(state.Lighting.Groups) || lighting.Settings != state.Lighting.Settings)
             throw new InvalidOperationException("The layout or lights changed after this animation session was created; rebuild the session before saving.");
         if (state.Motions.Any(binding => binding.Asset is null || !ReferenceEquals(binding.Motion, binding.Asset.Motion)))
             throw new NotSupportedException("Saving requires each bound motion's captured SceneMotionAsset; an unrelated file path cannot represent an in-memory motion.");

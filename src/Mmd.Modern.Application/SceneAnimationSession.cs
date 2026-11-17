@@ -34,7 +34,7 @@ public sealed partial class SceneAnimationSession : IDisposable
     private readonly Func<EditableSceneObject, ICharacterPhysicsBackend> physicsFactory;
     private readonly Func<EditableSceneObject, ISoftBodyBackend>? softPhysicsFactory;
     private readonly bool coupledSoftBodies;
-    private readonly SceneLightingSnapshot lighting;
+    private SceneLightingSnapshot lighting;
     private readonly IReadOnlyDictionary<string, ModelPurpose>? modelRoles;
     private OriginalFrameScene published = null!;
     private readonly ProjectSceneAssembler.CompositionCache compositionCache;
@@ -115,6 +115,7 @@ public sealed partial class SceneAnimationSession : IDisposable
         foreach (var binding in bindings) _ = Index(binding.ObjectId);
         outsideBindings = outsideParents?.ToArray() ?? [];
         var validationEntries = entries.Select(entry => entry with { Motion = bindings.SingleOrDefault(binding => binding.ObjectId == entry.Object.Id) }).ToArray();
+        ValidateLightParents(validationEntries, this.lighting);
         using (PoseEvaluationMetrics.Measure("session.constructor.control-validation"))
             ValidateControls(validationEntries);
         var initialParents = ControlParents(initialFrame);
@@ -396,13 +397,14 @@ public sealed partial class SceneAnimationSession : IDisposable
 
     private OriginalFrameScene Compose(Entry[] input, OriginalFrameScene? baseline)
     {
+        var resolvedLighting = ResolveLighting(input, lighting);
         var visible = input.Where(entry => entry.Controller?.IsVisible ?? true).ToArray();
         if (visible.Length == 0)
         {
             compositionCache.Clear(); placedFrames.Clear();
             var source = input[0].LocalFrame;
             return new(new(SceneSnapshot.CreateEmpty(source.Surface.Snapshot.Camera, source.Surface.Snapshot.LightDirection), [], source.Surface.Profile),
-                OriginalOutlineData.Empty, source.OutlineOptions, lighting: lighting);
+                OriginalOutlineData.Empty, source.OutlineOptions, lighting: resolvedLighting);
         }
         var placed = visible.Select(entry =>
         {
@@ -432,6 +434,8 @@ public sealed partial class SceneAnimationSession : IDisposable
                     }),
                     local.Lighting, local.EditorOverlay);
             local = SceneModelShadingPolicy.Apply(local, SceneModelShadingPolicy.ResolvePurpose(entry.Object, modelRoles));
+            local = new(local.Surface, local.Outline, local.OutlineOptions, local.Options,
+                local.Materials.Select(flags => flags with { LightReceiverObjectId = entry.Object.Id }), local.Lighting, local.EditorOverlay);
             if (entry.Object.World != Matrix4x4.Identity)
             {
                 var snapshot = local.Surface.Snapshot;
@@ -447,9 +451,15 @@ public sealed partial class SceneAnimationSession : IDisposable
         // Compare identities: equal-sized visible subsets can have different geometry and textures.
         var combined = compositionCache.Compose(baseline, visible.Select(entry => entry.Object.Id).ToArray(),
             visible.Select(entry => entry.Object.Source).ToArray(), placed, first.Profile.LightAmbient, first.Snapshot.LightDirection);
-        if (ReferenceEquals(combined, baseline)) return baseline!;
+        if (ReferenceEquals(combined, baseline)
+            && (ReferenceEquals(resolvedLighting, baseline!.Lighting)
+                || resolvedLighting.Lights.SequenceEqual(baseline.Lighting?.Lights ?? [])
+                    && resolvedLighting.Groups.SequenceEqual(baseline.Lighting?.Groups ?? [])
+                    && resolvedLighting.Settings == (baseline.Lighting?.Settings ?? SceneLightingSettings.Default)
+                    && resolvedLighting.AuthoredLighting.Lights.SequenceEqual(baseline.Lighting?.AuthoredLighting.Lights ?? [])
+                    && resolvedLighting.ParentTransforms.SequenceEqual(baseline.Lighting?.ParentTransforms ?? new Dictionary<SceneLightParent, Matrix4x4>()))) return baseline!;
         return new(new(combined.Surface.Snapshot, combined.Surface.Materials, first.Profile), combined.Outline, combined.OutlineOptions,
-            materials: combined.Materials, lighting: lighting);
+            materials: combined.Materials, lighting: resolvedLighting);
     }
 
     private static IReadOnlyList<SceneActorPlaybackState> CaptureStates(Entry[] input, double frame) => Array.AsReadOnly(input.Select(entry =>

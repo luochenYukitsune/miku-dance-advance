@@ -3,6 +3,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Styling;
 using System.ComponentModel;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using Avalonia.Platform.Storage;
 using Mmd.Modern.Application;
 using Mmd.Modern.App.Controls;
@@ -22,6 +23,7 @@ public partial class EditorWindow : Window
     private EditorPreferences _preferences = new();
     private bool _applyingPreferences;
     private long _mappedRevision = -1;
+    private long _mappedBindingRevision = -1;
     private SceneProjectSession? _mappedSession;
 
     public EditorWindow() : this(true) { }
@@ -35,6 +37,7 @@ public partial class EditorWindow : Window
         EditorLocalization.SetLanguage(_preferences.Language);
         InitializeComponent();
         InitializeFileDrop();
+        InitializeClassicEffects();
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
@@ -68,7 +71,10 @@ public partial class EditorWindow : Window
         AddHandler(EditorNumericUpDown.InputValidityChangedEvent, (_, _) =>
         { _shell?.Animation.RefreshInputValidation(); _shell?.SceneInspector.RefreshInputValidation(); });
         this.FindControl<EditorViewportHost>("SceneViewport")!.Error += error =>
-        { _shell?.ReportActivityFailure(error, previewUnavailable: true); };
+        {
+            if (_shell?.Workspace.RenderEngine is EditorClassicRenderEngine) LogClassicEffect(error.ToString());
+            _shell?.ReportActivityFailure(error, previewUnavailable: true);
+        };
         this.FindControl<EditorViewportHost>("SceneViewport")!.CameraPoseChanged += pose => _shell?.SceneInspector.SetCameraDraft(pose);
         this.FindControl<EditorViewportHost>("SceneViewport")!.EditorKeyPressed += OnViewportKeyPressed;
     }
@@ -78,6 +84,7 @@ public partial class EditorWindow : Window
         if (_shell is not null)
         {
             _shell.Workspace.Changed -= OnRecoveryWorkspaceChanged;
+            _shell.Workspace.Changed -= OnClassicMappingChanged;
             _shell.PropertyChanged -= OnShellPropertyChanged;
             _shell.ViewStateChanged -= RefreshViewport;
             _shell.PlayheadDiscontinuity -= InvalidateViewportPlayhead;
@@ -87,14 +94,16 @@ public partial class EditorWindow : Window
         }
         if (lightController is not null) lightController.Changed -= LightToolsChanged;
         _shell = shell;
+        RefreshClassicEffectsMenu();
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
         viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null;
         viewport.LightController = null; viewport.BoneController = null;
         if (shell is null || _shell is null) return;
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
+        shell.Workspace.Changed += OnClassicMappingChanged;
         viewport.SetRenderEngine(shell.Workspace.RenderEngine);
-        _mappedRevision = -1; _mappedSession = null;
+        _mappedRevision = -1; _mappedBindingRevision = -1; _mappedSession = null;
         shell.Animation.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         shell.SceneInspector.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         this.FindControl<EditorViewportHost>("SceneViewport")!.SnapshotProvider = CaptureEditorSnapshot;
@@ -190,7 +199,7 @@ public partial class EditorWindow : Window
                 {
                     if (!await CheckPoseDraftsAsync()) return;
                     if (File.Exists(result.Destination) && !await EditorDialogs.ConfirmAsync(this, EditorLocalization.Text("覆盖输出文件"),
-                        EditorLocalization.Text("输出文件已存在，是否覆盖？"), EditorLocalization.Text("覆盖"))) return;
+                        EditorLocalization.Text("输出文件已存在，是否覆盖？"), EditorLocalization.Text("覆盖"), destructive: true)) return;
                     await RunExportWithStatusAsync(shell, result);
                 }
             }
@@ -202,6 +211,8 @@ public partial class EditorWindow : Window
     private void RefreshViewport(object? sender, EventArgs args)
     {
         if (_shell is not { } shell || shell.IsBusy) return;
+        RefreshClassicEffectsMenu();
+        using var measure = InteractionDiagnostics.Measure("view.refresh-viewport");
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.Project = shell.Workspace.Session;
         viewport.EmptyCamera = shell.Camera;
@@ -209,7 +220,11 @@ public partial class EditorWindow : Window
         viewport.SetLightPose(shell.SceneInspector.HasLightDraft ? shell.SceneInspector.LightPose : null);
         if (_mappedRevision != shell.ContentRevision || !ReferenceEquals(_mappedSession, shell.Workspace.Session))
         {
-            viewport.SetRenderBinding(shell.Workspace.CaptureRenderBinding());
+            if (_mappedBindingRevision != shell.RenderBindingRevision || !ReferenceEquals(_mappedSession, shell.Workspace.Session))
+            {
+                viewport.SetRenderBinding(shell.Workspace.CaptureRenderBinding());
+                _mappedBindingRevision = shell.RenderBindingRevision;
+            }
             _mappedRevision = shell.ContentRevision; _mappedSession = shell.Workspace.Session;
             viewport.InvalidateTemporalHistory();
         }
@@ -370,7 +385,7 @@ public partial class EditorWindow : Window
                 token.ThrowIfCancellationRequested();
                 int choice = await EditorDialogs.ChooseAsync(this, EditorLocalization.Text("动作文字编码"),
                     EditorLocalization.Text("动作中的名称无法按 CP932（日文）读取。若此文件使用中文编码，可选择 CP936 重试。") + "\n\n" + error.Message,
-                    [EditorLocalization.Text("取消"), EditorLocalization.Text("使用 CP936 重试")]);
+                    [EditorLocalization.Text("取消"), EditorLocalization.Text("使用 CP936 重试")], primary: 1);
                 token.ThrowIfCancellationRequested();
                 if (choice != 1)
                 {
@@ -451,7 +466,7 @@ public partial class EditorWindow : Window
     {
         if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync()) return false;
         if (_shell?.Workspace.IsDirty != true) return true;
-        int answer = await EditorDialogs.ChooseAsync(this, EditorLocalization.Text("保存更改"), EditorLocalization.Text("当前工程有尚未保存的更改。"), [EditorLocalization.Text("取消"), EditorLocalization.Text("不保存"), EditorLocalization.Text("保存")]);
+        int answer = await EditorDialogs.ChooseAsync(this, EditorLocalization.Text("保存更改"), EditorLocalization.Text("当前工程有尚未保存的更改。"), [EditorLocalization.Text("取消"), EditorLocalization.Text("不保存"), EditorLocalization.Text("保存")], primary: 2);
         if (answer == 0) return false;
         if (answer == 1) return true;
         await SaveProjectAsync(false);
@@ -524,6 +539,9 @@ public partial class EditorWindow : Window
     {
         if (ExecuteEditorKey(args.Key, args.Modifiers, true)) args.Handled = true;
     }
+    private bool TextInputHasFocus() => FocusManager?.GetFocusedElement() is TextBox or NumericUpDown or ComboBox or ListBox
+        or ListBoxItem or TreeView or TreeViewItem or Button or ToggleButton or Slider
+        || (FocusManager?.GetFocusedElement() as Avalonia.Visual)?.FindAncestorOfType<TextBox>() is not null;
     private bool ExecuteEditorKey(Key key, KeyModifiers modifiers, bool fromViewport)
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
@@ -531,7 +549,14 @@ public partial class EditorWindow : Window
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
-        if (control && (key is Key.S or Key.Z or Key.Y) && !CommitPendingInlineLighting()) return true;
+        if (key == Key.E && control && modifiers.HasFlag(KeyModifiers.Shift)
+            && shell.Workspace.RenderEngine is EditorClassicRenderEngine)
+        { ToggleClassicEffects(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
+        // Saving needs a complete light draft. History navigation keeps unfinished modern
+        // light input through the inspector's pending-input projection instead of first
+        // committing a new transaction (or blocking Undo on a half-typed colour).
+        bool commitLightInput = key == Key.S || (key is Key.Z or Key.Y && !shell.IsModernLightingPage);
+        if (control && commitLightInput && !CommitPendingInlineLighting()) return true;
         System.Windows.Input.ICommand? command = (key, control, modifiers.HasFlag(KeyModifiers.Shift)) switch
         {
             (Key.O, true, _) => shell.OpenProjectCommand, (Key.N, true, _) => shell.NewProjectCommand,
@@ -539,6 +564,11 @@ public partial class EditorWindow : Window
             (Key.Z, true, true) => shell.RedoCommand, (Key.Z, true, false) => shell.UndoCommand,
             (Key.Y, true, _) => shell.RedoCommand,
             (Key.Enter or Key.K, false, false) when fromViewport => shell.Animation.RegisterKeyframeCommand,
+            // Editing keys never act while a text field or list owns the keyboard (they keep their own copy/paste/space).
+            (Key.Space, false, false) when !TextInputHasFocus() => shell.PlayCommand,
+            (Key.C, true, false) when !TextInputHasFocus() => shell.Animation.CopyKeyframesCommand,
+            (Key.V, true, false) when !TextInputHasFocus() => shell.Animation.PasteKeyframesCommand,
+            (Key.Delete, false, false) when !TextInputHasFocus() => shell.Animation.DeleteKeyframesCommand,
             _ => null
         };
         if (command?.CanExecute(null) != true) return false;

@@ -13,6 +13,9 @@ public sealed partial class D3D12SurfaceStyleMap
     public IReadOnlyList<D3D12CharacterMaterialStyle> CharacterMaterials { get; }
     public int Count => Materials.Count;
     public bool IsDefault { get; }
+    /// <summary>风格化明暗使用的材质类型，由视图层填入（手动标记优先，其余按材质名猜测）。
+    /// null 表示不启用风格化明暗：直接构造的映射保持各画风家族原有的着色输出。</summary>
+    public IReadOnlyList<D3D12CharacterMaterialRole>? StylizedRoles { get; init; }
     private SceneTexture?[]? validatedEndfieldHairTextures;
     private SceneRawRadialSeeds? validatedEndfieldRawSeeds;
     private SceneTexture?[]? validatedFaceTextures;
@@ -200,6 +203,21 @@ public sealed partial class D3D12SurfaceStyleMap
                 || treatment.ValueContrast != 0 || treatment.ShadeGamma != 1 || treatment.HairHighlightStrength != 0) ? treatment : null;
     }
 
+    /// <summary>四个画风家族普通表面上实际使用的风格化明暗。MMD 和带专用贴图绑定的材质为 null。</summary>
+    public D3D12StylizedShading? EffectiveStylizedShading(int materialIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(materialIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(materialIndex, Count);
+        // 只看实际被消费的专用绑定：强度为 0 的绑定等同于没有，仍走风格化明暗。
+        if (EffectiveFaceSdf(materialIndex) is not null || EffectiveGenshinNonMetallicSpecular(materialIndex) is not null
+            || EffectiveStarMcHair(materialIndex) is not null || EffectiveEndfieldHair(materialIndex) is not null
+            || EffectiveEndfieldRim(materialIndex) is not null || EffectiveEndfieldMatcap(materialIndex) is not null
+            || EffectiveGenshinHairShadowAtlas(materialIndex) is not null || EffectiveGenshinMetallic(materialIndex) is not null
+            || EffectiveStarMcBody(materialIndex) is not null)
+            return null;
+        return StylizedRoles is { } roles ? D3D12StylizedShadingCatalog.Resolve(Materials[materialIndex], roles[materialIndex]) : null;
+    }
+
     // Called after the existing modern response selection during recording, and with
     // frame flags during validation. Both use the same modern default when needed.
     internal CharacterToonResponse? EffectiveToonResponse(int materialIndex, CharacterToonResponse? response)
@@ -216,6 +234,7 @@ public sealed partial class D3D12SurfaceStyleMap
         if (!HasConsumedFaceSdf && !HasConsumedGenshinNonMetallicSpecular && !HasConsumedStarMcHair && !HasConsumedEndfieldHair && !HasConsumedGenshinHairShadowAtlas && !HasConsumedEndfieldMatcap && !HasConsumedGenshinMetallic && !HasConsumedStarMcBody) return this;
         var captured = new D3D12SurfaceStyleMap(Materials, CharacterMaterials)
         {
+            StylizedRoles = StylizedRoles,
             validatedGenshinAtlasLightmaps = Enumerable.Range(0, Count).Select(i => EffectiveGenshinHairShadowAtlas(i) is { } atlas
                 ? frame.Surface.Snapshot.Textures[atlas.LightmapCombinedTextureIndex] : null).ToArray(),
             validatedGenshinAtlasColors = Enumerable.Range(0, Count).Select(i => EffectiveGenshinHairShadowAtlas(i) is { } atlas
@@ -281,6 +300,7 @@ public sealed partial class D3D12SurfaceStyleMap
         if (!a!.Materials.SequenceEqual(b!.Materials)) return false;
         for (int i = 0; i < a.Count; i++)
             if (a.EffectiveEndfieldRim(i) != b.EffectiveEndfieldRim(i)
+                || a.EffectiveStylizedShading(i) != b.EffectiveStylizedShading(i)
                 || a.EffectiveNormalShadeStrength(i) != b.EffectiveNormalShadeStrength(i)
                 || a.EffectiveGeometricShadowStrength(i) != b.EffectiveGeometricShadowStrength(i)
                 || !D3D12PmxMaterialTreatment.ConsumedEquivalent(a.EffectivePmxMaterialTreatment(i), b.EffectivePmxMaterialTreatment(i))
