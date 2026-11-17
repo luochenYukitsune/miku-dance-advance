@@ -44,9 +44,10 @@ title: 从源码构建
 2. **编译**：先编 Bullet 刚体／软体和 MikkTSpace，取得固定版本 DXC，再按锁定依赖编译全部项目。
 3. **测试**：五组并行运行测试项目。云端机器没有显卡，`Category=Gpu` 的测试留给真机验收；穷举宏组合的慢速着色器编译类留在修改着色器时本地运行。标“暂不拦截”的组还有改版前就存在的失败，只报告不拦合并。
 4. **Windows 构建包**：内置现代引擎、FFmpeg、DXC、.NET 自包含运行时、FSR（AMD）／XeSS（Intel）／DLSS（NVIDIA）超分与传统（Classic）兼容引擎，并验证 Inno Setup 安装包编译通过。厂商运行库按 `tools/upscaling/manifest.json` 从官方仓库固定提交下载并校验 SHA-256，DLSS 桥接库用 MSVC 现编；能否使用由用户显卡在运行时决定。
-5. **真机 GPU 验收**（手动、可选）：在标记为 `gpu` 的自托管机器上跑真机渲染，并可要求 FSR／XeSS／DLSS 必须初始化成功。
+5. **手动推送 GitHub Release**（手动、可选）：在“构建与测试”手动运行界面勾选 `publish_release` 后，会直接复用当次编译出的双引擎安装包推送到 GitHub Releases；版本号留空时自动基于上一版末位递增 `+1`（如 `v0.1.29` → `v0.1.30`），并可通过 `prerelease` 勾选框切换预发布版或正式版。
+6. **真机 GPU 验收**（手动、可选）：在标记为 `gpu` 的自托管机器上跑真机渲染，并可要求 FSR／XeSS／DLSS 必须初始化成功。
 
-“发布预发布版”工作流（`.github/workflows/release.yml`）在推送 `v*` 版本标签或手动指定标签触发时运行：自动在云端编译包含现代引擎、三种超分与传统引擎的 `MDA-<版本>-win-x64-setup.exe` 安装包，复用并校验固定版本的 FFmpeg 对应源码附件，从上一版标签以来的提交日志（及可选 `CHANGELOG.md` 或提交正文中的 `EN:` 行）自动汇总中英双语更新说明（默认中文在前、英文在后），生成 `SHA256SUMS.txt` 后直接公开为 GitHub 预发布版本（Pre-release）。
+独立的“发布 GitHub Release”工作流（`.github/workflows/release.yml`）同样支持手动一键触发（版本号可留空自动递增，可选预发布版或正式版）以及推送 `v*` 标签自动触发：在云端编译包含现代引擎、三种超分与传统引擎的 `MDA-<版本>-win-x64-setup.exe` 安装包，复用并校验固定版本的 FFmpeg 对应源码附件，从上一版标签以来的提交日志（及可选 `CHANGELOG.md` 或提交正文中的 `EN:` 行）自动汇总中英双语更新说明（默认中文在前、英文在后），生成 `SHA256SUMS.txt` 后直接公开到 GitHub Releases。
 
 出于分发合规与仓库体积控制，以下文件**不上传**至公开源码仓库：
 - 原版 MMD Toon 贴图资源

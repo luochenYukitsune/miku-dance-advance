@@ -253,12 +253,24 @@ def main() -> None:
     p.add_argument('--output', type=pathlib.Path, required=True)
     args = p.parse_args()
 
-    m = TAG_VER_RE.fullmatch(args.tag.strip())
+    raw_tag = args.tag.strip()
+    if raw_tag and not raw_tag.startswith('v'):
+        raw_tag = 'v' + raw_tag
+    m = TAG_VER_RE.fullmatch(raw_tag)
     if not m:
         raise SystemExit(f'版本号标签格式不合法：{args.tag}（期望如 v0.1.30）')
-    version = args.tag.strip()[1:]
+    version = raw_tag[1:]
     repo = args.repo_dir.resolve()
-    prev_tag = args.previous_tag.strip() or find_previous_tag(repo, args.tag.strip())
+    prev_tag = args.previous_tag.strip()
+    if prev_tag and not prev_tag.startswith('v') and TAG_VER_RE.fullmatch('v' + prev_tag):
+        prev_tag = 'v' + prev_tag
+    if not prev_tag:
+        prev_tag = find_previous_tag(repo, raw_tag) or ''
+    if prev_tag:
+        chk = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--verify', '--quiet', prev_tag],
+                             capture_output=True, text=True)
+        if chk.returncode != 0:
+            prev_tag = find_previous_tag(repo, raw_tag) or ''
     rev_range = f'{prev_tag}..{args.target_ref}' if prev_tag else args.target_ref
 
     commits = parse_commits(repo, rev_range)

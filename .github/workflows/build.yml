@@ -8,6 +8,31 @@ on:
     paths-ignore: ['docs/**', '*.md']
   workflow_dispatch:
     inputs:
+      publish_release:
+        description: 构建通过后直接推送到 GitHub Releases
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: 发布的版本标签（如 v0.1.30；留空则按上一版末位自动 +1）
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 勾选为预发布版（Pre-release）；取消勾选则发布为正式版
+        required: false
+        type: boolean
+        default: true
+      release_notes_zh:
+        description: 可选：直接指定中文更新说明（留空则按提交日志与 CHANGELOG 汇总）
+        required: false
+        type: string
+        default: ''
+      release_notes_en:
+        description: 可选：直接指定英文更新说明（留空则按提交日志汇总）
+        required: false
+        type: string
+        default: ''
       run_gpu:
         description: 在标记为 gpu 的自托管 Windows 机器上做真机验收（含 FSR / XeSS / DLSS）
         required: false
@@ -36,11 +61,24 @@ jobs:
     name: 文案与清单检查
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.resolve-tag.outputs.tag }}
+      release_version: ${{ steps.resolve-tag.outputs.version }}
+      previous_tag: ${{ steps.resolve-tag.outputs.previous_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: 解析发布版本号
+        id: resolve-tag
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: python scripts/resolve-release-tag.py --repo "$GITHUB_REPOSITORY" --write-github-output
       - name: 三语文案（zh-CN / en / ja）及界面引用
         run: python scripts/check-localization.py
       - name: 固定版本清单是合法 JSON
@@ -174,7 +212,7 @@ jobs:
 
   windows-build:
     name: Windows 构建包
-    needs: build
+    needs: [lint, build]
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -208,16 +246,29 @@ jobs:
           ./scripts/verify-editor-optional-runtimes.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -OutputDirectory $out
           if ($LASTEXITCODE) { Write-Output '::warning::云端机器没有 D3D12 显卡，这里只检查安装是否正确。' }
         continue-on-error: true
-      - name: 验证 Inno Setup 安装包编译
+      - name: 编译 Inno Setup 安装包
         shell: pwsh
+        env:
+          RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
+          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         run: |
+          $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.1.30.0' }
           ./scripts/ci-package-installer.ps1 `
             -PublishedDirectory "${{ runner.temp }}/mda-windows" `
-            -Version "0.1.30.0" `
+            -Version $ver `
             -StageDirectory "${{ runner.temp }}/mda-stage-check" `
-            -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-check" `
+            -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-out" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
-          Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check", "${{ runner.temp }}/mda-installer-check" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check" -Recurse -Force -ErrorAction SilentlyContinue
+          if ($env:PUBLISH_RELEASE -ne 'true') {
+            Remove-Item -LiteralPath "${{ runner.temp }}/mda-installer-out" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+        with:
+          name: MDA-installer-win-x64
+          path: ${{ runner.temp }}/mda-installer-out/*.exe
+          retention-days: 7
       - name: 在摘要中列出超分文件
         shell: pwsh
         run: |
@@ -230,6 +281,51 @@ jobs:
           name: MDA-modern-development-win-x64
           path: ${{ runner.temp }}/mda-windows/
           retention-days: 14
+
+  publish-release:
+    name: 推送 GitHub Release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    needs: [lint, test, windows-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.lint.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.lint.outputs.release_version }}
+      PREVIOUS_TAG: ${{ needs.lint.outputs.previous_tag }}
+      IS_PRERELEASE: ${{ inputs.prerelease }}
+      EXTRA_ZH: ${{ inputs.release_notes_zh }}
+      EXTRA_EN: ${{ inputs.release_notes_en }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: MDA-installer-win-x64
+          path: ${{ runner.temp }}/mda-installer
+      - name: 汇总提交日志生成中英双语更新说明（中文在前）
+        run: |
+          python scripts/generate-release-notes.py \
+            --tag "$RELEASE_TAG" \
+            --target-ref "$GITHUB_SHA" \
+            --output "${{ runner.temp }}/release-notes.md"
+          cat "${{ runner.temp }}/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: 校验附件哈希并推送到 GitHub Releases
+        run: |
+          python scripts/ci-publish-release.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --installer "${{ runner.temp }}/mda-installer/MDA-${RELEASE_VERSION}-win-x64-setup.exe" \
+            --notes "${{ runner.temp }}/release-notes.md" \
+            --staging-dir "${{ runner.temp }}/release-upload" \
+            --prerelease "$IS_PRERELEASE"
 
   gpu-acceptance:
     name: 真机 GPU 验收

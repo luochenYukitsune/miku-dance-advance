@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""收集安装包与固定版本 FFmpeg GPL 源码包，生成 SHA256SUMS.txt，并直接创建/更新公开的 GitHub Pre-release。"""
+"""收集安装包与固定版本 FFmpeg GPL 源码包，生成 SHA256SUMS.txt，并创建/更新公开的 GitHub Release（支持预发布版或正式版）。"""
 from __future__ import annotations
 
 import argparse
@@ -49,7 +49,9 @@ def main() -> None:
     p.add_argument('--installer', type=pathlib.Path, required=True)
     p.add_argument('--notes', type=pathlib.Path, required=True)
     p.add_argument('--staging-dir', type=pathlib.Path, required=True)
+    p.add_argument('--prerelease', default='true', help='true 为预发布版（默认），false 为正式版')
     args = p.parse_args()
+    is_prerelease = args.prerelease.strip().lower() not in ('false', '0', 'no')
 
     if not re.fullmatch(r'v\d+\.\d+\.\d+(?:\.\d+)?', args.tag):
         raise SystemExit(f'非法的发布标签：{args.tag}')
@@ -99,27 +101,33 @@ def main() -> None:
     title = f'MDA {version}'
     if existing.returncode == 0:
         subprocess.run(['gh', 'release', 'upload', args.tag, *upload_list, '--clobber', '-R', args.repo], check=True)
-        subprocess.run([
+        edit_cmd = [
             'gh', 'release', 'edit', args.tag, '-R', args.repo,
             '--title', title, '--notes-file', str(args.notes.resolve()),
-            '--draft=false', '--prerelease'
-        ], check=True)
+            '--draft=false', f'--prerelease={"true" if is_prerelease else "false"}',
+        ]
+        if not is_prerelease:
+            edit_cmd.append('--latest')
+        subprocess.run(edit_cmd, check=True)
     else:
-        subprocess.run([
+        create_cmd = [
             'gh', 'release', 'create', args.tag, *upload_list, '-R', args.repo,
             '--target', args.commit, '--title', title,
-            '--notes-file', str(args.notes.resolve()), '--prerelease'
-        ], check=True)
+            '--notes-file', str(args.notes.resolve()),
+            '--prerelease' if is_prerelease else '--latest',
+        ]
+        subprocess.run(create_cmd, check=True)
 
     rel_info = json.loads(gh('release', 'view', args.tag, '-R', args.repo, '--json', 'url,isDraft,isPrerelease,assets'))
-    if rel_info.get('isDraft') or not rel_info.get('isPrerelease'):
-        raise SystemExit('Release 状态不符合预期（应为公开的 Pre-release）。')
+    if rel_info.get('isDraft') or bool(rel_info.get('isPrerelease')) != is_prerelease:
+        raise SystemExit('Release 发布类型状态不符合预期。')
     remote_assets = {a['name']: a.get('digest', '') for a in rel_info.get('assets', [])}
     for f in staged_files:
         expected = 'sha256:' + sha256_file(f)
         if remote_assets.get(f.name) != expected:
             raise SystemExit(f'远端附件哈希核验失败：{f.name}')
-    print('预发布版已公开：' + rel_info['url'])
+    kind_label = '预发布版' if is_prerelease else '正式版'
+    print(f'{kind_label}已公开：' + rel_info['url'])
 
 
 if __name__ == '__main__':
