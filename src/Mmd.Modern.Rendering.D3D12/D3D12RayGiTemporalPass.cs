@@ -91,12 +91,7 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         if(a.VertexCount!=b.VertexCount||!new D3D12IndexStreamIdentity(a).Equals(new D3D12IndexStreamIdentity(b))||a.Materials.Count!=b.Materials.Count)return "TopologyChanged";
         for(int i=0;i<a.Materials.Count;i++)
             if(a.Materials[i].StartIndex!=b.Materials[i].StartIndex||a.Materials[i].IndexCount!=b.Materials[i].IndexCount)return "TopologyChanged";
-        for(int chunk=0;chunk<a.VertexChunkCount;chunk++)
-        {
-            var vertices=a.GetVertexChunk(chunk);var oldVertices=b.GetVertexChunk(chunk);
-            if(D3D12ImmutableGeometry.SameStorage(vertices,oldVertices))continue;
-            for(int i=0;i<vertices.Length;i++)if(vertices[i].Uv!=oldVertices[i].Uv)return "TextureCoordinatesChanged";
-        }
+        if(!D3D12GpuSkinning.HaveSameBaseUvs(a,b))return "TextureCoordinatesChanged";
         // Compare the consumed triangle-order UV1.xy values, never stream owners or
         // unused author channels. Equal fresh poses must retain submitted history.
         var uvs=scene.SubTextureUvs;var oldUvs=previous.Scene.SubTextureUvs;

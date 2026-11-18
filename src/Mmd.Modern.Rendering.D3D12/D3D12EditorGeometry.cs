@@ -10,7 +10,8 @@ namespace Mmd.Modern.Rendering.D3D12;
 internal sealed record D3D12EditorGeometry(SceneSnapshot Scene,ID3D12Resource Surface,ID3D12Resource Indices,
     D3D12GpuCache Cache,D3D12ExpandedPositions? OriginalPositions,ID3D12Resource? OriginalOutline,
     D3D12ExpandedPositions? ModernPositions,ID3D12Resource? ModernOutline,ID3D12Resource? AdditionalUvs,
-    OriginalVisibilityBounds[]? SurfaceBounds,OriginalVisibilityBounds[]? OriginalBounds,OriginalVisibilityBounds[]? ModernBounds);
+    OriginalVisibilityBounds[]? SurfaceBounds,OriginalVisibilityBounds[]? OriginalBounds,OriginalVisibilityBounds[]? ModernBounds,
+    ID3D12Resource? WidthSource=null);
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
@@ -20,11 +21,31 @@ public sealed partial class D3D12OriginalStyleRenderer
         if(!ReferenceEquals(context.Runtime,runtime)||!runtime.IsRecording)
             throw new InvalidOperationException("Editor geometry must be borrowed from the active primary recording.");
         var scene=frame.Surface.Snapshot;
-        var positions=frame.Outline is null?null:GetEdgePositions(frame);
-        var original=positions is null?null:cache.ExpandedPositionBuffer("original-edge",positions);
+        bool deferred=scene.HasDeferredDeformation||frame.Outline?.DeferredSurface is not null;
         bool hasModern=frame.Outline is not null&&frame.Materials.Any(f=>f.CharacterOutlineStyle is not null);
-        var modernPositions=hasModern?GetOutlinePositions(frame):null;
-        var modern=modernPositions is null?null:GetCharacterOutlineBuffer(frame,cache,modernPositions);
+        D3D12ExpandedPositions? positions=null,modernPositions=null;
+        ID3D12Resource? original=null,modern=null,widthSource=null;
+        if(deferred)
+        {
+            bool needWidth=frame.Outline is not null&&frame.Materials.Any(f=>f.OutlineWidthScale!=1);
+            if(frame.Outline is not null)
+            {
+                var orig=cache.GpuSkinning.GetOutlineStreams(frame,surface,modern:false,needWidthSource:needWidth);
+                original=orig.Stream;widthSource=orig.WidthSource;
+                if(hasModern)
+                {
+                    var mod=cache.GpuSkinning.GetOutlineStreams(frame,surface,modern:true,needWidthSource:false);
+                    modern=mod.Stream;
+                }
+            }
+        }
+        else
+        {
+            positions=frame.Outline is null?null:GetEdgePositions(frame);
+            original=positions is null?null:cache.ExpandedPositionBuffer("original-edge",positions);
+            modernPositions=hasModern?GetOutlinePositions(frame):null;
+            modern=modernPositions is null?null:GetCharacterOutlineBuffer(frame,cache,modernPositions);
+        }
         ID3D12Resource? uv=null;
         if(HasSubTexture(frame))
         {
@@ -33,9 +54,9 @@ public sealed partial class D3D12OriginalStyleRenderer
         }
         bool cull=frame.Options?.EnableFrustumCulling==true;
         var surfaces=cull?GetSurfaceVisibilityBounds(scene):null;
-        var originalBounds=cull&&positions is not null?GetOutlineVisibilityBounds(scene,positions,false):null;
-        var modernBounds=cull&&modernPositions is not null?GetOutlineVisibilityBounds(scene,modernPositions,true):null;
-        return new(scene,surface,indices,cache,positions,original,modernPositions,modern,uv,surfaces,originalBounds,modernBounds);
+        var originalBounds=cull&&!deferred&&positions is not null?GetOutlineVisibilityBounds(scene,positions,false):null;
+        var modernBounds=cull&&!deferred&&modernPositions is not null?GetOutlineVisibilityBounds(scene,modernPositions,true):null;
+        return new(scene,surface,indices,cache,positions,original,modernPositions,modern,uv,surfaces,originalBounds,modernBounds,widthSource);
     }
 
     private ID3D12Resource GetCharacterOutlineBuffer(OriginalFrameScene frame,D3D12GpuCache cache,D3D12ExpandedPositions positions)

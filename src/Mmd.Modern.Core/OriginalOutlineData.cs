@@ -1,12 +1,14 @@
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Mmd.Modern.Core;
 
 public enum OriginalOutlineVertexMode { Expand, Inward }
 
 /// <summary>Already deformed model-space inputs. Normal is raw, including non-unit and zero normals.</summary>
+[StructLayout(LayoutKind.Sequential)]
 public readonly record struct OriginalOutlineVertex(Vector3 Position,Vector3 Normal,OriginalOutlineVertexMode Mode,float VertexScale,int SelectedMaterialIndex);
 internal delegate void OriginalOutlineRangeWriter(int rangeIndex, Span<OriginalOutlineVertex> destination);
 internal delegate void OriginalOutlineVertexWriter(Span<OriginalOutlineVertex> destination);

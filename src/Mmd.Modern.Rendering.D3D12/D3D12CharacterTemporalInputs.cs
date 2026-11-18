@@ -21,6 +21,8 @@ internal sealed partial class D3D12TemporalInputPass
         Vector4 GroundDirection, Vector4 PreviousGroundDirection, Vector4 OutlineScales);
 
     private D3D12GpuCache? characterCache;
+    private D3D12GpuSkinning? characterGpuSkinning;
+    private readonly D3D12VisibilityBoundsCache characterBoundsCache = new(2);
     private sealed record OutlinePositions(OriginalOutlineData Data,OriginalOutlineOptions Options,
         IReadOnlyList<OriginalFrameMaterialFlags>? Materials,D3D12ExpandedPositions Positions);
     // At most two current/previous outline payloads per technique, never a history of poses/cameras.
@@ -53,8 +55,9 @@ internal sealed partial class D3D12TemporalInputPass
     /// SubTexture uses the current primary technique's shadow-dependent alpha. Ground and expanded/inward outlines are actual geometry here.
     /// All transient resources and replaced texture sets remain leased through the recording frame's fence.</summary>
     internal D3D12TemporalInputs Record(D3D12RecordingContext context, OriginalFrameScene current,
-        OriginalFrameScene previous, int width, int height, D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame = null)
-        => RecordCharacter(context, current, previous, width, height, preparedFrame, false).Inputs!;
+        OriginalFrameScene previous, int width, int height, D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame = null,
+        D3D12GpuSkinning? gpuSkinning = null, ID3D12Resource? currentSurfaceVb = null)
+        => RecordCharacter(context, current, previous, width, height, preparedFrame, false, null, gpuSkinning, currentSurfaceVb).Inputs!;
 
     /// <summary>Output-resolution unjittered visibility for world guides. Reuses the character's
     /// alpha, texture, culling and outline coverage. Fully transparent texels do not hide guides;
@@ -65,7 +68,8 @@ internal sealed partial class D3D12TemporalInputPass
 
     private (D3D12TemporalInputs? Inputs, D3D12GpuTarget Visibility) RecordCharacter(D3D12RecordingContext context,
         OriginalFrameScene current, OriginalFrameScene previous, int width, int height,
-        D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame, bool editorVisibility,D3D12EditorGeometry? sharedGeometry = null)
+        D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame, bool editorVisibility,D3D12EditorGeometry? sharedGeometry = null,
+        D3D12GpuSkinning? gpuSkinning = null, ID3D12Resource? currentSurfaceVb = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(context); ArgumentNullException.ThrowIfNull(current); ArgumentNullException.ThrowIfNull(previous);
@@ -166,53 +170,158 @@ internal sealed partial class D3D12TemporalInputPass
             }
             runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, srvCount + 5);
             string geometryStream=editorVisibility?"character-visibility":"character-temporal";
-            var vb = sharedGeometry?.Surface??characterCache.BufferByIdentity(geometryStream+"-vertices",ResourceStates.VertexAndConstantBuffer,
-                new D3D12TemporalVertexIdentity(scene,oldScene),()=>
-                {
-                    var vertices=new CharacterTemporalVertex[scene.VertexCount];
-                    for(int i=0;i<vertices.Length;i++)
-                    {
-                        var vertex=scene.GetVertex(i);
-                        vertices[i]=new(vertex.Position,oldScene.GetVertex(i).Position,vertex.Normal,vertex.Uv,vertex.Position);
-                    }
-                    return vertices;
-                });
+            bool deferredPair=scene.HasDeferredDeformation||oldScene.HasDeferredDeformation;
+            bool sharedDeferred=sharedGeometry is not null&&scene.HasDeferredDeformation;
             var ib = sharedGeometry?.Indices??characterCache.IndexBuffer(scene);
-            if(sharedGeometry is not null)
-                commands.IASetVertexBuffers(1,new VertexBufferView(vb.GPUVirtualAddress,checked(scene.VertexCount*32),32));
-            ID3D12Resource EdgeStream(D3D12ExpandedPositions positions,D3D12ExpandedPositions previousPositions,bool textured=false)
-            {
-                return characterCache.BufferByIdentity(geometryStream+(textured?"-modern-edges":"-original-edges"),ResourceStates.VertexAndConstantBuffer,
-                    new EdgeStreamIdentity(positions,previousPositions,new D3D12VertexStreamIdentity(scene)),()=>
-                    {
-                        var edges=new CharacterTemporalVertex[positions.Length];
-                        for(int i=0;i<edges.Length;i++)
-                        {
-                            var vertex=scene.GetVertex(i);
-                            edges[i]=new(new(positions[i].X,positions[i].Y,positions[i].Z),
-                                new(previousPositions[i].X,previousPositions[i].Y,previousPositions[i].Z),
-                                textured?vertex.Normal:Vector3.Zero,textured?vertex.Uv:Vector2.Zero,vertex.Position);
-                        }
-                        return edges;
-                    });
-            }
-            D3D12ExpandedPositions? positions = current.Outline is null ? null : sharedGeometry?.OriginalPositions??GetCharacterOutlinePositions(current,false);
-            D3D12ExpandedPositions? previousPositions = previous.Outline is null ? null : sharedGeometry?.OriginalPositions??GetCharacterOutlinePositions(previous,false);
-            ID3D12Resource? groundVb = positions is null ? null : sharedGeometry?.OriginalOutline??EdgeStream(positions, previousPositions!);
+            ID3D12Resource vb;
+            ID3D12Resource? groundVb = null;
             ID3D12Resource? modernEdgeVb = null;
+            ID3D12Resource widthSource;
+            D3D12ExpandedPositions? positions = null;
             D3D12ExpandedPositions? modernPositions = null;
-            // Ground projection is defined by source geometry. Only the visible outline
-            // uses modern per-material width, including its previous-frame expansion for motion.
-            if (current.Outline is not null && (current.Materials.Any(flags => flags.CharacterOutlineStyle is not null)
-                || previous.Materials.Any(flags => flags.CharacterOutlineStyle is not null)))
-            {
-                modernPositions = sharedGeometry?.ModernPositions??GetCharacterOutlinePositions(current,true);
-                var previousModernPositions = sharedGeometry?.ModernPositions??GetCharacterOutlinePositions(previous,true);
-                modernEdgeVb = sharedGeometry?.ModernOutline??EdgeStream(modernPositions, previousModernPositions, true);
-            }
             bool scaledOutline = current.Outline is not null && (current.Materials.Any(flags => flags.OutlineWidthScale != 1)
                 || previous.Materials.Any(flags => flags.OutlineWidthScale != 1));
-            var widthSource = scaledOutline ? D3D12OutlineDrawScale.SourcePairBuffer(current.Outline!, previous.Outline!, characterCache) : vb;
+            bool hasModernOutline = current.Outline is not null && (current.Materials.Any(flags => flags.CharacterOutlineStyle is not null)
+                || previous.Materials.Any(flags => flags.CharacterOutlineStyle is not null));
+            D3D12GpuSkinning? activeSkinning = null;
+            ID3D12Resource? currSurfGpu = null, currOrigExpGpu = null, currModExpGpu = null, currWidthSrcGpu = null;
+
+            if(sharedGeometry is not null)
+            {
+                vb=sharedGeometry.Surface;
+                commands.IASetVertexBuffers(1,new VertexBufferView(vb.GPUVirtualAddress,checked(scene.VertexCount*32),32));
+                if(sharedDeferred)
+                {
+                    groundVb=sharedGeometry.OriginalOutline;
+                    modernEdgeVb=sharedGeometry.ModernOutline;
+                    widthSource=scaledOutline&&sharedGeometry.WidthSource is not null
+                        ? sharedGeometry.Cache.GpuSkinning.PackTemporalBuffer("editor-vis-width-pair",scene.VertexCount,32,4u,
+                            sharedGeometry.WidthSource,ResourceStates.VertexAndConstantBuffer,
+                            sharedGeometry.WidthSource,ResourceStates.VertexAndConstantBuffer)
+                        : vb;
+                }
+                else
+                {
+                    positions=sharedGeometry.OriginalPositions;
+                    groundVb=sharedGeometry.OriginalOutline;
+                    modernPositions=sharedGeometry.ModernPositions;
+                    modernEdgeVb=sharedGeometry.ModernOutline;
+                    widthSource=scaledOutline?D3D12OutlineDrawScale.SourcePairBuffer(current.Outline!,previous.Outline!,characterCache):vb;
+                }
+            }
+            else if(deferredPair)
+            {
+                activeSkinning=gpuSkinning??(characterGpuSkinning??=new(runtime,characterCache));
+                currSurfGpu=currentSurfaceVb
+                    ??activeSkinning.TryResolveSnapshotVerticesOnGpu(scene,"char-temp-curr-vb")
+                    ??characterCache.SceneVertexBuffer("char-temp-curr-static",scene);
+                var prevSurfGpu=ReferenceEquals(scene,oldScene) ? currSurfGpu
+                    : activeSkinning.TryResolveSnapshotVerticesOnGpu(oldScene,"char-temp-prev-vb")
+                    ??characterCache.SceneVertexBuffer("char-temp-prev-static",oldScene);
+                vb=activeSkinning.PackTemporalBuffer(geometryStream+"-vertices",scene.VertexCount,56,1u,
+                    currSurfGpu,ResourceStates.VertexAndConstantBuffer,prevSurfGpu,ResourceStates.VertexAndConstantBuffer,
+                    currSurfGpu,ResourceStates.VertexAndConstantBuffer);
+                if(current.Outline is not null)
+                {
+                    bool sameOutlineInput=ReferenceEquals(current,previous);
+                    ID3D12Resource? prevOrigExp=null,prevModExp=null,prevWidthSrc=null;
+                    if(scene.HasDeferredDeformation)
+                    {
+                        var currRes=activeSkinning.ResolveTemporalOutlineBuffers(current,currSurfGpu,true,hasModernOutline,scaledOutline,"temp-curr");
+                        currOrigExpGpu=currRes.OriginalExpanded;
+                        currModExpGpu=currRes.ModernExpanded;
+                        currWidthSrcGpu=currRes.WidthSource;
+                    }
+                    else
+                    {
+                        var cpOrig=GetCharacterOutlinePositions(current,false);
+                        currOrigExpGpu=characterCache.ExpandedPositionBuffer("char-temp-curr-orig-stat",cpOrig);
+                        if(hasModernOutline)
+                        {
+                            var cpMod=GetCharacterOutlinePositions(current,true);
+                            currModExpGpu=characterCache.ExpandedPositionBuffer("char-temp-curr-mod-stat",cpMod);
+                        }
+                        if(scaledOutline)currWidthSrcGpu=D3D12OutlineDrawScale.SourceBuffer(current.Outline,characterCache);
+                    }
+                    if(sameOutlineInput)
+                    {
+                        prevOrigExp=currOrigExpGpu;prevModExp=currModExpGpu;prevWidthSrc=currWidthSrcGpu;
+                    }
+                    else if(oldScene.HasDeferredDeformation)
+                    {
+                        var prevRes=activeSkinning.ResolveTemporalOutlineBuffers(previous,prevSurfGpu,true,hasModernOutline,scaledOutline,"temp-prev");
+                        prevOrigExp=prevRes.OriginalExpanded;
+                        prevModExp=prevRes.ModernExpanded;
+                        prevWidthSrc=prevRes.WidthSource;
+                    }
+                    else
+                    {
+                        var ppOrig=GetCharacterOutlinePositions(previous,false);
+                        prevOrigExp=characterCache.ExpandedPositionBuffer("char-temp-prev-orig-stat",ppOrig);
+                        if(hasModernOutline)
+                        {
+                            var ppMod=GetCharacterOutlinePositions(previous,true);
+                            prevModExp=characterCache.ExpandedPositionBuffer("char-temp-prev-mod-stat",ppMod);
+                        }
+                        if(scaledOutline)prevWidthSrc=D3D12OutlineDrawScale.SourceBuffer(previous.Outline!,characterCache);
+                    }
+                    groundVb=activeSkinning.PackTemporalBuffer(geometryStream+"-original-edges",scene.VertexCount,56,2u,
+                        currOrigExpGpu!,ResourceStates.VertexAndConstantBuffer,prevOrigExp!,ResourceStates.VertexAndConstantBuffer,
+                        currSurfGpu,ResourceStates.VertexAndConstantBuffer);
+                    if(hasModernOutline)
+                        modernEdgeVb=activeSkinning.PackTemporalBuffer(geometryStream+"-modern-edges",scene.VertexCount,56,3u,
+                            currModExpGpu!,ResourceStates.VertexAndConstantBuffer,prevModExp!,ResourceStates.VertexAndConstantBuffer,
+                            currSurfGpu,ResourceStates.VertexAndConstantBuffer);
+                    widthSource=scaledOutline
+                        ? activeSkinning.PackTemporalBuffer(geometryStream+"-width-source",scene.VertexCount,32,4u,
+                            currWidthSrcGpu!,ResourceStates.VertexAndConstantBuffer,prevWidthSrc!,ResourceStates.VertexAndConstantBuffer)
+                        : vb;
+                }
+                else
+                {
+                    widthSource=vb;
+                }
+            }
+            else
+            {
+                vb = characterCache.BufferByIdentity(geometryStream+"-vertices",ResourceStates.VertexAndConstantBuffer,
+                    new D3D12TemporalVertexIdentity(scene,oldScene),()=>
+                    {
+                        var vertices=new CharacterTemporalVertex[scene.VertexCount];
+                        for(int i=0;i<vertices.Length;i++)
+                        {
+                            var vertex=scene.GetVertex(i);
+                            vertices[i]=new(vertex.Position,oldScene.GetVertex(i).Position,vertex.Normal,vertex.Uv,vertex.Position);
+                        }
+                        return vertices;
+                    });
+                ID3D12Resource EdgeStream(D3D12ExpandedPositions expPos,D3D12ExpandedPositions prevExpPos,bool textured=false)
+                {
+                    return characterCache.BufferByIdentity(geometryStream+(textured?"-modern-edges":"-original-edges"),ResourceStates.VertexAndConstantBuffer,
+                        new EdgeStreamIdentity(expPos,prevExpPos,new D3D12VertexStreamIdentity(scene)),()=>
+                        {
+                            var edges=new CharacterTemporalVertex[expPos.Length];
+                            for(int i=0;i<edges.Length;i++)
+                            {
+                                var vertex=scene.GetVertex(i);
+                                edges[i]=new(new(expPos[i].X,expPos[i].Y,expPos[i].Z),
+                                    new(prevExpPos[i].X,prevExpPos[i].Y,prevExpPos[i].Z),
+                                    textured?vertex.Normal:Vector3.Zero,textured?vertex.Uv:Vector2.Zero,vertex.Position);
+                            }
+                            return edges;
+                        });
+                }
+                positions = current.Outline is null ? null : GetCharacterOutlinePositions(current,false);
+                D3D12ExpandedPositions? previousPositions = previous.Outline is null ? null : GetCharacterOutlinePositions(previous,false);
+                groundVb = positions is null ? null : EdgeStream(positions, previousPositions!);
+                if (hasModernOutline)
+                {
+                    modernPositions = GetCharacterOutlinePositions(current,true);
+                    var previousModernPositions = GetCharacterOutlinePositions(previous,true);
+                    modernEdgeVb = EdgeStream(modernPositions, previousModernPositions, true);
+                }
+                widthSource = scaledOutline ? D3D12OutlineDrawScale.SourcePairBuffer(current.Outline!, previous.Outline!, characterCache) : vb;
+            }
             // Slot three is independent of the surface, shared editor and UV1 streams.
             commands.IASetVertexBuffers(3, new VertexBufferView(widthSource.GPUVirtualAddress, checked(scene.VertexCount * 32), 32));
             var raster = camera.ViewProjection(width, height);
@@ -225,9 +334,15 @@ internal sealed partial class D3D12TemporalInputPass
                     options?.BlendMode == OriginalAlphaBlendMode.Additive ? 1 : 0, options?.SelfShadow is null ? 0 : 1, 0),
                 new(options?.GroundShadow?.ProjectionDirection ?? Vector3.UnitY, 0),
                 new(oldOptions?.GroundShadow?.ProjectionDirection ?? Vector3.UnitY, 0), Vector4.One);
-            var surfaceBounds = options?.EnableFrustumCulling == true ? sharedGeometry?.SurfaceBounds??OriginalFrustumVisibility.SurfaceMaterialBounds(scene) : null;
-            var edgeBounds = surfaceBounds is not null && positions is not null ? sharedGeometry?.OriginalBounds??D3D12VisibilityBoundsCache.PositionMaterialBounds(scene, positions) : null;
-            var modernEdgeBounds = surfaceBounds is not null && modernPositions is not null ? sharedGeometry?.ModernBounds??D3D12VisibilityBoundsCache.PositionMaterialBounds(scene, modernPositions) : null;
+            var surfaceBounds = options?.EnableFrustumCulling == true
+                ? sharedGeometry?.SurfaceBounds ?? (scene.HasDeferredDeformation ? characterBoundsCache.GetSurface(scene) : OriginalFrustumVisibility.SurfaceMaterialBounds(scene))
+                : null;
+            var edgeBounds = surfaceBounds is not null && !scene.HasDeferredDeformation && positions is not null
+                ? sharedGeometry?.OriginalBounds ?? D3D12VisibilityBoundsCache.PositionMaterialBounds(scene, positions)
+                : null;
+            var modernEdgeBounds = surfaceBounds is not null && !scene.HasDeferredDeformation && modernPositions is not null
+                ? sharedGeometry?.ModernBounds ?? D3D12VisibilityBoundsCache.PositionMaterialBounds(scene, modernPositions)
+                : null;
             commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
             commands.IASetIndexBuffer(new IndexBufferView(ib.GPUVirtualAddress, checked(scene.Indices.Length * 4), Format.R32_UInt));
             // Replay the same geometry order for both layers, with independent visibility.
@@ -315,6 +430,8 @@ internal sealed partial class D3D12TemporalInputPass
                             options is null, options?.BlendMode == OriginalAlphaBlendMode.Additive, frameWriteDepth);
                     }
             }
+            if (!editorVisibility && scene.HasDeferredDeformation && activeSkinning is not null && currSurfGpu is not null)
+                activeSkinning.CaptureTemporalSnapshot(current, currSurfGpu, currOrigExpGpu, currModExpGpu, currWidthSrcGpu);
         }
         commands.UnsetRenderTargets();
         var visibility = new D3D12GpuTarget("$editor-guide-depth", colorVisibility, colorDsv, width, height, depthFormat, true)
@@ -344,7 +461,7 @@ internal sealed partial class D3D12TemporalInputPass
     private void DisposeCharacterInputs()
     {
         foreach (var item in characterPipelines.Values) { item.State.Dispose(); item.Root.Dispose(); }
-        characterPipelines.Clear(); characterCache?.Dispose(); characterCache = null;
+        characterPipelines.Clear(); characterGpuSkinning?.Dispose(); characterGpuSkinning = null; characterCache?.Dispose(); characterCache = null;
         originalPositionsFirst=originalPositionsSecond=modernPositionsFirst=modernPositionsSecond=null;
         originalTemporalPositionCache.Clear();modernTemporalPositionCache.Clear();
     }

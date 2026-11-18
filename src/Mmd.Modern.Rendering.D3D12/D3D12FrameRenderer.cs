@@ -70,6 +70,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings {get;private set;}=[];
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
+    public D3D12GpuSkinningStatistics? GpuSkinningStatistics => cache.ExistingGpuSkinning?.Statistics;
     public string? RayGiBackendIdentity => rayGiRenderer?.LastBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities()
     {
@@ -522,7 +523,10 @@ public sealed class D3D12FrameRenderer : IDisposable
             if(temporal)
             {
                 var currentFrame=frame;
-                var coverage=(temporalInputs??=new(runtime)).Record(context,currentFrame,temporalReset?currentFrame:temporalHistory.Previous!,width,height,preparedFrame);
+                var prevTemporalFrame=temporalReset?currentFrame:temporalHistory.Previous!;
+                var skinningForTemporal=(currentFrame.Surface.Snapshot.HasDeferredDeformation||prevTemporalFrame.Surface.Snapshot.HasDeferredDeformation)
+                    ?cache.GpuSkinning:null;
+                var coverage=(temporalInputs??=new(runtime)).Record(context,currentFrame,prevTemporalFrame,width,height,preparedFrame,skinningForTemporal,vb);
                 var transfer=temporalColor??=new(runtime,cache);
                 var linear=transfer.Decode(context,output);
                 var camera=currentFrame.Options?.CameraOverride??currentFrame.Surface.Snapshot.Camera;
@@ -736,6 +740,12 @@ public sealed class D3D12FrameRenderer : IDisposable
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneSnapshot,GeometryIdentity> geometryIdentities=new();
     private GeometryIdentity GetGeometry(SceneSnapshot scene)
     {
+        if(scene.HasDeferredDeformation)
+        {
+            var vb=cache.SkinnedVertexBuffer("frame-deformed-vertices",scene.StaticVertexView,out bool wrote);
+            cache.GpuSkinning.Skin(vb,scene,wrote);
+            return new(vb,cache.IndexBuffer(scene));
+        }
         // Proven composition revisions use slot-owned partial updates. Arbitrary dynamic
         // poses preserve immutable reuse; neither path enters the permanent content cache/CWT.
         if(scene.HasDynamicVertices||scene.VertexRevision.SupportsIncrementalUpdates)

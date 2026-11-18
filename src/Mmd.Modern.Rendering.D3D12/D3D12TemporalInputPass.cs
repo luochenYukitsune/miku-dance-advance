@@ -36,6 +36,8 @@ internal sealed partial class D3D12TemporalInputPass(D3D12GpuRuntime runtime) : 
 
     private ID3D12RootSignature? root;
     private ID3D12PipelineState? pipeline;
+    private D3D12GpuCache? meshTemporalCache;
+    private D3D12GpuSkinning? meshGpuSkinning;
     private sealed record TextureCoverage(bool Opaque);
     // SceneTexture is immutable. Weak keys avoid rescanning megapixel alpha planes every frame
     // without retaining replaced scene textures or an unbounded strong-reference content cache.
@@ -81,17 +83,38 @@ internal sealed partial class D3D12TemporalInputPass(D3D12GpuRuntime runtime) : 
         commands.ClearDepthStencilView(dsv, ClearFlags.Depth, 1, 0);
         commands.RSSetViewport(0, 0, width, height, 0, 1);
         commands.RSSetScissorRect(new RawRect(0, 0, width, height));
-        commands.SetGraphicsRootSignature(root!);
-        commands.SetPipelineState(pipeline!);
-        commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
 
         if (!current.IsEmpty)
         {
-            var vertices = new TemporalVertex[current.VertexCount];
-            for (int i = 0; i < vertices.Length; i++) vertices[i] = new(current.GetVertex(i).Position, previous.GetVertex(i).Position);
-            var vb = Upload(MemoryMarshal.AsBytes(vertices.AsSpan()));
-            var ib = Upload(MemoryMarshal.AsBytes(current.Indices));
-            commands.IASetVertexBuffers(0, new VertexBufferView(vb.GPUVirtualAddress, checked(vertices.Length * 24), 24));
+            ID3D12Resource vb, ib;
+            if (current.HasDeferredDeformation || previous.HasDeferredDeformation)
+            {
+                meshTemporalCache ??= new(runtime);
+                meshGpuSkinning ??= new(runtime, meshTemporalCache);
+                var currSurf = meshGpuSkinning.TryResolveSnapshotVerticesOnGpu(current, "mesh-temp-curr")
+                    ?? meshTemporalCache.SceneVertexBuffer("mesh-temp-curr-static", current);
+                var prevSurf = ReferenceEquals(current, previous) ? currSurf
+                    : meshGpuSkinning.TryResolveSnapshotVerticesOnGpu(previous, "mesh-temp-prev")
+                    ?? meshTemporalCache.SceneVertexBuffer("mesh-temp-prev-static", previous);
+                vb = meshGpuSkinning.PackTemporalBuffer("mesh-temporal-vertices", current.VertexCount, 24, 0u,
+                    currSurf, ResourceStates.VertexAndConstantBuffer, prevSurf, ResourceStates.VertexAndConstantBuffer);
+                ib = meshTemporalCache.IndexBuffer(current);
+                if (current.HasDeferredDeformation)
+                    meshGpuSkinning.CaptureTemporalSnapshot(
+                        new(new(current, Enumerable.Repeat(new OriginalStyleMaterialBinding(Vector3.One), current.Materials.Count), OriginalStyleProfile.SelectedReference)),
+                        currSurf, null, null, null);
+            }
+            else
+            {
+                var vertices = new TemporalVertex[current.VertexCount];
+                for (int i = 0; i < vertices.Length; i++) vertices[i] = new(current.GetVertex(i).Position, previous.GetVertex(i).Position);
+                vb = Upload(MemoryMarshal.AsBytes(vertices.AsSpan()));
+                ib = Upload(MemoryMarshal.AsBytes(current.Indices));
+            }
+            commands.SetGraphicsRootSignature(root!);
+            commands.SetPipelineState(pipeline!);
+            commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
+            commands.IASetVertexBuffers(0, new VertexBufferView(vb.GPUVirtualAddress, checked(current.VertexCount * 24), 24));
             commands.IASetIndexBuffer(new IndexBufferView(ib.GPUVirtualAddress, checked(current.Indices.Length * 4), Format.R32_UInt));
             var currentUnjittered = current.Camera with { ProjectionJitterPixels = Vector2.Zero };
             var previousUnjittered = previous.Camera with { ProjectionJitterPixels = Vector2.Zero };
@@ -189,6 +212,10 @@ internal sealed partial class D3D12TemporalInputPass(D3D12GpuRuntime runtime) : 
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open frame before disposing temporal inputs.");
         runtime.WaitForIdle();
         DisposeCharacterInputs();
+        meshGpuSkinning?.Dispose();
+        meshGpuSkinning = null;
+        meshTemporalCache?.Dispose();
+        meshTemporalCache = null;
         pipeline?.Dispose();
         root?.Dispose();
         disposed = true;

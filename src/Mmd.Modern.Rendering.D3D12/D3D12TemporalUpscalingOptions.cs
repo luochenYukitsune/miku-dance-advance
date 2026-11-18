@@ -146,8 +146,7 @@ internal sealed class D3D12TemporalHistory
 
     private static bool SameUvs(SceneSnapshot a, SceneSnapshot b)
     {
-        for (int i = 0; i < a.VertexCount; i++)
-            if (a.GetVertex(i).Uv != b.GetVertex(i).Uv) return false;
+        if (!D3D12GpuSkinning.HaveSameBaseUvs(a, b)) return false;
         if (ReferenceEquals(a.AdditionalUvs, b.AdditionalUvs)) return true;
         return a.AdditionalUvs is { } x && b.AdditionalUvs is { } y
             && x.ChannelCount == y.ChannelCount && x.Vertices.SequenceEqual(y.Vertices);

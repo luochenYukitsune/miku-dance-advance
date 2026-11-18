@@ -174,7 +174,7 @@ internal static class D3D12TemporalGiMemoryBudget
             workspace=checked(workspace+2*Buffer(checked((ulong)scene.VertexCount*44))
                 +2*Buffer(checked((ulong)scene.Indices.Length*4)));
             if(frame.Outline is not null)
-                workspace=checked(workspace+2*Buffer(checked((ulong)frame.Outline.Vertices.Count*44)));
+                workspace=checked(workspace+2*Buffer(checked((ulong)frame.Outline.VertexCount*44)));
         }
         return workspace;
     }

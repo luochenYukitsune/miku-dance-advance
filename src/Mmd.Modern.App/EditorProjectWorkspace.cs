@@ -174,6 +174,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             }, "scene.vmd");
             var candidate = new SceneProjectSession(composition, lighting, motions, CreatePhysicsProvider(),
                 new ProjectSettings { BackgroundRed = 1, BackgroundGreen = 1, BackgroundBlue = 1 }, sceneMotion: sceneMotion);
+            if (ReferenceEquals(RenderEngine, EditorModernRenderEngine.Instance))
+                candidate.DeferVertexSkinningToRenderer = true;
             IEditorProjectMetadata? metadata;
             try { metadata = PrepareInitialModelMetadata(candidate); }
             catch { candidate.Dispose(); throw; }
@@ -568,7 +570,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         }
         // All schemas, renderer metadata and mapping dictionaries were prepared before old owners
         // were released. Publication only transfers complete references and does no renderer binding.
-        package = loaded.Package; Session = loaded.Package.Session; ProjectPath = recovered ? null : fullPath;
+        package = loaded.Package; Session = loaded.Package.Session;
+        if (ReferenceEquals(RenderEngine, EditorModernRenderEngine.Instance))
+            Session.DeferVertexSkinningToRenderer = true;
+        ProjectPath = recovered ? null : fullPath;
         MaterialBindings = loaded.MaterialBindings; ProjectMetadata = loaded.Metadata;
         IsDirty = recovered;
         if (notifyChanged) Changed?.Invoke(this, EventArgs.Empty);
@@ -584,6 +589,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ValidateProjectMetadata(candidate.Metadata, candidate.Session);
         CloseContent();
         Session = candidate.TakeSession();
+        if (ReferenceEquals(RenderEngine, EditorModernRenderEngine.Instance))
+            Session.DeferVertexSkinningToRenderer = true;
         ProjectMetadata = candidate.Metadata;
         standaloneSessions.Add(Session);
         foreach (var id in candidate.ModelObjects.Values)
