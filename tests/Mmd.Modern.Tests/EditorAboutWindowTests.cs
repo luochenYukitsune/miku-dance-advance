@@ -10,9 +10,9 @@ using Xunit;
 namespace Mmd.Modern.Tests;
 
 [Collection(QualityLoadingCollection.Name)]
-public sealed class EditorAboutWindowTests : IDisposable
+public sealed class EditorAboutWindowTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Theory]
@@ -147,5 +147,5 @@ public sealed class EditorAboutWindowTests : IDisposable
         return true;
     }, Token);
 
-    public void Dispose() => session.Dispose();
+    public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }

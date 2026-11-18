@@ -92,7 +92,7 @@ public sealed class TimelineModelGroupTests
 [Collection(QualityLoadingCollection.Name)]
 public sealed class TimelineModelGroupUiTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Fact]
     public async Task CategoriesStartCollapsedAndExpansionPreservesActualSelectionAndSource() => await session.Dispatch(() =>

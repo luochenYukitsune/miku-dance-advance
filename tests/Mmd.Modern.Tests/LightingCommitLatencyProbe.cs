@@ -26,7 +26,7 @@ namespace Mmd.Modern.Tests;
 [Trait("Category", "Gpu")]
 public sealed class LightingCommitLatencyProbe : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private const BindingFlags Hidden = BindingFlags.NonPublic | BindingFlags.Instance;
     private static void Pump(EditorWindow window) { Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); }
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }

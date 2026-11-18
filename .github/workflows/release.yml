@@ -120,6 +120,12 @@ jobs:
             -InstallerOutputDirectory "${{ runner.temp }}/mda-installer" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-windows", "${{ runner.temp }}/mda-stage" -Recurse -Force -ErrorAction SilentlyContinue
+      - name: 实装验证简体中文与文件关联
+        shell: pwsh
+        run: |
+          ./scripts/ci-check-installer-associations.ps1 `
+            -Installer "${{ runner.temp }}/mda-installer/MDA-$env:RELEASE_VERSION-win-x64-setup.exe" `
+            -WorkDirectory "${{ runner.temp }}/mda-associations"
       - name: 汇总提交日志生成中英双语更新说明（中文在前）
         shell: pwsh
         run: |

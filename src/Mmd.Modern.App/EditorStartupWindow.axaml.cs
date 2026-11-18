@@ -151,7 +151,7 @@ public sealed partial class EditorStartupWindow : Window
         StopLogoEntrance();
         var dots = this.FindControl<LoadingDots>("StartupDots")!;
         if (windowClosed || !IsVisible || !IsEffectivelyEnabled || WindowState == WindowState.Minimized ||
-            !dots.IsActive || !dots.AnimationsEnabled || !EditorMotionPreferences.ClientAnimationsEnabled()) return;
+            !dots.IsActive || !dots.AnimationsEnabled || !EditorMotionPreferences.ClientAnimationsEnabled(this)) return;
         logoEntrance = new CancellationTokenSource();
         var animation = new NativeAnimation
         {

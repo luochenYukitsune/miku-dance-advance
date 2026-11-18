@@ -16,7 +16,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorAreaLightAuthoringTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static NativeSceneLight Area() => new(Guid.NewGuid(), "柔光箱", SceneLightKind.Area,
         new(2, 3, 4), Quaternion.Identity, Vector3.One, AreaSize: new(8.123456f, 12.654321f));

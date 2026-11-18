@@ -299,6 +299,36 @@ public sealed class CharacterIkAppendStabilityTests
         Near(-Vector3.UnitY, sample.BoneWorldMatrices[2].Translation);
     }
 
+    // Independent planar reference for the MMD 9.32 BA200 controller. With unit links
+    // rotating only about X, forward kinematics reduce to two sine/cosine pairs in YZ.
+    // BB87E compares unit directions before each link, even when the goal is still offset.
+    private static Vector3 OriginalPlanarFoot(float hipHeight)
+    {
+        double hip = .1, knee = -.2;
+        Vector2 Segment(double angle) => new((float)-Math.Cos(angle), (float)-Math.Sin(angle));
+        var root = new Vector2(hipHeight, 0);
+        for (int iteration = 0; iteration < 256; iteration++)
+        {
+            for (int ordinal = 0; ordinal < 2; ordinal++)
+            {
+                var joint = root + Segment(hip);
+                var foot = joint + Segment(hip + knee);
+                var pivot = ordinal == 0 ? joint : root;
+                var effector = Vector2.Normalize(foot - pivot);
+                var goal = Vector2.Normalize(-pivot);
+                if (Vector2.DistanceSquared(effector, goal) < 1e-7f)
+                    return new(0, foot.X, foot.Y);
+                double angle = Math.Acos(Math.Clamp(Vector2.Dot(effector, goal), -1, 1));
+                double cross = effector.X * goal.Y - effector.Y * goal.X;
+                double turn = Math.CopySign(Math.Min(angle, .4 * 4 * (ordinal + 1)), cross);
+                if (ordinal == 0) knee = Math.Clamp(knee + turn, -Math.PI, 0);
+                else hip += turn;
+            }
+        }
+        var last = root + Segment(hip) + Segment(hip + knee);
+        return new(0, last.X, last.Y);
+    }
+
     [Fact]
     public void TwoLinkLegKeepsFootAtFixedGroundGoalWhileHipMovesAndSamplesSeek()
     {
@@ -322,8 +352,9 @@ public sealed class CharacterIkAppendStabilityTests
             snapshots.Add(frame, sample);
             var hip = sample.BoneWorldMatrices[0];
             Near(Vector3.Zero, sample.BoneWorldMatrices[3].Translation);
-            Assert.True(Vector3.Distance(sample.BoneWorldMatrices[2].Translation, Vector3.Zero) < .002f,
-                $"Frame {frame}: foot {sample.BoneWorldMatrices[2].Translation} missed its fixed ground goal.");
+            var reference = OriginalPlanarFoot((float)(1.7 + .02 * Math.Min(frame, 20 - frame)));
+            Assert.True(Vector3.Distance(sample.BoneWorldMatrices[2].Translation, reference) < .002f,
+                $"Frame {frame}: foot {sample.BoneWorldMatrices[2].Translation} differs from the MMD reference {reference}.");
             Assert.InRange(hip.Translation.Y, 1.69999f, 1.90001f);
             Assert.True(Matrix4x4.Invert(hip, out var inverseHip));
             var kneeLocal = sample.BoneWorldMatrices[1] * inverseHip;
