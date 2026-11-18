@@ -122,13 +122,16 @@ public sealed class EditorCrashLogTests : IDisposable
     }
 
     [Fact]
-    public void AWindowFilterHitRefreshesRecencySoARecurringFaultIsNotEvicted()
+    public void AWindowShowsARepeatedFaultAgainOnceAnotherFailureOrStatusReplacedIt()
     {
-        var filter = new EditorCrashLog.NoticeFilter(capacity: 2);
-        Assert.True(filter.MarkShown("a")); Assert.True(filter.MarkShown("b"));
-        Assert.True(filter.WasShown("a"));
-        Assert.True(filter.MarkShown("c"));
-        Assert.True(filter.WasShown("a")); Assert.False(filter.WasShown("b")); Assert.True(filter.WasShown("c"));
+        var gate = new EditorCrashLog.NoticeGate();
+        object a = new(), b = new();
+        Assert.True(gate.ShouldShow("A", null)); gate.Shown("A", a);
+        Assert.False(gate.ShouldShow("A", a));          // A still on the status bar: suppressed
+        Assert.True(gate.ShouldShow("B", a)); gate.Shown("B", b);
+        Assert.True(gate.ShouldShow("A", b));            // A -> B -> A: B replaced A, so A is reported again
+        Assert.True(gate.ShouldShow("B", null));         // a later non-failure status replaced B
+        Assert.True(gate.ShouldShow("B", new object())); // some other failure is displayed
     }
 
     [Fact]
@@ -150,11 +153,9 @@ public sealed class EditorCrashLogTests : IDisposable
         Assert.Equal(3, received.Count);
         Assert.Equal(3, received.Select(value => value.Signature).Distinct().Count());
         Assert.NotNull(received[0].Path); Assert.Null(received[2].Path);
-        var filter = new EditorCrashLog.NoticeFilter();
-        Assert.All(received, value => Assert.True(filter.MarkShown(value.Signature)));
-        Assert.False(filter.MarkShown(received[0].Signature));
-        filter.Clear();
-        Assert.False(filter.WasShown(received[0].Signature));
+        // Each one is shown, though the log wrote nothing for the third.
+        var gate = new EditorCrashLog.NoticeGate(); object? displayed = null;
+        foreach (var value in received) { Assert.True(gate.ShouldShow(value.Signature, displayed)); displayed = new object(); gate.Shown(value.Signature, displayed); }
     }
 
     private sealed class Third { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }

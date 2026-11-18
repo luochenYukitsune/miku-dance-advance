@@ -46,18 +46,16 @@ public partial class EditorWindow : Window
         // ReportActivityFailure puts the status bar into its failed state ("操作失败 · …") with the technical details
         // (and the log path) one click away.
         // Deduplicated per window and only after delivery: a fault raised before the shell is attached is shown the
-        // next time it happens, instead of having its one notice spent while no window could display it. Repeats are
-        // suppressed only while a failure is still on the status bar: once any later status replaced it, the next
-        // occurrence is reported again rather than leaving an unrelated success message showing.
-        var shownCrashes = new EditorCrashLog.NoticeFilter();
+        // next time it happens, instead of having its one notice spent while no window could display it. A repeat is
+        // suppressed only while the status bar still shows the failure reported for it; once anything replaced that
+        // (a later status, or another failure), the next occurrence is reported again.
+        var shownCrash = new EditorCrashLog.NoticeGate();
         Action<Exception, string, string?> crashNotice = (error, signature, path) =>
         {
-            if (!IsVisible || _shell is not { } shell) return;
-            if (shell.ActivityState != EditorActivityState.Failed) shownCrashes.Clear();
-            if (shownCrashes.WasShown(signature)) return;
-            shell.ReportActivityFailure(path is null ? error
-                : new InvalidOperationException("Unhandled UI exception; log: " + path, error));
-            shownCrashes.MarkShown(signature);
+            if (!IsVisible || _shell is not { } shell || !shownCrash.ShouldShow(signature, shell.DisplayedFailure)) return;
+            var reported = path is null ? error : new InvalidOperationException("Unhandled UI exception; log: " + path, error);
+            shell.ReportActivityFailure(reported);
+            shownCrash.Shown(signature, reported);
         };
         EditorCrashLog.UiExceptionRecorded += crashNotice;
         Closed += (_, _) => EditorCrashLog.UiExceptionRecorded -= crashNotice;

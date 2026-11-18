@@ -107,30 +107,20 @@ internal static class EditorCrashLog
         catch (Exception) { return "|" + UnknownLocation; }
     }
 
-    /// <summary>Signatures one window has already shown. Bounded and recency-ordered, independent of the log's overflow
-    /// counter, so two new faults after the log table filled are both shown once.</summary>
-    internal sealed class NoticeFilter(int capacity = 256)
+    /// <summary>One window's crash-notice deduplication, keyed by what its status bar shows right now: a fault is
+    /// suppressed only while the failure this gate reported for the same signature is still the one displayed. Any
+    /// other status (a later success, or another failure B) means the next occurrence of A is reported again. Independent
+    /// of the log's throttling, so faults sharing the log's overflow bucket are still shown.</summary>
+    internal sealed class NoticeGate
     {
-        private readonly LinkedList<string> order = new();
-        private readonly Dictionary<string, LinkedListNode<string>> shown = new(StringComparer.Ordinal);
-        /// <summary>Call only once the notice was actually delivered.</summary>
-        internal bool MarkShown(string signature)
-        {
-            if (shown.TryGetValue(signature, out var node)) { order.Remove(node); order.AddFirst(node); return false; }
-            shown.Add(signature, order.AddFirst(signature));
-            if (shown.Count > capacity) { shown.Remove(order.Last!.Value); order.RemoveLast(); }
-            return true;
-        }
-        /// <summary>A hit also counts as recent use, so a fault that keeps recurring is not evicted by a burst of new
-        /// ones and shown again.</summary>
-        /// <summary>Forget every signature, so the next fault of each is shown again.</summary>
-        internal void Clear() { order.Clear(); shown.Clear(); }
-        internal bool WasShown(string signature)
-        {
-            if (!shown.TryGetValue(signature, out var node)) return false;
-            order.Remove(node); order.AddFirst(node);
-            return true;
-        }
+        private string? signature;
+        private object? failure;
+        /// <param name="displayedFailure">The failure the status bar shows now, or null when it shows none.</param>
+        internal bool ShouldShow(string signature, object? displayedFailure) =>
+            displayedFailure is null || !ReferenceEquals(displayedFailure, failure)
+            || !string.Equals(signature, this.signature, StringComparison.Ordinal);
+        /// <summary>Call only once the notice was actually delivered, with the failure object now displayed.</summary>
+        internal void Shown(string signature, object displayedFailure) { this.signature = signature; failure = displayedFailure; }
     }
 
     /// <summary>Throw-site identity for throttling. Never throws: a DynamicMethod's MetadataToken (and other
