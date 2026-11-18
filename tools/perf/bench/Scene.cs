@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -100,13 +101,22 @@ sealed class BenchScene
     public SceneMotionAsset Camera { get; }
     public uint DurationFrames { get; }
     public IReadOnlyList<object> Animated { get; }
+    private static readonly PropertyInfo? DeferSkinningProperty = typeof(SceneAnimationSession).GetProperty("DeferVertexSkinningToRenderer");
     private readonly IProjectPhysicsBackendProvider physics = ProjectPhysicsRuntime.CreateProjectProvider();
     private readonly ProjectPhysicsSettings settings;
     public int InitializationSubsteps => physics.PoseInitializationSubsteps;
+    public bool? DeferVertexSkinningToRenderer { get; }
 
     public BenchScene(BenchConfig config, uint requiredFrames)
     {
         Config = config;
+        if (DeferSkinningProperty is { CanWrite: true } prop && prop.PropertyType == typeof(bool))
+        {
+            bool desired = true;
+            if (config.Switches.TryGetValue("DeferVertexSkinningToRenderer", out var raw) && !bool.TryParse(raw, out desired))
+                throw new ArgumentException($"--switch DeferVertexSkinningToRenderer expects true|false, got '{raw}'.");
+            DeferVertexSkinningToRenderer = desired;
+        }
         var cache = new Dictionary<string, LoadedModel>(StringComparer.OrdinalIgnoreCase);
         LoadedModel Load(string path)
         {
@@ -267,7 +277,13 @@ sealed class BenchScene
             sceneMotion: Camera, sharedPhysicsFactory: settings.SharedWorld ? () => physics.CreateShared(settings) : null,
             softPhysicsFactory: item => physics.CreateSoftBody(settings, item),
             sharedWorldGravity: settings.SharedWorld ? settings.Gravity : null);
-        try { session.StabilizePhysicsAtCurrentFrame(physics.PoseInitializationSubsteps); return session; }
+        try
+        {
+            if (DeferVertexSkinningToRenderer is { } defer && DeferSkinningProperty is { CanWrite: true } prop)
+                prop.SetValue(session, defer);
+            session.StabilizePhysicsAtCurrentFrame(physics.PoseInitializationSubsteps);
+            return session;
+        }
         catch { session.Dispose(); throw; }
     }
 
@@ -295,6 +311,7 @@ sealed class BenchScene
             materials = a.Model.Materials.Count, bodies = a.Model.RigidBodies.Count, joints = a.Model.Joints.Count,
             softBodies = a.Model.SoftBodies.Count, textures = a.Source.Surface.Snapshot.Textures.Count, loadMs = a.LoadMs }),
         sceneVertices = Objects.Sum(o => o.Source.Surface.Snapshot.VertexCount),
-        durationFrames = DurationFrames, animated = Animated, initializationSubsteps = InitializationSubsteps
+        durationFrames = DurationFrames, animated = Animated, initializationSubsteps = InitializationSubsteps,
+        deferVertexSkinningToRenderer = DeferVertexSkinningToRenderer
     };
 }
