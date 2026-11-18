@@ -276,7 +276,8 @@ internal sealed partial class D3D9SurfaceFrameEncoder
     /// densely in the native draw order instead, in the original loader's layout: pre-split accessories -1..-b, then
     /// models b+1.., then post-split accessories. Each object keeps its group and its position within it, so the
     /// drawn order is unchanged: equal orders within a group keep the order of <paramref name="packetOrder"/>, the
-    /// object rows of the native packet, which is the tie-break of the native stable sort.</summary>
+    /// object rows of the native packet, which is the tie-break of the native stable sort. Imported models at order 0
+    /// (no current object) are neither a collision nor renumbered.</summary>
     internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount,
         IReadOnlyList<Guid> packetOrder)
     {
@@ -292,7 +293,9 @@ internal sealed partial class D3D9SurfaceFrameEncoder
         int next = Math.Max(1, result.Values.DefaultIfEmpty(0).Max() + 1);
         foreach (var value in drawOrder.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex))
             result.Add(value.ObjectId, next++);
-        return result.Values.Distinct().Count() == result.Count ? result : DenseHostOrders(drawOrder, result, packetOrder);
+        // Order 0 is MME's "no current object": the host never looks it up, so imported models sharing it do not collide.
+        var nonZero = result.Values.Where(value => value != 0).ToList();
+        return nonZero.Distinct().Count() == nonZero.Count ? result : DenseHostOrders(drawOrder, result, packetOrder);
     }
 
     private static Dictionary<Guid, int> DenseHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, Dictionary<Guid, int> original,
@@ -310,8 +313,12 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             .ThenBy(value => row[value.ObjectId]).ToList();
         var result = new Dictionary<Guid, int>();
         int before = 0, after = sorted.Count(value => Group(value) == 0);
+        // An imported model whose original order is 0 keeps it: the original loader drew it with no current object, and
+        // renumbering only has to separate the objects that actually collide. It sorts first among the models (orders
+        // are never negative there), so the models after it still follow in order; an added model is never 0.
         foreach (var value in sorted)
-            result.Add(value.ObjectId, Group(value) == 0 ? -++before : ++after);
+            result.Add(value.ObjectId, Group(value) == 0 ? -++before
+                : Group(value) == 1 && !value.IsAddedAfterImport && original[value.ObjectId] == 0 ? 0 : ++after);
         return result;
     }
 

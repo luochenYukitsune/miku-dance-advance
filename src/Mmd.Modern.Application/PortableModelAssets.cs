@@ -422,15 +422,8 @@ internal static class PortableModelAssets
         string normalized = reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
         if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
             throw new InvalidDataException($"Model dependency '{reference}' must be a relative path inside the model directory.");
-        // A drive root such as "D:\" keeps its separator after trimming; append one only when it is missing.
-        string folder = Path.GetFullPath(modelDirectory);
-        if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
-        string path = Path.GetFullPath(Path.Combine(folder, normalized));
-        // Exact comparison: a per-directory case-sensitive folder can hold "mod" next to "Mod", and an ignore-case prefix
-        // would accept "..\\mod\\file.png" as inside. A plain relative reference keeps the original prefix and passes.
-        if (!path.StartsWith(folder, StringComparison.Ordinal))
-            throw new InvalidDataException($"Model dependency '{reference}' points outside the model directory.");
-        return path;
+        return ModelDirectoryPaths.ResolveContained(modelDirectory, normalized)
+            ?? throw new InvalidDataException($"Model dependency '{reference}' points outside the model directory.");
     }
 
     private static void RejectRedirects(string path)
@@ -457,5 +450,60 @@ internal static class PortableModelAssets
         public required string Name { get; init; }
         public required long Length { get; init; }
         public required string Sha256 { get; init; }
+    }
+}
+
+/// <summary>Model-relative dependency paths, one rule for loading and saving.</summary>
+public static class ModelDirectoryPaths
+{
+    /// <summary>Containment rule shared by saving (PortableModelAssets.ContainedDependency) and the editor's texture loader, without file
+    /// I/O beyond reading directory names: the full path of <paramref name="relative"/> under the model folder, or null
+    /// when it leaves the folder. A plain relative reference keeps the folder's exact prefix. A reference that climbs
+    /// out and back in with different letter case ("../MOD/a.png" for folder "Mod") is inside only when the directory
+    /// that "MOD" names on disk is the model folder itself: on a case-insensitive volume the name resolves to the same
+    /// directory, while in a case-sensitive directory holding both "mod" and "Mod" it resolves to the sibling and is
+    /// rejected. Anything still ambiguous is rejected.</summary>
+    public static string? ResolveContained(string modelDirectory, string relative)
+    {
+        // A drive root such as "D:\" keeps its separator after trimming; append one only when it is missing.
+        string folder = Path.GetFullPath(modelDirectory);
+        if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
+        string path = Path.GetFullPath(Path.Combine(folder, relative));
+        if (path.StartsWith(folder, StringComparison.Ordinal)) return path;
+        if (!path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) return null;
+        // Same letters, different case: the prefix names the model folder only if that spelling resolves to it.
+        string spelled = path[..folder.Length];
+        return SameDirectory(spelled, folder) ? folder + path[folder.Length..] : null;
+    }
+
+    private static bool SameDirectory(string spelled, string folder)
+    {
+        // Walk the spelled prefix from the deepest component that differs: each step must resolve, by its on-disk name
+        // in its parent, to exactly the corresponding component of the model folder.
+        string a = Path.TrimEndingDirectorySeparator(spelled), b = Path.TrimEndingDirectorySeparator(folder);
+        while (!string.Equals(a, b, StringComparison.Ordinal))
+        {
+            string? parentA = Path.GetDirectoryName(a), parentB = Path.GetDirectoryName(b);
+            if (parentA is null || parentB is null) return false;
+            string nameA = Path.GetFileName(a), nameB = Path.GetFileName(b);
+            if (!string.Equals(nameA, nameB, StringComparison.Ordinal))
+            {
+                try
+                {
+                    // An exact sibling with the spelled name exists: in a case-sensitive directory that is a different
+                    // folder. Otherwise the volume must map the spelling onto the model folder's own on-disk entry.
+                    var entries = new DirectoryInfo(parentB).GetDirectories();
+                    if (entries.Any(entry => string.Equals(entry.Name, nameA, StringComparison.Ordinal))) return false;
+                    if (!entries.Any(entry => string.Equals(entry.Name, nameB, StringComparison.Ordinal))) return false;
+                    if (!Directory.Exists(Path.Combine(parentB, nameA))) return false;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    return false;
+                }
+            }
+            a = parentA; b = parentB;
+        }
+        return true;
     }
 }
