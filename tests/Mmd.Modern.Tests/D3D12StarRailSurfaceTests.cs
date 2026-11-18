@@ -37,7 +37,7 @@ public sealed class D3D12StarRailSurfaceTests
         Assert.Contains("saturate(authoredLobe*SpecularPower.rgb)*highlightBand",source);
         Assert.DoesNotContain("GenshinLightResponse",source);
         if(gi||native)Assert.Contains("StarRailLightResponse(dot(normalize(v.Normal),IncomingLight.xyz),visibility)",source);
-        if(native)Assert.Contains("diffuse*remainingPalette*light.ColorIntensity.rgb",source);
+        if(native) { Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) StarRailLightResponse(dot(n,l),1)",source); Assert.DoesNotContain("remainingPalette",source); }
         if(sub)Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)",source);
     }
 
@@ -183,7 +183,7 @@ public sealed class D3D12StarRailSurfaceTests
 
     [Theory,InlineData(false),InlineData(true)]
     [Trait("Category","Gpu")]
-    public void GiAndNativeDirectUseTheSameRemainingPaletteBudget(bool native)
+    public void GiSpendsItsPaletteBudgetAndNativeDirectAddsItsFullBrightness(bool native)
     {
         using var session=new D3D12FrameSession();
         var frame=GiReceiver(native);
@@ -198,7 +198,7 @@ public sealed class D3D12StarRailSurfaceTests
         // one-sided band has blend .75. Neutral GI spends at most 25% of its contrast.
         const float blend=.75f,diffuse=.6f;
         float primaryFactor=.2f+.8f*blend;
-        float expected=diffuse*(primaryFactor+(native?(1-primaryFactor)*.05f:0))*255;
+        float expected=diffuse*(primaryFactor+(native?.05f:0))*255; // A fully lit native light adds its whole brightness below the shared shoulder.
         float budget=diffuse*.8f*(1-blend)*.25f*255;
         for(int channel=0;channel<3;channel++)Assert.InRange(Math.Abs(before[channel]-expected),0,1.1f);
         for(int channel=0;channel<3;channel++)Assert.InRange(after[channel]-before[channel],0,budget+1.1f);

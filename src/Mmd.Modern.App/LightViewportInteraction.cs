@@ -4,7 +4,8 @@ using Mmd.Modern.Core;
 namespace Mmd.Modern.App;
 
 public enum LightDragAxis { Free, X, Y, Z }
-public sealed record LightViewportHit(Guid LightId, LightDragAxis Axis);
+/// <summary>Target hits drag the primary light's aim point; the light stays in place and turns toward it.</summary>
+public sealed record LightViewportHit(Guid LightId, LightDragAxis Axis, bool Target = false);
 
 /// <summary>Pure projection/picking and world-space transforms. No HWND, renderer, or source-file edits.</summary>
 public static class LightViewportInteraction
@@ -107,6 +108,11 @@ public static class LightViewportInteraction
         SceneCamera camera, int width, int height, float size, bool rotate = false, Vector3? selectionPivot = null,
         IReadOnlyCollection<Guid>? selectedIds = null)
     {
+        if (selected is { } aimed && (selectedIds is null || selectedIds.Count == 1)
+            && lights.Lights.FirstOrDefault(light => light.Id == aimed) is { Kind: not SceneLightKind.Point } targetLight
+            && TryProject(targetLight.Target, camera, width, height, out var targetPixel)
+            && Vector2.DistanceSquared(mouse, targetPixel) <= 81)
+            return new(aimed, LightDragAxis.Free, Target: true);
         Guid? nearest = null;
         float distance = 144, depth = float.PositiveInfinity;
         foreach (var light in lights.Lights)
@@ -154,7 +160,18 @@ public static class LightViewportInteraction
             lines.Add(new(marker, marker, border, Width: 4.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
             lines.Add(new(marker, marker, color, Width: 1.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
             if (active && light.Kind != SceneLightKind.Point)
-                WorldLine(light.Position, light.Position + light.Direction * size * 1.4f, new(1, 1, .25f, 1));
+            {
+                // The primary light shows where it is actually aimed; other selected lights keep a short pointer.
+                bool primaryLight = light.Id == selected;
+                WorldLine(light.Position, primaryLight ? light.Target : light.Position + light.Direction * size * 1.4f, new(1, 1, .25f, 1),
+                    primaryLight ? 1.5f : 2.5f);
+                if (primaryLight && TryProject(light.Target, camera, width, height, out var aim))
+                {
+                    var target = new Vector2(aim.X / width, aim.Y / height);
+                    lines.Add(new(target, target, border, Width: 4.5f, Shape: ViewportOverlayShape.Square, Radius: 6));
+                    lines.Add(new(target, target, new(1, 1, .25f, 1), Width: 1.5f, Shape: ViewportOverlayShape.Square, Radius: 6));
+                }
+            }
             // Detailed coverage belongs only to the primary selection. Even 128 selected
             // authoring lights leave room for shared handles and scene guides in the 1024 budget.
             if (showDetails && light.Id == selected)
@@ -193,7 +210,8 @@ public static class LightViewportInteraction
             lines.Add(new(new(from.X / width, from.Y / height), new(to.X / width, to.Y / height), color, Width: strokeWidth));
     }
 
-    /// <summary>Actual scene-unit coverage, independent of the fixed screen-size editing handles.</summary>
+    /// <summary>Actual scene-unit coverage, independent of the fixed screen-size editing handles. Range is where
+    /// the shared falloff reaches zero (<see cref="SceneLightFalloff"/>); a spot also marks its beam at the aim distance.</summary>
     internal static IEnumerable<(Vector3 Start, Vector3 End)> DetailSegments(NativeSceneLight light)
     {
         if (light.Kind == SceneLightKind.Point)
@@ -209,6 +227,11 @@ public static class LightViewportInteraction
             var centre = light.Position + light.Direction * (light.Range * MathF.Cos(light.OuterConeRadians));
             var right = Vector3.Transform(Vector3.UnitX, light.Rotation);
             var up = Vector3.Transform(Vector3.UnitY, light.Rotation);
+            // The beam ring sits at the aim, clamped onto the cone inside the range sphere.
+            float cosine = MathF.Max(MathF.Cos(light.OuterConeRadians), 0);
+            float aim = MathF.Min(light.EffectiveAimDistance, light.Range * cosine);
+            float beam = aim * MathF.Sin(light.OuterConeRadians) / MathF.Max(cosine, 1e-6f);
+            var beamCentre = light.Position + light.Direction * aim;
             for (int step = 0; step < RingSegments; step++)
             {
                 float first = MathF.Tau * step / RingSegments, next = MathF.Tau * (step + 1) / RingSegments;
@@ -216,6 +239,9 @@ public static class LightViewportInteraction
                 var b = centre + (right * MathF.Cos(next) + up * MathF.Sin(next)) * radius;
                 yield return (a, b);
                 if (step % (RingSegments / 4) == 0) yield return (light.Position, a);
+                if (step % 2 == 0)
+                    yield return (beamCentre + (right * MathF.Cos(first) + up * MathF.Sin(first)) * beam,
+                        beamCentre + (right * MathF.Cos(next) + up * MathF.Sin(next)) * beam);
             }
         }
         else if (light.Kind == SceneLightKind.Area && light.AreaSize is { } area)

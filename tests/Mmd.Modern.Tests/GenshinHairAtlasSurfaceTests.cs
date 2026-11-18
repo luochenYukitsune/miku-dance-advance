@@ -120,7 +120,7 @@ public sealed class GenshinHairAtlasSurfaceTests
     }
 
     [Fact,Trait("Category","Gpu")]
-    public void StrongNativeLightsSpendAtlasRemainingBudgetWithoutClippingAuthoredSpecularOrMakingBlackAMissingSentinel()
+    public void StrongNativeLightsUseTheSharedShoulderWithoutClippingOrMakingBlackAMissingSentinel()
     {
         using var session=new D3D12FrameSession();
         foreach(bool gi in new[]{false,true})
@@ -134,7 +134,10 @@ public sealed class GenshinHairAtlasSurfaceTests
             // added light. It is not a missing-texture fallback to the old palette.
             AssertPixel(session.Capture(Frame(new byte[4*10*4],light:-Vector3.UnitZ),Width,Height,
                 options,surfaceStyles:Map(binding)),Vector3.Zero);
-            AssertPixel(session.Capture(frame,Width,Height,options,surfaceStyles:Map(binding)),new(.6f,.5f,.4f));
+            // Strong added light is compressed by the shared highlight shoulder (one scale for all channels),
+            // not stopped at the atlas palette endpoint: brighter than it, never clipped, hue order kept.
+            var strong=Pixel(session.Capture(frame,Width,Height,options,surfaceStyles:Map(binding)));
+            Assert.InRange((int)strong[0],154,254); Assert.True(strong[0]>=strong[1] && strong[1]>=strong[2]); Assert.Equal(255,strong[3]);
         }
     }
 

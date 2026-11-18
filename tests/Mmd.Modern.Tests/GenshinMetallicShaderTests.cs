@@ -60,8 +60,9 @@ public sealed class GenshinMetallicShaderTests
         }
         if (native)
         {
-            Assert.Equal(2, Count(source, "max(1-GenshinMetallicPalette(v,"));
-            Assert.Contains("diffuse*remainingPalette*light.ColorIntensity.rgb", source);
+            // The metal palette no longer feeds an additional-light budget; lights use the family band.
+            Assert.Equal(0, Count(source, "max(1-GenshinMetallicPalette(v,"));
+            Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) GenshinLightResponse(dot(n,l),1)", source);
             Assert.DoesNotContain("color.rgb*=GenshinMetallic", source);
         }
         if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);

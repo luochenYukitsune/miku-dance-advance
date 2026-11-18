@@ -89,7 +89,7 @@ public sealed class SceneLightingPresetTests
             Assert.ThrowsAny<ArgumentException>(() => SceneLightingPreset.Deserialize(Encoding.UTF8.GetBytes(root.ToJsonString())));
         }
         Assert.Throws<ArgumentException>(() => SceneLightingPreset.Deserialize(new byte[SceneLightingPreset.MaxFileBytes + 1]));
-        Assert.Throws<ArgumentException>(() => SceneLightingPreset.Deserialize(Encoding.UTF8.GetBytes(json.Replace("\"version\": 1", "\"version\": 1, \"version\": 1"))));
+        Assert.Throws<ArgumentException>(() => SceneLightingPreset.Deserialize(Encoding.UTF8.GetBytes(json.Replace("\"version\": 2", "\"version\": 2, \"version\": 2"))));
         // Empty selections never accidentally export an entire project.
         Assert.Throws<ArgumentException>(() => SceneLightingPreset.Capture("One", new([Light()]), []));
     }

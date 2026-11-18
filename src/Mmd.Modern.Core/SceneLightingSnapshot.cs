@@ -14,15 +14,21 @@ public sealed record SceneLightParent(Guid ObjectId, int? BoneIndex = null);
 /// Rotation orients local -Z in the direction that light travels; cone values are half angles.
 /// Position and rotation are local to Parent when present; range and AreaSize never inherit parent scaling.
 /// AreaSize is the full width/height of an area's local XY emitting rectangle, facing local -Z.
+/// AimDistance places the aim target along Direction, in scene units like Range (never parent-scaled).
+/// Intensity is the brightness received at that distance: see <see cref="SceneLightFalloff"/>.
+/// Null uses <see cref="SceneLightFalloff.DefaultAimDistance"/>.
 /// A SceneLightingSnapshot validates records before they cross the rendering boundary.
 /// </summary>
 public sealed record NativeSceneLight(Guid Id, string Name, SceneLightKind Kind, Vector3 Position,
     Quaternion Rotation, Vector3 Color, float Intensity = 1, float Range = 10,
     float InnerConeRadians = .35f, float OuterConeRadians = .7f, bool Enabled = true, bool CastShadows = true,
     Guid? GroupId = null, SceneLightParent? Parent = null, SceneLightReceivers? Receivers = null,
-    Vector2? AreaSize = null)
+    Vector2? AreaSize = null, float? AimDistance = null)
 {
     public Vector3 Direction => Vector3.Transform(-Vector3.UnitZ, Rotation);
+    public float EffectiveAimDistance => AimDistance ?? SceneLightFalloff.DefaultAimDistance(Range);
+    /// <summary>The aim point the light is pointed at. Point lights use it only as their brightness reference distance.</summary>
+    public Vector3 Target => Position + Direction * EffectiveAimDistance;
 }
 
 /// <summary>A single-level authoring group. Its enable switch and brightness multiplier never overwrite member values.</summary>
@@ -118,6 +124,8 @@ public sealed partial class SceneLightingSnapshot
             || !float.IsFinite(light.Intensity) || light.Intensity < 0
             || !float.IsFinite(light.Range) || light.Range <= 0)
             throw new ArgumentException("Light colors and intensity must be finite and nonnegative; range must be finite and positive.", nameof(light));
+        if (light.AimDistance is { } aim && (!float.IsFinite(aim) || aim <= 0))
+            throw new ArgumentException("A light aim distance must be finite and positive.", nameof(light));
         if (!float.IsFinite(light.InnerConeRadians) || !float.IsFinite(light.OuterConeRadians)
             || light.InnerConeRadians < 0 || light.InnerConeRadians >= light.OuterConeRadians
             || light.OuterConeRadians > MathF.PI / 2)

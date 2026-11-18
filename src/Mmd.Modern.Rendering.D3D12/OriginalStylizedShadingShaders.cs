@@ -23,6 +23,13 @@ internal static partial class OriginalFrameShaders
             if(gain!=1) unit=unit*gain/(1+(gain-1)*unit);
             return rgb>1?rgb:unit;
         }
+        // Additional lights take the same band as the main light; a flattened face only gains brightness
+        // from lights in front of it, without a new terminator. Unselected materials and eyes keep the family band.
+        float StylizedNativeResponse(float nDotL) {
+            float band=PREFIXLightResponse(nDotL,1);
+            if(StylizedGradeParams.z<=0 || StylizedShadeParams.x<=0) return band;
+            return lerp(band,saturate((nDotL+.35)*4),StylizedShadeParams.w);
+        }
         float4 PSSurface(SurfaceOutput v):SV_Target {
             float4 color=PSSurfaceUnstylized(v);
             // All-zero constants: an unselected material keeps the exact prior output.
@@ -84,7 +91,11 @@ internal static partial class OriginalFrameShaders
         source = Once(source, signature, "float4 PSSurfaceUnstylized(SurfaceOutput v):SV_Target");
         string helper = StylizedShadingHelper.Replace("ALBEDO", albedo, StringComparison.Ordinal)
             .Replace("PREFIX", prefix, StringComparison.Ordinal);
-        return Once(source, "struct DepthOutput {", helper + "\nstruct DepthOutput {");
+        source = Once(source, "struct DepthOutput {", helper + "\nstruct DepthOutput {");
+        // Native variants: route each additional light through the stylized response (after any family define).
+        const string native = "float3 NativeDirect(SurfaceOutput v) {";
+        return source.Contains(native, StringComparison.Ordinal) ? Once(source, native,
+            "#undef NATIVE_LIGHT_RESPONSE\n#define NATIVE_LIGHT_RESPONSE(v,n,l) StylizedNativeResponse(dot(n,l))\n" + native) : source;
     }
 
     internal static byte[] CompileStylizedFamilySurface(D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub)

@@ -45,8 +45,9 @@ public sealed class D3D12EndfieldSurfaceTests
         if(gi||native)Assert.Contains("EndfieldLightResponse(dot(normalize(v.Normal),IncomingLight.xyz),visibility)",source);
         if(native)
         {
-            Assert.Contains("remainingPalette=max(1-EndfieldPaletteFactor(EndfieldPrimaryBlend(v)),0)",source);
-            Assert.Contains("diffuse*remainingPalette*light.ColorIntensity.rgb",source);
+            // Additional lights take the family band and the shared highlight compression, not a palette budget.
+            Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) EndfieldLightResponse(dot(n,l),1)",source);
+            Assert.DoesNotContain("remainingPalette",source);
         }
         if(sub)Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)",source);
     }
@@ -225,7 +226,7 @@ public sealed class D3D12EndfieldSurfaceTests
     }
 
     [Theory,InlineData(false),InlineData(true),Trait("Category","Gpu")]
-    public void GiAndNativeDirectSpendTheSameRemainingThreeKnotPaletteBudget(bool native)
+    public void GiSpendsItsThreeKnotPaletteBudgetAndNativeDirectAddsItsFullBrightness(bool native)
     {
         using var session=new D3D12FrameSession();
         var frame=GiReceiver(native);
@@ -236,11 +237,11 @@ public sealed class D3D12EndfieldSurfaceTests
         var off=session.Capture(frame,Width,Height,surfaceStyles:map);
         var on=session.Capture(frame,Width,Height,options,surfaceStyles:map);
         var before=Pixel(off,Width/2,Height/2);var after=Pixel(on,Width/2,Height/2);
-        // NdotL=-.05 lies on the neutral midpoint. Additional direct and traced
-        // neutral illumination share the remaining half of the original palette.
+        // NdotL=-.05 lies on the neutral midpoint. Traced neutral illumination spends
+        // the remaining half of the original palette; additional direct light adds in full.
         const float blend=.5f,diffuse=.6f;
         float primaryFactor=.2f+.8f*blend;
-        float expected=diffuse*(primaryFactor+(native?(1-primaryFactor)*.05f:0))*255;
+        float expected=diffuse*(primaryFactor+(native?.05f:0))*255; // A fully lit native light adds its whole brightness below the shared shoulder.
         float budget=diffuse*.8f*(1-blend)*.25f*255;
         for(int channel=0;channel<3;channel++)Assert.InRange(Math.Abs(before[channel]-expected),0,1.1f);
         for(int channel=0;channel<3;channel++)Assert.InRange(after[channel]-before[channel],0,budget+1.1f);

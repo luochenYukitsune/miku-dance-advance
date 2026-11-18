@@ -28,7 +28,7 @@ public sealed class EditorLightViewportController
         SceneLightingSnapshot Lights, double SourceFrame, Guid? Selected, IReadOnlyList<Guid> SelectedIds, bool Rotate, SceneCamera Camera, int Width, int Height, float Size);
     private sealed record Drag(IReadOnlyList<NativeSceneLight> Lights, IReadOnlyList<NativeSceneLight> Authored,
         IReadOnlyDictionary<SceneLightParent, Matrix4x4> Parents, double SourceFrame, Vector3 Pivot, Vector2 Start,
-        SceneCamera Camera, int Width, int Height, LightDragAxis Axis, bool Rotate);
+        SceneCamera Camera, int Width, int Height, LightDragAxis Axis, bool Rotate, bool Target = false);
 
     public EditorLightViewportController(EditorProjectWorkspace workspace, Action<EditorLightingDraft> commit, Action requestRender,
         bool modernLightingWorkspace = true)
@@ -187,7 +187,7 @@ public sealed class EditorLightViewportController
         var originals = pose.Lights.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         editor.BeginEdit(); drag = new(originals, authored, pose.Lights.ParentTransforms, pose.SourceFrame,
             SelectionPivot(pose.Lights)!.Value, new(x, y), pose.Camera, width, height, hit.Axis,
-            rotating && hit.Axis != LightDragAxis.Free); Notify(); return true;
+            rotating && hit.Axis != LightDragAxis.Free && !hit.Target, hit.Target); Notify(); return true;
     }
 
     public bool MoveDrag(int x, int y)
@@ -198,17 +198,23 @@ public sealed class EditorLightViewportController
         var rotation = delta == Vector2.Zero || !gesture.Rotate ? Quaternion.Identity
             : LightViewportInteraction.RotateOnAxis(Quaternion.Identity, gesture.Pivot,
                 gesture.Start, new(x, y), gesture.Camera, gesture.Width, gesture.Height, gesture.Axis);
-        var translation = delta == Vector2.Zero || gesture.Rotate ? Vector3.Zero
+        var translation = delta == Vector2.Zero || gesture.Rotate || gesture.Target ? Vector3.Zero
             : LightViewportInteraction.Translate(gesture.Pivot, delta, gesture.Camera, gesture.Width, gesture.Height, gesture.Axis) - gesture.Pivot;
+        // A single light keeps looking at its aim target while it moves; the target handle turns it in place.
+        // Several lights move rigidly, targets included.
+        bool keepAim = gesture.Lights.Count == 1 && gesture.Lights[0].Kind != SceneLightKind.Point;
         var replacements = new Dictionary<Guid, NativeSceneLight>();
         SceneLightingSnapshot next;
         try
         {
           foreach (var original in gesture.Lights)
           {
-            var light = delta == Vector2.Zero ? original : gesture.Rotate
+            var light = delta == Vector2.Zero ? original : gesture.Target
+                ? SceneLightAim.AimAt(original, LightViewportInteraction.Translate(original.Target, delta, gesture.Camera, gesture.Width, gesture.Height))
+                : gesture.Rotate
                 ? original with { Position = gesture.Pivot + Vector3.Transform(original.Position - gesture.Pivot, rotation),
                     Rotation = Quaternion.Normalize(rotation * original.Rotation) }
+                : keepAim ? SceneLightAim.AimAt(original with { Position = original.Position + translation }, original.Target)
                 : original with { Position = original.Position + translation };
             var authored = gesture.Authored.Single(source => source.Id == original.Id);
             // A zero-motion gesture preserves even the original quaternion sign and exact

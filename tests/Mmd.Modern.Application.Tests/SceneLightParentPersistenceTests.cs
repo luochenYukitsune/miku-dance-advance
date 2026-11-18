@@ -72,7 +72,7 @@ public sealed class SceneLightParentPersistenceTests
         if (version == 1) json.AsObject().Remove("groups");
         var restored = new SceneLightingEditor();
         Assert.True(restored.TryLoadSidecar(json.ToJsonString(), out var error), error);
-        Assert.Equal(light, Assert.Single(restored.Lights));
+        Assert.Equal(SceneLightFalloff.FromLegacy(light), Assert.Single(restored.Lights));
         Assert.Null(restored.Lights[0].Parent);
     }
 

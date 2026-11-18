@@ -119,7 +119,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             if (light.Kind == SceneLightKind.Directional && projections[i].Length > 0)
                 worldBias = .00015f / MathF.Sqrt(projections[i][0].M11 * projections[i][0].M11 + projections[i][0].M21 * projections[i][0].M21 + projections[i][0].M31 * projections[i][0].M31);
             constants.Lights[i] = new(new(light.Position, (float)light.Kind), new(NativeLightShadowProjection.Direction(light), light.Range),
-                new(light.Color, light.Intensity), NativeAreaLight.Cone(light, projections[i].Length > 0 ? faceCount : -1, worldBias),
+                new(light.Color, SceneLightFalloff.RenderIntensity(light)), NativeAreaLight.Cone(light, projections[i].Length > 0 ? faceCount : -1, worldBias),
                 new(light.Kind == SceneLightKind.Area ? NativeAreaLight.Right(light) : Vector3.Zero, atlasTile));
             for (int face = 0; face < projections[i].Length; face++) constants.Matrices[faceCount++] = projections[i][face];
             atlasTile += light.Kind == SceneLightKind.Area ? projections[i].Length / NativeAreaLight.Samples : projections[i].Length;

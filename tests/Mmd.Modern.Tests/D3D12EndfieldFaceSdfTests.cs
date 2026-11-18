@@ -217,9 +217,10 @@ public sealed class D3D12EndfieldFaceSdfTests
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(light: -Vector3.UnitX);
+        // Authored in the original I / d^2 units, matched at the sampled face distance.
         var lit = new OriginalFrameScene(frame.Surface, options: frame.Options, lighting: new([
-            new NativeSceneLight(Guid.NewGuid(), "original packed point fixture", SceneLightKind.Point,
-                Vector3.Zero, Quaternion.Identity, Vector3.One, .25f, 20, CastShadows: false)]));
+            SceneLightFalloff.FromLegacy(new NativeSceneLight(Guid.NewGuid(), "original packed point fixture", SceneLightKind.Point,
+                Vector3.Zero, Quaternion.Identity, Vector3.One, .25f, 20, CastShadows: false, AimDistance: .8f))]));
         var off = session.Capture(frame, Width, Height, surfaceStyles: Map(Binding()));
         var on = session.Capture(lit, Width, Height, surfaceStyles: Map(Binding()));
         var left = Project(frame, new(-.6f, .55f, 0)); var right = Project(frame, new(.6f, .55f, 0));

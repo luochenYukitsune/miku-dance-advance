@@ -30,6 +30,10 @@ public static class SceneProjectStore
     public const int PortableLightingAreasVersion = 10;
     public const int LightingSettingsVersion = 11;
     public const int PortableLightingSettingsVersion = 12;
+    /// <summary>Aim-normalized light falloff. Any document with lights is written in this version;
+    /// lights from earlier versions are converted on load.</summary>
+    public const int LightingFalloffVersion = 13;
+    public const int PortableLightingFalloffVersion = 14;
     public const int MaxObjects = 1024;
     public const int MaxDocumentBytes = 16 * 1024 * 1024;
     private static readonly UTF8Encoding Utf8 = new(false, true);
@@ -55,10 +59,12 @@ public static class SceneProjectStore
         bool hasParents = lighting.Lights.Any(light => light.Parent is not null);
         bool hasReceivers = lighting.Lights.Any(light => light.Receivers is not null);
         bool hasAreas = lighting.Lights.Any(light => light.Kind == SceneLightKind.Area || light.AreaSize is not null);
-        bool hasSettings = lighting.Settings != SceneLightingSettings.Default;
+        bool hasFalloff = lighting.Lights.Count > 0;
+        bool hasSettings = hasFalloff || lighting.Settings != SceneLightingSettings.Default;
         var document = new Document
         {
-            Format = Format, Version = hasSettings ? (portable is null ? LightingSettingsVersion : PortableLightingSettingsVersion)
+            Format = Format, Version = hasFalloff ? (portable is null ? LightingFalloffVersion : PortableLightingFalloffVersion)
+                : hasSettings ? (portable is null ? LightingSettingsVersion : PortableLightingSettingsVersion)
                 : hasAreas ? (portable is null ? LightingAreasVersion : PortableLightingAreasVersion)
                 : hasReceivers ? (portable is null ? LightingReceiversVersion : PortableLightingReceiversVersion)
                 : hasParents ? (portable is null ? LightingParentsVersion : PortableLightingParentsVersion)
@@ -223,15 +229,16 @@ public static class SceneProjectStore
     {
         if (document.Format != Format || document.Version is not (Version or PortableVersion or LightingGroupsVersion or PortableLightingGroupsVersion
             or LightingParentsVersion or PortableLightingParentsVersion or LightingReceiversVersion or PortableLightingReceiversVersion
-            or LightingAreasVersion or PortableLightingAreasVersion or LightingSettingsVersion or PortableLightingSettingsVersion))
+            or LightingAreasVersion or PortableLightingAreasVersion or LightingSettingsVersion or PortableLightingSettingsVersion
+            or LightingFalloffVersion or PortableLightingFalloffVersion))
             throw new JsonException("Unsupported scene format or version.");
         if (document.Version < LightingSettingsVersion && document.HasSettingsField)
-            throw new JsonException("Global lighting settings require static layout version 11 or 12.");
+            throw new JsonException("Global lighting settings require static layout version 11 through 14.");
         if (document.Version >= LightingSettingsVersion && document.Settings is null)
-            throw new JsonException("A non-null settings object is required in static layout version 11 or 12.");
+            throw new JsonException("A non-null settings object is required in static layout version 11 through 14.");
         if (document.Objects is null || document.Objects.Length is < 1 or > MaxObjects || document.Lights is null)
             throw new JsonException("A scene requires an objects array within the supported budget and a lights array.");
-        bool portable = document.Version is PortableVersion or PortableLightingGroupsVersion or PortableLightingParentsVersion or PortableLightingReceiversVersion or PortableLightingAreasVersion or PortableLightingSettingsVersion;
+        bool portable = document.Version is PortableVersion or PortableLightingGroupsVersion or PortableLightingParentsVersion or PortableLightingReceiversVersion or PortableLightingAreasVersion or PortableLightingSettingsVersion or PortableLightingFalloffVersion;
         bool grouped = document.Version >= LightingGroupsVersion;
         if (document.Version < LightingAreasVersion && document.Lights.Any(item => item?.HasAreaSizeField == true || item?.Kind == SceneLightKind.Area))
             throw new JsonException("Area lights and dimensions require static layout version 9 or 10.");
@@ -240,11 +247,11 @@ public static class SceneProjectStore
         if (document.Version < LightingParentsVersion && document.Lights.Any(item => item?.HasParentField == true))
             throw new JsonException("Light parents require static layout version 5 or 6.");
         if (portable != (document.PortableModels is not null))
-            throw new JsonException("Portable model metadata requires static layout version 2, 4, 6, 8, 10 or 12.");
+            throw new JsonException("Portable model metadata requires static layout version 2, 4, 6, 8, 10, 12 or 14.");
         if (grouped && document.Groups is null)
-            throw new JsonException("A groups array is required in static layout version 3 through 12.");
+            throw new JsonException("A groups array is required in static layout version 3 through 14.");
         if (!grouped && (document.Groups is not null || document.Lights.Any(item => item?.GroupId is not null)))
-            throw new JsonException("Light groups and membership require static layout version 3 through 12.");
+            throw new JsonException("Light groups and membership require static layout version 3 through 14.");
         var ids = new HashSet<Guid>();
         foreach (var item in document.Objects)
         {
@@ -262,7 +269,8 @@ public static class SceneProjectStore
         }
         PortableModelAssets.ValidateMetadata(document.PortableModels, document.Objects.Select(item => item.SourcePath));
         if (document.SelectedObjectId.HasValue && !ids.Contains(document.SelectedObjectId.Value)) throw new JsonException("Selected object does not exist.");
-        var lights = new SceneLightingSnapshot(document.Lights.Select(item => item?.ToLight() ?? throw new JsonException("Null light.")),
+        bool legacyFalloff = document.Version < LightingFalloffVersion;
+        var lights = new SceneLightingSnapshot(document.Lights.Select(item => item?.ToLight(legacyFalloff) ?? throw new JsonException("Null light.")),
             document.Groups?.Select(item => item?.ToGroup() ?? throw new JsonException("Null light group.")), document.Settings?.ToSettings());
         if (lights.Lights.Any(light => light.Parent is { } parent && !ids.Contains(parent.ObjectId)))
             throw new JsonException("A light parent must reference a model in the same layout.");

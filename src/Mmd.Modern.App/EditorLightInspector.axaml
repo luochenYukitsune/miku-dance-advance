@@ -89,10 +89,10 @@
           </StackPanel>
           <Grid ColumnDefinitions="*,100">
             <TextBlock Text="{Binding BrightnessLabel}" VerticalAlignment="Center" />
-            <validated:EditorNumericUpDown Name="InlineLightIntensity" Grid.Column="1" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Minimum="0" Increment="0.25" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c56114268030}" />
+            <validated:EditorNumericUpDown Name="InlineLightIntensity" Grid.Column="1" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Minimum="0" Increment="0.05" FormatString="0.###" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c56114268030}" />
           </Grid>
           <validated:EditorLightParameterSlider Name="LightBrightnessSlider" Tag="brightness" IsVisible="{Binding UseModernControls}"
-              Minimum="0" Maximum="8" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
+              Minimum="0" Maximum="3" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
               EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
               AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Brightness}" />
           <StackPanel Spacing="10" IsVisible="{Binding UseModernControls}">
@@ -149,6 +149,7 @@
               </StackPanel>
             </StackPanel>
             <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.SliderHint}" Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.AimHint}" Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
           <Expander Name="InlineLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.d6e61888b078}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
             <StackPanel Spacing="12" Margin="0,10,0,0">

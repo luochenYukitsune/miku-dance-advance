@@ -1438,6 +1438,7 @@
   "Mda.Text.Context.Lighting.EdgeSoftness": "境界の柔らかさ（%）",
   "Mda.Text.Context.Lighting.SoftnessHint": "0 はほぼ硬い境界です。値を上げるほど光束の境界が柔らかくなります。",
   "Mda.Text.Context.Lighting.SliderHint": "ドラッグでプレビュー、離すと適用。Esc で取り消します。数値で微調整できます。保存済みの値はスライダーの範囲に制限されません。",
+  "Mda.Text.Context.Lighting.AimHint": "明るさは照射先が受ける明るさで、1 でメインライトと同程度です。照射距離の外には光が届きません。ビューポートの黄色い四角をドラッグすると照射先を変えられ、ライトを動かしても照射先を向き続けます。",
   "Mda.Text.Context.Lighting.ObjectsTab": "オブジェクト",
   "Mda.Text.Context.Lighting.Search": "ライトを検索…",
   "Mda.Text.Context.Lighting.EmptySearch": "一致するライトがありません。ライトを追加するか、検索条件を変更してください。",

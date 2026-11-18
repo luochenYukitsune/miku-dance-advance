@@ -173,6 +173,7 @@ internal static class D3D12RayGiShaders
     private const string NativeLightSource="""
         struct GiNativeLight { float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; float4 AreaRightTile; };
         StructuredBuffer<GiNativeLight> GiNativeLights:register(t9);
+        NATIVE_LIGHT_MODEL
         float3 GiNativeOutgoing(uint triangleIndex,float2 bary,float3 q,float3 normal) {
             float3 incident=0;
             if(GiReserved.z>0) incident=GiReserved.z.xxx;
@@ -195,16 +196,7 @@ internal static class D3D12RayGiShaders
                 float distanceSquared=max(rawDistanceSquared,.0001);
                 float distance=sqrt(rawDistanceSquared);
                 float3 toward=light.PositionKind.w==0?-light.DirectionRange.xyz:delta/distance;
-                float attenuation=1;
-                if(light.PositionKind.w!=0) {
-                    float ratioSquared=distanceSquared/(light.DirectionRange.w*light.DirectionRange.w);
-                    attenuation=saturate(1-ratioSquared*ratioSquared)/distanceSquared;
-                }
-                if(light.PositionKind.w==2) {
-                    float angular=saturate((dot(-toward,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
-                    attenuation*=angular*angular;
-                }
-                if(light.PositionKind.w==3) attenuation*=saturate(dot(-toward,light.DirectionRange.xyz));
+                float attenuation=NativeLightAttenuation(light.PositionKind,light.DirectionRange,light.ConeShadow,distanceSquared,toward);
                 float cosine=max(dot(normal,toward),0);
                 if(cosine<=0 || attenuation<=0) continue;
                 if(light.ConeShadow.z>0) {
@@ -255,7 +247,7 @@ internal static class D3D12RayGiShaders
             shared=shared.Replace(coordinate,"SampleTexture(material.SphereTexture,material.SphereTexture.w==3?GiSubTextureUvAt(triangleIndex,bary):GiSphereUv(tri,bary),material.DiffuseTexture.w).a",StringComparison.Ordinal);
         }
         return shared+(hardware?D3D12HardwareRayGi.TraceSource:D3D12SoftwareRayGi.TraceSource)
-            +(nativeLights?NativeLightSource:"")+integrator;
+            +(nativeLights?NativeLightSource.Replace("NATIVE_LIGHT_MODEL",NativeLightModel.Hlsl,StringComparison.Ordinal):"")+integrator;
     }
 
     private static string MorphShared()

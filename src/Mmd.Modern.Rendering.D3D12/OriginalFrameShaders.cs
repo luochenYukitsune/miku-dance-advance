@@ -139,7 +139,8 @@ internal static partial class OriginalFrameShaders
     internal static byte[] CompileGi(string entry,bool vertex)=>Compiler.Compile(Source+GiSource,entry,"OriginalFrameGi.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
     // Native direct lights are a separate variant. Their shadow atlas never changes the
     // primary MMD shadow map or the independently optional GI transport/composition.
-    private const string NativeSource="""
+    private static readonly string NativeSource=NativeSourceTemplate.Replace("NATIVE_LIGHT_MODEL",NativeLightModel.Hlsl,StringComparison.Ordinal);
+    private const string NativeSourceTemplate="""
         struct NativeLight {
             float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; float4 AreaRightTile;
         };
@@ -152,6 +153,10 @@ internal static partial class OriginalFrameShaders
             row_major float4x4 NativeShadowMatrices[768];
         };
         Texture2D<float> NativeShadowAtlas:register(t6);
+        NATIVE_LIGHT_MODEL
+        #ifndef NATIVE_LIGHT_RESPONSE
+        #define NATIVE_LIGHT_RESPONSE(v,n,l) saturate(dot(n,l)*3)
+        #endif
         // Additional lights are summed into an 8-bit target. A hard clip makes a light's
         // shadow vanish once the other lights already saturate the receiver: lit and shadowed
         // pixels both become the ceiling. Below the knee the accepted additive arithmetic is
@@ -305,19 +310,10 @@ internal static partial class OriginalFrameShaders
                 float3 delta=light.PositionKind.xyz-v.WorldPosition;
                 float distanceSquared=max(dot(delta,delta),.0001);
                 float3 l=light.PositionKind.w==0?-light.DirectionRange.xyz:delta*rsqrt(distanceSquared);
-                float attenuation=1;
-                if(light.PositionKind.w!=0) {
-                    float ratioSquared=distanceSquared/(light.DirectionRange.w*light.DirectionRange.w);
-                    attenuation=saturate(1-ratioSquared*ratioSquared)/distanceSquared;
-                }
-                if(light.PositionKind.w==2) {
-                    float angular=saturate((dot(-l,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
-                    attenuation*=angular*angular;
-                }
-                if(light.PositionKind.w==3) attenuation*=saturate(dot(-l,light.DirectionRange.xyz));
-                // Reuse the original three-times-clamped toon response. No ambient dimming,
-                // continuous AO, exposure or screen overlay is introduced by these lights.
-                float toon=saturate(dot(n,l)*3);
+                float attenuation=NativeLightAttenuation(light.PositionKind,light.DirectionRange,light.ConeShadow,distanceSquared,l);
+                // Each light passes through the same light/shadow response as the main light: the
+                // original three-times-clamped toon, or the selected style's band (see NATIVE_LIGHT_RESPONSE).
+                float toon=NATIVE_LIGHT_RESPONSE(v,n,l);
                 if(toon<=0 || attenuation<=0) continue;
                 float visibility=NativeVisibility(i,light,v.WorldPosition,n,l,worldDx,worldDy,sample);
                 result+=diffuse*light.ColorIntensity.rgb*(light.ColorIntensity.w*attenuation*toon*visibility);

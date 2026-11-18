@@ -59,7 +59,7 @@ public sealed class PortableSceneProjectTests : IDisposable
         var lighting = new SceneLightingEditor(); lighting.ReplaceSnapshot(new([light], [group]), light.Id);
         SceneProjectStore.Save(Project, composition, lighting, Portable, Token);
         var json = JsonNode.Parse(File.ReadAllText(Project))!;
-        Assert.Equal(SceneProjectStore.PortableLightingParentsVersion, json["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.PortableLightingFalloffVersion, json["version"]!.GetValue<int>());
         string moved = MoveAndHideSource();
         var reopened = SceneProjectStore.Load(moved, (_, _) => Frame, Token);
         Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));
@@ -69,14 +69,14 @@ public sealed class PortableSceneProjectTests : IDisposable
     }
 
     [Fact]
-    public void PortableAreaLayoutUsesVersionTenAndRetainsDimensionsAfterSourceMoves()
+    public void PortableAreaLayoutUsesTheCurrentLightingVersionAndRetainsDimensionsAfterSourceMoves()
     {
         string path = WritePmx(); var composition = Composition(path);
         var light = new NativeSceneLight(Guid.NewGuid(), "窗光", SceneLightKind.Area, new(2, -3, 4),
             Quaternion.Identity, Vector3.One, AreaSize: new(9.123456f, 13.654321f));
         var lighting = new SceneLightingEditor(); lighting.Add(light);
         SceneProjectStore.Save(Project, composition, lighting, Portable, Token);
-        Assert.Equal(10, JsonNode.Parse(File.ReadAllText(Project))!["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.PortableLightingFalloffVersion, JsonNode.Parse(File.ReadAllText(Project))!["version"]!.GetValue<int>());
         string moved = MoveAndHideSource();
         var reopened = SceneProjectStore.Load(moved, (_, _) => Frame, Token);
         Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));

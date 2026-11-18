@@ -163,13 +163,16 @@ public sealed class GenshinMetallicSpecularGpuTests
         foreach (bool native in new[] { false, true })
         foreach (bool gi in new[] { false, true })
         {
-            // Identity palette spends the entire diffuse budget. Neither a strong extra
-            // light nor the GI entry can re-emit this primary specular endpoint.
+            // Identity palette spends the entire diffuse budget, so the GI entry cannot re-emit this primary
+            // specular endpoint. A strong extra light only adds diffuse light under the shared shoulder.
             var frame = Frame(nativeIntensity: native ? 20 : null);
             var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing,
                 SamplesPerPixel: 4, Seed: 13, Composition: RayGiComposition.ToonPalette) : null;
             var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(Metal with { Specular = Lobe }));
-            AssertPixel(actual, W / 2, H / 2, Diffuse + Local(1, 1, Lobe));
+            var expected = Diffuse + Local(1, 1, Lobe);
+            if (native)
+                for (int c = 0; c < 3; c++) Assert.InRange((int)Pixel(actual)[c], (int)(Math.Min(expected[c], 1) * 255) - 1, 254);
+            else AssertPixel(actual, W / 2, H / 2, expected);
             Assert.Equal(255, Pixel(actual)[3]);
         }
     }

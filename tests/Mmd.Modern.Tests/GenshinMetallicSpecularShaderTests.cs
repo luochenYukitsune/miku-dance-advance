@@ -36,7 +36,7 @@ public sealed class GenshinMetallicSpecularShaderTests
         }
         else Assert.Equal(1, Count(source, "if(metallicSpecularRaw>0) highlight*=saturate(1-metallicSpecularRaw);"));
         if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
-        if (native) Assert.Contains("diffuse*remainingPalette*light.ColorIntensity.rgb", source);
+        if (native) Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) GenshinLightResponse(dot(n,l),1)", source);
     }
 
     [Fact]

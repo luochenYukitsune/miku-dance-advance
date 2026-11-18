@@ -17,7 +17,7 @@ public sealed record ModelPurpose(ModelRole Role, bool? EnvironmentIndoor = null
 /// </summary>
 public sealed class SceneLightingEditor
 {
-    public const int SidecarVersion = 6;
+    public const int SidecarVersion = 7;
     private sealed record State(SceneLightingSnapshot Lighting, Guid? SelectedId, ReadOnlyDictionary<string, ModelPurpose> Roles);
     private State state = new(SceneLightingSnapshot.Empty, null, new(new Dictionary<string, ModelPurpose>(StringComparer.Ordinal)));
     private State? editStart;
@@ -239,7 +239,7 @@ public sealed class SceneLightingEditor
             ArgumentNullException.ThrowIfNull(json);
             var document = JsonSerializer.Deserialize<SidecarDocument>(json, JsonOptions)
                 ?? throw new JsonException("The lighting sidecar must be a JSON object.");
-            if (document.Version is not (1 or 2 or 3 or 4 or 5 or SidecarVersion))
+            if (document.Version is not (1 or 2 or 3 or 4 or 5 or 6 or SidecarVersion))
                 throw new JsonException($"Unsupported lighting sidecar version {document.Version}.");
             if (document.Version < 6 && document.HasSettingsField)
                 throw new JsonException("Global lighting settings require lighting sidecar version 6.");
@@ -248,7 +248,7 @@ public sealed class SceneLightingEditor
             if (document.Lights is null || document.ModelRoles is null)
                 throw new JsonException("Lights and modelRoles arrays are required.");
             if (document.Version >= 2 && document.Groups is null)
-                throw new JsonException("The groups array is required in lighting sidecar version 2 through 6.");
+                throw new JsonException("The groups array is required in lighting sidecar version 2 through 7.");
             if (document.Version < 5 && document.Lights.Any(data => data?.HasAreaSizeField == true || data?.Kind == SceneLightKind.Area))
                 throw new JsonException("Area lights and dimensions require lighting sidecar version 5.");
             if (document.Version < 3 && document.Lights.Any(data => data?.HasParentField == true))
@@ -257,8 +257,9 @@ public sealed class SceneLightingEditor
                 throw new JsonException("Light receiver selections require lighting sidecar version 4.");
             if (document.Version == 1 && (document.Groups is not null || document.Lights.Any(data => data?.GroupId is not null)))
                 throw new JsonException("Light groups and membership require lighting sidecar version 2.");
+            // Version 7 introduced aim-normalized falloff; earlier lights are converted once here.
             var lighting = new SceneLightingSnapshot(document.Lights.Select(data =>
-                data?.ToLight() ?? throw new JsonException("A light entry cannot be null.")),
+                data?.ToLight(legacyFalloff: document.Version < 7) ?? throw new JsonException("A light entry cannot be null.")),
                 document.Groups?.Select(data => data?.ToGroup() ?? throw new JsonException("A light group entry cannot be null.")),
                 document.Settings?.ToSettings());
             if (document.SelectedId.HasValue && !lighting.Lights.Any(light => light.Id == document.SelectedId.Value))
@@ -375,6 +376,7 @@ public sealed class SceneLightingEditor
         private ParentData? parent;
         private ReceiversData? receivers;
         private float[]? areaSize;
+        private float? aimDistance;
         public required Guid Id { get; init; }
         public required string Name { get; init; }
         public required SceneLightKind Kind { get; init; }
@@ -413,17 +415,32 @@ public sealed class SceneLightingEditor
         }
         [JsonIgnore]
         public bool HasAreaSizeField { get; private set; }
-
-        public NativeSceneLight ToLight()
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public float? AimDistance
         {
+            get => aimDistance;
+            init { aimDistance = value; HasAimDistanceField = true; }
+        }
+        [JsonIgnore]
+        public bool HasAimDistanceField { get; private set; }
+
+        /// <summary>Documents written before aim-normalized falloff stored I / d^2 intensities. They are
+        /// converted with <see cref="SceneLightFalloff.FromLegacy"/>; such documents cannot carry an aim.</summary>
+        public NativeSceneLight ToLight(bool legacyFalloff = false)
+        {
+            if (legacyFalloff && HasAimDistanceField)
+                throw new JsonException("Light aim distances require the aim-normalized lighting format.");
+            if (HasAimDistanceField && AimDistance is null)
+                throw new JsonException("A light aim distance cannot be null.");
             if (Position is not { Length: 3 } || Rotation is not { Length: 4 } || Color is not { Length: 3 })
                 throw new JsonException("Position/color require three values and rotation requires four XYZW values.");
             if (AreaSize is not null && AreaSize.Length != 2)
                 throw new JsonException("Area dimensions require two width/height values.");
-            return new(Id, Name, Kind, new(Position[0], Position[1], Position[2]),
+            var light = new NativeSceneLight(Id, Name, Kind, new(Position[0], Position[1], Position[2]),
                 new(Rotation[0], Rotation[1], Rotation[2], Rotation[3]), new(Color[0], Color[1], Color[2]),
                 Intensity, Range, InnerConeRadians, OuterConeRadians, Enabled, CastShadows, GroupId, Parent?.ToParent(), Receivers?.ToReceivers(),
-                AreaSize is { } size ? new(size[0], size[1]) : null);
+                AreaSize is { } size ? new(size[0], size[1]) : null, AimDistance);
+            return legacyFalloff ? SceneLightFalloff.FromLegacy(light) : light;
         }
 
         public static LightData From(NativeSceneLight light) => new()
@@ -442,6 +459,8 @@ public sealed class SceneLightingEditor
             HasReceiversField = light.Receivers is not null,
             AreaSize = light.AreaSize is { } size ? [size.X, size.Y] : null,
             HasAreaSizeField = light.AreaSize is not null,
+            AimDistance = light.AimDistance,
+            HasAimDistanceField = light.AimDistance is not null,
         };
     }
 

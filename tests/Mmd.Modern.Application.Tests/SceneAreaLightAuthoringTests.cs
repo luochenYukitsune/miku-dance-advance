@@ -70,13 +70,13 @@ public sealed class SceneAreaLightAuthoringTests
     }
 
     [Fact]
-    public void StaticLayoutNineRetainsAreaAndRejectsOlderIdentityEvenWithNullSize()
+    public void CurrentStaticLayoutRetainsAreaAndRejectsOlderIdentityEvenWithNullSize()
     {
         var composition = new SceneCompositionEditor();
         composition.Add("fixture", Path.Combine(AppContext.BaseDirectory, "fixtures/rich-w1-uv4.pmx"), ModelRole.Prop, EngineShowcaseScene.Create().Frame);
         var editor = new SceneLightingEditor(); editor.Add(Area()); string path = Path.GetFullPath("area.mmdscene");
         string text = SceneProjectStore.Serialize(path, composition, editor);
-        Assert.Equal(9, JsonNode.Parse(text)!["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.LightingFalloffVersion, JsonNode.Parse(text)!["version"]!.GetValue<int>());
         var loaded = SceneProjectStore.Prepare(text, path, (_, _) => EngineShowcaseScene.Create().Frame, Token);
         Assert.Equal(editor.Lights, loaded.Lighting.Lights);
         for (int version = 1; version <= 8; version++)

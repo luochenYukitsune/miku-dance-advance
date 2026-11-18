@@ -49,8 +49,8 @@ public sealed class NativeLightGiContractTests
         // The colour-first shader operation itself overflows, even before attenuation.
         var product=Fixture([Light(SceneLightKind.Point) with {Color=new(2),Intensity=float.MaxValue}]);
         Assert.Throws<NotSupportedException>(()=>D3D12RayGiRenderer.Validate(product,options));
-        // A finite colour-first product can still overflow at the supported minimum distance.
-        var attenuation=Fixture([Light(SceneLightKind.Point) with {Color=Vector3.One,Intensity=float.MaxValue/2}]);
+        // A finite authored intensity can still overflow once it is normalized at an aim near the range end.
+        var attenuation=Fixture([Light(SceneLightKind.Point) with {Color=Vector3.One,Intensity=float.MaxValue/2,AimDistance=30}]);
         Assert.Throws<NotSupportedException>(()=>D3D12RayGiRenderer.Validate(attenuation,options));
     }
 
@@ -92,9 +92,10 @@ public sealed class NativeLightGiContractTests
         Assert.Contains("incident+=irradiance*angularRadiance;",D3D12RayGiShaders.Source(true,false,true));
     }
 
-    internal static NativeSceneLight Light(SceneLightKind kind)=>new(Guid.NewGuid(),"secondary red",kind,
+    // Authored in the original I / d^2 units and converted, keeping the accepted secondary energy scale.
+    internal static NativeSceneLight Light(SceneLightKind kind)=>SceneLightFalloff.FromLegacy(new(Guid.NewGuid(),"secondary red",kind,
         new(0,0,2),Quaternion.Identity,new(1,0,0),kind==SceneLightKind.Directional?2:150,30,
-        InnerConeRadians:.55f,OuterConeRadians:.7f,CastShadows:false);
+        InnerConeRadians:.55f,OuterConeRadians:.7f,CastShadows:false));
     internal static OriginalFrameScene Fixture(IEnumerable<NativeSceneLight> lights)
     {
         var original=D3D12RayGiTests.Bounce();var old=original.Surface.Snapshot;

@@ -42,9 +42,8 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
         Assert.Contains("float alpha=EgColor.a*texel.a*sphere.a;", source);
         if (native || gi)
         {
-            // Native source also contains the standalone GI functions. The shared
-            // budget's copied endpoint must receive exactly the same treatment.
-            Assert.Equal(native ? 2 : 1, Occurrences(source, "precise float3 diffuseLit=PmxMaterialSaturation("));
+            // The standalone GI function's endpoint receives the treatment; native lights no longer copy it into a budget.
+            Assert.Equal(1, Occurrences(source, "precise float3 diffuseLit=PmxMaterialSaturation("));
             string texel = morph ? "MorphDiffuse(texel)" : "texel";
             Assert.Contains("precise float3 fill=EgColor.rgb*GiAmbientShare.rgb*" + texel + ";", source);
             Assert.Contains("if(PmxMaterialTreatmentParams.x!=1 || PmxMaterialTreatmentParams.y!=0) fill=PmxMaterialSaturation(EgColor.rgb*" + texel + ")*GiAmbientShare.rgb;", source);
@@ -260,7 +259,7 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void NativeAndActualGiSpendTheTreatedEndpointAndWarmParameterChangesAddNoReadbacksOrPipelines(D3D12SurfaceStyle family)
+    public void NativeAndActualGiUseTheTreatedEndpointAndWarmParameterChangesAddNoReadbacksOrPipelines(D3D12SurfaceStyle family)
     {
         using var session = new D3D12FrameSession();
         var frame = Bounce(); var map = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd],
@@ -278,7 +277,9 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
                 Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), Vector3.One, .45f, 30, CastShadows: false)]));
         var direct = session.Capture(native, Width, Height, surfaceStyles: map);
         var combined = session.Capture(native, Width, Height, options, surfaceStyles: map);
-        AssertPixel(direct, dark + budget * .9f); AssertPixel(combined, lit);
+        // The native light treats the material diffuse (twice the visible endpoint here) and, being fully lit and
+        // below the shared shoulder, adds exactly; GI still spends only its palette budget.
+        AssertPixel(direct, dark + lit * .9f); AssertPixel(combined, dark + budget * .25f + lit * .9f);
         Assert.True(Pixel(combined)[0] > Pixel(direct)[0] + 2, "The shared endpoint must still receive actual GI.");
         AssertCoverage(plain, bounce); AssertCoverage(direct, combined);
         var warm = session.Statistics!; long readbacks = session.Runtime.Readbacks;

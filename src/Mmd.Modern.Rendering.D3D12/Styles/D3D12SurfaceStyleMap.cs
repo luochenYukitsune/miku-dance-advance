@@ -148,13 +148,9 @@ public sealed partial class D3D12SurfaceStyleMap
             throw new NotSupportedException("Non-MMD surface shader families require explicit modern frame options.");
     }
 
-    /// <summary>Also validates the finite diffuse domain consumed by the selected native-light budget.
-    /// The single-argument overload retains structural validation for internal recording.</summary>
-    public void Validate(OriginalFrameScene frame, RayGiOptions? rayGiOptions)
-    {
-        Validate(frame);
-        D3D12StylizedLightBudgetValidator.Validate(frame, this, rayGiOptions ?? frame.Options?.RayGi);
-    }
+    /// <summary>Structural validation. Additional lights no longer spend a per-family diffuse budget, so the
+    /// GI options carry no extra domain; the overload is kept for existing callers.</summary>
+    public void Validate(OriginalFrameScene frame, RayGiOptions? rayGiOptions) => Validate(frame);
 
     internal D3D12FaceSdfBinding? EffectiveFaceSdf(int materialIndex)
         => CharacterMaterials[materialIndex].Role == D3D12CharacterMaterialRole.Face

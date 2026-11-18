@@ -68,7 +68,8 @@ public sealed class EndfieldLiveMaterialGpuTests
         var old=session.Capture(frame,W,H,options,surfaceStyles:Map(Live with {LightInfluence=0}));
         var actual=session.Capture(frame,W,H,options,surfaceStyles:Map(Live));
         var incoming=kind==SceneLightKind.Directional?-light.Direction:Vector3.UnitX;
-        float attenuation=kind==SceneLightKind.Directional?1:(1-MathF.Pow(4f/(light.Range*light.Range),2))/4;
+        // The shared aim-normalized falloff at the receiver distance 2 (SceneLightFalloff).
+        float attenuation=kind==SceneLightKind.Directional?1:SceneLightFalloff.RenderScale(light)*SceneLightFalloff.Window(2,light.Range);
         var delta=C*light.Color*(Live.LightInfluence*light.Intensity*attenuation*Math.Max(Vector3.Dot(Normal(frame.Surface.Snapshot,217),incoming),0));
         AssertDelta(old,actual,delta);
         var strong=light with {Intensity=100};
