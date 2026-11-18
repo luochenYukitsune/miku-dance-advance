@@ -261,11 +261,18 @@ internal sealed partial class D3D9SurfaceFrameEncoder
         return result;
     }
 
-    /// <summary>Host (MME) orders. Imported objects use the original PMM loader's formulas on their raw bytes, unchanged.
-    /// Models added after the import have no byte: each gets the next order above every order already assigned, in
-    /// DrawOrderIndex order. That keeps them after all imported models in the native model sort, never 0 (MME's "no
-    /// current object"), unbounded by the byte range, and distinct from every model and accessory order, so MME's
-    /// order-to-object map cannot attach one of them to an accessory.</summary>
+    /// <summary>Host (MME) orders, one signed value per object that no other object shares. The host keys its
+    /// order-to-object map by the signed value (ExpGetCurrentObject returns it), so a shared value would hand one
+    /// object's effects to another; the value is the object's identity as far as that map can tell. (Equal absolute
+    /// values, such as model raw 0 and the last pre-split accessory, are what the original loader produces and are
+    /// kept.)
+    /// Imported objects use the original PMM loader's formulas on their raw bytes. Models added after the import have no
+    /// byte and get the next values above every assigned one, in DrawOrderIndex order (never 0, MME's "no current
+    /// object"; not limited by the byte range). When that still yields a shared value (non-canonical, sparse bytes, or
+    /// a post-split accessory shifted onto an imported model by the larger model count), every object is renumbered
+    /// densely in the native draw order instead, in the original loader's layout: pre-split accessories -1..-b, then
+    /// models b+1.., then post-split accessories. Each object keeps its group and its position within it, so the
+    /// drawn order is unchanged.</summary>
     internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount)
     {
         var result = new Dictionary<Guid, int>();
@@ -280,6 +287,21 @@ internal sealed partial class D3D9SurfaceFrameEncoder
         int next = Math.Max(1, result.Values.DefaultIfEmpty(0).Max() + 1);
         foreach (var value in drawOrder.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex))
             result.Add(value.ObjectId, next++);
+        return result.Values.Distinct().Count() == result.Count ? result : DenseHostOrders(drawOrder, result);
+    }
+
+    private static Dictionary<Guid, int> DenseHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, Dictionary<Guid, int> original)
+    {
+        // Native draw groups (session.cpp originalDrawBefore): accessories with a negative order first, by descending
+        // order; then models; then the remaining accessories, both by ascending order. Ties keep DrawOrderIndex order.
+        int Group(SceneProjectDrawItem value) => value.Kind == PmmDrawableKind.Model ? 1 : original[value.ObjectId] < 0 ? 0 : 2;
+        var sorted = drawOrder.OrderBy(Group)
+            .ThenBy(value => Group(value) == 0 ? -original[value.ObjectId] : original[value.ObjectId])
+            .ThenBy(value => value.DrawOrderIndex).ToList();
+        var result = new Dictionary<Guid, int>();
+        int before = 0, after = sorted.Count(value => Group(value) == 0);
+        foreach (var value in sorted)
+            result.Add(value.ObjectId, Group(value) == 0 ? -++before : ++after);
         return result;
     }
 

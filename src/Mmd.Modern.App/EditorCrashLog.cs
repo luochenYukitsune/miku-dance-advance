@@ -145,16 +145,20 @@ internal static class EditorCrashLog
     /// counted or deleted.</summary>
     private static readonly Regex CrashLogName = new(@"^[0-9]{8}-[0-9]{6}-[0-9]{3}-.+-[0-9a-f]{8}\.txt$", RegexOptions.CultureInvariant);
 
-    /// <summary>Keeps the file just written plus the newest MaxFiles - 1 others. Name order is only a hint (the clock can
-    /// move back), so the new file is kept explicitly and the path returned to the caller always exists.</summary>
-    private static void Prune(string root, string keep)
+    /// <summary>Keeps MaxFiles crash logs: first the ones this process wrote most recently (up to MaxFiles, newest
+    /// write first), then the newest others by name. Name order is only a hint (the clock can move back, another
+    /// process may write names that sort later), so a path this class returned is never removed by a later prune
+    /// until MaxFiles newer logs were written, whichever thread wrote them and however their names sort.</summary>
+    private static void Prune(string root)
     {
         try
         {
-            var files = new DirectoryInfo(root).GetFiles("*.txt")
-                .Where(file => CrashLogName.IsMatch(file.Name) && !string.Equals(file.FullName, keep, StringComparison.Ordinal))
-                .OrderByDescending(file => file.Name, StringComparer.Ordinal).Skip(MaxFiles - 1);
-            foreach (var file in files) file.Delete();
+            var files = new DirectoryInfo(root).GetFiles("*.txt").Where(file => CrashLogName.IsMatch(file.Name)).ToList();
+            var present = files.Select(file => file.FullName).ToHashSet(StringComparer.Ordinal);
+            var kept = recentWrites.Where(present.Contains).Take(MaxFiles).ToHashSet(StringComparer.Ordinal);
+            var others = files.Where(file => !kept.Contains(file.FullName))
+                .OrderByDescending(file => file.Name, StringComparer.Ordinal).Skip(MaxFiles - kept.Count);
+            foreach (var file in others) file.Delete();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
@@ -165,10 +169,12 @@ internal static class EditorCrashLog
         catch (Exception) { }
     }
 
-    /// <summary>Serializes write + prune inside this process. Without it, a concurrent writer's prune (which keeps only
-    /// its own new file explicitly) could delete another writer's file before that path is returned, so a caller would
-    /// report a log that no longer exists.</summary>
+    /// <summary>Serializes write + prune inside this process and guards <see cref="recentWrites"/>.</summary>
     private static readonly object writeGate = new();
+    /// <summary>Full paths this process wrote, newest first, at most MaxFiles. Prune keeps these before any file chosen by
+    /// name, so a returned path survives the prunes of writers that run after it (on any thread) until MaxFiles newer
+    /// logs exist; a caller can show it without a lease.</summary>
+    private static readonly LinkedList<string> recentWrites = new();
 
     internal static string? TryWrite(string source, Exception error, string? directory = null)
     {
@@ -186,7 +192,9 @@ internal static class EditorCrashLog
             lock (writeGate)
             {
                 File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
-                Prune(root, path);
+                recentWrites.AddFirst(path);
+                while (recentWrites.Count > MaxFiles) recentWrites.RemoveLast();
+                Prune(root);
             }
             // A throwing TraceListener must not turn a completed write into a failure.
             SafeTrace("Unhandled " + source + " exception recorded at " + path + ": " + Describe(error));
