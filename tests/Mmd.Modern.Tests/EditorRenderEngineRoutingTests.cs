@@ -4,6 +4,7 @@ using Avalonia.Headless;
 using Mmd.Modern.App;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Formats;
 using Mmd.Modern.ViewOutput;
 using Xunit;
 
@@ -121,6 +122,70 @@ public sealed class EditorRenderEngineRoutingTests : IAsyncDisposable
             finally { old.Release.TrySetResult(); fresh.Release.TrySetResult(); }
             return true;
         }, Token);
+
+    [Fact]
+    public void WorkspaceEnablesDeferredVertexSkinningOnlyForModernRenderEngine()
+    {
+        var model = new PmxModel
+        {
+            Header = new()
+            {
+                Version = 2, HeaderDataSize = 8, TextEncoding = PmxTextEncoding.Utf8, AdditionalUvCount = 0,
+                VertexIndexSize = 4, TextureIndexSize = 4, MaterialIndexSize = 4, BoneIndexSize = 4, MorphIndexSize = 4, RigidBodyIndexSize = 4
+            },
+            Name = "routing-actor", EnglishName = "", Comment = "", EnglishComment = "",
+            Vertices =
+            [
+                new() { Position = Vector3.Zero, Normal = Vector3.UnitZ, Uv = Vector2.Zero, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1, BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 },
+                new() { Position = Vector3.UnitX, Normal = Vector3.UnitZ, Uv = Vector2.UnitX, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1, BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 },
+                new() { Position = Vector3.UnitY, Normal = Vector3.UnitZ, Uv = Vector2.UnitY, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1, BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 },
+            ],
+            Faces = [new(0, 1, 2)],
+            Textures = [],
+            Materials =
+            [
+                new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One, Specular = Vector3.Zero, SpecularPower = 1, Ambient = new(0.2f), DrawMode = PmxDrawModeFlags.None, EdgeColor = new(0, 0, 0, 1), EdgeSize = 1, TextureIndex = -1, SphereTextureIndex = -1, SphereMode = PmxSphereMode.None, ToonMode = PmxToonMode.Separate, ToonTextureIndex = -1, Memo = "", FaceVertexCount = 3 }
+            ],
+            Bones = [new() { Name = "root", EnglishName = "", Position = Vector3.Zero, ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate }],
+            Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = [],
+        };
+        string dir = Path.Combine(Path.GetTempPath(), "ws-defer-routing-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string pmxPath = Path.Combine(dir, "actor.pmx");
+            File.WriteAllBytes(pmxPath, PmxWriter.ToBytes(model));
+            var source = new OriginalFrameScene(PmxOriginalStyleAdapter.FromRestPose(model).Scene, PmxOriginalOutlineAdapter.FromRestPose(model),
+                new(Vector4.One, Matrix4x4.Identity, new(0, 0, -10), 30, 1), materials: PmxOriginalFrameAdapter.FromMaterials(model));
+            var asset = new SceneAnimationModelAsset(model, source);
+
+            var animatedMotion = new VmdMotion
+            {
+                ModelName = model.Name,
+                BoneKeyframes =
+                [
+                    new() { BoneName = "root", Frame = 0 },
+                    new() { BoneName = "root", Frame = 10, Translation = new(1, 0, 0) },
+                ],
+            };
+            using var modernWorkspace = new EditorProjectWorkspace();
+            Guid modernActorId = modernWorkspace.AddModel(pmxPath, asset, new EditorModelImportOptions(new ModelPurpose(ModelRole.Character)));
+            Assert.NotNull(modernWorkspace.Session);
+            Assert.True(modernWorkspace.Session!.DeferVertexSkinningToRenderer);
+            modernWorkspace.CommitMotion(modernActorId, animatedMotion);
+            modernWorkspace.Session.Seek(5, Token);
+            Assert.True(modernWorkspace.Session.Frame.Surface.Snapshot.HasDeferredDeformation);
+
+            using var nonModernWorkspace = new EditorProjectWorkspace(new TestEngine("classic.non-modern"));
+            Guid classicActorId = nonModernWorkspace.AddModel(pmxPath, asset, new EditorModelImportOptions(new ModelPurpose(ModelRole.Character)));
+            Assert.NotNull(nonModernWorkspace.Session);
+            Assert.False(nonModernWorkspace.Session!.DeferVertexSkinningToRenderer);
+            nonModernWorkspace.CommitMotion(classicActorId, animatedMotion);
+            nonModernWorkspace.Session.Seek(5, Token);
+            Assert.False(nonModernWorkspace.Session.Frame.Surface.Snapshot.HasDeferredDeformation);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
 
     private sealed class FrozenBinding(IEditorRenderEngine owner, TestViewport renderer) : IEditorRenderBinding
     {
