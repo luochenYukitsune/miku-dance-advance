@@ -132,15 +132,45 @@ public sealed class EditorCrashLogTests : IDisposable
     }
 
     [Fact]
-    public void AWindowFilterShowsEachNewSignatureOnceEvenAfterTheLogTableOverflows()
+    public void FaultsSharingTheOverflowBucketStillReachSubscribersWithDistinctSignatures()
     {
         EditorCrashLog.ResetThrottleForTests();
         for (int i = 0; i < EditorCrashLog.MaxSignatures; i++) EditorCrashLog.ShouldRecord("fill" + i, new Exception("x"), out _, directory);
+        var received = new List<(string Signature, string? Path)>();
+        Action<Exception, string, string?> subscriber = (_, signature, path) => received.Add((signature, path));
+        EditorCrashLog.UiExceptionRecorded += subscriber;
+        try
+        {
+            // Through the production dispatch: the overflow bucket writes counts 1 and 2, not 3, yet all three arrive.
+            EditorCrashLog.DispatchUiException(First.Refresh(), directory);
+            EditorCrashLog.DispatchUiException(Second.Refresh(), directory);
+            EditorCrashLog.DispatchUiException(Third.Refresh(), directory);
+        }
+        finally { EditorCrashLog.UiExceptionRecorded -= subscriber; EditorCrashLog.ResetThrottleForTests(); }
+        Assert.Equal(3, received.Count);
+        Assert.Equal(3, received.Select(value => value.Signature).Distinct().Count());
+        Assert.NotNull(received[0].Path); Assert.Null(received[2].Path);
         var filter = new EditorCrashLog.NoticeFilter();
-        // Two distinct new faults share the log's overflow bucket but are each shown once by the window.
-        Assert.True(filter.MarkShown(EditorCrashLog.Signature("ui", First.Refresh())));
-        Assert.True(filter.MarkShown(EditorCrashLog.Signature("ui", Second.Refresh())));
-        Assert.False(filter.MarkShown(EditorCrashLog.Signature("ui", First.Refresh())));
+        Assert.All(received, value => Assert.True(filter.MarkShown(value.Signature)));
+        Assert.False(filter.MarkShown(received[0].Signature));
+        filter.Clear();
+        Assert.False(filter.WasShown(received[0].Signature));
+    }
+
+    private sealed class Third { public static Exception Refresh() { try { throw new InvalidOperationException("same"); } catch (Exception e) { return e; } } }
+
+    [Fact]
+    public void AggregatesWithEqualMessagesButDifferentInnerSitesAreThrottledSeparately()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        // Unobserved-task aggregates are never thrown; their message is built from the inner messages only.
+        AggregateException A() => new(First.Refresh(), First.Refresh());
+        AggregateException B() => new(Second.Refresh(), Second.Refresh());
+        Assert.NotEqual(EditorCrashLog.Signature("unobserved-task", A()), EditorCrashLog.Signature("unobserved-task", B()));
+        Assert.True(EditorCrashLog.ShouldRecord("unobserved-task", A(), out _, directory));
+        EditorCrashLog.ShouldRecord("unobserved-task", A(), out _, directory);
+        Assert.True(EditorCrashLog.ShouldRecord("unobserved-task", B(), out string? path, directory));
+        Assert.NotNull(path);
         EditorCrashLog.ResetThrottleForTests();
     }
 
