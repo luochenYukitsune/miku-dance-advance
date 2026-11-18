@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <MdaSrcRoot Condition="'$(MdaSrcRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../../../src'))</MdaSrcRoot>
+    <MdaRepoRoot Condition="'$(MdaRepoRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MdaSrcRoot)/..'))</MdaRepoRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- App supplies the product model loader (PMX/PMD, Skia/Pfim textures); nothing else from the GUI is used. -->
+    <ProjectReference Include="$(MdaSrcRoot)/Mmd.Modern.App/Mmd.Modern.App.csproj" />
+    <ProjectReference Include="$(MdaSrcRoot)/Mmd.Modern.ViewOutput.D3D12/Mmd.Modern.ViewOutput.D3D12.csproj" />
+    <ProjectReference Include="$(MdaSrcRoot)/Mmd.Modern.ViewOutput.FFmpeg/Mmd.Modern.ViewOutput.FFmpeg.csproj" />
+    <ProjectReference Include="$(MdaSrcRoot)/Mmd.Modern.Physics.Runtime/Mmd.Modern.Physics.Runtime.csproj" />
+  </ItemGroup>
+  <!-- Records the source commit so results identify the build they came from. -->
+  <Target Name="PerfBenchSourceRevision" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse HEAD" WorkingDirectory="$(MdaRepoRoot)" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" ContinueOnError="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="PerfBenchCommit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=no" WorkingDirectory="$(MdaRepoRoot)" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" ContinueOnError="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="PerfBenchDirty" />
+    </Exec>
+    <PropertyGroup>
+      <PerfBenchCommit>$(PerfBenchCommit.Trim())</PerfBenchCommit>
+      <PerfBenchCommit Condition="'$(PerfBenchDirty.Trim())' != ''">$(PerfBenchCommit)+dirty</PerfBenchCommit>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>SourceCommit</_Parameter1>
+        <_Parameter2>$(PerfBenchCommit)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+</Project>
