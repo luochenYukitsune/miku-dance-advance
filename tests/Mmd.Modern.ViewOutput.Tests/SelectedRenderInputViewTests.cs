@@ -45,8 +45,9 @@ public sealed class SelectedRenderInputViewTests
             Assert.Equal(snapshot.SceneInputs[id].TextureIndices[1], frame.SceneInputs[id].TextureIndices[1]);
         };
         var sink = new TestSink();
-        var result = await ExportCoordinator.ForProject(_ => ValueTask.FromResult(project), (_, _) => ValueTask.FromResult<IViewRenderer>(renderer))
-            .RunAsync(new(new(2, 2, new(120), 0, 1)), sink, cancellationToken: Token);
+        var coordinator = ExportCoordinator.ForProject(_ => ValueTask.FromResult(project), (_, _) => ValueTask.FromResult<IViewRenderer>(renderer));
+        coordinator.OverlapCapture = false; // Capturing reads the live owner, which only the serial order permits.
+        var result = await coordinator.RunAsync(new(new(2, 2, new(120), 0, 1)), sink, cancellationToken: Token);
         Assert.Equal(5, result.CompletedFrames); Assert.Equal(4, result.SimulationTicks);
         Assert.Equal(1, renderer.RequestReads); Assert.Equal(5, renderer.Releases); Assert.True(sink.Completed);
         Assert.NotEqual(renderer.Frames[0].SceneInputs[id].BoneWorldMatrices[0], renderer.Frames[^1].SceneInputs[id].BoneWorldMatrices[0]);

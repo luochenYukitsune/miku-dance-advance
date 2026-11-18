@@ -239,7 +239,7 @@ public sealed class OfflineFrameTests
         public void Report(OfflineFrameProgress value) => Items.Add(value);
     }
 
-    private static SceneAnimationSession Session(SceneAnimationSessionTests.FallingBackend backend)
+    internal static SceneAnimationSession Session(SceneAnimationSessionTests.FallingBackend backend)
     {
         var basic = EditedMotionProjectTests.Model();
         var model = new PmxModel { Header = basic.Header, Name = basic.Name, EnglishName = "", Comment = "", EnglishComment = "",

@@ -4,12 +4,16 @@ using Mmd.Modern.Application;
 namespace Mmd.Modern.ViewOutput;
 
 /// <summary>A single-use export task. Factories must create independently owned instances, never a live preview's
-/// session or renderer. Capture and write are awaited serially: at most one CPU frame is owned by this task.</summary>
+/// session or renderer. Frames are captured and written one at a time in output order; capture and write of frame N
+/// run beside the simulation of frame N+1, so at most one captured CPU frame is owned by this task.</summary>
 public sealed class ExportCoordinator
 {
     private readonly Func<CancellationToken, ValueTask<ViewPlaybackOwner>> sessionFactory;
     private readonly Func<ViewRenderRequest, CancellationToken, ValueTask<IViewRenderer>> rendererFactory;
     private int state;
+    /// <summary>Overlaps capture and write with simulation of the next frame. Off reproduces the fully serial order,
+    /// in which a capture may still observe the owner at its own sample.</summary>
+    internal bool OverlapCapture { get; set; } = true;
     public ExportTaskState State => (ExportTaskState)Volatile.Read(ref state);
 
     public ExportCoordinator(Func<CancellationToken, ValueTask<SceneAnimationSession>> sessionFactory,
@@ -92,22 +96,26 @@ public sealed class ExportCoordinator
             phase = "offline.evaluate";
             result = await session.RunAsync(request.Plan, async (frame, token) =>
             {
-                phase = "renderer.capture";
-                using var pixels = await renderer.CaptureAsync(frame, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("The renderer returned no pixel lease.");
-                if (pixels.Width != frame.Width || pixels.Height != frame.Height)
-                    throw new InvalidOperationException("Captured dimensions differ from the requested output dimensions.");
-                _ = pixels.Pixels; // Validate the lease is still alive before handing it to a consumer.
-                phase = "sink.write";
-                await sink.WriteAsync(frame.Sample, pixels, token).ConfigureAwait(false);
-                phase = "offline.evaluate";
-            }, tracker, cancellationToken, sceneInputRequests).ConfigureAwait(false);
+                // This may run beside the next simulation step, so its phase stays with its own failure.
+                string step = "renderer.capture";
+                try
+                {
+                    using var pixels = await renderer.CaptureAsync(frame, token).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("The renderer returned no pixel lease.");
+                    if (pixels.Width != frame.Width || pixels.Height != frame.Height)
+                        throw new InvalidOperationException("Captured dimensions differ from the requested output dimensions.");
+                    _ = pixels.Pixels; // Validate the lease is still alive before handing it to a consumer.
+                    step = "sink.write";
+                    await sink.WriteAsync(frame.Sample, pixels, token).ConfigureAwait(false);
+                }
+                catch (Exception error) { AddFailurePhase(error, step); throw; }
+            }, tracker, cancellationToken, sceneInputRequests, OverlapCapture).ConfigureAwait(false);
             phase = "sink.complete";
             cancellationToken.ThrowIfCancellationRequested();
             await sink.CompleteAsync(cancellationToken).ConfigureAwait(false);
             published = true;
         }
-        catch (Exception error) { AddFailurePhase(error, phase); failure = error; }
+        catch (Exception error) { if (!HasFailurePhase(error)) AddFailurePhase(error, phase); failure = error; }
         if (!published)
             await CleanupAsync(() => sink.AbortAsync(failure, CancellationToken.None), cleanupErrors, "sink.abort").ConfigureAwait(false);
         if (renderer is not null) await CleanupAsync(renderer.DisposeAsync, cleanupErrors, "renderer.dispose").ConfigureAwait(false);
@@ -135,8 +143,10 @@ public sealed class ExportCoordinator
     private static async ValueTask CleanupAsync(Func<ValueTask> cleanup, List<Exception> errors, string phase)
     { try { await cleanup().ConfigureAwait(false); } catch (Exception error) { AddFailurePhase(error, phase); errors.Add(error); } }
 
-    private static void AddFailurePhase(Exception error, string phase)
-        => AddFailureData(error, "MDA.ViewOutput.Phase", phase);
+    private const string PhaseKey = "MDA.ViewOutput.Phase";
+    private static void AddFailurePhase(Exception error, string phase) => AddFailureData(error, PhaseKey, phase);
+    private static bool HasFailurePhase(Exception error)
+    { try { return error.Data.Contains(PhaseKey); } catch { return false; } }
 
     private static void AddFailureData(Exception error, string key, object value)
     { try { error.Data[key] = value; } catch { } }

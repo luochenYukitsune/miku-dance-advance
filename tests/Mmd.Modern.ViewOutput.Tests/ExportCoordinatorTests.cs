@@ -130,6 +130,90 @@ public sealed class ExportCoordinatorTests
         Assert.Equal(ExportTaskState.Cancelled, coordinator.State);
     }
 
+    [Fact]
+    public async Task OverlappedExportMatchesSerialSamplesOrderAndKeepsOneOutstandingLease()
+    {
+        async Task<(ExportResult Result, List<OfflineFrameSample> Samples, int MaxOutstanding, int Captures, int Releases, long[] ProgressFrames)> Run(bool overlap)
+        {
+            var fixture = new OutputFixture();
+            var coordinator = fixture.Coordinator();
+            coordinator.OverlapCapture = overlap;
+            var sink = new TestSink();
+            var progress = new ProgressSink();
+            var result = await coordinator.RunAsync(new(new(4, 4, new(60), 0, 6)), sink, progress, Token);
+            return (result, sink.Samples, fixture.Renderer.MaximumOutstanding, fixture.Renderer.Captures, fixture.Renderer.Releases,
+                progress.Values.Select(v => v.CompletedFrames).ToArray());
+        }
+        var serial = await Run(false);
+        var overlapped = await Run(true);
+        Assert.Equal(serial.Result, overlapped.Result);
+        Assert.Equal(serial.Samples, overlapped.Samples);
+        Assert.Equal(serial.ProgressFrames, overlapped.ProgressFrames);
+        Assert.Equal(1, overlapped.MaxOutstanding);
+        Assert.Equal(overlapped.Captures, overlapped.Releases);
+    }
+
+    [Fact]
+    public async Task OverlappedExportDrainsInFlightCaptureOnCancellationAndPreservesFirstFailure()
+    {
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var fixture = new OutputFixture();
+        var enteredSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int active = 0;
+        var sink = new TestSink
+        {
+            Writing = async (_, ct) =>
+            {
+                Interlocked.Increment(ref active);
+                try
+                {
+                    if (fixture.Renderer.Captures == 2)
+                    {
+                        enteredSecond.TrySetResult();
+                        cancel.Cancel();
+                        await Task.Delay(30, CancellationToken.None);
+                        ct.ThrowIfCancellationRequested();
+                    }
+                }
+                finally { Interlocked.Decrement(ref active); }
+            }
+        };
+        var coordinator = fixture.Coordinator();
+        Assert.True(coordinator.OverlapCapture);
+        var run = coordinator.RunAsync(new(new(4, 4, new(30), 0, 10)), sink, cancellationToken: cancel.Token);
+        await enteredSecond.Task.WaitAsync(Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        Assert.Equal(0, Volatile.Read(ref active));
+        Assert.Equal(0, fixture.Renderer.Outstanding);
+        Assert.Equal(fixture.Renderer.Captures, fixture.Renderer.Releases);
+        Assert.Equal(1, fixture.Renderer.Disposals);
+        Assert.True(sink.Aborted);
+        Assert.True(sink.Disposed);
+        Assert.Equal(ExportTaskState.Cancelled, coordinator.State);
+    }
+
+    [Fact]
+    public async Task OverlappedExportWriteFailurePreservesWritePhaseAndCleansUp()
+    {
+        var fixture = new OutputFixture();
+        var expected = new IOException("overlapped write failure");
+        var sink = new TestSink
+        {
+            Writing = (_, _) => fixture.Renderer.Captures == 2 ? throw expected : ValueTask.CompletedTask
+        };
+        var coordinator = fixture.Coordinator();
+        Assert.True(coordinator.OverlapCapture);
+        var actual = await Assert.ThrowsAsync<IOException>(() => coordinator.RunAsync(new(new(4, 4, new(30), 0, 10)), sink, cancellationToken: Token));
+        Assert.Same(expected, actual);
+        Assert.Equal("sink.write", actual.Data["MDA.ViewOutput.Phase"]);
+        Assert.Equal(0, fixture.Renderer.Outstanding);
+        Assert.Equal(fixture.Renderer.Captures, fixture.Renderer.Releases);
+        Assert.Equal(1, fixture.Renderer.Disposals);
+        Assert.True(sink.Aborted);
+        Assert.True(sink.Disposed);
+        Assert.Equal(ExportTaskState.Failed, coordinator.State);
+    }
+
     private sealed class ProgressSink : IProgress<ExportTaskProgress>
     {
         public List<ExportTaskProgress> Values { get; } = [];

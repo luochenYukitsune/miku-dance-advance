@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Mmd.Modern.Application/Mmd.Modern.Application.csproj" />
+    <InternalsVisibleTo Include="Mmd.Modern.ViewOutput.Tests" />
+    <InternalsVisibleTo Include="Mmd.Modern.ViewOutput.FFmpeg.Tests" />
+    <InternalsVisibleTo Include="Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests" />
   </ItemGroup>
 </Project>
