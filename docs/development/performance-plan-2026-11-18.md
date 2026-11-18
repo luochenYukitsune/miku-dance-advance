@@ -215,6 +215,70 @@ dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 
 在 RTX 5060 Laptop 上，1080p 的同步读回从 **15.51 降至 7.46 ms/帧**；相同场景仅保留 GPU 输出时为 **2.90 与 2.89 ms/帧**。导出端将 32 行合为一次写入，把 FFmpeg 写入 P50 从 **3.39 降至 0.70 ms/帧**。三角色共享物理时，预热后的默认 .NET 配置下，把蒙皮从 4 路增至 8 路，求值 P50 为 **20.56 与 20.70 ms**。这些结果将无取消令牌的围栏等待和导出批写提前到第一批实现；物理与 GPU 蒙皮继续分开验证。详细对照、尾延迟、复现入口和下一轮可行性见[真实模型测试报告](performance-measurements-2026-11-19.md)。
 
+### 5.11 补充项：阴影、GI 历史、选卡、播放时钟与界面刷新
+
+2026-11-19 补查。平台行为用[平台探针](../../tools/perf/platform-probe/Program.cs)核实，只用来确认机制。各项都不按某一台机器写死阈值、线程数或采样数；验收至少对照两类配置，例如独显台式机，以及混合显卡、混合架构 CPU 的笔记本。
+
+本机探针结果（Core Ultra 7 251HX，6 个性能核加 12 个能效核；RTX 5060 Laptop 加 Intel 核显；每项采样 4 秒）：
+
+| 项目 | 默认 | 进程内调用 `timeBeginPeriod(1)` 后 |
+|---|---|---|
+| 16ms `DispatcherTimer` 的间隔 P50 / P95 | 29.97 / 32.82 ms，每秒 38.9 次 | 29.93 / 33.10 ms，每秒 38.8 次 |
+| `Thread.Sleep(1)` P50 / P95 | 15.52 / 16.11 ms | 1.99 / 2.14 ms |
+| 显卡枚举 | `EnumAdapters1` 第一块是 RTX 5060，与高性能偏好顺序一致 | — |
+
+**1. 附加灯阴影（`Rendering.D3D12`）。** 每帧都重画所有投影灯的所有面：聚光和平行光 1 面，点光 6 面，面光 24 面（6 面乘 4 个采样）。每个面都画全部投影材质，不做按面剔除；灯和场景都没动、只转相机时也照样重画（`D3D12NativeSceneLights.cs:143-167`）。
+- 先做按面视锥剔除，复用现有材质包围盒，包围盒只允许偏大。
+- 再做缓存：灯参数、阴影投影和静态投射物都不变时，复用上一帧的图块，只重画会动的投射物。图集要分成静态深度和动态叠加两层。参考 UE 可移动灯的阴影缓存，以及 Unity HDRP 的缓存阴影和按需更新。
+- 验收：阴影图块和最终画面逐字节一致；记录每帧阴影 draw 数和 GPU 时间。
+
+**2. GI 时序历史（`Rendering.D3D12`，光追）。** 现在视角、近远平面、材质、UV 或灯光任一项变化，就清空整帧历史（`D3D12RayGiTemporalPass.cs:75-125`）。MMD 镜头动作常带视角变化，表情也常用材质变形，所以播放时时序累积基本不起作用。默认每像素 16 个采样（`Mmd.Modern.Core/RayGiOptions.cs:20`）。
+- 改为逐像素判定：用上一帧投影重投影，按深度和法线判断失效；视角、材质、灯光变化时缩短历史长度或做邻域钳制，不整帧清空。UE（TSR、Lumen）和 Unity HDRP 的时序降噪都是这样处理的。
+- 历史能稳定保留以后，预览才能降低每帧采样数。另一个可选项是预览半分辨率追踪，再按深度和法线上采样（Unity HDRP 的 RTGI 有半分辨率选项）。
+- 这两步都会改变预览画面，需要用户决定（第 7 节）。导出暂时保持现有的全分辨率和重置规则。
+
+**3. 显卡选择（`Rendering.D3D12`）。** 运行时取 `EnumAdapters1` 返回的第一块硬件显卡（`D3D12GpuRuntime.cs:193-196`，`D3D12MeshRenderer.cs:205`）。混合显卡笔记本工作在混合模式时，第一块通常是核显。
+- 改用 `IDXGIFactory6.EnumAdapterByGpuPreference(HighPerformance)`；接口不可用时沿用现有循环，WARP 的现有行为不变。
+- 预览和导出都通过 `D3D12GpuRuntime` 创建设备，选卡结果一致；诊断里继续记录显卡名和 LUID。
+- 验收：在混合模式的笔记本上选到独显；本机这类第一块已经是独显的机器，结果不变。
+
+**4. 播放时钟（Application、App）。** 实测 16ms 的 `DispatcherTimer` 每秒只触发约 39 次，进程内提高计时精度后也一样。所以不管 GPU 多快，预览姿态每秒最多更新约三四十次。
+- 这一点支持第 5.3 节第 2 条：播放推进不再依赖 UI 定时器。
+- 在模拟线程完成之前，可以先用视口的帧许可驱动：每拿到一次许可，就按实际经过的时间推进，然后取快照。UI 定时器只保留给界面刷新。
+- 验收：在两类配置上，推进间隔都跟随显示刷新或模拟节拍，而不是固定在定时器粒度上。
+
+**5. 时间轴播放头（App）。** `CurrentFrame` 被设成了时间轴的 `AffectsRender`（`Controls/EditorTimeline.cs:105`）。播放时每过一个整数帧，就把全部轨道、刻度文字和关键帧重画一遍。历史实测 8192 个关键帧时重画一次要 21–23ms（150% DPI 下 55–57ms），全在 UI 线程。
+- 播放头拆成独立的叠加控件。关键帧层只在轨道、滚动、缩放或选择变化时重画，参考 UE Sequencer 的做法。
+- 验收：无头 Skia 合成截图和现在逐像素一致；播放期间关键帧层的 `Render` 次数为 0。
+
+**6. 面板刷新（App）。** 每次 tick 都会调用 `RefreshViewport`（`EditorWindow.axaml.cs:193-215`）。灯光页打开时，它会给每个模型重建一遍骨骼名数组（`EditorWindow.Lighting.cs:145`）；`LoadPose` 每个整数帧都对整份动作的关键帧做线性扫描和字符串比较（`EditorAnimationViewModel.cs:513`）。
+- 内容版本没变时跳过重建。关键帧按骨骼建索引。
+- 播放期间数值面板限制刷新频率，暂停后立即刷新精确值。Unity 的 Inspector 和 UE 的 Details 面板在运行时也是限频刷新。
+- 验收：对比 `InteractionDiagnostics` 里 `lighting.inspector-refresh` 和 `ui.load-pose` 的次数与耗时。
+
+**7. 拖动刻度尺时的跳帧（App 调度，Application 执行）。** 指针每移到一个新帧，就在 UI 线程同步执行一次完整的 `Seek`（`Controls/EditorTimeline.cs:293`，`EditorShellWorkspace.cs:194-199`）。产品设置下每次跳帧都要重建候选会话，并做 120 步物理预热（`EditorWindow.Diagnostics.cs:37`）。
+- `SceneProjectSession.Seek` 本来就是先在独立的候选会话上准备、支持取消、成功后再发布。可以把准备移到后台，只保留最新一次请求，取消被替代的旧请求，发布仍在 UI 线程。
+- 可选：拖动过程中先显示不含物理预热的姿态，松开后再做完整跳帧。UE Sequencer 和 Blender 拖动时间轴时都不实时模拟物理。这会改变拖动过程中的画面，需要决定（第 7 节）。
+
+**8. 混合架构 CPU（Animation）。** 蒙皮把块按固定轮转分给各个工作线程（`CharacterAnimator.cs:339`），整体耗时会被分到能效核的线程拖住。
+- 改成动态领取：用原子计数逐块领取，保留每个线程独占的 QDEF 缓存和按块原序重抛的错误语义。
+- 不按机器设定线程数。
+- 验收：输出逐字节一致；在混合架构和非混合架构上都比较 P95。
+
+**9. 导出期间的电源策略（App）。** Windows 11 可能对窗口最小化、不可见的进程做执行速度节流，长时间导出时系统也可能进入睡眠。
+- 只在导出期间调用 `SetProcessInformation(ProcessPowerThrottling)` 关闭执行速度节流，并用 `SetThreadExecutionState(ES_SYSTEM_REQUIRED)` 阻止睡眠，导出结束后恢复。
+- 这是平台策略，放在 App 层；`ViewOutput` 保持中立。
+- 验收：在混合架构笔记本上，比较最小化和前台两种状态的导出吞吐；导出结束后恢复默认状态。
+
+复现探针：
+
+```bash
+source tools/env.sh
+export ModernCacheRoot="$MDA_WORKSPACE/.dev-cache/perf-platform"
+dn build wt-perf-plan/tools/perf/platform-probe -c Release
+dn "$ModernCacheRoot/bin/PlatformProbe/Release/net10.0/PlatformProbe.dll" "$MDA_WORKSPACE/work/<日期>/perf-explore/platform-<时间>.json"
+```
+
 ## 6. 模块边界
 
 
@@ -227,6 +291,8 @@ dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 | 导出流水线 | `ViewOutput`、`ViewOutput.FFmpeg` | 中立接口里不出现 D3D12 类型 |
 | 统一调度试点 | Application 持有预算，Animation 接收并行度 | 调度契约不依赖 GUI 或引擎 |
 | 物理并行 | `Physics.Bullet`、native | 共享世界内部并行要另外决定 |
+| 阴影剔除与缓存、GI 历史、选卡 | `Rendering.D3D12` | 不改 Classic；导出的 GI 规则在决定前保持不变 |
+| 时间轴图层、面板刷新、刻度尺跳帧调度、导出电源策略 | App | 跳帧仍由 Application 的会话完成，App 只负责调度和显示 |
 
 ## 7. 待定决策
 
@@ -236,6 +302,8 @@ dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 4. **进程内 DXC**：是否新增依赖。
 5. **首帧策略**：是先出部分画面，还是保持资源齐了再出。
 6. **性能目标**：每种测试场景的目标帧率（例如 1 角色 1080p 不开 GI 稳定 60fps，3 角色 30fps），建议在第 0 阶段测完基线后再定。
+7. **GI 预览画面**：是否允许逐像素保留时序历史、降低每帧采样数或半分辨率追踪，让预览画面因此变化（第 5.11 节第 2 条）。
+8. **拖动刻度尺**：拖动过程中是否先显示不含物理预热的姿态，松开后再完整跳帧（第 5.11 节第 7 条）。
 
 ## 8. 建议顺序
 
@@ -248,5 +316,6 @@ dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 | 5 | 第 3 阶段：模拟线程 | 中高 | 无 |
 | 6 | 第 5 阶段、第 5.8 节：共享物理数据布局与并行预算分别做对照 | 中 | 无 |
 | 7 | 第 6 阶段和 5.7：GPU 进阶、打开和跳帧 | 各项不同 | 见各项 |
+| 8 | 第 5.11 节：选卡、阴影剔除和缓存、播放头图层、面板限频、跳帧后台化、动态分块、导出电源策略可以各自独立做；GI 历史等第 7 节决定后再做 | 低到中 | GI 和拖动预览两项有变化，其余没有 |
 
 第 5.9 节的语言实验已经完成。是否集成由真实软体场景决定。其余阶段每次只提交一项可独立验收的改动，记录触发场景、对照基线与停止条件。
