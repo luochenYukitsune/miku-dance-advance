@@ -283,11 +283,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
         lock (dxcLock) return dxcCompiler ??= DxcShaderCompiler.GetOrCreateShared();
     }
     internal ID3D12RootSignature CreateRootSignature(RootSignatureDescription description, RootSignatureVersion version = RootSignatureVersion.Version10)
-    {
-        var root = Device.CreateRootSignature<ID3D12RootSignature>(description, version);
-        pipelineLibrary.RegisterRootSignature(root, description, version);
-        return root;
-    }
+        => pipelineLibrary.CreateRootSignature(description, version);
     internal ID3D12PipelineState CreateGraphicsPipelineState(GraphicsPipelineStateDescription description)
         => pipelineLibrary.CreateGraphicsPipelineState(description);
     internal ID3D12PipelineState CreateComputePipelineState(ComputePipelineStateDescription description)

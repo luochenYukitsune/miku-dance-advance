@@ -24,116 +24,136 @@ internal readonly record struct D3D12AdapterIdentity(
 /// back to standard PSO creation without affecting rendering correctness.</summary>
 internal sealed class D3D12PipelineLibraryCache : IDisposable
 {
-    private const uint FileFormatVersion = 1;
+    private const uint FileFormatVersion = 4;
     private const int MaxFileBytes = 256 * 1024 * 1024;
     private const int MaxKeyCount = 65536;
     private static readonly UTF8Encoding Utf8 = new(false);
     private static readonly byte[] FileMagic = "MDAPSO1\0"u8.ToArray();
+    private sealed record RootSignatureInfo(string Hash, bool HasStaticSamplers);
+    // D3D12 returns a process-singleton ID3D12Device per adapter; serialize library ops and
+    // share one live store per resolved cache file path so concurrent sessions never clobber it.
+    private static readonly object GlobalGate = new();
+    private static readonly ConditionalWeakTable<ID3D12RootSignature, RootSignatureInfo> RootSignatures = new();
+    private static readonly Dictionary<string, SharedStore> ActiveStores = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-    private readonly ID3D12Device device;
-    private readonly object gate = new();
-    private readonly ConditionalWeakTable<ID3D12RootSignature, string> rootSignatureHashes = new();
-    private readonly HashSet<string> knownKeys = new(StringComparer.Ordinal);
-    private ID3D12PipelineLibrary? library;
-    private GCHandle pinnedBlobHandle;
-    private bool hasPinnedBlob;
-    private bool dirty;
-    private bool tainted;
-    private bool disposed;
-    private int libraryHits;
-    private int libraryStores;
-    private Task? pendingFlush;
-    private readonly object flushGate = new();
-
-    internal D3D12PipelineLibraryCache(ID3D12Device device, string? explicitCacheDirectory = null)
+    private sealed class SharedStore
     {
-        ArgumentNullException.ThrowIfNull(device);
-        this.device = device;
-        AdapterIdentity = ResolveAdapterIdentity(device);
-        CacheDirectory = ResolveCacheDirectory(explicitCacheDirectory);
-        CacheFilePath = CacheDirectory is null ? null : Path.Combine(CacheDirectory, BuildFileName(AdapterIdentity));
-        InitializeLibrary();
-    }
+        internal readonly string? StoreKey;
+        internal readonly string? CacheFilePath;
+        internal readonly D3D12AdapterIdentity AdapterIdentity;
+        internal readonly HashSet<string> knownKeys = new(StringComparer.Ordinal);
+        private readonly List<IDisposable> retainedPipelines = [];
+        internal ID3D12PipelineLibrary? library;
+        private GCHandle pinnedBlobHandle;
+        private bool hasPinnedBlob;
+        internal bool dirty;
+        internal bool tainted;
+        internal bool loadedFromDisk;
+        internal int refCount;
 
-    internal D3D12AdapterIdentity AdapterIdentity { get; }
-    internal string? CacheDirectory { get; }
-    internal string? CacheFilePath { get; }
-    internal bool IsLibraryAvailable { get { lock (gate) return library is not null && !tainted; } }
-    internal bool LoadedFromDisk { get; private set; }
-    internal int LibraryHits => Volatile.Read(ref libraryHits);
-    internal int LibraryStores => Volatile.Read(ref libraryStores);
-
-    internal void RegisterRootSignature(ID3D12RootSignature rootSignature, RootSignatureDescription description, RootSignatureVersion version)
-    {
-        ArgumentNullException.ThrowIfNull(rootSignature);
-        string hash = ComputeRootSignatureHash(description, version);
-        rootSignatureHashes.AddOrUpdate(rootSignature, hash);
-    }
-
-    internal ID3D12PipelineState CreateGraphicsPipelineState(GraphicsPipelineStateDescription description)
-    {
-        string key = ComputeGraphicsKey(description, TryGetRootSignatureHash(description.RootSignature));
-        lock (gate)
+        internal SharedStore(string? storeKey, string? cacheFilePath, D3D12AdapterIdentity adapterIdentity)
         {
-            if (library is not null && !disposed && !tainted && knownKeys.Contains(key))
+            StoreKey = storeKey;
+            CacheFilePath = cacheFilePath;
+            AdapterIdentity = adapterIdentity;
+        }
+
+        internal bool IsLibraryAvailable => library is not null && !tainted;
+
+        internal void InitializeLibraryLocked(ID3D12Device device)
+        {
+            using var device1 = device.QueryInterfaceOrNull<ID3D12Device1>();
+            if (device1 is null) return;
+
+            if (CacheFilePath is not null && File.Exists(CacheFilePath))
             {
                 try
                 {
-                    var loaded = library.LoadGraphicsPipeline(key, description);
-                    if (loaded is not null)
+                    byte[]? fileBytes = TryReadBytes(CacheFilePath);
+                    if (fileBytes is not null
+                        && TryParseFileBytes(fileBytes, AdapterIdentity, out string[] keys, out byte[] blob))
                     {
-                        Interlocked.Increment(ref libraryHits);
-                        return loaded;
+                        var pin = GCHandle.Alloc(blob, GCHandleType.Pinned);
+                        try
+                        {
+                            if (device1.CreatePipelineLibrary(blob, out var loaded).Success && loaded is not null)
+                            {
+                                library = loaded;
+                                pinnedBlobHandle = pin;
+                                hasPinnedBlob = true;
+                                foreach (string k in keys) knownKeys.Add(k);
+                                loadedFromDisk = true;
+                                return;
+                            }
+                        }
+                        catch
+                        {
+                            pin.Free();
+                            throw;
+                        }
+                        pin.Free();
                     }
                 }
-                catch
-                {
-                    MarkTaintedLocked();
-                }
+                catch { }
+
+                TryDeleteFile(CacheFilePath);
             }
-        }
 
-        var created = device.CreateGraphicsPipelineState(description);
-        StorePipelineState(key, created);
-        return created;
-    }
-
-    internal ID3D12PipelineState CreateComputePipelineState(ComputePipelineStateDescription description)
-    {
-        string key = ComputeComputeKey(description, TryGetRootSignatureHash(description.RootSignature));
-        lock (gate)
-        {
-            if (library is not null && !disposed && !tainted && knownKeys.Contains(key))
+            try
             {
-                try
-                {
-                    var loaded = library.LoadComputePipeline(key, description);
-                    if (loaded is not null)
-                    {
-                        Interlocked.Increment(ref libraryHits);
-                        return loaded;
-                    }
-                }
-                catch
-                {
-                    MarkTaintedLocked();
-                }
+                if (device1.CreatePipelineLibrary(Array.Empty<byte>(), out var empty).Success && empty is not null)
+                    library = empty;
+            }
+            catch
+            {
+                library = null;
             }
         }
 
-        var created = device.CreateComputePipelineState(description);
-        StorePipelineState(key, created);
-        return created;
-    }
-
-    internal void Flush()
-    {
-        byte[]? fileBytes = null;
-        string? targetPath;
-        lock (gate)
+        internal bool StorePipelineLocked(string key, ID3D12PipelineState state, ID3D12RootSignature? rootSignature)
         {
-            if (disposed || tainted || !dirty || library is null || CacheFilePath is null) return;
-            targetPath = CacheFilePath;
+            if (library is null || tainted) return false;
+            if (!knownKeys.Add(key)) return false;
+            ID3D12PipelineState? stateRef = null;
+            ID3D12RootSignature? rootRef = null;
+            try
+            {
+                // Keep native COM lifetimes of stored PSOs and root signatures alive until
+                // after library serialization completes (NVIDIA reads static sampler state at Serialize).
+                stateRef = state.QueryInterface<ID3D12PipelineState>();
+                rootRef = rootSignature?.QueryInterface<ID3D12RootSignature>();
+                library.StorePipeline(key, stateRef);
+                retainedPipelines.Add(stateRef);
+                if (rootRef is not null) retainedPipelines.Add(rootRef);
+                dirty = true;
+                return true;
+            }
+            catch
+            {
+                rootRef?.Dispose();
+                stateRef?.Dispose();
+                knownKeys.Remove(key);
+                return false;
+            }
+        }
+
+        internal void MarkTaintedLocked()
+        {
+            tainted = true;
+            dirty = false;
+            knownKeys.Clear();
+            library?.Dispose();
+            library = null;
+            FreePinnedBlobLocked();
+            ClearRetainedLocked();
+            if (CacheFilePath is not null) TryDeleteFile(CacheFilePath);
+        }
+
+        internal void FlushLocked()
+        {
+            if (tainted || !dirty || library is null || CacheFilePath is null) return;
+            byte[] fileBytes;
             try
             {
                 int serializedSize = checked((int)library.SerializedSize);
@@ -151,16 +171,190 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
             {
                 return;
             }
+
+            WriteAtomic(CacheFilePath, fileBytes);
         }
 
-        WriteAtomic(targetPath, fileBytes);
+        internal void ReleaseLocked()
+        {
+            refCount--;
+            if (refCount > 0) return;
+            if (StoreKey is not null) ActiveStores.Remove(StoreKey);
+            knownKeys.Clear();
+            library?.Dispose();
+            library = null;
+            FreePinnedBlobLocked();
+            ClearRetainedLocked();
+        }
+
+        private void ClearRetainedLocked()
+        {
+            for (int i = retainedPipelines.Count - 1; i >= 0; i--)
+                retainedPipelines[i].Dispose();
+            retainedPipelines.Clear();
+        }
+
+        private void FreePinnedBlobLocked()
+        {
+            if (!hasPinnedBlob) return;
+            pinnedBlobHandle.Free();
+            hasPinnedBlob = false;
+        }
+    }
+
+    private readonly ID3D12Device device;
+    private readonly SharedStore store;
+    private bool disposed;
+    private int libraryHits;
+    private int libraryStores;
+    private Task? pendingFlush;
+    private readonly object flushGate = new();
+
+    internal D3D12PipelineLibraryCache(ID3D12Device device, string? explicitCacheDirectory = null)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        this.device = device;
+        AdapterIdentity = ResolveAdapterIdentity(device);
+        CacheDirectory = ResolveCacheDirectory(explicitCacheDirectory);
+        CacheFilePath = CacheDirectory is null ? null : Path.Combine(CacheDirectory, BuildFileName(AdapterIdentity));
+        string? storeKey = CacheFilePath is null ? null : $"{AdapterIdentity.AdapterLuid:x16}\n{Path.GetFullPath(CacheFilePath)}";
+
+        lock (GlobalGate)
+        {
+            if (storeKey is not null && ActiveStores.TryGetValue(storeKey, out var existing))
+            {
+                existing.refCount++;
+                store = existing;
+                LoadedFromDisk = existing.loadedFromDisk;
+            }
+            else
+            {
+                var created = new SharedStore(storeKey, CacheFilePath, AdapterIdentity) { refCount = 1 };
+                created.InitializeLibraryLocked(device);
+                if (storeKey is not null) ActiveStores.Add(storeKey, created);
+                store = created;
+                LoadedFromDisk = created.loadedFromDisk;
+            }
+        }
+    }
+
+    internal D3D12AdapterIdentity AdapterIdentity { get; }
+    internal string? CacheDirectory { get; }
+    internal string? CacheFilePath { get; }
+    internal bool IsLibraryAvailable { get { lock (GlobalGate) return store.IsLibraryAvailable; } }
+    internal bool LoadedFromDisk { get; private set; }
+    internal int LibraryHits => Volatile.Read(ref libraryHits);
+    internal int LibraryStores => Volatile.Read(ref libraryStores);
+
+    internal ID3D12RootSignature CreateRootSignature(RootSignatureDescription description, RootSignatureVersion version = RootSignatureVersion.Version10)
+    {
+        string hash = ComputeRootSignatureHash(description, version);
+        bool hasStaticSamplers = description.StaticSamplers is { Length: > 0 };
+        lock (GlobalGate)
+        {
+            var root = device.CreateRootSignature<ID3D12RootSignature>(description, version);
+            RootSignatures.AddOrUpdate(root, new(hash, hasStaticSamplers));
+            return root;
+        }
+    }
+
+    internal void RegisterRootSignature(ID3D12RootSignature rootSignature, RootSignatureDescription description, RootSignatureVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(rootSignature);
+        string hash = ComputeRootSignatureHash(description, version);
+        bool hasStaticSamplers = description.StaticSamplers is { Length: > 0 };
+        RootSignatures.AddOrUpdate(rootSignature, new(hash, hasStaticSamplers));
+    }
+
+    internal ID3D12PipelineState CreateGraphicsPipelineState(GraphicsPipelineStateDescription description)
+    {
+        var rootInfo = TryGetRootSignatureInfo(description.RootSignature);
+        // NVIDIA Blackwell driver corrupts StaticSamplers metadata during concurrent Serialize();
+        // bypass ID3D12PipelineLibrary for sampler-bearing or unregistered root signatures while
+        // keeping FXC/DXC bytecode cache and driver microcode cache active.
+        if (rootInfo is null || rootInfo.HasStaticSamplers)
+        {
+            lock (GlobalGate)
+                return device.CreateGraphicsPipelineState(description);
+        }
+
+        string key = ComputeGraphicsKey(description, rootInfo.Hash);
+        lock (GlobalGate)
+        {
+            if (!disposed && store.library is not null && !store.tainted && store.knownKeys.Contains(key))
+            {
+                try
+                {
+                    var loaded = store.library.LoadGraphicsPipeline(key, description);
+                    if (loaded is not null)
+                    {
+                        Interlocked.Increment(ref libraryHits);
+                        return loaded;
+                    }
+                }
+                catch
+                {
+                    store.MarkTaintedLocked();
+                }
+            }
+
+            var created = device.CreateGraphicsPipelineState(description);
+            if (!disposed && store.StorePipelineLocked(key, created, description.RootSignature))
+                Interlocked.Increment(ref libraryStores);
+            return created;
+        }
+    }
+
+    internal ID3D12PipelineState CreateComputePipelineState(ComputePipelineStateDescription description)
+    {
+        var rootInfo = TryGetRootSignatureInfo(description.RootSignature);
+        if (rootInfo is null || rootInfo.HasStaticSamplers)
+        {
+            lock (GlobalGate)
+                return device.CreateComputePipelineState(description);
+        }
+
+        string key = ComputeComputeKey(description, rootInfo.Hash);
+        lock (GlobalGate)
+        {
+            if (!disposed && store.library is not null && !store.tainted && store.knownKeys.Contains(key))
+            {
+                try
+                {
+                    var loaded = store.library.LoadComputePipeline(key, description);
+                    if (loaded is not null)
+                    {
+                        Interlocked.Increment(ref libraryHits);
+                        return loaded;
+                    }
+                }
+                catch
+                {
+                    store.MarkTaintedLocked();
+                }
+            }
+
+            var created = device.CreateComputePipelineState(description);
+            if (!disposed && store.StorePipelineLocked(key, created, description.RootSignature))
+                Interlocked.Increment(ref libraryStores);
+            return created;
+        }
+    }
+
+    internal void Flush()
+    {
+        lock (GlobalGate)
+        {
+            if (disposed) return;
+            store.FlushLocked();
+        }
     }
 
     internal void FlushIfDirtyAsync()
     {
-        lock (gate)
+        lock (GlobalGate)
         {
-            if (disposed || tainted || !dirty || library is null || CacheFilePath is null) return;
+            if (disposed || store.tainted || !store.dirty || store.library is null || store.CacheFilePath is null) return;
         }
         lock (flushGate)
         {
@@ -182,130 +376,17 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
             try { inFlightFlush.GetAwaiter().GetResult(); } catch { }
         }
 
-        byte[]? pendingWrite = null;
-        string? targetPath = null;
-        lock (gate)
+        lock (GlobalGate)
         {
             if (disposed) return;
-            if (!tainted && dirty && library is not null && CacheFilePath is not null)
-            {
-                targetPath = CacheFilePath;
-                try
-                {
-                    int serializedSize = checked((int)library.SerializedSize);
-                    if (serializedSize > 0 && serializedSize <= MaxFileBytes)
-                    {
-                        byte[] blob = new byte[serializedSize];
-                        unsafe
-                        {
-                            fixed (byte* ptr = blob)
-                                library.Serialize((nint)ptr, serializedSize);
-                        }
-                        pendingWrite = BuildFileBytes(AdapterIdentity, knownKeys, blob);
-                    }
-                }
-                catch { pendingWrite = null; }
-                dirty = false;
-            }
             disposed = true;
-            library?.Dispose();
-            library = null;
-            FreePinnedBlobLocked();
-        }
-
-        if (pendingWrite is not null && targetPath is not null)
-            WriteAtomic(targetPath, pendingWrite);
-    }
-
-    private void InitializeLibrary()
-    {
-        using var device1 = device.QueryInterfaceOrNull<ID3D12Device1>();
-        if (device1 is null) return;
-
-        if (CacheFilePath is not null && File.Exists(CacheFilePath))
-        {
-            try
-            {
-                byte[]? fileBytes = TryReadBytes(CacheFilePath);
-                if (fileBytes is not null
-                    && TryParseFileBytes(fileBytes, AdapterIdentity, out string[] keys, out byte[] blob))
-                {
-                    var pin = GCHandle.Alloc(blob, GCHandleType.Pinned);
-                    try
-                    {
-                        if (device1.CreatePipelineLibrary(blob, out var loaded).Success && loaded is not null)
-                        {
-                            library = loaded;
-                            pinnedBlobHandle = pin;
-                            hasPinnedBlob = true;
-                            foreach (string k in keys) knownKeys.Add(k);
-                            LoadedFromDisk = true;
-                            return;
-                        }
-                    }
-                    catch
-                    {
-                        pin.Free();
-                        throw;
-                    }
-                    pin.Free();
-                }
-            }
-            catch { }
-
-            TryDeleteFile(CacheFilePath);
-        }
-
-        try
-        {
-            if (device1.CreatePipelineLibrary(Array.Empty<byte>(), out var empty).Success && empty is not null)
-                library = empty;
-        }
-        catch
-        {
-            library = null;
+            store.FlushLocked();
+            store.ReleaseLocked();
         }
     }
 
-    private void StorePipelineState(string key, ID3D12PipelineState state)
-    {
-        lock (gate)
-        {
-            if (library is null || disposed || tainted) return;
-            if (!knownKeys.Add(key)) return;
-            try
-            {
-                library.StorePipeline(key, state);
-                dirty = true;
-                Interlocked.Increment(ref libraryStores);
-            }
-            catch
-            {
-                knownKeys.Remove(key);
-            }
-        }
-    }
-
-    private void MarkTaintedLocked()
-    {
-        tainted = true;
-        dirty = false;
-        knownKeys.Clear();
-        library?.Dispose();
-        library = null;
-        FreePinnedBlobLocked();
-        if (CacheFilePath is not null) TryDeleteFile(CacheFilePath);
-    }
-
-    private void FreePinnedBlobLocked()
-    {
-        if (!hasPinnedBlob) return;
-        pinnedBlobHandle.Free();
-        hasPinnedBlob = false;
-    }
-
-    private string? TryGetRootSignatureHash(ID3D12RootSignature? root)
-        => root is not null && rootSignatureHashes.TryGetValue(root, out string? hash) ? hash : null;
+    private static RootSignatureInfo? TryGetRootSignatureInfo(ID3D12RootSignature? root)
+        => root is not null && RootSignatures.TryGetValue(root, out var info) ? info : null;
 
     internal static D3D12AdapterIdentity ResolveAdapterIdentity(ID3D12Device device)
     {

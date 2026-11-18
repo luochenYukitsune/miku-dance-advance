@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;
 using Vortice.Direct3D12;
@@ -196,6 +197,112 @@ public sealed class PipelineLibraryCacheTests : IDisposable
             Assert.True(s2.PipelineLibraryHits > 0);
             Assert.Equal(firstPixels, secondPixels);
         }
+    }
+
+    [Trait("Category", "Gpu")]
+    [Fact]
+    public async Task ConcurrentSessionsSharingCacheDirectoryPreserveExactDiffusionSamplerState()
+    {
+        string sharedDir = Path.Combine(cacheDir, "concurrent-pso");
+        Directory.CreateDirectory(sharedDir);
+
+        var shadowScene = D3D12OriginalFrameTests.Shadow(true);
+        var smaaScene = new OriginalFrameScene(
+            shadowScene.Surface,
+            shadowScene.Outline,
+            shadowScene.OutlineOptions,
+            shadowScene.Options! with { Antialiasing = FrameAntialiasing.Smaa1X, SmaaQuality = SmaaQuality.Low },
+            shadowScene.Materials,
+            shadowScene.Lighting,
+            shadowScene.EditorOverlay);
+
+        var pixels = new byte[8 * 8 * 4];
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++)
+            {
+                int p = (y * 8 + x) * 4;
+                pixels[p] = (byte)(x * 35);
+                pixels[p + 1] = (byte)(y * 35);
+                pixels[p + 2] = (byte)((x + y) % 2 == 0 ? 240 : 20);
+                pixels[p + 3] = 255;
+            }
+        SceneVertex[] vertices =
+        [
+            new(new(-1.5f, -1.5f, 0), -Vector3.UnitZ, new(0, 1)),
+            new(new(1.5f, -1.5f, 0), -Vector3.UnitZ, new(1, 1)),
+            new(new(1.5f, 1.5f, 0), -Vector3.UnitZ, new(1, 0)),
+            new(new(-1.5f, 1.5f, 0), -Vector3.UnitZ, new(0, 0)),
+        ];
+        var snapshot = new SceneSnapshot(vertices, [0, 2, 1, 0, 3, 2],
+            [new("diff-mat", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1, 0)],
+            [new("diff-tex", 8, 8, pixels)],
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 3, .1f, 30),
+            lightDirection: -Vector3.UnitZ);
+        var diffusionPointScene = new OriginalFrameScene(
+            new(snapshot, [new(Vector3.One)], new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)),
+            options: new(OriginalAlphaBlendMode.Normal, true, false));
+        var diffusionLinearScene = new OriginalFrameScene(
+            new(snapshot, [new(Vector3.One)], new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.LinearWrap)),
+            options: new(OriginalAlphaBlendMode.Normal, true, false));
+
+        using var barrier = new Barrier(6);
+        Task RunWorker(int index) => Task.Run(() =>
+        {
+            barrier.SignalAndWait();
+            using var session = new D3D12FrameSession(sharedDir);
+            switch (index % 3)
+            {
+                case 0:
+                    _ = session.Capture(diffusionPointScene, 65, 49, diffusion: new(true, 0.7f, 0.01f));
+                    _ = session.Capture(diffusionLinearScene, 65, 49);
+                    break;
+                case 1:
+                    _ = session.Capture(shadowScene, 129, 97);
+                    _ = session.Capture(diffusionPointScene, 1, 17, diffusion: new(true, 1f, 0.01f));
+                    break;
+                default:
+                    _ = session.Capture(smaaScene, 129, 97, diffusion: new(true, 0.7f, 0.01f));
+                    break;
+            }
+        });
+
+        await Task.WhenAll(Enumerable.Range(0, 6).Select(RunWorker));
+
+        // Cross-lifetime interleaving: short-lived diffusion session disposes while a concurrent
+        // session still holds the shared store and appends DXIL compute GPU skinning PSOs before serializing.
+        var skinModel = new SceneSkinningModel(
+            vertices,
+            Enumerable.Repeat(new SceneSkinBinding(SceneSkinKind.Bdef1, 0, -1, -1, -1, Vector4.UnitX), vertices.Length).ToArray(),
+            [],
+            boneCount: 1);
+        var deformation = new SceneDeformation(skinModel, [Matrix4x4.Identity], [], [], [], null, () => vertices);
+        var deferredScene = new OriginalFrameScene(
+            new(snapshot.WithDeferredDeformation(deformation), [new(Vector3.One)],
+                new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)),
+            options: new(OriginalAlphaBlendMode.Normal, true, false));
+        using (var skinSession = new D3D12FrameSession(sharedDir))
+        {
+            using (var shortDiff = new D3D12FrameSession(sharedDir))
+            {
+                _ = shortDiff.Capture(diffusionPointScene, 65, 49, diffusion: new(true, 0.7f, 0.01f));
+            }
+            _ = skinSession.Capture(deferredScene, 65, 49);
+        }
+
+        using var verify = new D3D12FrameSession(sharedDir);
+        Assert.True(verify.IsPipelineLibraryLoadedFromDisk);
+        foreach (var (w, h, s, ext) in new[] { (1, 17, 1f, 0.01f), (65, 49, 0.7f, 0.01f) })
+        {
+            var baseImg = verify.Capture(diffusionPointScene, w, h);
+            var actual = verify.Capture(diffusionPointScene, w, h, diffusion: new(true, s, ext));
+            var expected = DiffusionReferenceImage.Apply(baseImg.Rgba, w, h, s, ext);
+            for (int i = 0; i < actual.Rgba.Length; i++)
+            {
+                if (i % 4 == 3) Assert.Equal(255, actual.Rgba[i]);
+                else Assert.InRange(Math.Abs(actual.Rgba[i] - expected[i]), 0, 2);
+            }
+        }
+        Assert.True(verify.PipelineLibraryHits > 0);
     }
 
     public void Dispose()
