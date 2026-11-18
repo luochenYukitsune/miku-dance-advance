@@ -130,7 +130,6 @@ jobs:
 
   # 云端机器没有显卡：跳过 Category=Gpu 的测试，留给下面的真机验收。
   # “编辑器与渲染”额外跳过穷举 48 种宏组合的慢速着色器编译类（改着色器时在本地跑），将测试耗时控制在数分钟内。
-  # required=false 的组还有改版前就存在的失败；先只报告、不拦合并，修好后再改成 true。
   test:
     needs: build
     runs-on: windows-latest
@@ -147,20 +146,20 @@ jobs:
           - name: 应用与物理
             projects: Mmd.Modern.Application.Tests
             filter: Category!=Gpu
-            required: false
+            required: true
           - name: 输出与编码
             projects: Mmd.Modern.ViewOutput.Tests Mmd.Modern.ViewOutput.FFmpeg.Tests
             filter: Category!=Gpu
-            required: false
+            required: true
           - name: 传统引擎兼容
             projects: Mmd.Modern.Rendering.D3D9.Compatibility.Tests Mmd.Modern.ViewOutput.D3D9.Compatibility.Tests
             filter: Category!=Gpu
-            required: false
+            required: true
           - name: 编辑器与渲染
             projects: Mmd.Modern.Tests
             filter: Category!=Gpu&FullyQualifiedName!~ShaderTests&FullyQualifiedName!~ShaderVariantsTests&FullyQualifiedName!~SurfaceTests&FullyQualifiedName!~FaceSdfTests
-            required: false
-    name: 测试（${{ matrix.name }}${{ !matrix.required && '，暂不拦截' || '' }}）
+            required: true
+    name: 测试（${{ matrix.name }}）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

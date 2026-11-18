@@ -82,8 +82,8 @@ public sealed class SceneModelShadingPolicyTests
             Assert.Same(toon, session.Frame.Materials[0].CharacterToonResponse);
             Assert.Same(outline, session.Frame.Materials[0].CharacterOutlineStyle);
             Assert.Null(session.Frame.Materials[1].CharacterOutlineStyle);
-            Assert.Equal(Assert.Single(raw.Materials), session.Frame.Materials[1] with { GiToonResponseOverride = null, CharacterToonResponse = null, CharacterOutlineStyle = null });
-            Assert.Equal(Assert.Single(rest.Materials), session.Frame.Materials[0] with { GiToonResponseOverride = null, PreserveDirectLightPalette = false });
+            Assert.Equal(Assert.Single(raw.Materials) with { LightReceiverObjectId = room.Id }, session.Frame.Materials[1] with { GiToonResponseOverride = null, CharacterToonResponse = null, CharacterOutlineStyle = null });
+            Assert.Equal(Assert.Single(rest.Materials) with { LightReceiverObjectId = actor.Id }, session.Frame.Materials[0] with { GiToonResponseOverride = null, PreserveDirectLightPalette = false });
         }
         Check(); session.Advance(.5, Token); Check();
         Assert.True(session.Frame.Surface.Snapshot.HasDynamicVertices);

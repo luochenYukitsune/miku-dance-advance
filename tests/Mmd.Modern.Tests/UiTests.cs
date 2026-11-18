@@ -12,9 +12,10 @@ public static class TestAppBuilder
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<global::Mmd.Modern.App.App>().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
 
+[Collection(QualityLoadingCollection.Name)]
 public sealed class UiTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(TestAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(TestAppBuilder.BuildAvaloniaApp);
 
     [Fact]
     public async Task FrameCameraValuesSurviveSliderAttachAndWindowReopen() => await session.Dispatch(() =>
