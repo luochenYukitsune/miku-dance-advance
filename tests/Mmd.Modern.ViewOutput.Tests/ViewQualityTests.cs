@@ -13,7 +13,7 @@ public sealed class ViewQualityTests
         var quality = new ViewQualityOptions();
         var resolved = quality.ApplyTo(scene);
         Assert.Null(quality.Antialiasing); Assert.Null(quality.SmaaQuality); Assert.Null(quality.SpatialSamples);
-        Assert.Equal(scene with { RayGi = RayGiOptions.Off }, resolved);
+        Assert.Equal(scene with { RayGi = RayGiOptions.Off, SurfaceOrder = SurfaceDrawOrder.OpaqueFirst }, resolved);
         Assert.Equal(ViewUpscalingMode.Off, quality.EffectiveUpscaling.Mode);
     }
 

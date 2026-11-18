@@ -36,6 +36,7 @@ internal sealed partial class D3D9SurfaceFrameEncoder
                 };
                 var withoutPurpose = composed with
                 {
+                    LightReceiverObjectId = authored.LightReceiverObjectId,
                     GiToonResponseOverride = authored.GiToonResponseOverride,
                     UseSceneLighting = authored.UseSceneLighting,
                     PreserveDirectLightPalette = authored.PreserveDirectLightPalette,

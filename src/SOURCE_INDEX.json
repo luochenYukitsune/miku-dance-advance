@@ -22453,8 +22453,8 @@
                                 "project":  "Mmd.Modern.Rendering.D3D12",
                                 "role":  "optional-native-runtime",
                                 "productModule":  "现代渲染引擎",
-                                "bytes":  677,
-                                "sha256":  "6016718bc0d6689acbf8693c87c0cdebab9cccdbcbb8c3f45ab303279c71c852",
+                                "bytes":  856,
+                                "sha256":  "078d3223f20e46a507e6a944c37a20702ec371188e7845d35b90e67e5241719d",
                                 "relatedProductModules":  [
                                                               "视图模块"
                                                           ],
@@ -22544,16 +22544,16 @@
                                 "project":  "Mmd.Modern.Physics.Bullet",
                                 "role":  "product",
                                 "productModule":  "MMD核心",
-                                "bytes":  3887,
-                                "sha256":  "600e435f7fa25eb6ecd2ad96b14b8ae72bcd1875b081b9bbce922f70bfb7c175"
+                                "bytes":  4095,
+                                "sha256":  "4becbf862fc652275738a36567d1af8a871c5e2bebdd47f2a90b432d5e983d94"
                             },
                             {
                                 "path":  "scripts/build-bullet-soft.py",
                                 "project":  "Mmd.Modern.Physics.Bullet",
                                 "role":  "product-support",
                                 "productModule":  "MMD核心",
-                                "bytes":  3005,
-                                "sha256":  "4c88267a0512aae657618a03a0ed33b47c1ad51a2fc76901898af1a883164727"
+                                "bytes":  3215,
+                                "sha256":  "37bbfe5e3467ef4424c7d5243c77b86de8d11ec05f9e06803dcbbeb1c2635049"
                             },
                             {
                                 "path":  "scripts/build-dlss.ps1",

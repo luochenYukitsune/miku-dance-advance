@@ -113,7 +113,7 @@ python scripts/build-bullet.py --compiler C:/tools/zig/zig.exe --output ../.dev-
 python scripts/build-bullet-soft.py --compiler C:/tools/zig/zig.exe --output ../.dev-cache/bullet-cluster-bounds-20261114/soft/mmd_bullet_soft.dll
 ```
 
-两个脚本会校验构建输入，并在输出目录保存清单。生成后重新构建托管项目即可按既有项目配置复制库。Classic 原生桥接及可选切线模块另有各自构建入口，见仓库的 [Classic 原生目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.D3D9.Compatibility)与 [MikkTSpace 目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.Mikktspace)。这些构建不包含原版 MMD 资源或 DirectX 运行库。
+两个脚本会校验构建输入，并在输出目录保存清单。脚本固定使用 `-target x86_64-windows-gnu -mcpu=baseline`：Zig 默认按构建机 CPU 生成指令，CI 机器支持而用户 CPU 不支持的指令（如 AVX-512）会让 DLL 在加载时初始化失败（0x8007045A）。不要去掉这两个参数。CI 打包前会运行 `scripts/check-native-portability.py`：发布目录里每个原生库的依赖都必须随包附带或属于 Windows 自带组件，Zig 编译的库只能用 x86-64 基线指令；任一项不满足即中止打包。生成后重新构建托管项目即可按既有项目配置复制库。Classic 原生桥接及可选切线模块另有各自构建入口，见仓库的 [Classic 原生目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.D3D9.Compatibility)与 [MikkTSpace 目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.Mikktspace)。这些构建不包含原版 MMD 资源或 DirectX 运行库。
 
 ---
 

@@ -19,7 +19,7 @@ public sealed class EditorViewportLatestCaptureTests : IAsyncDisposable
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly Type Host = typeof(EditorViewportHost);
     private HeadlessUnitTestSession? session;
-    private HeadlessUnitTestSession Headless => session ??= HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private HeadlessUnitTestSession Headless => session ??= HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Fact]
     public async Task ActiveWorkCoalescesRequestsWithoutPostingCaptureOrKeepingOldPending() => await Headless.Dispatch(() =>

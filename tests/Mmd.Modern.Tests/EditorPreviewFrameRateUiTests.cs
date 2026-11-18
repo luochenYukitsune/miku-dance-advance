@@ -16,7 +16,7 @@ namespace Mmd.Modern.Tests;
 public sealed class EditorPreviewFrameRateUiTests : IAsyncDisposable
 {
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Theory]
     [InlineData("zh-CN", 1100, false)]

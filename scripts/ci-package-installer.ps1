@@ -46,6 +46,12 @@ foreach ($rel in $requiredRootFiles) {
     }
 }
 
+# CI 机器装有 VC 运行库，CPU 也和用户不同；在这里拦下用户电脑上加载不了的原生库。
+python -m pip install --disable-pip-version-check capstone==5.0.6
+if ($LASTEXITCODE) { throw 'capstone 安装失败。' }
+python (Join-Path $repo 'scripts/check-native-portability.py') $published
+if ($LASTEXITCODE) { throw '发布目录里有用户电脑上可能加载不了的原生库，见上方列表。' }
+
 $ffmpegPin = Get-Content -LiteralPath (Join-Path $repo 'tools/ffmpeg/manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
     $expected = [string]$ffmpegPin.files.$name
