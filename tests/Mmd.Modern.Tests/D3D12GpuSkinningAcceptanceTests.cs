@@ -646,17 +646,19 @@ public sealed class D3D12GpuSkinningAcceptanceTests(ITestOutputHelper output)
         using var cpuSession = new D3D12FrameSession();
         using var gpuSession = new D3D12FrameSession();
 
-        _ = gpuSession.Capture(gpuF1, 160, 120);
-        var s1 = gpuSession.NativeLightStatistics!;
-        Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
-        Assert.True(s1.ShadowDrawCalls > 0);
-        Assert.Equal(0, s1.ShadowReusedFaces);
+        for (int warm = 0; warm < 3; warm++)
+        {
+            _ = gpuSession.Capture(gpuF1, 160, 120);
+            var sw = gpuSession.NativeLightStatistics!;
+            Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
+            Assert.True(sw.ShadowDrawCalls > 0);
+        }
 
         _ = gpuSession.Capture(gpuF1, 160, 120);
-        var s2 = gpuSession.NativeLightStatistics!;
+        var s4 = gpuSession.NativeLightStatistics!;
         Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
-        Assert.True(s2.ShadowReusedFaces > 0);
-        Assert.Equal(0, s2.ShadowDrawCalls);
+        Assert.True(s4.ShadowReusedFaces > 0);
+        Assert.Equal(0, s4.ShadowDrawCalls);
 
         var gpuImg2 = gpuSession.Capture(gpuF2, 160, 120);
         var s3 = gpuSession.NativeLightStatistics!;
