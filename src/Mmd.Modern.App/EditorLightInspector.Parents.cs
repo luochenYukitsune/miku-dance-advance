@@ -21,6 +21,7 @@ public sealed record EditorLightParentBoneChoice(int? BoneIndex, string Authored
 public partial class EditorLightInspector
 {
     private EditorLightParentModel[] parentModels = [];
+    internal IReadOnlyList<EditorLightParentModel> ParentModels => parentModels;
     private Func<SceneLightParent, Matrix4x4>? resolveParentTransform;
     private bool refreshingParents;
 

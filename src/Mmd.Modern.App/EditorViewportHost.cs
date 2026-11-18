@@ -27,7 +27,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private CancellationTokenSource? frameWaitCancellation;
     private CancellationTokenSource? aheadCancellation;
     private bool framePermitReady;
-    private bool playbackActive, recordingAheadReady;
+    private bool playbackActive, recordingAheadReady, presentationPaced;
     private long recordingEpoch;
     private int presentedWidth, presentedHeight;
     private RenderWork? pending;
@@ -183,6 +183,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     // Read only after SnapshotProvider has requested the latest raw pose input on the UI thread.
     internal Func<bool>? PoseInputPending { get; set; }
     internal long RepeatedPoseFramesSuppressed { get { lock (workerGate) return poseFrameAdmission.SuppressedFrames; } }
+    /// <summary>Advances the shell-owned playback clock on the UI thread right before a playback capture
+    /// that follows a present-cadence frame permit. The view only paces it and never keeps time itself.</summary>
+    internal Action? PlaybackAdvance { get; set; }
     public Func<PreviewFrame, PreviewFrame>? FrameDecorator { get; set; }
     public EditorLightViewportController? LightController { get; set; }
     public EditorBoneViewportController? BoneController { get; set; }
@@ -274,13 +277,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     internal void SetPlaybackActive(bool active)
     {
         Dispatcher.UIThread.VerifyAccess();
+        bool requestRender;
         lock (workerGate)
         {
             if (playbackActive == active) return;
             playbackActive = active;
             if (!active) InvalidateRecordingAheadLocked();
+            requestRender = !active || (PlaybackAdvance is not null && rendererReady && presentationPaced);
         }
-        if (!active) RequestRender();
+        if (requestRender) RequestRender();
     }
 
     private void InvalidateRecordingAheadLocked()
@@ -429,6 +434,16 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     // Shared by the real callback and deterministic headless tests. Capture is always UI-owned.
     private void RunCapture(long version, long token, Action capture)
     {
+        bool advance;
+        lock (workerGate)
+        {
+            if (!capturePosted || token != capturePostToken || version != revision) return;
+            advance = playbackActive && rendererReady && presentationPaced && accepting && !failed && !disposed && !IsSuspended
+                && !workerRunning && !captureInProgress && PlaybackAdvance is not null;
+        }
+        // Advance before this capture records its demand, so the advance's own RequestRender is
+        // coalesced into this capture instead of superseding it. All checks below run again.
+        if (advance) PlaybackAdvance!();
         lock (workerGate)
         {
             if (!capturePosted || token != capturePostToken || version != revision) return;
@@ -656,10 +671,10 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     rendererRevision = work.Revision; rendererWidth = work.Width; rendererHeight = work.Height;
                     var requests = Array.AsReadOnly(renderer.SceneInputRequests.ToArray());
                     string adapter = renderer.AdapterName;
-                    bool warp = renderer.IsWarp;
+                    bool warp = renderer.IsWarp, paced = renderer.PacesPresentation;
                     lock (workerGate)
                     {
-                        if (accepting && revision == work.Revision) { sceneInputRequests = requests; rendererReady = true; framePermitReady = false; demandSequence++; }
+                        if (accepting && revision == work.Revision) { sceneInputRequests = requests; rendererReady = true; presentationPaced = paced; framePermitReady = false; demandSequence++; }
                     }
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -725,6 +740,8 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     Statistics = statistics;
                     if (work.PreparationToken == preparationToken) SetPreparingFrame(false);
                     FramePresented?.Invoke(statistics);
+                    // Playback keeps one demand behind each present; the next frame permit paces it.
+                    if (PlaybackAdvance is not null && IsPacedPlayback()) RequestRender();
                 }, DispatcherPriority.Background);
             }
             catch (OperationCanceledException) when (cancellation?.IsCancellationRequested == true) { }
@@ -811,6 +828,10 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private bool IsCurrent(long version)
     {
         lock (workerGate) return !disposed && accepting && version == revision;
+    }
+    private bool IsPacedPlayback()
+    {
+        lock (workerGate) return playbackActive && rendererReady && presentationPaced;
     }
 
     private bool IsCurrentRecordingEpoch(long epoch)

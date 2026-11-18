@@ -7,6 +7,7 @@ namespace Mmd.Modern.App;
 public partial class EditorWindow
 {
     internal string? ExportDiagnosticLogRoot { get; set; }
+    internal IEditorPowerPlatform ExportPowerPlatform { get; set; } = EditorWindowsPowerPlatform.Instance;
 
     private async Task RunExportWithStatusAsync(EditorShellViewModel shell, OutputSettingsDraft draft)
     {
@@ -58,6 +59,8 @@ public partial class EditorWindow
             {
                 activeCancellation = _operationCancellation;
                 if (status.IsCancellationRequested) activeCancellation?.Cancel();
+                // Entered and disposed on the UI thread, which owns the export's await continuations.
+                using var power = EditorExportPowerScope.Enter(ExportPowerPlatform);
                 monitor.Start();
                 try
                 {

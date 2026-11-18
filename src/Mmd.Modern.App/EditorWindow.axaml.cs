@@ -81,17 +81,18 @@ public partial class EditorWindow : Window
         RefreshClassicEffectsMenu();
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
-        viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null;
+        viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null; viewport.PlaybackAdvance = null;
         viewport.LightController = null; viewport.BoneController = null;
-        if (shell is null || _shell is null) return;
+        if (shell is null || _shell is null) { _lightParentContextKey = null; return; }
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
         shell.Workspace.Changed += OnClassicMappingChanged;
         viewport.SetRenderEngine(shell.Workspace.RenderEngine);
-        _mappedRevision = -1; _mappedBindingRevision = -1; _mappedSession = null;
+        _mappedRevision = -1; _mappedBindingRevision = -1; _mappedSession = null; _lightParentContextKey = null;
         shell.Animation.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         shell.SceneInspector.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         this.FindControl<EditorViewportHost>("SceneViewport")!.SnapshotProvider = CaptureEditorSnapshot;
         viewport.PoseInputPending = () => shell.PosePreview.IsPreparingPreview && !shell.PosePreview.HasLatestInputSnapshot;
+        viewport.PlaybackAdvance = shell.AdvancePlaybackForFrame;
         InitializeLightController(shell);
         AttachLoadingState(shell);
         _shell.PropertyChanged += OnShellPropertyChanged;
@@ -210,7 +211,8 @@ public partial class EditorWindow : Window
             _mappedRevision = shell.ContentRevision; _mappedSession = shell.Workspace.Session;
             viewport.InvalidateTemporalHistory();
         }
-        RefreshLightingInspector();
+        // Authored lighting does not depend on the frame; a pure playback advance leaves it unchanged.
+        if (!ReferenceEquals(args, EditorShellViewModel.PlaybackFrameAdvanced)) RefreshLightingInspector();
         viewport.RequestRender();
     }
 

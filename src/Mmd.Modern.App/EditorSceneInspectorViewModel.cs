@@ -372,6 +372,10 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     private void RefreshAvailability()
     {
         Changed(nameof(IsBusy)); Changed(nameof(CanEdit)); Changed(nameof(CanRegisterCamera)); Changed(nameof(CanRegisterLight)); Changed(nameof(CanRevertDraft));
+        if (!presentation.TryDeferCommands()) RaiseCommandAvailabilityChanged();
+    }
+    private void RaiseCommandAvailabilityChanged()
+    {
         foreach (var command in new[] { RegisterCameraKeyframeCommand, RegisterLightKeyframeCommand, RevertDraftCommand }) ((SceneCommand)command).Refresh();
     }
     private void SetStatus(string value, params object?[] arguments)
@@ -402,7 +406,13 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         catch (OverflowException) { return null; }
     }
     private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
-    private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private readonly EditorDeferredPresentation presentation = new();
+    /// <summary>Playback presentation: notifications raised while deferred wait for FlushPresentation.</summary>
+    internal void DeferPresentation(bool defer) => presentation.IsDeferring = defer;
+    internal bool HasDeferredPresentation => presentation.HasPending;
+    internal void FlushPresentation() => presentation.Flush(name => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)), RaiseCommandAvailabilityChanged);
+    private void Changed([CallerMemberName] string? name = null)
+    { if (!presentation.TryDefer(name)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)); }
     private sealed class SceneCommand(Func<Task> action, Func<bool> canExecute) : ICommand
     {
         public event EventHandler? CanExecuteChanged;
