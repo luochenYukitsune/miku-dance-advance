@@ -8,9 +8,18 @@ namespace Mmd.Modern.App;
 
 public sealed partial class EditorShellViewModel : IDisposable
 {
+    // Fallback pacing only: the viewport's frame permits advance playback at the display cadence.
+    // Win32 delivers this 16 ms timer only ~30 ms apart, so it covers intervals without a permit.
     private readonly DispatcherTimer playbackTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
-    private bool refreshingFrame;
-    private long lastPlaybackTimestamp;
+    // Numeric inspectors are read by people: while playing, their bindings refresh at a fixed UX
+    // rate (10 Hz, as Unity's Inspector and UE's Details panel do at runtime), on the next playback
+    // advance after the interval, so never faster than the display cadence. The models stay exact;
+    // pause, seek and stop publish immediately.
+    private static readonly long PanelPresentationInterval = Stopwatch.Frequency / 10;
+    internal static readonly EventArgs PlaybackFrameAdvanced = new();
+    private bool refreshingFrame, playbackPacedSinceTick;
+    private long lastPlaybackTimestamp, panelPresentationTimestamp;
+    internal Func<long> PlaybackClock { get; set; } = Stopwatch.GetTimestamp;
     private bool advancing, refreshing, playing, busy, preparingPreview, canCancelOperation;
     private string operationStatus = "就绪";
     private Func<string>? operationStatusSource;
@@ -55,7 +64,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         NotifyActivityChanged();
     }
     public bool CanEditWorkspace => !IsBusy;
-    public bool IsPlaying { get => playing; private set { playing = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); } }
+    public bool IsPlaying { get => playing; private set { playing = value; if (!value) FlushPanelPresentation(force: true); OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); } }
     public string PlayLabel => EditorLocalization.Text(IsPlaying ? "暂停" : "播放");
     public string OperationStatus
     {
@@ -197,17 +206,35 @@ public sealed partial class EditorShellViewModel : IDisposable
         {
             PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
             Workspace.Session?.Seek(CurrentFrame);
-            if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+            if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
             SynchronizeAudioPlayback(explicitSeek: true);
         }
+        PublishPanelFrame();
+        ViewStateChanged?.Invoke(this, advancing ? PlaybackFrameAdvanced : EventArgs.Empty);
+    }
+
+    /// <summary>Playback defers only binding notifications; the inspector models update exactly.</summary>
+    private void PublishPanelFrame()
+    {
+        bool defer = advancing;
         refreshingFrame = true;
+        Animation.DeferPresentation(defer); SceneInspector.DeferPresentation(defer);
         try
         {
             Animation.CurrentFrame = CurrentFrame;
             SceneInspector.CurrentFrame = CurrentFrame;
         }
-        finally { refreshingFrame = false; }
-        ViewStateChanged?.Invoke(this, EventArgs.Empty);
+        finally { Animation.DeferPresentation(false); SceneInspector.DeferPresentation(false); refreshingFrame = false; }
+        if (!defer) FlushPanelPresentation(force: true);
+    }
+
+    private void FlushPanelPresentation(bool force)
+    {
+        if (!Animation.HasDeferredPresentation && !SceneInspector.HasDeferredPresentation) return;
+        long now = PlaybackClock();
+        if (!force && now - panelPresentationTimestamp < PanelPresentationInterval) return;
+        panelPresentationTimestamp = now;
+        Animation.FlushPresentation(); SceneInspector.FlushPresentation();
     }
 
     /// <summary>The loaded recovery PMA already owns the exact paused clock, including fractions.
@@ -232,7 +259,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         if (Workspace.Session is not { } session) return;
         if (CurrentFrame >= session.DurationFrames) CurrentFrame = 0;
         audioBlocked = false; reportedAudioFailure = null;
-        lastPlaybackTimestamp = Stopwatch.GetTimestamp(); IsPlaying = true; playbackTimer.Start();
+        lastPlaybackTimestamp = PlaybackClock(); playbackPacedSinceTick = false; IsPlaying = true; playbackTimer.Start();
         SynchronizeAudioPlayback();
     }
     public void StopPlayback()
@@ -240,15 +267,33 @@ public sealed partial class EditorShellViewModel : IDisposable
         playbackTimer.Stop(); if (IsPlaying) IsPlaying = false;
         SynchronizeAudioPlayback();
     }
+    /// <summary>Called by the viewport at each playback frame permit, right before it captures the
+    /// scene. It paces the single shell-owned clock; the view never runs a clock of its own.</summary>
+    internal void AdvancePlaybackForFrame()
+    {
+        if (!IsPlaying) return;
+        playbackPacedSinceTick = true;
+        using var measure = InteractionDiagnostics.Measure("playback.frame-pulse");
+        AdvancePlayback();
+    }
     private void PlaybackTick(object? sender, EventArgs e)
     {
         using var tickMeasure = InteractionDiagnostics.Measure("playback.ui-tick");
+        if (IsPlaying && playbackPacedSinceTick)
+        {
+            // Frame permits already advanced this interval; only publish a due panel refresh.
+            playbackPacedSinceTick = false; FlushPanelPresentation(force: false); return;
+        }
+        AdvancePlayback();
+    }
+    private void AdvancePlayback()
+    {
         if (!IsPlaying || Workspace.Session is not { } session || IsBusy) { StopPlayback(); return; }
-        long now = Stopwatch.GetTimestamp();
+        long now = PlaybackClock();
         // A delayed UI tick still owns its full elapsed time. Keep the scene's
         // bounded physics catch-up and carry very long gaps across ticks so that
         // no call exceeds the soft-body advance limit.
-        long elapsedTicks = Math.Min(now - lastPlaybackTimestamp, 10L * Stopwatch.Frequency);
+        long elapsedTicks = Math.Clamp(now - lastPlaybackTimestamp, 0L, 10L * Stopwatch.Frequency);
         lastPlaybackTimestamp += elapsedTicks;
         double elapsed = elapsedTicks / (double)Stopwatch.Frequency;
         try
@@ -259,8 +304,9 @@ public sealed partial class EditorShellViewModel : IDisposable
             bool changed = nextFrame != CurrentFrame;
             CurrentFrame = nextFrame;
             SynchronizeAudioPlayback();
-            if (!changed) ViewStateChanged?.Invoke(this, EventArgs.Empty);
+            if (!changed) ViewStateChanged?.Invoke(this, PlaybackFrameAdvanced);
             if (session.CurrentFrame >= session.DurationFrames) StopPlayback();
+            else FlushPanelPresentation(force: false);
         }
         catch (Exception error) { StopPlayback(); ReportActivityFailure(error, previewUnavailable: true); }
         finally { advancing = false; }

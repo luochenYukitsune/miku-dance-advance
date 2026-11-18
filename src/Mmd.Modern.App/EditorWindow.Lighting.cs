@@ -14,6 +14,8 @@ namespace Mmd.Modern.App;
 public partial class EditorWindow
 {
     private bool _publishingInlineLight, _refreshingLightingInspector;
+    // Parent choices depend only on committed content; frame changes never rebuild the bone names.
+    private (EditorShellViewModel? Shell, SceneProjectSession? Session, long Revision, bool Modern)? _lightParentContextKey;
     private bool _synchronizingLightBrowser;
     private EditorLightingViewModel? _lightBrowserModel;
 
@@ -141,11 +143,16 @@ public partial class EditorWindow
             }
             inspector.UseWorkspaceBrowser(shell.SupportsModernLightingWorkspace);
             var session = shell.Workspace.Session;
-            var motions = shell.SupportsModernLightingWorkspace ? shell.Workspace.Motions : [];
-            inspector.ConfigureParentContext(shell.SupportsModernLightingWorkspace && session is not null
-                ? session.Objects.Select(item => new EditorLightParentModel(item.Id, item.Name,
-                    motions.FirstOrDefault(motion => motion.ObjectId == item.Id)?.Model.Bones.Select(bone => bone.Name).ToArray() ?? []))
-                : [], session is not null && shell.SupportsModernLightingWorkspace ? session.ResolveLightParentTransform : null);
+            var parentKey = (shell, session, shell.ContentRevision, shell.SupportsModernLightingWorkspace);
+            if (_lightParentContextKey != parentKey)
+            {
+                var motions = shell.SupportsModernLightingWorkspace ? shell.Workspace.Motions : [];
+                inspector.ConfigureParentContext(shell.SupportsModernLightingWorkspace && session is not null
+                    ? session.Objects.Select(item => new EditorLightParentModel(item.Id, item.Name,
+                        motions.FirstOrDefault(motion => motion.ObjectId == item.Id)?.Model.Bones.Select(bone => bone.Name).ToArray() ?? []))
+                    : [], session is not null && shell.SupportsModernLightingWorkspace ? session.ResolveLightParentTransform : null);
+                _lightParentContextKey = parentKey;
+            }
             using (InteractionDiagnostics.Measure("lighting.browser-bind")) BindLightingBrowser(inspector.ViewModel);
             var light = selected is { } id ? snapshot.Lights.FirstOrDefault(item => item.Id == id) : null;
             bool multiple = lightController?.SelectedLightIds.Count > 1;

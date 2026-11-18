@@ -44,7 +44,8 @@ public sealed class ExportStatusIntegrationTests : IAsyncDisposable
         shell.Workspace.Session!.Seek(2, Token);
         var live = shell.Workspace.Session;
         var pose = live.Frame;
-        var window = new EditorWindow(false) { ExportDiagnosticLogRoot = Path.Combine(directory, "diagnostics") };
+        var power = new RecordingPowerPlatform();
+        var window = new EditorWindow(false) { ExportDiagnosticLogRoot = Path.Combine(directory, "diagnostics"), ExportPowerPlatform = power };
         var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.IsVisible = false;
         window.DataContext = shell;
@@ -61,6 +62,7 @@ public sealed class ExportStatusIntegrationTests : IAsyncDisposable
             await engine.Renderer.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
             Assert.True(shell.IsBusy);
             Assert.True(viewport.IsSuspended);
+            Assert.True(power.IsExportPolicyActive);
             Assert.False(shell.IsPlaying);
             Assert.False(shell.CanEditWorkspace);
             Assert.Same(live, shell.Workspace.Session);
@@ -114,6 +116,8 @@ public sealed class ExportStatusIntegrationTests : IAsyncDisposable
                 Assert.Equal("renderer.capture", report.RootElement.GetProperty("phase").GetString());
             }
             Assert.Equal(1, engine.Renderer.Disposals);
+            Assert.False(power.IsExportPolicyActive);
+            Assert.Equal((0u, 0u, EditorExportPowerScope.Continuous), (power.Control, power.State, power.ExecutionState));
             Assert.False(shell.IsBusy);
             Assert.False(viewport.IsSuspended);
             Assert.Same(live, shell.Workspace.Session);
