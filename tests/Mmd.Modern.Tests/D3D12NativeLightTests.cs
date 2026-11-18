@@ -35,9 +35,12 @@ public sealed class D3D12NativeLightTests
         using var session = new D3D12FrameSession();
         var light = Light(kind);
         var shadow = session.Capture(WithLight(Fixture(), [light]), 129, 97);
-        Assert.Equal(expectedFaces, session.NativeLightStatistics!.ShadowFaces);
-        Assert.Equal(expectedFaces, session.NativeLightStatistics.ShadowDrawCalls);
-        Assert.False(session.NativeLightStatistics.NativeLightsContributeToGi);
+        var stats = session.NativeLightStatistics!;
+        Assert.Equal(expectedFaces, stats.ShadowFaces);
+        Assert.Equal(expectedFaces, stats.ShadowCasterDraws);
+        Assert.Equal(kind == SceneLightKind.Point ? 1 : expectedFaces, stats.ShadowDrawCalls);
+        Assert.Equal(expectedFaces, stats.ShadowDrawCalls + stats.ShadowCulledDraws);
+        Assert.False(stats.NativeLightsContributeToGi);
         var transparentCaster = session.Capture(WithLight(Fixture(transparentCaster: true), [light]), 129, 97);
         var noShadow = session.Capture(WithLight(Fixture(), [light with { CastShadows = false }]), 129, 97);
         int center = (48 * 129 + 64) * 4;

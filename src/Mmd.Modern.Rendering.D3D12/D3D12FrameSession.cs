@@ -32,6 +32,7 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12VisibilityStatistics? VisibilityStatistics=>renderer.VisibilityStatistics;
     public D3D12RayGiStatistics? RayGiStatistics=>renderer.RayGiStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
+    internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>renderer.TemporalUpscalingStatistics;
     public int EditorOverlayDrawCalls=>renderer.EditorOverlayDrawCalls;
     public string? RayGiBackendIdentity=>renderer.RayGiBackendIdentity;
