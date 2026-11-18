@@ -30,18 +30,19 @@ internal sealed class D3D12DiffusionPass(D3D12GpuRuntime runtime, D3D12GpuCache 
                  new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 2, 0)), ShaderVisibility.Pixel)],
                 [new StaticSamplerDescription(ShaderVisibility.Pixel, 0, 0)
                 { Filter = Filter.MinMagLinearMipPoint, AddressU = TextureAddressMode.Clamp, AddressV = TextureAddressMode.Clamp, AddressW = TextureAddressMode.Clamp }]), RootSignatureVersion.Version10));
-        var rtv = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 2)));
-        var srv = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4, DescriptorHeapFlags.ShaderVisible)));
+        var rtv = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 2));
+        var srv = runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4, DescriptorHeapFlags.ShaderVisible));
         int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
         int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 4);
         D3D12GpuTarget Allocate(string name, int index, Format format)
         {
-            var resource = context.Own(device.CreateCommittedResource(HeapType.Default,
-                ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
+            // Each opaque full-target draw overwrites every texel of its pooled image.
+            var resource = runtime.Transients.Resource(context, HeapType.Default,
+                ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget);
             var handle = rtv.GetCPUDescriptorHandleForHeapStart().Offset(index, rtvStride);
             device.CreateRenderTargetView(resource, null, handle);
-            return new(name, resource, handle, width, height, format, false);
+            return runtime.Transients.Track(new(name, resource, handle, width, height, format, false));
         }
         // Preserve both original UNorm8 stores. Alpha's distinct contract keeps low
         // coverage and energy in FP16 until the existing final straight resolve.

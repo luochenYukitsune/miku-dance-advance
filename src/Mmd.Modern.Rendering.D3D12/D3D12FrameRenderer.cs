@@ -23,6 +23,8 @@ public sealed record D3D12RecordingRecord(long FrameId,string Channel,string Tar
 /// MME parsing and graph execution are deliberately absent. CPU pixels are requested only by Capture.</summary>
 public sealed class D3D12FrameRenderer : IDisposable
 {
+    private static readonly SceneTexture WhiteTexture = new("white", 1, 1, [255, 255, 255, 255]);
+    private static readonly SceneTexture WhiteSphereTexture = new("white-sphere", 1, 1, [255, 255, 255, 255]);
     private readonly D3D12GpuRuntime runtime;
     private readonly bool ownsRuntime;
     private readonly D3D12GpuCache cache;
@@ -111,16 +113,24 @@ public sealed class D3D12FrameRenderer : IDisposable
     public RenderedFrame Render(OriginalFrameScene frame,int width,int height,
         RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
         =>RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+    internal RenderedFrame RenderInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,
+        RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
+    {
+        if(width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
+        if(destination.Length<checked(width*height*4)) throw new ArgumentException("Destination must hold width*height*4 RGBA bytes.",nameof(destination));
+        return RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,destination);
+    }
 
     internal D3D12FrameOutput RecordGpu(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
         Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
     {
+        LastGpuOutput=null;
         RenderCore(frame,width,height,false,appendPresent,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion);
         return LastGpuOutput!;
     }
 
     private RenderedFrame RenderCore(OriginalFrameScene frame,int width,int height,bool capture,
-        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
+        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,Memory<byte>? destination=null)
     {
         ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(frame);
         if (rendering) throw new InvalidOperationException("Reentrant/concurrent rendering is unsupported.");
@@ -331,7 +341,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         LastPasses=[];
         long recordAllocatedStart=GC.GetAllocatedBytesForCurrentThread();
         var recordTimer=System.Diagnostics.Stopwatch.StartNew();
-        var context=runtime.Begin(); T Own<T>(T resource) where T:IDisposable=>context.Own(resource);
+        var context=runtime.Begin();
         originalRecorder.ResetSceneRecordCpuStatistics();
         double beginFrameMilliseconds=recordTimer.Elapsed.TotalMilliseconds-runtime.LastSlotWaitMilliseconds;
         rendering=true;
@@ -363,21 +373,25 @@ public sealed class D3D12FrameRenderer : IDisposable
             int giDescriptors=rayGiOptions?.Enabled==true?checked(2*giRecordings):0;
             int descriptorCount=checked(giNextSlot+giDescriptors);
             var heaps=frameDescriptors.Get(descriptorCount);
+            heaps.UseLayout((scene.Textures.Count,nativeDescriptors,matcapDescriptors,metallicDescriptors,baseImageDescriptors));
             var rtvHeap=heaps.Rtv;var dsvHeap=heaps.Dsv;var srvHeap=heaps.Srv;
             runtime.DescriptorHighWater=Math.Max(runtime.DescriptorHighWater,descriptorCount);
             int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
             int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
             int dsvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.DepthStencilView);
             var targets = new Dictionary<string, D3D12GpuTarget>(StringComparer.OrdinalIgnoreCase); int colorIndex = 0, depthIndex = 0;
+            int descriptorWrites=0,descriptorSkips=0;
+            void Counted(bool written){if(written)descriptorWrites++;else descriptorSkips++;}
             D3D12GpuTarget Allocate(string name, int w, int h, Format format, bool depth)
             {
-                var resource = Own(device.CreateCommittedResource(HeapType.Default, ResourceDescription.Texture2D(format, (uint)w, (uint)h,
+                // Both targets are cleared before use; the pool reuses them after their last fence.
+                var resource = runtime.Transients.Resource(context, HeapType.Default, ResourceDescription.Texture2D(format, (uint)w, (uint)h,
                     mipLevels: 1, flags: depth ? ResourceFlags.AllowDepthStencil : ResourceFlags.AllowRenderTarget),
-                    depth ? ResourceStates.DepthWrite : ResourceStates.RenderTarget));
+                    depth ? ResourceStates.DepthWrite : ResourceStates.RenderTarget);
                 var handle = depth ? dsvHeap.GetCPUDescriptorHandleForHeapStart().Offset(depthIndex++, dsvStride)
                     : rtvHeap.GetCPUDescriptorHandleForHeapStart().Offset(colorIndex++, rtvStride);
-                if (depth) device.CreateDepthStencilView(resource, null, handle); else device.CreateRenderTargetView(resource, null, handle);
-                var target = new D3D12GpuTarget(name, resource, handle, w, h, format, depth); targets.Add(name, target); return target;
+                Counted(heaps.WriteTarget(device, resource, depth));
+                var target = runtime.Transients.Track(new D3D12GpuTarget(name, resource, handle, w, h, format, depth)); targets.Add(name, target); return target;
             }
             var output = Allocate("$output", width, height, straightAlpha?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm, false);
             var defaultDepth = Allocate("$depth", width, height, frame.Options?.GroundShadow?.UseStencil==true?Format.D24_UNorm_S8_UInt:Format.D32_Float, true);
@@ -387,23 +401,21 @@ public sealed class D3D12FrameRenderer : IDisposable
             var stageTimer=System.Diagnostics.Stopwatch.StartNew();
             var geometry=emptyScene?null:GetGeometry(scene);var vb=geometry?.Vertex;var ib=geometry?.Index;
             geometryMilliseconds=stageTimer.Elapsed.TotalMilliseconds;stageTimer.Restart();
-            void UploadTexture(SceneTexture texture,int slot)
-                =>device.CreateShaderResourceView(cache.Texture(texture),null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(slot,srvStride));
-            UploadTexture(new("white", 1, 1, [255,255,255,255]), textureSlots);
-            UploadTexture(new SceneTexture("white-sphere",1,1,[255,255,255,255]), textureSlots + 1);
+            static Format ColorFormat(D3D12MatcapColorEncoding encoding)
+                =>encoding==D3D12MatcapColorEncoding.SrgbRgb?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm;
+            void UploadTexture(SceneTexture texture,int slot)=>Counted(heaps.WriteSrv(device,slot,cache.Texture(texture),srvStride,Format.R8G8B8A8_UNorm));
+            UploadTexture(WhiteTexture, textureSlots);
+            UploadTexture(WhiteSphereTexture, textureSlots + 1);
             for (int i = 0; i < scene.Textures.Count; i++) UploadTexture(scene.Textures[i], textureSlots + i + 2);
             for(int i=0;i<matcapDescriptors;i++)
                 if(surfaceStyles!.EffectiveSurfaceMatcap(i) is {} matcap)
-                    device.CreateShaderResourceView(cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),null,
-                        srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(matcapSlotBase+i,srvStride));
+                    Counted(heaps.WriteSrv(device,matcapSlotBase+i,cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),srvStride,ColorFormat(matcap.MatcapEncoding)));
             for(int i=0;i<metallicDescriptors;i++)
                 if(surfaceStyles!.EffectiveGenshinMetallic(i) is {} metal)
-                    device.CreateShaderResourceView(cache.TextureColor(scene.Textures[metal.MatcapCombinedTextureIndex],metal.MatcapEncoding),null,
-                        srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(metallicSlotBase+i,srvStride));
+                    Counted(heaps.WriteSrv(device,metallicSlotBase+i,cache.TextureColor(scene.Textures[metal.MatcapCombinedTextureIndex],metal.MatcapEncoding),srvStride,ColorFormat(metal.MatcapEncoding)));
             for(int i=0;i<baseImageDescriptors;i++)
                 if(surfaceStyles!.EffectiveEndfieldMatcap(i)?.Palette?.BaseImage is {ConsumesBaseTexture:true} baseImage)
-                    device.CreateShaderResourceView(cache.TextureColor(scene.Textures[baseImage.BaseCombinedTextureIndex!.Value],baseImage.BaseEncoding),null,
-                        srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(baseImageSlotBase+i,srvStride));
+                    Counted(heaps.WriteSrv(device,baseImageSlotBase+i,cache.TextureColor(scene.Textures[baseImage.BaseCombinedTextureIndex!.Value],baseImage.BaseEncoding),srvStride,ColorFormat(baseImage.BaseEncoding)));
             textureMilliseconds=stageTimer.Elapsed.TotalMilliseconds;
             D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame=null;
             D3D12RayGiWorkspace? sharedGiWorkspace=null;
@@ -590,7 +602,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             {
                 var rowCounts=new int[1];var rowSizes=new ulong[1];
                 device.GetCopyableFootprints(output.Resource.Description,0,1,0,footprints,rowCounts,rowSizes,out bytes);
-                readback=Own(device.CreateCommittedResource(HeapType.Readback,ResourceDescription.Buffer(bytes),ResourceStates.CopyDest));
+                readback=runtime.Transients.Resource(context,HeapType.Readback,ResourceDescription.Buffer(bytes),ResourceStates.CopyDest);
                 commands.CopyTextureRegion(new TextureCopyLocation(readback,footprints[0]),0,0,0,new TextureCopyLocation(output.Resource,0));
                 LastReadbackCount++;runtime.Readbacks++;
                 int diagnosticReadbacks=rayGiRenderer?.DiagnosticReadbackCount??0;LastReadbackCount+=diagnosticReadbacks;runtime.Readbacks+=diagnosticReadbacks;
@@ -619,13 +631,13 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             if(capture)
             {
-                runtime.Wait(completion);rgba=new byte[checked(displayWidth*displayHeight*4)];var data=readback!.Map<byte>(0,checked((int)bytes));
-                try{for(int y=0;y<displayHeight;y++)data.Slice(y*footprints[0].Footprint.RowPitch,displayWidth*4).CopyTo(rgba.AsSpan(y*displayWidth*4,displayWidth*4));}
+                runtime.Wait(completion);var pixels=destination??(rgba=new byte[checked(displayWidth*displayHeight*4)]);var data=readback!.Map<byte>(0,checked((int)bytes));
+                try{for(int y=0;y<displayHeight;y++)data.Slice(y*footprints[0].Footprint.RowPitch,displayWidth*4).CopyTo(pixels.Span.Slice(y*displayWidth*4,displayWidth*4));}
                 finally{readback.Unmap(0);}
                 rayGiRenderer?.CompleteDiagnosticCapture();
             }
             Statistics=runtime.Statistics(LastSceneDrawCalls,LastPassDrawCalls,LastReadbackCount,LastSubmissionCount) with {CachedResources=cache.LiveResourceCount,RecordCpuMilliseconds=recordMilliseconds,GeometryCacheMilliseconds=geometryMilliseconds,
-                TextureBindingMilliseconds=textureMilliseconds,SceneRecordMilliseconds=sceneMilliseconds,SubmitCpuMilliseconds=submitMilliseconds,
+                TextureBindingMilliseconds=textureMilliseconds,TextureDescriptorWrites=descriptorWrites,TextureDescriptorSkips=descriptorSkips,SceneRecordMilliseconds=sceneMilliseconds,SubmitCpuMilliseconds=submitMilliseconds,
                 SceneRecordCpu=originalRecorder.SceneRecordCpuStatistics,
                 BeginFrameCpuMilliseconds=beginFrameMilliseconds,FrameTargetMilliseconds=frameTargetMilliseconds,
                 AntialiasingCpuMilliseconds=antialiasingMilliseconds,EditorVisibilityCpuMilliseconds=editorVisibilityMilliseconds,
@@ -644,7 +656,9 @@ public sealed class D3D12FrameRenderer : IDisposable
                 CaptureRetirementMilliseconds=captureRetirementMilliseconds,
                 TemporalUpscaling=TemporalUpscalingStatistics};
             LastRecordings=recordingRecords;
-            if(!capture)LastGpuOutput=new(displayWidth,displayHeight,runtime.FrameId,Statistics,output.Resource.QueryInterface<ID3D12Resource>());
+            // A pooled final image leaves the pool until the lease is disposed, so later frames cannot overwrite it.
+            if(!capture)LastGpuOutput=new(displayWidth,displayHeight,runtime.FrameId,Statistics,output.Resource.QueryInterface<ID3D12Resource>(),
+                runtime.Transients.Detach(output.Resource));
             return new(displayWidth,displayHeight,rgba,"Direct3D12ModernFrame",$"{AdapterName} ({FeatureLevel})",LastSceneDrawCalls+LastPassDrawCalls+antialiasingDrawCalls+spatialResolveDrawCalls+upscalingDrawCalls);
         }
         finally
@@ -751,5 +765,5 @@ public sealed class D3D12FrameRenderer : IDisposable
         temporalPass?.Dispose();temporalPass=null;xeSsTemporalPass?.Dispose();xeSsTemporalPass=null;
         dlssTemporalPass?.Dispose();dlssTemporalPass=null;
     }
-    public void Dispose(){if(disposed)return;runtime.WaitForIdle();disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();rayGiRenderer?.Dispose();frameDescriptors.Dispose();cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}
+    public void Dispose(){if(disposed)return;if(runtime.IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");try{runtime.WaitForIdle();}finally{disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();try{rayGiRenderer?.Dispose();}finally{try{frameDescriptors.Dispose();}finally{cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}}}}
 }

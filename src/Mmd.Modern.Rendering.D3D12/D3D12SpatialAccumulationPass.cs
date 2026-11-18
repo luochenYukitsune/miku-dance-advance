@@ -25,18 +25,19 @@ internal sealed class D3D12SpatialAccumulationPass(D3D12GpuRuntime runtime, D3D1
         var device = context.Device;
         var pipeline = GetPipeline(outputFormat);
         ulong bytes = checked((ulong)width * (ulong)height * 16);
-        var accumulation = context.Own(device.CreateCommittedResource(HeapType.Default,
-            ResourceDescription.Buffer(bytes, ResourceFlags.AllowUnorderedAccess), ResourceStates.UnorderedAccess));
-        var srvHeap = context.Own(device.CreateDescriptorHeap(new(
-            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible)));
-        var rtvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1)));
-        var outputResource = context.Own(device.CreateCommittedResource(HeapType.Default,
+        // Sample zero overwrites the whole pooled accumulation buffer; the opaque resolve overwrites the output.
+        var accumulation = runtime.Transients.Resource(context, HeapType.Default,
+            ResourceDescription.Buffer(bytes, ResourceFlags.AllowUnorderedAccess), ResourceStates.UnorderedAccess);
+        var srvHeap = runtime.Transients.Heap(new(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible));
+        var rtvHeap = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 1));
+        var outputResource = runtime.Transients.Resource(context, HeapType.Default,
             ResourceDescription.Texture2D(outputFormat, (uint)width, (uint)height,
-                mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
+                mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget);
         var outputHandle = rtvHeap.GetCPUDescriptorHandleForHeapStart();
         device.CreateRenderTargetView(outputResource, null, outputHandle);
-        var output = new D3D12GpuTarget("$ssaa-output", outputResource, outputHandle,
-            width, height, outputFormat, false);
+        var output = runtime.Transients.Track(new D3D12GpuTarget("$ssaa-output", outputResource, outputHandle,
+            width, height, outputFormat, false));
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 1);
         return new(context, pipeline, accumulation, srvHeap, output, samples);
     }

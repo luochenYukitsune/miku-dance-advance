@@ -53,14 +53,15 @@ internal sealed class D3D12AlphaResolvePass(D3D12GpuRuntime runtime,D3D12GpuCach
                 RenderTargetFormats=[Format.R8G8B8A8_UNorm],SampleDescription=new(1,0)});
             runtime.PipelineCreations++;return created;
         });
-        var resource=context.Own(device.CreateCommittedResource(HeapType.Default,
+        // The opaque full-target draw overwrites every texel of the pooled image.
+        var resource=runtime.Transients.Resource(context,HeapType.Default,
             ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),
-            ResourceStates.RenderTarget));
-        var rtv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView,1)));
-        var srv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible)));
+            ResourceStates.RenderTarget);
+        var rtv=runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView,1));
+        var srv=runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible));
         var handle=rtv.GetCPUDescriptorHandleForHeapStart();device.CreateRenderTargetView(resource,null,handle);
         device.CreateShaderResourceView(input.Resource,null,srv.GetCPUDescriptorHandleForHeapStart());
-        var output=new D3D12GpuTarget("$straight-alpha",resource,handle,input.Width,input.Height,Format.R8G8B8A8_UNorm,false);
+        var output=runtime.Transients.Track(new D3D12GpuTarget("$straight-alpha",resource,handle,input.Width,input.Height,Format.R8G8B8A8_UNorm,false));
         commands.UnsetRenderTargets();context.Transition(input,ResourceStates.PixelShaderResource);
         commands.SetDescriptorHeaps(srv);commands.SetGraphicsRootSignature(root);commands.SetPipelineState(pipeline);
         commands.SetGraphicsRootDescriptorTable(0,srv.GetGPUDescriptorHandleForHeapStart());

@@ -28,7 +28,9 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     private readonly D3D12ViewTemporalClock temporalClock = new();
     private readonly SemaphoreSlim gate = new(1, 1);
-    private bool disposed;
+    // Pixel storage returned by disposed leases. It grows only to the number of leases consumers hold at once.
+    private readonly Stack<byte[]> freePixels = new();
+    private volatile bool disposed;
     public ViewRendererCapabilities Capabilities { get; }
     public string AdapterName => session.AdapterName;
     public bool IsWarp => session.IsWarp;
@@ -130,13 +132,37 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
             // Resolve discontinuities once for both independent histories; capture itself does not reset GI.
             var state = temporalClock.Resolve(frame.Sample, temporalState);
             var temporal = D3D12ViewQuality.Temporal(request.EffectiveQuality, state, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory);
-            var result = session.Capture(scene, request.Width, request.Height, rayGiOptions: D3D12ViewQuality.Gi(request.EffectiveQuality, state),
-                upscaling: D3D12ViewQuality.Upscaling(request.EffectiveQuality), temporalUpscaling: temporal,
-                surfaceStyles: style.SurfaceStyles, diffusion: D3D12ViewQuality.Diffusion(request.EffectiveQuality),
-                captureMemory: D3D12ViewCaptureMemory.Map(request.CaptureMemory));
-            temporalClock.Commit(frame.Sample);
-            cancellationToken.ThrowIfCancellationRequested();
-            return new(result.Width, result.Height, checked(result.Width * 4), result.Rgba);
+            int requiredBytes = checked(request.Width * request.Height * 4);
+            byte[]? pixels = null;
+            lock (freePixels)
+            {
+                while (freePixels.Count > 0)
+                {
+                    var candidate = freePixels.Pop();
+                    if (candidate.Length == requiredBytes) { pixels = candidate; break; }
+                }
+            }
+            pixels ??= new byte[requiredBytes];
+            void Release()
+            {
+                lock (freePixels)
+                {
+                    if (disposed || pixels.Length != requiredBytes) return;
+                    freePixels.Push(pixels);
+                }
+            }
+            try
+            {
+                session.CaptureInto(pixels, scene, request.Width, request.Height, rayGiOptions: D3D12ViewQuality.Gi(request.EffectiveQuality, state),
+                    upscaling: D3D12ViewQuality.Upscaling(request.EffectiveQuality), temporalUpscaling: temporal,
+                    surfaceStyles: style.SurfaceStyles, diffusion: D3D12ViewQuality.Diffusion(request.EffectiveQuality),
+                    captureMemory: D3D12ViewCaptureMemory.Map(request.CaptureMemory));
+                temporalClock.Commit(frame.Sample);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch { Release(); throw; }
+            // The storage is reused only after the consumer disposes this lease.
+            return new(request.Width, request.Height, checked(request.Width * 4), pixels, Release);
         }
         finally { gate.Release(); }
     }
@@ -166,6 +192,16 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync().ConfigureAwait(false);
-        try { if (disposed) return; disposed = true; session.Dispose(); } finally { gate.Release(); }
+        try
+        {
+            lock (freePixels)
+            {
+                if (disposed) return;
+                disposed = true;
+                freePixels.Clear();
+            }
+            session.Dispose();
+        }
+        finally { gate.Release(); }
     }
 }

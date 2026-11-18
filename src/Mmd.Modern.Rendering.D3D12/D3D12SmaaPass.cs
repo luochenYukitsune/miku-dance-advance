@@ -30,21 +30,22 @@ internal sealed class D3D12SmaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         var commands = context.Commands;
         var area = cache.Get("smaa:area", () => UploadLookup(context, 160, 560, 2, Format.R8G8_UNorm, Area.Value));
         var search = cache.Get("smaa:search", () => UploadLookup(context, 64, 16, 1, Format.R8_UNorm, Search.Value));
-        var rtvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 3)));
-        var srvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-            5, DescriptorHeapFlags.ShaderVisible)));
+        var rtvHeap = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 3));
+        var srvHeap = runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+            5, DescriptorHeapFlags.ShaderVisible));
         int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
         int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 5);
         D3D12GpuTarget Target(string name, int index)
         {
             var format=index==2?input.Format:Format.R8G8B8A8_UNorm;
-            var resource = context.Own(device.CreateCommittedResource(HeapType.Default,
+            // Edges and weights are cleared below; the opaque neighborhood draw overwrites the output.
+            var resource = runtime.Transients.Resource(context, HeapType.Default,
                 ResourceDescription.Texture2D(format, (uint)input.Width, (uint)input.Height,
-                    mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
+                    mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget);
             var handle = rtvHeap.GetCPUDescriptorHandleForHeapStart().Offset(index, rtvStride);
             device.CreateRenderTargetView(resource, null, handle);
-            return new(name, resource, handle, input.Width, input.Height, format, false);
+            return runtime.Transients.Track(new(name, resource, handle, input.Width, input.Height, format, false));
         }
         var edges = Target("$smaa-edges", 0);
         var weights = Target("$smaa-weights", 1);

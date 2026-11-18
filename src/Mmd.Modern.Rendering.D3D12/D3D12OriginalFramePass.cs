@@ -392,8 +392,6 @@ public sealed partial class D3D12OriginalStyleRenderer
                 if(matcap is not null)
                 {
                     colorSlot=slotBase+scene.Textures.Count+4+(nativeLights?2:0)+i;
-                    device.CreateShaderResourceView(cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),null,
-                        srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(colorSlot,srvStride));
                     var data=surfaceStyles!.EndfieldMatcapGeometry(i,frame);
                     corners=cache.BufferByIdentity("original-matcap-corners-"+i,MemoryMarshal.AsBytes(data.Corners),
                         ResourceStates.PixelShaderResource,data.Fingerprint);
