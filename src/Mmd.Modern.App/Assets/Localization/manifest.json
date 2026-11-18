@@ -1075,6 +1075,7 @@
     "Mda.Text.Context.Lighting.AreaWidth": "Full emitting rectangle width in scene units.",
     "Mda.Text.Context.Lighting.AreaHeight": "Full emitting rectangle height in scene units.",
     "Mda.Text.Context.Lighting.AreaHint": "One-sided emitting area and independent parent scale explanation.",
+    "Mda.Text.Context.Lighting.AimHint": "Brightness is received at the aim target; light ends at the light distance; the yellow viewport square drags the target.",
     "Mda.Text.Context.Lighting.AreaSizeInvalid": "{0} is the authored light name; both area dimensions must be positive."
   }
 }

@@ -62,7 +62,7 @@ internal static partial class OriginalFrameShaders
         int end=start<0?-1:budgetSource.IndexOf("// ReferenceRadiance is fixed at 1",start,StringComparison.Ordinal);
         if(start<0 || end<0) throw new InvalidOperationException("Endfield live endpoint anchor missing.");
         string endpoint=budgetSource[start..end];
-        string primary=native?"":GenshinNativePaletteHelper.Replace("Genshin","Endfield",StringComparison.Ordinal);
+        string primary=GenshinNativePaletteHelper.Replace("Genshin","Endfield",StringComparison.Ordinal);
         string result=primary+"\n"+EndfieldLivePrimaryHelper+"\n"
             + "float3 EndfieldLiveIncident(SurfaceOutput v,float3 normal,float3 geometric) {\n"
             + "    float3 result=max(PaletteModes.yzw,0)*saturate(dot(normal,IncomingLight.xyz))*EndfieldLivePrimaryVisibility(v);\n"
@@ -80,7 +80,7 @@ internal static partial class OriginalFrameShaders
                         else indirect=transport.rgb*GiSurfaceStrength;
                     }
                 """:"")
-            + (native?"    float scale="+(gi?"GiAmbientShare.w>=1?StylizedAddedLightScale(budget,direct,indirect):StylizedAddedLightScale(budget,direct,0)":"StylizedAddedLightScale(budget,direct,0)")+";\n    direct*=scale;\n"+(gi?"    if(GiAmbientShare.w>=1) indirect*=scale;\n":""):"")
+            + (native?"    float scale="+(gi?"GiAmbientShare.w>=1?EndfieldLiveScale(budget,direct+indirect):EndfieldLiveScale(budget,direct)":"EndfieldLiveScale(budget,direct)")+";\n    direct*=scale;\n"+(gi?"    if(GiAmbientShare.w>=1) indirect*=scale;\n":""):"")
             + "    return max(budget-max(direct+indirect,0),0);\n}\n";
         return result;
     }
@@ -116,16 +116,7 @@ internal static partial class OriginalFrameShaders
                 float3 delta=light.PositionKind.xyz-v.WorldPosition;
                 float distanceSquared=max(dot(delta,delta),.0001);
                 float3 l=light.PositionKind.w==0?-light.DirectionRange.xyz:delta*rsqrt(distanceSquared);
-                float attenuation=1;
-                if(light.PositionKind.w!=0) {
-                    float ratioSquared=distanceSquared/(light.DirectionRange.w*light.DirectionRange.w);
-                    attenuation=saturate(1-ratioSquared*ratioSquared)/distanceSquared;
-                }
-                if(light.PositionKind.w==2) {
-                    float angular=saturate((dot(-l,light.DirectionRange.xyz)-light.ConeShadow.y)/max(light.ConeShadow.x-light.ConeShadow.y,.00001));
-                    attenuation*=angular*angular;
-                }
-                if(light.PositionKind.w==3) attenuation*=saturate(dot(-l,light.DirectionRange.xyz));
+                float attenuation=NativeLightAttenuation(light.PositionKind,light.DirectionRange,light.ConeShadow,distanceSquared,l);
                 // Bias uses the evaluated geometric normal. Mapped normal only
                 // affects irradiance, never the atlas's surface-position offset.
                 float visibility=NativeVisibility(i,light,v.WorldPosition,geometric,l,0,0,sample);

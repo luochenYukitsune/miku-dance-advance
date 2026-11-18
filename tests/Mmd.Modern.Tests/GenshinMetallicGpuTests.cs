@@ -159,7 +159,7 @@ public sealed class GenshinMetallicGpuTests
     }
 
     [Fact, Trait("Category", "Gpu")]
-    public void NativeAndGiPixelEntriesComposePrimaryMetalOnceAndSpendOnlyRemainingPalette()
+    public void NativeAndGiPixelEntriesComposePrimaryMetalOnceAndNativeLightAddsInFull()
     {
         using var session = new D3D12FrameSession();
         // Constant source palette isolates endpoint composition from camera sampling.
@@ -171,13 +171,14 @@ public sealed class GenshinMetallicGpuTests
             var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 13,
                 Composition: RayGiComposition.ToonPalette) : null;
             var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(binding));
-            // Native light has RGB=.2, intensity=.25 and a fully lit normal.
-            float expected = palette + (native ? (1 - palette) * .05f : 0);
+            // Native light has RGB=.2, intensity=.25 and a fully lit normal; below the shared shoulder it adds exactly.
+            float expected = palette + (native ? .05f : 0);
             AssertPixel(actual, 48, 36, C0 * expected);
             Assert.Equal(255, actual.Rgba[(36 * W + 48) * 4 + 3]);
         }
-        var strong = Frame(nativeIntensity: 20, light: -Vector3.UnitZ);
-        AssertPixel(session.Capture(strong, W, H, surfaceStyles: Map(binding)), 48, 36, C0);
+        // A strong light is compressed by the shared shoulder: brighter than the palette, never clipped.
+        var strong = session.Capture(Frame(nativeIntensity: 20, light: -Vector3.UnitZ), W, H, surfaceStyles: Map(binding));
+        for (int c = 0; c < 3; c++) Assert.InRange((int)strong.Rgba[(36 * W + 48) * 4 + c], (int)(C0[c] * palette * 255) + 2, 254);
     }
 
     [Fact, Trait("Category", "Gpu")]

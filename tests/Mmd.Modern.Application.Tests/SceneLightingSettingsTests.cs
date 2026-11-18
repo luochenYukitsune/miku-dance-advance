@@ -59,10 +59,10 @@ public sealed class SceneLightingSettingsTests
     }
 
     [Fact]
-    public void SidecarSixRoundTripsSettingsAndMissingSettingsRemainNeutral()
+    public void CurrentSidecarRoundTripsSettingsAndMissingSettingsRemainNeutral()
     {
         var editor = new SceneLightingEditor(); editor.UpdateSettings(new(3.75f, -7.5f));
-        var json = JsonNode.Parse(editor.SerializeSidecar())!; Assert.Equal(6, json["version"]!.GetValue<int>());
+        var json = JsonNode.Parse(editor.SerializeSidecar())!; Assert.Equal(SceneLightingEditor.SidecarVersion, json["version"]!.GetValue<int>());
         var loaded = new SceneLightingEditor(); Assert.True(loaded.TryLoadSidecar(json.ToJsonString(), out var error), error);
         Assert.Equal(editor.Settings, loaded.Settings); Assert.False(loaded.CanUndo);
         json.AsObject().Remove("settings"); Assert.True(loaded.TryLoadSidecar(json.ToJsonString(), out error), error);
@@ -119,7 +119,7 @@ public sealed class SceneLightingSettingsTests
                 if (useNull) json["settings"] = null;
                 var error = Assert.Throws<JsonException>(() => SceneProjectStore.Prepare(json.ToJsonString(), path,
                     (_, _) => throw new InvalidOperationException("must reject before asset loading"), Token));
-                Assert.Contains("version 11 or 12", error.Message);
+                Assert.Contains("version 11 through 14", error.Message);
             }
         }
         foreach (bool omit in new[] { false, true })

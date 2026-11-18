@@ -45,7 +45,8 @@ public sealed class LightViewportHelperGeometryTests
     {
         var spot = Light(SceneLightKind.Spot) with { OuterConeRadians = MathF.PI / 2 };
         var segments = LightViewportInteraction.DetailSegments(spot).ToArray();
-        Assert.Equal(36, segments.Length);
+        // 32 range-ring segments, four cone edges and a 16-segment beam ring at the aim distance.
+        Assert.Equal(52, segments.Length);
         Assert.All(segments, segment =>
         {
             Assert.InRange(Vector3.Distance(segment.Start, spot.Position), 0, spot.Range + .00001f);

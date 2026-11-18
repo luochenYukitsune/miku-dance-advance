@@ -165,7 +165,7 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ActualNativeAndGiBudgetsShareTheContrastAndGammaEndpoints(D3D12SurfaceStyle family)
+    public void ActualNativeAndGiIncrementsShareTheContrastAndGammaEndpoints(D3D12SurfaceStyle family)
     {
         using var session = new D3D12FrameSession();
         var frame = Bounce();
@@ -183,25 +183,18 @@ public sealed class D3D12PmxMaterialContrastTests
         AssertPixel(bounce, dark + budget * .25f);
         const float nativeIntensity = .2f;
         // NativeDirect treats the unlit material diffuse, while the visible/GI
-        // endpoint treats EgColor (half of it here). NativeDirect also allocates
-        // the remaining authored palette per channel before the shared budget
-        // cap. Here the primary normal is fully dark and the native light fully
-        // lit, so that allocation is 1 - the squared authored shade.
-        var remainingPalette = Vector3.One - new Vector3(.04f, .09f, .16f);
-        var directIncrement = ContrastOracle(new(.4f, .24f, .16f), .4f) * remainingPalette * nativeIntensity;
+        // endpoint treats EgColor (half of it here). The native light is fully lit
+        // and stays below the shared highlight shoulder, so it adds exactly.
+        var directIncrement = ContrastOracle(new(.4f, .24f, .16f), .4f) * nativeIntensity;
         var giIncrement = budget * .25f;
-        float directScale = AddedLightScale(budget, directIncrement);
-        float combinedScale = AddedLightScale(budget, directIncrement + giIncrement);
-        Assert.Equal(1, directScale);
-        Assert.Equal(1, combinedScale);
         var native = new OriginalFrameScene(frame.Surface, options: frame.Options, materials: frame.Materials,
             lighting: new([new NativeSceneLight(Guid.NewGuid(), "contrast endpoint fill", SceneLightKind.Directional,
                 Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI), Vector3.One, nativeIntensity, 30, CastShadows: false)]));
         var direct = session.Capture(native, Width, Height, surfaceStyles: map);
         var combined = session.Capture(native, Width, Height, gi, surfaceStyles: map);
-        AssertPixel(direct, dark + directIncrement * directScale);
-        AssertPixel(combined, dark + (directIncrement + giIncrement) * combinedScale);
-        Assert.True(Pixel(combined)[0] > Pixel(direct)[0], "Actual GI must spend the remaining treated light budget.");
+        AssertPixel(direct, dark + directIncrement);
+        AssertPixel(combined, dark + directIncrement + giIncrement);
+        Assert.True(Pixel(combined)[0] > Pixel(direct)[0], "Actual GI must still add its treated increment.");
         AssertCoverage(plain, bounce);
         AssertCoverage(direct, combined);
     }
@@ -244,14 +237,6 @@ public sealed class D3D12PmxMaterialContrastTests
         // Interpolate V between the identity and square curves, then retain RGB/V.
         float curvedValue = value + contrast * (value * value - value);
         return rgb / value * curvedValue;
-    }
-
-    private static float AddedLightScale(Vector3 budget, Vector3 increment)
-    {
-        float scale = 1;
-        for (int channel = 0; channel < 3; channel++)
-            if (increment[channel] > 0) scale = MathF.Min(scale, budget[channel] / increment[channel]);
-        return scale;
     }
 
     private static OriginalFrameScene Surface(Vector3 rgb, bool dark = false, float alpha = 1, bool straight = false)

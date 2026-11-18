@@ -71,7 +71,7 @@ public sealed class SceneAnimationProjectStoreTests : IDisposable
         Assert.Equal("mmd-modern-scene", json["format"]!.GetValue<string>());
         Assert.Equal(2, json["version"]!.GetValue<int>());
         Assert.Equal("mmd-modern-static-scene", json["layout"]!["format"]!.GetValue<string>());
-        Assert.Equal(1, json["layout"]!["version"]!.GetValue<int>());
+        Assert.Equal(lighting.Lights.Count == 0 ? 1 : SceneProjectStore.LightingFalloffVersion, json["layout"]!["version"]!.GetValue<int>());
         Assert.Null(json["layout"]!["portableModels"]);
         Assert.False(Directory.Exists(Path.Combine(directory, "assets", "models")));
         Assert.Equal(2, motions.Count);

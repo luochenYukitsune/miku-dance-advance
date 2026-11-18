@@ -112,15 +112,6 @@ internal static partial class OriginalFrameShaders
                 "precise float3 toonFactor=c+ToonShadowColor.rgb*(1-c);",
                 "precise float3 toonFactor=GenshinAtlasPalette(v,dot(normalize(v.Normal),IncomingLight.xyz),visibility);");
         }
-        if (native)
-        {
-            // Exactly two occurrences: the NativeDirect remaining palette and the
-            // shared native/GI light-budget helper's copied diffuse endpoint.
-            const string from = "GenshinPaletteFactor(GenshinPrimaryBlend(v))";
-            int count = AtlasCount(source, from);
-            if (count != 2) throw new InvalidOperationException("Atlas primary-budget anchors changed: " + count);
-            source = source.Replace(from, "GenshinAtlasPrimaryPalette(v)", StringComparison.Ordinal);
-        }
         return source;
     }
 

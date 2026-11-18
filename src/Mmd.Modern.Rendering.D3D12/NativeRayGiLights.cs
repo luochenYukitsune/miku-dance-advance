@@ -32,7 +32,7 @@ internal sealed class NativeRayGiLights
         foreach (var light in lighting.EffectiveLights.Where(NativeLightShadowAtlasLayout.Contributes)) NativeAreaLight.Validate(light);
         Values = lighting.EffectiveLights.Where(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero).Select(l =>
             new NativeRayGiLight(new(l.Position, (float)l.Kind), new(NativeLightShadowProjection.Direction(l), l.Range),
-                new(l.Color, l.Intensity), NativeAreaLight.Cone(l, l.CastShadows ? 1 : 0),
+                new(l.Color, SceneLightFalloff.RenderIntensity(l)), NativeAreaLight.Cone(l, l.CastShadows ? 1 : 0),
                 new(l.Kind == SceneLightKind.Area ? NativeAreaLight.Right(l) : Vector3.Zero, 0))).ToArray();
         HasReceiverMasks = receivers is not null && Values.Length > 0;
         // Optional material masks share the existing native-light SRV, following its light rows.
@@ -42,8 +42,8 @@ internal sealed class NativeRayGiLights
         if (UploadRows.Length == 0 && EnvironmentStrength > 0) UploadRows = [default];
     }
 
-    /// <summary>Conservative unscaled bound matching the shader's minimum squared distance, in artistic units.
-    /// The nonnegative sum omits cosine/pi (at most 1), bounding both each colour-first
+    /// <summary>Conservative unscaled bound: the shared falloff window never exceeds one, so each light contributes
+    /// at most its aim-normalized render intensity. The nonnegative sum omits cosine/pi (at most 1), bounding both each colour-first
     /// product and the total incident radiance before any DirectScale multiplication.</summary>
     internal static double IrradianceBound(OriginalFrameScene frame)
     {
@@ -53,7 +53,7 @@ internal sealed class NativeRayGiLights
             if (!light.Enabled || light.Intensity == 0 || light.Color == Vector3.Zero) continue;
             if (light.Receivers is { } receivers && !frame.Materials.Any(flags => receivers.Affects(flags.LightReceiverObjectId))) continue;
             double maximum = Math.Max(light.Color.X, Math.Max(light.Color.Y, light.Color.Z));
-            bound += maximum * light.Intensity * (light.Kind == SceneLightKind.Directional ? 1 : 10000);
+            bound += maximum * light.Intensity * SceneLightFalloff.RenderScale(light);
         }
         return bound;
     }

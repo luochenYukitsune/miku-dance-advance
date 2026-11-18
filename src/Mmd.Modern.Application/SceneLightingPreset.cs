@@ -15,7 +15,8 @@ public sealed record SceneLightingPresetApplication(SceneLightingSnapshot Snapsh
 public sealed class SceneLightingPreset
 {
     public const int MaxFileBytes = 1024 * 1024;
-    public const int Version = 1;
+    /// <summary>Version 2 stores aim-normalized intensities; version 1 presets are converted on load.</summary>
+    public const int Version = 2;
     public string Name { get; }
     public SceneLightingSnapshot Lighting { get; }
 
@@ -107,13 +108,13 @@ public sealed class SceneLightingPreset
             // Accept a conventional UTF-8 BOM without relaxing the actual document schema.
             if (bytes.StartsWith(new byte[] { 0xef, 0xbb, 0xbf })) bytes = bytes[3..];
             var document = JsonSerializer.Deserialize<Document>(bytes, JsonOptions) ?? throw new JsonException("A preset must be a JSON object.");
-            if (document.Format != "MDA_LIGHTING_PRESET" || document.Version != Version || document.Lights is null || document.Groups is null)
+            if (document.Format != "MDA_LIGHTING_PRESET" || document.Version is not (1 or Version) || document.Lights is null || document.Groups is null)
                 throw new JsonException("Unsupported or incomplete MDA lighting preset.");
             if (document.Lights.Length > SceneLightingSnapshot.MaxLights || document.Groups.Length > SceneLightingSnapshot.MaxLights)
                 throw new JsonException("Lighting preset capacity exceeded.");
             if (document.Lights.Any(light => light is null || light.HasParentField || light.HasReceiversField))
                 throw new JsonException("Portable presets cannot contain project-specific parent or receiver fields.");
-            return new(document.Name, new(document.Lights.Select(light => light.ToLight()),
+            return new(document.Name, new(document.Lights.Select(light => light.ToLight(legacyFalloff: document.Version < 2)),
                 document.Groups.Select(group => group?.ToGroup() ?? throw new JsonException("A group entry cannot be null."))));
         }
         catch (JsonException error) { throw new ArgumentException("Invalid MDA lighting preset JSON.", nameof(bytes), error); }
@@ -146,17 +147,19 @@ public sealed class SceneLightingPreset
     {
         var group = new SceneLightGroup(Guid.NewGuid(), kind switch
         { SceneLightingBuiltinPreset.PortraitSoft => "Portrait soft light", SceneLightingBuiltinPreset.IndoorWindow => "Indoor window light", _ => throw new ArgumentOutOfRangeException(nameof(kind)) });
+        // Authored once in the original I / d^2 units, then matched at the subject distance.
+        var subject = new Vector3(0, 10, 0);
         NativeSceneLight Spot(string name, Vector3 position, Vector3 color, float intensity, bool shadow = true) =>
-            new(Guid.NewGuid(), name, SceneLightKind.Spot, position, Aim(position, new(0, 10, 0)), color,
-                intensity, 60, .35f, 1.2f, CastShadows: shadow, GroupId: group.Id);
+            new(Guid.NewGuid(), name, SceneLightKind.Spot, position, Aim(position, subject), color,
+                intensity, 60, .35f, 1.2f, CastShadows: shadow, GroupId: group.Id, AimDistance: Vector3.Distance(position, subject));
         NativeSceneLight[] lights = kind == SceneLightingBuiltinPreset.PortraitSoft
             ? [Spot("Key", new(-12, 20, 16), new(1, .88f, .75f), 250) with { Kind = SceneLightKind.Area, AreaSize = new(8, 12) },
                Spot("Fill", new(12, 14, 10), new(.75f, .85f, 1), 65, false),
                Spot("Rim", new(4, 20, -14), Vector3.One, 180)]
             : [Spot("Window", new(-18, 18, 8), new(.8f, .9f, 1), 350) with { Kind = SceneLightKind.Area, AreaSize = new(12, 10) },
                new(Guid.NewGuid(), "Room fill", SceneLightKind.Point, new(5, 14, 3), Quaternion.Identity,
-                   new(1, .84f, .65f), 15, 40, CastShadows: false, GroupId: group.Id)];
-        return new(group.Name, new(lights, [group]));
+                   new(1, .84f, .65f), 15, 40, CastShadows: false, GroupId: group.Id, AimDistance: Vector3.Distance(new(5, 14, 3), subject))];
+        return new(group.Name, new(lights.Select(SceneLightFalloff.FromLegacy), [group]));
     }
 
     private static Quaternion Aim(Vector3 position, Vector3 target)

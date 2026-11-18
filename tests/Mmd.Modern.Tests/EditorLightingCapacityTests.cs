@@ -61,8 +61,9 @@ public sealed class EditorLightingCapacityTests : IAsyncDisposable
         var camera = new SceneCamera(new(0, 0, -12), Vector3.Zero, Vector3.UnitY, 10, .1f, 100);
         var overlay = LightViewportInteraction.CreateOverlay(snapshot, lights[0].Id, camera, 800, 600, 1,
             rotate: true, selectedIds: lights.Select(light => light.Id).ToArray(), selectionPivot: Vector3.Zero);
-        Assert.Equal(256, overlay.Lines.Count(line => line.Shape == ViewportOverlayShape.Square));
-        Assert.InRange(overlay.Lines.Count, 256, ViewportOverlaySnapshot.MaxLines);
+        // Two squares per light, plus the primary light's two-square aim target.
+        Assert.Equal(258, overlay.Lines.Count(line => line.Shape == ViewportOverlayShape.Square));
+        Assert.InRange(overlay.Lines.Count, 258, ViewportOverlaySnapshot.MaxLines);
     }
 
     private static NativeSceneLight Light() => new(Guid.NewGuid(), "fill", SceneLightKind.Spot,

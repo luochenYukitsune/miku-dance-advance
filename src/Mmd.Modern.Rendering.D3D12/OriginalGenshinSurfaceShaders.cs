@@ -36,6 +36,7 @@ internal static partial class OriginalFrameShaders
         }
         """;
 
+    // Primary-light palette blend, consumed by the Endfield palette material's own live-light budget.
     private const string GenshinNativePaletteHelper="""
         float GenshinPrimaryBlend(SurfaceOutput v) {
             float3 q=v.LightClip.xyz/v.LightClip.w;
@@ -84,27 +85,12 @@ internal static partial class OriginalFrameShaders
             const string visibility="precise float visibility=1-saturate(weighted-.3);";
             source=ReplaceRequired(source,visibility,visibility+" if(uv.x<0||uv.x>1||uv.y<0||uv.y>1) visibility=1;");
         }
+        // Additional lights use the same half-Lambert band as the surface (face SDF variants later swap in their
+        // local-direction response through this exact call text); they are composed with the
+        // shared highlight compression of every surface family (NativeAddSoft), not a family budget.
         if(native)
-        {
             source=ReplaceRequired(source,"float3 NativeDirect(SurfaceOutput v) {",
-                GenshinNativePaletteHelper+"\nfloat3 NativeDirect(SurfaceOutput v) {");
-            source=ReplaceRequired(source,"float3 result=0;",
-                "float3 remainingPalette=max(1-GenshinPaletteFactor(GenshinPrimaryBlend(v)),0); float3 result=0;");
-            source=ReplaceRequired(source,
-                "// Reuse the original three-times-clamped toon response. No ambient dimming,",
-                "// Additional direct light spends the remaining PMX palette contrast.");
-            source=ReplaceRequired(source,
-                "// continuous AO, exposure or screen overlay is introduced by these lights.",
-                "// It uses the same half-Lambert band and geometric visibility as the surface.");
-            source=ReplaceRequired(source,"float toon=saturate(dot(n,l)*3);","float toon=GenshinLightResponse(dot(n,l),1);");
-            source=ReplaceRequired(source,
-                "result+=diffuse*light.ColorIntensity.rgb*(light.ColorIntensity.w*attenuation*toon*visibility);",
-                "result+=diffuse*remainingPalette*light.ColorIntensity.rgb*(light.ColorIntensity.w*attenuation*GenshinLightResponse(dot(n,l),visibility));");
-        }
-        // The four derived PMX families share this composition. Ordinary MMD and
-        // GI-only source stay outside it, and later explicit FaceSDF replacements
-        // also update the primary response used by the remaining-light budget.
-        if(native)source=ApplyStylizedLightBudget(source,gi);
+                "#undef NATIVE_LIGHT_RESPONSE\n#define NATIVE_LIGHT_RESPONSE(v,n,l) GenshinLightResponse(dot(n,l),1)\nfloat3 NativeDirect(SurfaceOutput v) {");
         return ApplyPmxMaterialTreatment(source,native,gi);
     }
 

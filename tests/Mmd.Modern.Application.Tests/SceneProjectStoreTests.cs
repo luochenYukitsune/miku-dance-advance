@@ -58,7 +58,7 @@ public sealed class SceneProjectStoreTests
         var light = lighting.Lights[0] with { Receivers = new(SceneLightReceiverMode.Exclude, [target]) };
         lighting.Update(light);
         var json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
-        Assert.Equal(SceneProjectStore.LightingReceiversVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.LightingFalloffVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
         var reopened = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
         Assert.Equal(light, Assert.Single(reopened.Lighting.Lights));
         foreach (int version in Enumerable.Range(1, 6))
@@ -84,7 +84,7 @@ public sealed class SceneProjectStoreTests
         };
         lighting.Update(light);
         string json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
-        Assert.Equal(SceneProjectStore.LightingParentsVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.LightingFalloffVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
         var loaded = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
         Assert.Equal(light, Assert.Single(loaded.Lighting.Lights));
         Assert.Equal(group, Assert.Single(loaded.Lighting.Groups));
@@ -109,7 +109,7 @@ public sealed class SceneProjectStoreTests
     {
         lighting.Update(lighting.Lights[0] with { Parent = new(composition.Objects[0].Id) });
         var json = JsonNode.Parse(SceneProjectStore.Serialize(ProjectPath, composition, lighting))!;
-        json["version"] = version;
+        json["version"] = version; json.AsObject().Remove("settings");
         if (version < 3) json.AsObject().Remove("groups");
         if (version is 2 or 4) json["portableModels"] = new JsonArray();
         if (nullParent) json["lights"]![0]!["parent"] = null;
@@ -143,7 +143,7 @@ public sealed class SceneProjectStoreTests
         lighting.AddGroup(group); lighting.AddGroup(empty);
         lighting.AssignToGroup(lighting.Lights[0].Id, group.Id);
         string json = SceneProjectStore.Serialize(ProjectPath, composition, lighting);
-        Assert.Equal(SceneProjectStore.LightingGroupsVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
+        Assert.Equal(SceneProjectStore.LightingFalloffVersion, JsonNode.Parse(json)!["version"]!.GetValue<int>());
         var loaded = SceneProjectStore.Prepare(json, ProjectPath, (_, _) => frame, TestContext.Current.CancellationToken);
         Assert.Equal(lighting.Lights, loaded.Lighting.Lights); Assert.Equal(lighting.Groups, loaded.Lighting.Groups);
         Assert.Equal(lighting.SelectedId, loaded.Lighting.SelectedId); Assert.False(loaded.Lighting.CanUndo);

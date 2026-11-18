@@ -1438,6 +1438,7 @@
   "Mda.Text.Context.Lighting.EdgeSoftness": "边缘柔和度（%）",
   "Mda.Text.Context.Lighting.SoftnessHint": "0 接近硬边；数值越大，光束边缘的过渡越柔和。",
   "Mda.Text.Context.Lighting.SliderHint": "拖动即时预览，松手应用；Esc 取消。可输入数字精调，已有值不受滑杆范围限制。",
+  "Mda.Text.Context.Lighting.AimHint": "亮度是照射目标处收到的亮度，1 与主光相当；照射距离之外没有光。在视口里拖动黄色方块可以改变照射目标，移动灯时它会一直对准目标。",
   "Mda.Text.Context.Lighting.ObjectsTab": "对象",
   "Mda.Text.Context.Lighting.Search": "搜索灯光…",
   "Mda.Text.Context.Lighting.EmptySearch": "没有匹配的灯光。可添加灯光或修改搜索条件。",

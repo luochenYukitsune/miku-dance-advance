@@ -1,7 +1,8 @@
 namespace Mmd.Modern.App;
 
-/// <summary>Convenience slider coordinates; the project continues to store the existing artistic
-/// intensity and scene-distance units. Numeric precision is independent of these thumb bounds.</summary>
+/// <summary>Convenience slider coordinates for the stored values: brightness received at the aim target
+/// (1 matches the fully lit main light; the thumb spans 0 to about 10) and scene-unit distances.
+/// Numeric precision is independent of these thumb bounds.</summary>
 internal static class EditorLightParameterScale
 {
     internal static double BrightnessPosition(decimal? value) => value is >= 0 ? Math.Log10(1 + 100 * (double)value.Value) : 0;

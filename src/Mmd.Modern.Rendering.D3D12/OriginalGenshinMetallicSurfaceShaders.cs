@@ -147,11 +147,6 @@ internal static partial class OriginalFrameShaders
                     "precise float3 toonFactor=GenshinMetallicPalette(v,GenshinPaletteFactor(c),c);");
             }
         }
-        if (native)
-        {
-            string old = atlas ? "GenshinAtlasPrimaryPalette(v)" : "GenshinPaletteFactor(GenshinPrimaryBlend(v))";
-            source = MetallicReplace(source, old, "GenshinMetallicPalette(v," + old + ",GenshinMetallicPrimaryLit(v))", 2);
-        }
         return source;
     }
 

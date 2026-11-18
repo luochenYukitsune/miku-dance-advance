@@ -114,7 +114,8 @@ public sealed class SceneLightGroupTests
         var legacy = JsonNode.Parse(legacyEditor.SerializeSidecar())!;
         legacy["version"] = 1; legacy.AsObject().Remove("groups");
         Assert.True(restored.TryLoadSidecar(legacy.ToJsonString(), out error), error); Assert.Empty(restored.Groups);
-        Assert.Equal(legacyLight, Assert.Single(restored.Lights)); Assert.Equal(legacyLight.Id, restored.SelectedId);
+        // Version 1 stored I / d^2 intensities, converted once on load.
+        Assert.Equal(SceneLightFalloff.FromLegacy(legacyLight), Assert.Single(restored.Lights)); Assert.Equal(legacyLight.Id, restored.SelectedId);
         Assert.Equal(new(ModelRole.Environment, true), restored.GetModelRole("legacy:1"));
         Assert.False(restored.CanUndo); Assert.False(restored.CanRedo);
     }

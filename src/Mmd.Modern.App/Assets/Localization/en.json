@@ -1438,6 +1438,7 @@
   "Mda.Text.Context.Lighting.EdgeSoftness": "Edge softness (%)",
   "Mda.Text.Context.Lighting.SoftnessHint": "0 is almost a hard edge. Higher values soften the beam's edge transition.",
   "Mda.Text.Context.Lighting.SliderHint": "Drag to preview; release to apply. Esc cancels. Enter a number for precision. Existing values can exceed the slider range.",
+  "Mda.Text.Context.Lighting.AimHint": "Brightness is what the aim target receives; 1 matches the main light. No light reaches past the light distance. Drag the yellow square in the viewport to change the target; a moved light keeps facing it.",
   "Mda.Text.Context.Lighting.ObjectsTab": "Objects",
   "Mda.Text.Context.Lighting.Search": "Search lights…",
   "Mda.Text.Context.Lighting.EmptySearch": "No matching lights. Add a light or change the search.",

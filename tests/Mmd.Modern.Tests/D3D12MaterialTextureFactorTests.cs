@@ -22,17 +22,18 @@ public sealed class D3D12MaterialTextureFactorTests
         // NativeSource includes e9ff9d6's explicit scene receiver-plane PCF correction, verified
         // by IndoorSceneLightingGpuTests and the retained RoomLight02 actual-station captures,
         // plus the 2026-11-17 additional-light highlight shoulder (shadows survive overlapping
-        // bright lights; below the knee the additive arithmetic is unchanged).
+        // bright lights; below the knee the additive arithmetic is unchanged), and the 2026-11-18
+        // shared aim-normalized falloff (NativeLightModel) with the per-light NATIVE_LIGHT_RESPONSE hook.
         // Identity-factor variants must preserve these accepted literals; only line endings normalize.
         var assembly=typeof(D3D12OriginalStyleRenderer).Assembly;
         foreach(var item in new[] {
             ("OriginalFrameShaders","Source","afd46ca86380b2e4033737ec0f91cad29ed61eed7da58994a178a07f6b45dd37"),
             ("OriginalFrameShaders","GiSource","0652d09be883cd8cbfee190bc8aab766b4aa9b5f5938eff6731a61e15d40e1b3"),
-            ("OriginalFrameShaders","NativeSource","54a94d5b19f72c2aa4084aba2b8457051fabe052b9479cf6626c380ab45bb00c"),
+            ("OriginalFrameShaders","NativeSource","dce5a8624d491791201ccd6f80a23483c24d4c98861803b6aeac0ea2c51f58bc"),
             ("OriginalStyleShaders","Source","2551ead7464322716fbb188f711f68a85e6d47bd802d221cb006a8cad5c4592e") })
         {
             var type=assembly.GetType("Mmd.Modern.Rendering.D3D12."+item.Item1,true)!;
-            string source=(string)type.GetField(item.Item2,BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!;
+            string source=(string)type.GetField(item.Item2,BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
             string hash=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(source.ReplaceLineEndings("\n"))));
             Assert.Equal(item.Item3,hash);
         }

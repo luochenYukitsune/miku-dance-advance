@@ -55,15 +55,16 @@ public sealed class D3D12NativeLightTests
         using var session = new D3D12FrameSession();
         var fixture = Fixture();
         int center = (48 * 129 + 64) * 4;
-        var caster = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = 8 };
+        // The same receiver brightness as the original fixture: caster 2, each fill about 1.3 (aim-normalized units).
+        var caster = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = 2, AimDistance = 2 };
         var fills = Enumerable.Range(0, 3).Select(i => Light(SceneLightKind.Point) with
-            { Color = Vector3.One, Position = new(i - 1, 1.5f, -2), CastShadows = false, Intensity = 8 }).ToArray();
+            { Color = Vector3.One, Position = new(i - 1, 1.5f, -2), CastShadows = false, Intensity = 1.28f, AimDistance = 2.5f }).ToArray();
         var shadow = session.Capture(WithLight(fixture, [caster, .. fills]), 129, 97);
         var lit = session.Capture(WithLight(fixture, [caster with { CastShadows = false }, .. fills]), 129, 97);
         Assert.True(lit.Rgba[center] < 255, $"lit={lit.Rgba[center]}");
         Assert.True(lit.Rgba[center] >= shadow.Rgba[center] + 10, $"lit={lit.Rgba[center]}, shadow={shadow.Rgba[center]}");
         // Below the shoulder the accepted additive result is unchanged: a dim light adds exactly.
-        var dim = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = .5f, CastShadows = false };
+        var dim = Light(SceneLightKind.Spot) with { Color = Vector3.One, Intensity = .125f, CastShadows = false, AimDistance = 2 };
         var single = session.Capture(WithLight(fixture, [dim]), 129, 97);
         var doubled = session.Capture(WithLight(fixture, [dim, dim with { Id = Guid.NewGuid() }]), 129, 97);
         var original = session.Capture(fixture, 129, 97);

@@ -7,7 +7,8 @@ namespace Mmd.Modern.App;
 /// <summary>Explicit new-import choices. Existing project loads never pass through this path.</summary>
 public sealed record EditorModelImportOptions(ModelPurpose Purpose, bool AddIndoorBasicLight = false);
 
-/// <summary>A local, editable starting light, using the existing artistic intensity and scene-unit range.
+/// <summary>A local, editable starting light. Its intensity is the brightness received at the working focus
+/// (see <see cref="SceneLightFalloff"/>), and its range covers the room height around it.
 /// It does not identify authored fixtures or attempt to illuminate a complete environment.</summary>
 internal static class EditorIndoorImportLighting
 {
@@ -42,9 +43,10 @@ internal static class EditorIndoorImportLighting
         string name = label;
         int ordinal = 2;
         while (existing.Any(light => string.Equals(light.Name, name, StringComparison.Ordinal))) name = $"{label} {ordinal++}";
-        // I / distance^2 matches the renderer's current artistic unit, not lumens.
+        float aim = MathF.Max(Vector3.Distance(position, focus), localSpan * .1f);
         return new(Guid.NewGuid(), name, SceneLightKind.Point, position, Quaternion.Identity, Vector3.One,
-            Intensity: .85f * elevation * elevation, Range: localSpan * 3, Enabled: true, CastShadows: true);
+            Intensity: .85f, Range: MathF.Max(localSpan * 3, aim / SceneLightFalloff.MaxReferenceFraction), Enabled: true, CastShadows: true,
+            AimDistance: aim);
     }
 
     private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);

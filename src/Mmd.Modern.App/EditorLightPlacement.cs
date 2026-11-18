@@ -21,11 +21,12 @@ internal static class EditorLightPlacement
         var travel = Vector3.Normalize(focus - position);
         var rotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(
             Matrix4x4.CreateWorld(Vector3.Zero, travel, up)));
-        // The existing renderer uses artistic I / distance^2 units, not lumens.
-        // Keep the initial illuminance local and stable when zooming between scene scales.
-        float intensity = kind == SceneLightKind.Directional ? .3f : .5f * Vector3.DistanceSquared(position, focus);
-        return new(id, name, kind, position, rotation, Vector3.One, intensity, span * 3,
-            AreaSize: kind == SceneLightKind.Area ? new(span * .25f) : null);
+        // Aimed at the orbit centre. Intensity is the brightness received there (1 matches the fully lit
+        // main light), so it does not depend on the scene scale; the light fades out at three aim distances.
+        float aim = Vector3.Distance(position, focus);
+        float intensity = kind == SceneLightKind.Directional ? .3f : .8f;
+        return new(id, name, kind, position, rotation, Vector3.One, intensity, aim * 3,
+            AreaSize: kind == SceneLightKind.Area ? new(span * .25f) : null, AimDistance: aim);
     }
 
     public static SceneCamera ValidateCamera(PmmCameraPose pose)
