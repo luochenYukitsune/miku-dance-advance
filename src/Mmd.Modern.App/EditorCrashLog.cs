@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Avalonia.Threading;
 
 namespace Mmd.Modern.App;
@@ -25,15 +26,20 @@ internal static class EditorCrashLog
         };
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
-            TryWrite("unobserved-task", args.Exception);
+            // Mark observed first: it must happen even when the write is throttled or fails.
             args.SetObserved();
+            // Many tasks failing at the same site raise one event each; throttle by the inner exception's type and throw
+            // site so one fault cannot fill the retained logs. The first write still records the whole aggregate.
+            Exception key = args.Exception.InnerExceptions.Count == 1 ? args.Exception.InnerExceptions[0] : args.Exception;
+            ShouldRecord("unobserved-task", key, out string? _, write: (source, directory) => TryWrite(source, args.Exception, directory));
         };
     }
 
     private static int uiInstalled;
-    /// <summary>Raised on the UI thread once per distinct exception signature, with the written log path (or null).
-    /// The editor window shows it so a failed operation is not silent; repeats are counted, not re-announced.</summary>
-    internal static event Action<Exception, string?>? UiExceptionRecorded;
+    /// <summary>Raised on the UI thread for every UI exception, with its signature and the log path written for it (or
+    /// null when this occurrence was throttled). Each window decides whether it has already shown that signature, so a
+    /// fault that happened before a window could display it is still shown once the window is ready.</summary>
+    internal static event Action<Exception, string, string?>? UiExceptionRecorded;
 
     /// <summary>Call once the Avalonia dispatcher exists (framework initialization).</summary>
     internal static void InstallUiThread()
@@ -42,9 +48,10 @@ internal static class EditorCrashLog
         Dispatcher.UIThread.UnhandledException += (_, args) =>
         {
             args.Handled = true;
-            if (!ShouldRecord("ui", args.Exception, out string? path)) return;
-            try { UiExceptionRecorded?.Invoke(args.Exception, path); }
-            catch (Exception notify) { System.Diagnostics.Trace.WriteLine("Crash notice failed: " + Describe(notify)); }
+            string signature = Signature("ui", args.Exception);
+            ShouldRecord("ui", args.Exception, out string? path);
+            try { UiExceptionRecorded?.Invoke(args.Exception, signature, path); }
+            catch (Exception notify) { SafeTrace("Crash notice failed: " + Describe(notify)); }
         };
     }
 
@@ -58,11 +65,11 @@ internal static class EditorCrashLog
     /// <summary>An exception on a per-frame path (playback timer, viewport refresh) used to write a new file every
     /// time. Only the first occurrence of each signature (source, type, throw site) is written; repeats are counted
     /// and the count is written at every power of two, so the log stays bounded but the frequency is visible.</summary>
-    internal static bool ShouldRecord(string source, Exception error, out string? path, string? directory = null)
+    /// <returns>True when this is the first occurrence of the signature (or of the shared overflow bucket).</returns>
+    internal static bool ShouldRecord(string source, Exception error, out string? path, string? directory = null,
+        Func<string, string?, string?>? write = null)
     {
-        // TargetSite.ToString() omits the declaring type, so A.Refresh() and B.Refresh() would share a signature.
-        string location = Location(error);
-        string signature = source + "|" + error.GetType().FullName + "|" + location;
+        string signature = Signature(source, error);
         int count;
         lock (throttleGate)
         {
@@ -73,8 +80,30 @@ internal static class EditorCrashLog
         }
         path = null;
         if (count > 1 && (count & (count - 1)) != 0) return false;
-        path = TryWrite(count == 1 ? source : $"{source}-repeat{count}", error, directory);
+        string name = count == 1 ? source : $"{source}-repeat{count}";
+        path = write is null ? TryWrite(name, error, directory) : write(name, directory);
         return count == 1;
+    }
+
+    /// <summary>Source, exception type and throw site. TargetSite.ToString() omits the declaring type, so Location
+    /// includes it; A.Refresh() and B.Refresh() stay distinct.</summary>
+    internal static string Signature(string source, Exception error) => source + "|" + error.GetType().FullName + "|" + Location(error);
+
+    /// <summary>Signatures one window has already shown. Bounded and recency-ordered, independent of the log's overflow
+    /// counter, so two new faults after the log table filled are both shown once.</summary>
+    internal sealed class NoticeFilter(int capacity = 256)
+    {
+        private readonly LinkedList<string> order = new();
+        private readonly Dictionary<string, LinkedListNode<string>> shown = new(StringComparer.Ordinal);
+        /// <summary>Call only once the notice was actually delivered.</summary>
+        internal bool MarkShown(string signature)
+        {
+            if (shown.TryGetValue(signature, out var node)) { order.Remove(node); order.AddFirst(node); return false; }
+            shown.Add(signature, order.AddFirst(signature));
+            if (shown.Count > capacity) { shown.Remove(order.Last!.Value); order.RemoveLast(); }
+            return true;
+        }
+        internal bool WasShown(string signature) => shown.ContainsKey(signature);
     }
 
     /// <summary>Throw-site identity for throttling. Never throws: a DynamicMethod's MetadataToken (and other
@@ -105,14 +134,28 @@ internal static class EditorCrashLog
 
     internal static void ResetThrottleForTests() { lock (throttleGate) seen.Clear(); }
 
-    private static void Prune(string root)
+    /// <summary>Names this class writes: yyyyMMdd-HHmmss-fff-source-xxxxxxxx.txt. Other files in the folder are never
+    /// counted or deleted.</summary>
+    private static readonly Regex CrashLogName = new(@"^[0-9]{8}-[0-9]{6}-[0-9]{3}-.+-[0-9a-f]{8}\.txt$", RegexOptions.CultureInvariant);
+
+    /// <summary>Keeps the file just written plus the newest MaxFiles - 1 others. Name order is only a hint (the clock can
+    /// move back), so the new file is kept explicitly and the path returned to the caller always exists.</summary>
+    private static void Prune(string root, string keep)
     {
         try
         {
-            var files = new DirectoryInfo(root).GetFiles("*.txt").OrderByDescending(file => file.Name, StringComparer.Ordinal).Skip(MaxFiles);
+            var files = new DirectoryInfo(root).GetFiles("*.txt")
+                .Where(file => CrashLogName.IsMatch(file.Name) && !string.Equals(file.FullName, keep, StringComparison.Ordinal))
+                .OrderByDescending(file => file.Name, StringComparer.Ordinal).Skip(MaxFiles - 1);
             foreach (var file in files) file.Delete();
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void SafeTrace(string message)
+    {
+        try { System.Diagnostics.Trace.WriteLine(message); }
+        catch (Exception) { }
     }
 
     internal static string? TryWrite(string source, Exception error, string? directory = null)
@@ -128,13 +171,15 @@ internal static class EditorCrashLog
             text.AppendLine("UTC: " + DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             text.Append(ExportDiagnosticException.Readable(error));
             File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
-            Prune(root);
-            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception recorded at " + path + ": " + Describe(error));
+            path = Path.GetFullPath(path);
+            Prune(root, path);
+            // A throwing TraceListener must not turn a completed write into a failure.
+            SafeTrace("Unhandled " + source + " exception recorded at " + path + ": " + Describe(error));
             return path;
         }
         catch (Exception logging)
         {
-            System.Diagnostics.Trace.WriteLine("Unhandled " + source + " exception (log write failed: " + Describe(logging) + "): " + Describe(error));
+            SafeTrace("Unhandled " + source + " exception (log write failed: " + Describe(logging) + "): " + Describe(error));
             return null;
         }
     }

@@ -282,8 +282,8 @@ public sealed partial class EditorShellViewModel : IDisposable
     public void Dispose()
     {
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
-        // An audio device that was unplugged can fail cleanup (it stays owned for retry); the pose preview and
-        // the workspace, which owns native physics worlds, are still released.
+        // An audio device that was unplugged can fail cleanup. The owner is then left undisposed and the close path does
+        // not retry it; the pose preview and the workspace, which owns native physics worlds, are still released.
         // Every step runs; the first failure is rethrown so a later cleanup error cannot hide the original cause,
         // and later failures travel with it in Data["CleanupErrors"].
         List<Exception>? failures = null;

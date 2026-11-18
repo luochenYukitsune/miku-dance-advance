@@ -51,6 +51,9 @@ int main(){
   // The separate real-host/GPU checks own borrowed-COM lifetime validation.
   s.gpu->vertices.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x1234));
   s.geometryToken.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x5678));
+  // Declared after `s`, so it runs first on every exit, including a throwing check: the fake pointers must never reach
+  // ~Session's Release, which would crash before the UNEXPECTED handler reports the failure.
+  struct FakeComGuard{Session& s;~FakeComGuard(){if(s.gpu)s.gpu->vertices.p=nullptr;s.geometryToken.p=nullptr;}} fakeComGuard{s};
   MdaMmeGeometryV1 g{sizeof g,MDA_MME_BRIDGE_VERSION};
   check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)!=0,"geometry callback rejects an object without a published identity");
   // Identity is per object and stays stable across frames until that object's own layout changes, so the host

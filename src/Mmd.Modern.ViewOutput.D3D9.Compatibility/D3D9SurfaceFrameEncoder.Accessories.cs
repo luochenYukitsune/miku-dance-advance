@@ -248,11 +248,16 @@ internal sealed partial class D3D9SurfaceFrameEncoder
         int split = frame.AccessoryIndexAfterModels!.Value;
         int modelCount = frame.RenderingStyles.Count;
         var result = new Dictionary<Guid, int>();
+        // Models added after the PMM import have no raw byte. Give them raw values after the highest imported model so
+        // the native order sorts them after every imported model, by their neutral DrawOrderIndex. A raw value of 0 is
+        // never assigned to them: with no accessories before the models it becomes host order 0, which MME reads as
+        // "no current object" and would drop their configured effects.
+        var addedRaw = AddedModelRawOrders(frame.MixedDrawOrder);
         foreach (var value in frame.MixedDrawOrder)
         {
             // The original PMM loader copies the raw model/accessory byte without renumbering.
             // Its native getters use different formulas from the core's neutral sorted keys.
-            int raw = value.SourceDrawOrderIndex;
+            int raw = value.IsAddedAfterImport ? addedRaw[value.ObjectId] : value.SourceDrawOrderIndex;
             int order = value.Kind == PmmDrawableKind.Model ? checked(raw + Math.Min(frame.Accessories.Count, split))
                 : raw < split ? checked(-raw - 1) : checked(raw + modelCount + 1);
             if (value.Kind == PmmDrawableKind.Accessory)
@@ -266,6 +271,16 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             result.Add(value.ObjectId, order);
         }
         return result;
+    }
+
+    /// <summary>Raw source orders for models added after the PMM import: after the highest imported model byte (never 0),
+    /// in DrawOrderIndex order. Not limited to 0..255; the native packet carries a 32-bit signed order.</summary>
+    internal static IReadOnlyDictionary<Guid, int> AddedModelRawOrders(IReadOnlyList<SceneProjectDrawItem> order)
+    {
+        int next = Math.Max(1, order.Where(value => value.Kind == PmmDrawableKind.Model && !value.IsAddedAfterImport)
+            .Select(value => value.SourceDrawOrderIndex + 1).DefaultIfEmpty(1).Max());
+        return order.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex)
+            .ToDictionary(value => value.ObjectId, _ => next++);
     }
 
     private static (uint Type, int Primary, int Sphere) ResolveAccessoryTexture(string token, D3D9SurfaceObjectBinding binding,
