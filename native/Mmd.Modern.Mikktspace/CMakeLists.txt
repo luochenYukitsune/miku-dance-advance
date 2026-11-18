@@ -6,6 +6,8 @@ if(WIN32)
   set_target_properties(mmd_mikktspace PROPERTIES PREFIX "")
 endif()
 if(MSVC)
+  # Static CRT like build.ps1 /MT: the app root ships no VCRUNTIME140.dll for this bridge.
+  set_target_properties(mmd_mikktspace PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
   target_compile_options(mmd_mikktspace PRIVATE /W4 /fp:precise)
 else()
   target_compile_options(mmd_mikktspace PRIVATE -Wall -Wextra -fno-fast-math)
