@@ -54,9 +54,9 @@ internal static partial class OriginalFrameShaders
             }
             """;
         return (
-            Compiler.Compile(source, "VSCharacterOutline", "ModernCharacterOutline.hlsl", "vs_5_1",
-                ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray(),
-            Compiler.Compile(source, "PSCharacterOutline", "ModernCharacterOutline.hlsl", "ps_5_1",
-                ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray());
+            D3D12FxcShaderCache.Compile(source, "VSCharacterOutline", "ModernCharacterOutline.hlsl", "vs_5_1",
+                ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness),
+            D3D12FxcShaderCache.Compile(source, "PSCharacterOutline", "ModernCharacterOutline.hlsl", "ps_5_1",
+                ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness));
     }
 }

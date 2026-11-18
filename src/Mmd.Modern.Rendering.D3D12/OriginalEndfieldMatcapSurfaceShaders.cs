@@ -169,6 +169,6 @@ internal static partial class OriginalFrameShaders
 
     internal static byte[] CompileEndfieldMatcapSurface(string entry, bool native, bool gi,
         bool morph, bool sub, bool hair = false, bool rim = false)
-        => Compiler.Compile(EndfieldMatcapSurfaceSource(entry, native, gi, morph, sub, hair, rim), entry,
-            "OriginalEndfieldMatcapAdapter.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(EndfieldMatcapSurfaceSource(entry, native, gi, morph, sub, hair, rim), entry,
+            "OriginalEndfieldMatcapAdapter.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

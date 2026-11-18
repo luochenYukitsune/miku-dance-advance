@@ -68,6 +68,170 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         return render == request.Render ? request : request with { Quality = render.Quality };
     }
 
+    internal sealed record ProjectPrewarmObjectSnapshot(
+        bool HasSubTexture,
+        bool HasTextureMorph,
+        bool HasCharacterToon,
+        bool HasCharacterDirectPalette,
+        bool HasOutline,
+        bool HasCharacterOutline,
+        bool HasDynamicVertices,
+        bool HasPaletteReceiver,
+        int MaterialCount,
+        string PresetStableId,
+        D3D12MaterialBindingProfile? BindingProfile);
+
+    internal sealed record ProjectPrewarmSnapshot(
+        bool NativeLights,
+        bool HasPaletteReceiver,
+        IReadOnlyList<ProjectPrewarmObjectSnapshot> Objects);
+
+    internal static ProjectPrewarmSnapshot CapturePrewarmSnapshot(
+        SceneProjectSession session,
+        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(mappings);
+        bool nativeLights = session.Lighting.Settings.EnvironmentStrength > 0
+            || session.Lighting.EffectiveLights.Any(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero);
+        bool hasPaletteReceiver = false;
+        var items = new List<ProjectPrewarmObjectSnapshot>(session.Objects.Count);
+        foreach (var item in session.Objects)
+        {
+            var frame = SceneModelShadingPolicy.Apply(item.Source, session.GetModelPurpose(item.Id));
+            bool subTexture = frame.Surface.Materials.Any(b => b.SphereMode == OriginalSphereMode.SubTexture && b.SphereTexture >= 0);
+            bool textureMorph = subTexture || frame.Surface.Materials.Any(b => !b.TextureFactors.IsIdentity);
+            bool characterToon = frame.Materials.Any(f => f.CharacterToonResponse is not null);
+            bool directPalette = nativeLights && frame.Materials.Any(f => f.PreserveDirectLightPalette);
+            bool outline = frame.Outline is not null && frame.OutlineOptions is { Eligible: true, ModelWidth: > 0 };
+            bool charOutline = outline && frame.Materials.Any(f => f.CharacterOutlineStyle is not null);
+            bool paletteReceiver = frame.Materials
+                .Where((_, index) => frame.Surface.Snapshot.Materials[index].IndexCount > 0)
+                .Any(flags => flags.GiToonResponseOverride == RayGiToonResponse.PreservePaletteBands);
+            hasPaletteReceiver |= paletteReceiver;
+            mappings.TryGetValue(item.Id, out var profile);
+            items.Add(new ProjectPrewarmObjectSnapshot(
+                subTexture,
+                textureMorph,
+                characterToon,
+                directPalette,
+                outline,
+                charOutline,
+                frame.Surface.Snapshot.HasDynamicVertices,
+                paletteReceiver,
+                frame.Surface.Snapshot.Materials.Count,
+                session.GetRenderingStyle(item.Id).StableId,
+                profile));
+        }
+        return new ProjectPrewarmSnapshot(nativeLights, hasPaletteReceiver, items);
+    }
+
+    internal static Task PrewarmProjectAsync(ProjectPrewarmSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (cancellationToken.IsCancellationRequested || snapshot.Objects.Count == 0)
+            return Task.CompletedTask;
+        return Task.Run(async () =>
+        {
+            try
+            {
+                var quality = EditorPreferences.LoadPreviewQuality();
+                var gi = quality.EffectiveGi;
+                if (snapshot.HasPaletteReceiver && gi.Enabled && gi.Strength > 0 && gi.Composition == RayGiComposition.Additive)
+                    quality = quality with { Gi = gi with { Composition = RayGiComposition.ToonPalette } };
+
+                bool subTexture = false, textureMorph = false, characterToon = false, directPalette = false;
+                bool outline = false, charOutline = false, dynamicVerts = false;
+                var variants = new HashSet<D3D12ShaderStyleWarmupVariant>();
+                var catalog = D3D12StylePresetCatalog.BuiltIn;
+
+                foreach (var obj in snapshot.Objects)
+                {
+                    subTexture |= obj.HasSubTexture;
+                    textureMorph |= obj.HasTextureMorph;
+                    characterToon |= obj.HasCharacterToon;
+                    directPalette |= obj.HasCharacterDirectPalette;
+                    outline |= obj.HasOutline;
+                    charOutline |= obj.HasCharacterOutline;
+                    dynamicVerts |= obj.HasDynamicVertices;
+
+                    var resolved = catalog.Find(obj.PresetStableId);
+                    string? pipelineId = resolved.IsAvailable ? resolved.Definition?.PipelineId : null;
+                    D3D12SurfaceStyle? family = pipelineId switch
+                    {
+                        "genshin" => D3D12SurfaceStyle.GenshinPmx,
+                        "star-rail" => D3D12SurfaceStyle.StarRailPmx,
+                        "wuthering-waves" => D3D12SurfaceStyle.WutheringPmx,
+                        "endfield" => D3D12SurfaceStyle.EndfieldPmx,
+                        _ => null,
+                    };
+                    if (family is { } fam)
+                    {
+                        int specializedCount = 0;
+                        if (obj.BindingProfile is { } profile)
+                        {
+                            foreach (var row in profile.Materials)
+                            {
+                                bool hasAny = row.Face is not null || row.GenshinHair is not null || row.StarMcHair is not null
+                                    || row.EndfieldHair is not null || row.EndfieldRim is not null || row.GenshinHairAtlas is not null
+                                    || row.EndfieldMatcap is not null || row.GenshinMetallic is not null || row.StarMcBody is not null;
+                                if (hasAny) specializedCount++;
+                                variants.Add(new D3D12ShaderStyleWarmupVariant(
+                                    Family: fam,
+                                    FaceSdf: row.Face is not null,
+                                    GenshinHair: row.GenshinHair is not null,
+                                    StarMcHair: row.StarMcHair is not null,
+                                    EndfieldHair: row.EndfieldHair is not null,
+                                    EndfieldRim: row.EndfieldRim is not null,
+                                    GenshinAtlas: row.GenshinHairAtlas is not null,
+                                    EndfieldMatcap: row.EndfieldMatcap is not null,
+                                    GenshinMetallic: row.GenshinMetallic is not null,
+                                    GenshinMetallicSpecular: row.GenshinMetallic?.Specular is not null,
+                                    EndfieldPalette: row.EndfieldMatcap?.Palette is not null,
+                                    EndfieldBaseImage: row.EndfieldMatcap?.Palette?.BaseImage is not null,
+                                    StarMcBody: row.StarMcBody is not null));
+                            }
+                        }
+                        if (specializedCount < obj.MaterialCount)
+                            variants.Add(new D3D12ShaderStyleWarmupVariant(fam));
+                    }
+                }
+
+                var giOpts = quality.EffectiveGi;
+                bool giEnabled = giOpts.Enabled && giOpts.Strength > 0;
+                bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
+                var spec = new D3D12ShaderWarmupSpec
+                {
+                    Gi = giEnabled,
+                    GiMode = giOpts.Mode,
+                    GiComposition = giOpts.Composition,
+                    IncludeGiDenoiser = giEnabled && giOpts.Denoiser != RayGiDenoiser.Off,
+                    IncludeGiTemporal = giEnabled && giOpts.Denoiser == RayGiDenoiser.TemporalSpatial,
+                    IncludePositionGather = giEnabled && giOpts.Mode == LightingMode.HardwareRayTracing && dynamicVerts,
+                    NativeLights = snapshot.NativeLights,
+                    TextureMorph = textureMorph,
+                    SubTexture = subTexture,
+                    CharacterToon = characterToon,
+                    CharacterDirectPalette = directPalette,
+                    Outline = outline,
+                    CharacterOutline = charOutline,
+                    StylizedVariants = variants.ToArray(),
+                    SmaaQuality = quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
+                    IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
+                    IncludeTemporalInputs = temporal,
+                    IncludeTemporalCharacter = temporal && (charOutline || subTexture || textureMorph || variants.Count > 0),
+                    IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,
+                    IncludeTemporalColorTransfer = temporal,
+                    IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
+                    IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
+                };
+                await D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception) { }
+        }, CancellationToken.None);
+    }
+
     internal static IReadOnlyList<D3D12ResolvedMaterialBindingProfile> ResolveBindings(SceneProjectSession session,
         IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings)
     {

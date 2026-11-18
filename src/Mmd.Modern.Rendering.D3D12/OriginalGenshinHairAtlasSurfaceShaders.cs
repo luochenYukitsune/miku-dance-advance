@@ -129,7 +129,7 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileGenshinHairAtlasSurface(string entry, bool native, bool gi, bool morph, bool sub, bool rbLobe)
-        => Compiler.Compile(GenshinHairAtlasSurfaceSource(native, gi, morph, sub, rbLobe), entry,
+        => D3D12FxcShaderCache.Compile(GenshinHairAtlasSurfaceSource(native, gi, morph, sub, rbLobe), entry,
             "OriginalGenshinHairShadowAtlas.hlsl", "ps_5_1",
-            ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+            ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

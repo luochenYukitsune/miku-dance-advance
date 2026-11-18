@@ -54,6 +54,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         => EditorRenderEngineBinding.Require(RenderEngine, RenderEngine.Bind(this));
 
     private PmaLoadedProject? package;
+    private CancellationTokenSource? shaderPrewarmCts;
+    private Task shaderPrewarmTask = Task.CompletedTask;
     private bool disposed;
     private sealed record HistoryStep(SceneProjectSession? Before, SceneProjectSession? After, bool SessionEdit,
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
@@ -84,6 +86,9 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         => LoadModelAssetWithLimits(path, 10 * EditorPreferences.Gibibyte, token);
 
     public static SceneAnimationModelAsset LoadModelAssetWithLimits(string path, long maxBytes, CancellationToken token = default)
+        => CreateModelAsset(ReadModel(path, maxBytes, token), path, token);
+
+    internal static PmxModel ReadModel(string path, long maxBytes, CancellationToken token)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (maxBytes < 1) throw new ArgumentOutOfRangeException(nameof(maxBytes), EditorLocalization.Text("模型输入容量上限必须大于 0。"));
@@ -98,13 +103,28 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input)),
             _ => throw new NotSupportedException(EditorLocalization.Text("模型载入支持 PMX 或 PMD 文件。"))
         };
-        return CreateModelAsset(model, path, token);
+        return model;
     }
 
     /// <summary>Builds a render source for the exact model already prepared by the PMM/core reader.
     /// The source path is used only to resolve read-only model-local textures.</summary>
+    /// <remarks>Referenced images decode in parallel, then the adapter consumes them in its own order, so
+    /// diagnostics, failures and pixels match sequential loading. An open operation's scope shares decodes.</remarks>
     public static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path, CancellationToken token = default)
-        => CreateModelAsset(model, path, relative => LoadTexture(Path.GetDirectoryName(Path.GetFullPath(path))!, relative, token), token);
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        token.ThrowIfCancellationRequested();
+        string root = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        var scope = EditorAssetPrefetch.Current?.Textures;
+        var textures = scope ?? new SceneTextureCache();
+        try
+        {
+            EditorAssetPrefetch.PrefetchTextures(textures, model, root, token);
+            return CreateModelAsset(model, path, relative => EditorAssetPrefetch.LoadTexture(textures, root, relative, token), token);
+        }
+        finally { if (scope is null) textures.Dispose(); }
+    }
 
     internal static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path,
         Func<string, SceneTexture?> loadTexture, CancellationToken token = default,
@@ -124,9 +144,6 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         token.ThrowIfCancellationRequested();
         return new(model, frame);
     }
-
-    private static SceneTexture? LoadTexture(string root, string relative, CancellationToken token)
-        => EditorTextureLoader.Load(root, relative, token);
 
     public Guid AddModel(string path, SceneAnimationModelAsset asset, ModelRole role)
         => AddModel(path, asset, new EditorModelImportOptions(new ModelPurpose(role)));
@@ -551,9 +568,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         string fullPath = ProjectFormat.RequirePath(path);
         long modelMaxBytes = Preferences.PmxMaxBytes;
         var limits = PackageLimits;
-        var loaded = persistence.Load(fullPath, PackageCacheDirectory,
-            (file, cancellation) => LoadModelAssetWithLimits(file, modelMaxBytes, cancellation),
-            CreatePhysicsProvider(), limits, token);
+        EditorProjectLoadedCandidate loaded;
+        // Models and images are prepared in the background for this open only; the ordered loader consumes them.
+        using (var prefetch = EditorAssetPrefetch.Begin(modelMaxBytes))
+            loaded = persistence.Load(fullPath, PackageCacheDirectory, prefetch.LoadModel,
+                CreatePhysicsProvider(), limits with { ModelPrefetch = prefetch.PrefetchModels }, token);
         try
         {
             token.ThrowIfCancellationRequested();
@@ -571,6 +590,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         package = loaded.Package; Session = loaded.Package.Session; ProjectPath = recovered ? null : fullPath;
         MaterialBindings = loaded.MaterialBindings; ProjectMetadata = loaded.Metadata;
         IsDirty = recovered;
+        StartShaderPrewarm();
         if (notifyChanged) Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -588,7 +608,9 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         standaloneSessions.Add(Session);
         foreach (var id in candidate.ModelObjects.Values)
             importedMotionCodePages.Add(id, candidate.Plan.Document.AnsiCodePage);
-        ProjectPath = null; IsDirty = true; Changed?.Invoke(this, EventArgs.Empty);
+        ProjectPath = null; IsDirty = true;
+        StartShaderPrewarm();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     public bool Undo()
@@ -623,8 +645,37 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         CloseContent(); ProjectPath = null; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
+    private void StartShaderPrewarm()
+    {
+        if (RenderEngine is not EditorModernRenderEngine || Session is not { } current || current.Objects.Count == 0)
+            return;
+        CancelShaderPrewarm(wait: false);
+        var cts = new CancellationTokenSource();
+        shaderPrewarmCts = cts;
+        var snapshot = EditorModernRenderEngine.CapturePrewarmSnapshot(current, MaterialBindings);
+        shaderPrewarmTask = EditorModernRenderEngine.PrewarmProjectAsync(snapshot, cts.Token);
+    }
+
+    private void CancelShaderPrewarm(bool wait)
+    {
+        var cts = shaderPrewarmCts;
+        var task = shaderPrewarmTask;
+        shaderPrewarmCts = null;
+        if (cts is not null)
+        {
+            try { cts.Cancel(); } catch { }
+        }
+        if (wait)
+        {
+            try { task.GetAwaiter().GetResult(); } catch { }
+            shaderPrewarmTask = Task.CompletedTask;
+        }
+        cts?.Dispose();
+    }
+
     private void CloseContent()
     {
+        CancelShaderPrewarm(wait: false);
         foreach (var retained in standaloneSessions)
             if (!ReferenceEquals(retained, package?.Session)) retained.Dispose();
         if (package is not null) package.Dispose();
@@ -643,6 +694,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         // A failed native cleanup remains owned here. Keep the workspace retryable and its
         // content alive until no detached renderer still depends on the export lifetime.
         RenderCleanup.DrainAsync().AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
-        CloseContent(); disposed = true;
+        CancelShaderPrewarm(wait: true);
+        CloseContent(); CancelShaderPrewarm(wait: true); disposed = true;
     }
 }

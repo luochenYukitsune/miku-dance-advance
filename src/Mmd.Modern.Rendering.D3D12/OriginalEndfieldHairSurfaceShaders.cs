@@ -65,6 +65,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileEndfieldHairSurface(string entry,bool vertex,bool native,bool gi,bool morph,bool sub)
-        =>Compiler.Compile(EndfieldHairSurfaceSource(native,gi,morph,sub),entry,"OriginalEndfieldHair.hlsl",
-            vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(EndfieldHairSurfaceSource(native,gi,morph,sub),entry,"OriginalEndfieldHair.hlsl",
+            vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

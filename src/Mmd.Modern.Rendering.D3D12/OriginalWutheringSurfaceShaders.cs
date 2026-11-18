@@ -57,6 +57,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileWutheringSurface(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>Compiler.Compile(WutheringSurfaceSource(native,gi,textureMorph,subTexture),entry,
-            "OriginalWutheringPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(WutheringSurfaceSource(native,gi,textureMorph,subTexture),entry,
+            "OriginalWutheringPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

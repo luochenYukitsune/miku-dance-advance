@@ -86,6 +86,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileStarMcHairSurface(D3D12SurfaceStyle family, string entry, bool native, bool gi, bool textureMorph, bool subTexture)
-        => Compiler.Compile(StarMcHairSurfaceSource(family, native, gi, textureMorph, subTexture), entry,
-            "OriginalStarMcHair.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(StarMcHairSurfaceSource(family, native, gi, textureMorph, subTexture), entry,
+            "OriginalStarMcHair.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

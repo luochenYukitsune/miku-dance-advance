@@ -95,6 +95,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileGenshinSurface(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>Compiler.Compile(GenshinSurfaceSource(native,gi,textureMorph,subTexture),entry,
-            "OriginalGenshinPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(GenshinSurfaceSource(native,gi,textureMorph,subTexture),entry,
+            "OriginalGenshinPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

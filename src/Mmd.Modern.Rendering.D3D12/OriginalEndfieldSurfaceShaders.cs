@@ -48,6 +48,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileEndfieldSurface(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>Compiler.Compile(EndfieldSurfaceSource(native,gi,textureMorph,subTexture),entry,
-            "OriginalEndfieldPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(EndfieldSurfaceSource(native,gi,textureMorph,subTexture),entry,
+            "OriginalEndfieldPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

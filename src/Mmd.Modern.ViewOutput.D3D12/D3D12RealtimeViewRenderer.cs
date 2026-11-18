@@ -28,6 +28,9 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private readonly IReadOnlyList<D3D12ViewStarMcBodyBinding> starMcBodyDataBindings;
     private readonly IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths;
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
+    private readonly object prewarmGate = new();
+    private CancellationTokenSource? prewarmCts;
+    private Task prewarmTask = Task.CompletedTask;
     private bool disposed;
     public ViewRendererCapabilities Capabilities { get; }
     public string AdapterName => presenter.AdapterName;
@@ -101,6 +104,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         this.stylePresets = stylePresets ?? D3D12StylePresetCatalog.BuiltIn;
         presenter = new(windowHandle, request.Width, request.Height);
         Capabilities = new(presenter.IsWarp ? "d3d12-warp" : "d3d12-hardware", 4096, 4096, false, true);
+        StartShaderPrewarm(request.EffectiveQuality);
     }
 
     /// <summary>Wait for DXGI to admit a new frame before the caller captures current scene state.</summary>
@@ -187,7 +191,11 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             ObjectDisposedException.ThrowIf(disposed, this); cancellationToken.ThrowIfCancellationRequested();
             var next = request with { Quality = quality };
             Capabilities.Validate(next, capture: false);
-            if (request.EffectiveQuality != quality) previewSampling.Reset();
+            if (request.EffectiveQuality != quality)
+            {
+                previewSampling.Reset();
+                StartShaderPrewarm(quality);
+            }
             request = next;
         }
         finally { gate.Release(); }
@@ -207,9 +215,46 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             faceDataBindings, frame.SceneInputs, hairDataBindings, starMcHairDataBindings, endfieldHairDataBindings, genshinHairAtlasDataBindings, endfieldMatcapDataBindings, genshinMetallicDataBindings, starMcBodyDataBindings, outlineWidths);
     }
 
+    private void StartShaderPrewarm(ViewQualityOptions quality)
+    {
+        var spec = D3D12ViewShaderPrewarm.BuildFromViewRequest(quality, characterMaterials, faceDataBindings);
+        CancellationTokenSource? prior;
+        CancellationTokenSource next;
+        lock (prewarmGate)
+        {
+            if (disposed) return;
+            prior = prewarmCts;
+            next = new();
+            prewarmCts = next;
+            prewarmTask = D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, next.Token);
+        }
+        try { prior?.Cancel(); prior?.Dispose(); } catch { }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync().ConfigureAwait(false);
-        try { if (disposed) return; disposed = true; presenter.Dispose(); } finally { gate.Release(); }
+        try
+        {
+            CancellationTokenSource? cts;
+            Task task;
+            lock (prewarmGate)
+            {
+                if (disposed) return;
+                disposed = true;
+                cts = prewarmCts;
+                prewarmCts = null;
+                task = prewarmTask;
+                prewarmTask = Task.CompletedTask;
+            }
+            if (cts is not null)
+            {
+                try { cts.Cancel(); } catch { }
+                try { await task.ConfigureAwait(false); } catch { }
+                cts.Dispose();
+            }
+            presenter.Dispose();
+        }
+        finally { gate.Release(); }
     }
 }

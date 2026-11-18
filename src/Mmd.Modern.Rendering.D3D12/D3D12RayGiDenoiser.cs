@@ -55,6 +55,8 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
         return output;
     }
 
+    internal static DxcShaderWarmupRequest GetPrewarmRequest() => new(Source, "CSMain", "cs_6_0");
+
     private void EnsurePipeline(DxcShaderCompiler compiler)
     {
         if(pipeline is not null)return;
@@ -65,10 +67,10 @@ internal sealed class D3D12RayGiDenoiser(D3D12GpuRuntime runtime) : IDisposable
             new(RootParameterType.ShaderResourceView,new RootDescriptor(1,0),ShaderVisibility.All),
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,2,2)),ShaderVisibility.All),
             new(RootParameterType.UnorderedAccessView,new RootDescriptor(0,0),ShaderVisibility.All)];
-        var signature=runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.None,parameters),RootSignatureVersion.Version10);
+        var signature=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,parameters),RootSignatureVersion.Version10);
         try
         {
-            var state=runtime.Device.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=signature,ComputeShader=shader.Dxil});
+            var state=runtime.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=signature,ComputeShader=shader.Dxil});
             root=signature;pipeline=state;runtime.ShaderCompilations++;runtime.PipelineCreations++;
         }
         catch{signature.Dispose();throw;}

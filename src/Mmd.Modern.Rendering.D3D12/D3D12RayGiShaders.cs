@@ -1,8 +1,18 @@
+using Mmd.Modern.Core;
+
 namespace Mmd.Modern.Rendering.D3D12;
 
 /// <summary>Material acceptance, random sequence and radiance are identical for both native intersection backends.</summary>
 internal static class D3D12RayGiShaders
 {
+    internal static DxcShaderWarmupRequest GetPrewarmRequest(bool hardware, RayGiComposition composition, bool textureMorph, bool nativeLights, bool subTexture)
+    {
+        var defines = new Dictionary<string, string?>();
+        if (hardware) defines.Add("GI_HARDWARE", "1");
+        if (composition == RayGiComposition.ToonPalette) defines.Add("GI_TOON", "1");
+        return new(Source(hardware, textureMorph, nativeLights, subTexture), "CSMain", hardware ? "cs_6_5" : "cs_6_0", defines);
+    }
+
     internal const string Shared="""
         struct GiTriangle { float4 P0; float4 P1; float4 P2; float4 N0U0; float4 N1U1; float4 N2U2; float4 V012; float4 SphereUv01; float4 SphereUv2; uint4 Meta; };
         struct GiMaterial { float4 DiffuseFactor; float4 Emission; uint4 DiffuseTexture; uint4 SphereTexture; float4 Parameters; uint4 Flags; };

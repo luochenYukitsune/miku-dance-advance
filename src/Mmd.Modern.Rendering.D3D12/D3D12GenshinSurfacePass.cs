@@ -46,7 +46,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         ID3D12PipelineState Create(RasterizerDescription raster)
         {
             runtime.PipelineCreations++;
-            return device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            return runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature=common.Root,VertexShader=vertex,PixelShader=pixel,
                 InputLayout=new InputLayoutDescription(endfieldHair?[..SurfaceLayout(key.SubTexture),new InputElementDescription("RAW_RADIAL",0,Format.R32G32B32_Float,0,2)]:SurfaceLayout(key.SubTexture)),BlendState=FrameBlend(key.Blend,key.AlphaOutput),

@@ -273,6 +273,7 @@ public static class PmaProjectStore
                     token.ThrowIfCancellationRequested(); return decorated;
                 };
             }
+            if (options.ModelPrefetch is { } prefetch) NotifyModelPrefetch(prefetch, Path.Combine(stage, manifest.ProjectPath), stage, cancellationToken);
             session = SceneProjectSession.LoadPma(Path.Combine(stage, manifest.ProjectPath), effectiveLoader, physics,
                 PortableModelAssets.Limits.FromPma(options), cancellationToken, accessoryPersistence);
             if (options.ModelAssetTransform is not null && transformed != expectedModels.Length)
@@ -290,6 +291,25 @@ public static class PmaProjectStore
                 () => { if (Directory.Exists(stage)) Directory.Delete(stage, recursive: true); });
             throw;
         }
+    }
+
+    private static void NotifyModelPrefetch(Action<IReadOnlyList<string>, CancellationToken> prefetch, string projectPath, string stage,
+        CancellationToken token)
+    {
+        string[] paths;
+        // Advisory only: the ordered loader below remains the sole source of results and errors.
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(projectPath));
+            var layout = document.RootElement.TryGetProperty("layout", out var nested) ? nested : document.RootElement;
+            var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            paths = layout.GetProperty("objects").EnumerateArray()
+                .Select(o => Path.GetFullPath(o.GetProperty("sourcePath").GetString()!, stage))
+                .Distinct(comparer).ToArray();
+        }
+        catch (Exception) { return; }
+        try { prefetch(paths, token); }
+        catch (Exception) { }
     }
 
     private static Manifest ValidateArchive(ZipArchive zip, PmaLoadOptions options, CancellationToken token, PmaPackageKind kind,

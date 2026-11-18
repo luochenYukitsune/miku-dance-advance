@@ -111,7 +111,7 @@ internal static partial class OriginalFrameShaders
         string stylized = ApplyStylizedShading(source, prefix);
         if (Environment.GetEnvironmentVariable("MDA_DUMP_STYLIZED_SHADER") is { Length: > 0 } dump)
             File.WriteAllText(Path.Combine(dump, name), stylized);
-        return Compiler.Compile(stylized, entry, name, "ps_5_1",
-            ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        return D3D12FxcShaderCache.Compile(stylized, entry, name, "ps_5_1",
+            ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
     }
 }
