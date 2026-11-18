@@ -178,7 +178,10 @@ internal static class PortableModelAssets
             var referenced = new HashSet<int>();
             foreach (var material in model.Materials)
             {
-                referenced.Add(material.TextureIndex); referenced.Add(material.SphereTextureIndex);
+                // The renderer ignores the sphere slot when sphere mapping is off; another material binding the same
+                // texture still keeps it.
+                referenced.Add(material.TextureIndex);
+                if (material.SphereMode != PmxSphereMode.None) referenced.Add(material.SphereTextureIndex);
                 if (material.ToonMode == PmxToonMode.Separate) referenced.Add(material.ToonTextureIndex);
             }
             string[] textures = model.Textures.Select((name, index) => referenced.Contains(index) ? Copy(name) : "").ToArray();
@@ -407,8 +410,9 @@ internal static class PortableModelAssets
         string folder = Path.GetFullPath(modelDirectory);
         if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
         string path = Path.GetFullPath(Path.Combine(folder, normalized));
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!path.StartsWith(folder, comparison))
+        // Exact comparison: a per-directory case-sensitive folder can hold "mod" next to "Mod", and an ignore-case prefix
+        // would accept "..\\mod\\file.png" as inside. A plain relative reference keeps the original prefix and passes.
+        if (!path.StartsWith(folder, StringComparison.Ordinal))
             throw new InvalidDataException($"Model dependency '{reference}' points outside the model directory.");
         return path;
     }

@@ -82,10 +82,12 @@ public static class EditorTextureLoader
         string normalized = relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
         if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
             throw new InvalidDataException(EditorLocalization.Format("贴图路径必须是模型目录内的相对路径：{0}", relative));
-        string folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modelDirectory)) + Path.DirectorySeparatorChar;
+        // Same containment rule as PortableModelAssets.ContainedDependency, so a texture that loads is also one a save
+        // may package: keep a drive root's own separator, and compare exactly (per-directory case-sensitive folders).
+        string folder = Path.GetFullPath(modelDirectory);
+        if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
         string path = Path.GetFullPath(Path.Combine(folder, normalized));
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!path.StartsWith(folder, comparison))
+        if (!path.StartsWith(folder, StringComparison.Ordinal))
             throw new InvalidDataException(EditorLocalization.Format("贴图路径超出模型目录：{0}", relative));
         return path;
     }

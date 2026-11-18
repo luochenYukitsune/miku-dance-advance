@@ -45,11 +45,15 @@ public partial class EditorWindow : Window
         // they do not keep editing (and save) an operation that stopped halfway. Repeats are throttled by the log.
         // ReportActivityFailure puts the status bar into its failed state ("操作失败 · …") with the technical details
         // (and the log path) one click away.
-        Action<Exception, string?> crashNotice = (error, path) =>
+        // Deduplicated per window and only after delivery: a fault raised before the shell is attached is shown the
+        // next time it happens, instead of having its one notice spent while no window could display it.
+        var shownCrashes = new EditorCrashLog.NoticeFilter();
+        Action<Exception, string, string?> crashNotice = (error, signature, path) =>
         {
-            if (!IsVisible || _shell is not { } shell) return;
+            if (!IsVisible || _shell is not { } shell || shownCrashes.WasShown(signature)) return;
             shell.ReportActivityFailure(path is null ? error
                 : new InvalidOperationException("Unhandled UI exception; log: " + path, error));
+            shownCrashes.MarkShown(signature);
         };
         EditorCrashLog.UiExceptionRecorded += crashNotice;
         Closed += (_, _) => EditorCrashLog.UiExceptionRecorded -= crashNotice;

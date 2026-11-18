@@ -32,9 +32,14 @@ public sealed class EditorCrashLogTests : IDisposable
     {
         EditorCrashLog.ResetThrottleForTests();
         Exception Thrown() { try { throw new InvalidOperationException("per-frame"); } catch (Exception error) { return error; } }
-        int announced = 0;
-        for (int i = 0; i < 100; i++) if (EditorCrashLog.ShouldRecord("ui", Thrown(), out _, directory)) announced++;
+        int announced = 0; var written = new List<int>();
+        for (int i = 1; i <= 100; i++)
+        {
+            if (EditorCrashLog.ShouldRecord("ui", Thrown(), out string? path, directory)) announced++;
+            if (path is not null) written.Add(i);
+        }
         Assert.Equal(1, announced);
+        Assert.Equal(new[] { 1, 2, 4, 8, 16, 32, 64 }, written);
         // 1, 2, 4, 8, 16, 32, 64.
         Assert.Equal(7, Directory.GetFiles(directory).Length);
         for (int i = 0; i < EditorCrashLog.MaxFiles + 5; i++) EditorCrashLog.TryWrite("distinct" + i, new Exception("x"), directory);
@@ -59,6 +64,34 @@ public sealed class EditorCrashLogTests : IDisposable
         Assert.False(string.IsNullOrEmpty(location));
         EditorCrashLog.ResetThrottleForTests();
         Assert.True(EditorCrashLog.ShouldRecord("ui", thrown, out _, directory));
+        EditorCrashLog.ResetThrottleForTests();
+    }
+
+    [Fact]
+    public void PruningKeepsTheNewFileAndNeverTouchesFilesItDidNotWrite()
+    {
+        Directory.CreateDirectory(directory);
+        string notes = Path.Combine(directory, "00-notes.txt"); File.WriteAllText(notes, "mine");
+        // Names that sort after anything written now (a clock that moved back would do the same).
+        for (int i = 0; i < EditorCrashLog.MaxFiles; i++)
+            File.WriteAllText(Path.Combine(directory, $"99991231-235959-{i:000}-ui-{i:x8}.txt"), "old");
+        string? path = EditorCrashLog.TryWrite("ui", new Exception("new"), directory);
+        Assert.NotNull(path);
+        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(notes));
+        Assert.Equal(EditorCrashLog.MaxFiles, Directory.GetFiles(directory, "*.txt").Count(file => file != notes));
+    }
+
+    [Fact]
+    public void AWindowFilterShowsEachNewSignatureOnceEvenAfterTheLogTableOverflows()
+    {
+        EditorCrashLog.ResetThrottleForTests();
+        for (int i = 0; i < EditorCrashLog.MaxSignatures; i++) EditorCrashLog.ShouldRecord("fill" + i, new Exception("x"), out _, directory);
+        var filter = new EditorCrashLog.NoticeFilter();
+        // Two distinct new faults share the log's overflow bucket but are each shown once by the window.
+        Assert.True(filter.MarkShown(EditorCrashLog.Signature("ui", First.Refresh())));
+        Assert.True(filter.MarkShown(EditorCrashLog.Signature("ui", Second.Refresh())));
+        Assert.False(filter.MarkShown(EditorCrashLog.Signature("ui", First.Refresh())));
         EditorCrashLog.ResetThrottleForTests();
     }
 

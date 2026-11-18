@@ -198,6 +198,8 @@ english.associatemodels=MMD models (.pmx / .pmd)
 english.associatemotions=MMD motions (.vmd)
 english.associateposes=MMD poses (.vpd)
 english.RelocationDriveMissing=The previous MDA installation is registered at %1, but that drive is not available. If it is a removable or network drive, choose No, reconnect it and run Setup again. Choose Yes only if that installation is gone for good: its uninstall entry will be removed.
+english.RelocationFolderMissing=The previous MDA installation is registered at %1, but that folder was not found. If it is on a removable or network drive that now uses a different letter, choose No, reconnect it and run Setup again. Choose Yes only if that installation is gone for good: its uninstall entry will be removed.
+english.RelocationRegistryLocked=The previous MDA uninstall entry could not be removed (access denied). Fix the permissions of the MDA entry under HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall and run Setup again.
 english.RelocationDriveMissingKept=The previous MDA installation at %1 is on a drive that is not available. Reconnect it and run Setup again, or install to that same folder.
 english.RelocationUninstallFailed=The previous MDA installation could not be removed. Close MDA and retry, or uninstall it before choosing a different folder.
 english.UserDataTitle=Settings, plugins, and autosave
@@ -237,6 +239,8 @@ chinesesimplified.associatemodels=MMD 模型（.pmx / .pmd）
 chinesesimplified.associatemotions=MMD 动作（.vmd）
 chinesesimplified.associateposes=MMD 姿势（.vpd）
 chinesesimplified.RelocationDriveMissing=原来的 MDA 安装登记在 %1，但该磁盘当前不可用。如果它是移动硬盘或网络驱动器，请选“否”，重新连接后再运行安装程序。只有确定原安装已经不存在时才选“是”：它的卸载登记将被删除。
+chinesesimplified.RelocationFolderMissing=原来的 MDA 安装登记在 %1，但没有找到该文件夹。如果它位于移动硬盘或网络驱动器上，而盘符已被其他磁盘占用，请选“否”，重新连接后再运行安装程序。只有确定原安装已经不存在时才选“是”：它的卸载登记将被删除。
+chinesesimplified.RelocationRegistryLocked=无法删除原来的 MDA 卸载登记（拒绝访问）。请修复 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall 下 MDA 项的权限后，再运行安装程序。
 chinesesimplified.RelocationDriveMissingKept=原来的 MDA 安装位于 %1，所在磁盘当前不可用。请重新连接该磁盘后再运行安装程序，或安装到同一文件夹。
 chinesesimplified.RelocationUninstallFailed=无法移除原来的 MDA 安装。请关闭 MDA 后重试，或先卸载原安装，再选择其他文件夹。
 japanese.SharedComponent=エディターと共通ファイル（FFmpeg を含む）
@@ -252,6 +256,8 @@ japanese.associatemodels=MMD モデル（.pmx / .pmd）
 japanese.associatemotions=MMD モーション（.vmd）
 japanese.associateposes=MMD ポーズ（.vpd）
 japanese.RelocationDriveMissing=以前の MDA は %1 に登録されていますが、そのドライブは現在使用できません。リムーバブルまたはネットワーク ドライブの場合は「いいえ」を選び、再接続してからセットアップを再実行してください。以前のインストールが完全に失われている場合のみ「はい」を選んでください。アンインストール情報が削除されます。
+japanese.RelocationFolderMissing=以前の MDA は %1 に登録されていますが、そのフォルダーが見つかりません。リムーバブルまたはネットワーク ドライブのドライブ文字が別のディスクに使われている場合は「いいえ」を選び、再接続してからセットアップを再実行してください。以前のインストールが完全に失われている場合のみ「はい」を選んでください。アンインストール情報が削除されます。
+japanese.RelocationRegistryLocked=以前の MDA のアンインストール情報を削除できませんでした (アクセス拒否)。HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall にある MDA の項目のアクセス許可を修正してから、セットアップを再実行してください。
 japanese.RelocationDriveMissingKept=以前の MDA (%1) のドライブは現在使用できません。ドライブを再接続してからセットアップを再実行するか、同じフォルダーにインストールしてください。
 japanese.RelocationUninstallFailed=以前の MDA を削除できませんでした。MDA を終了して再試行するか、以前のインストールをアンインストールしてから別のフォルダーを選択してください。
 japanese.UserDataTitle=設定・プラグイン・自動保存
@@ -633,23 +639,58 @@ begin
     SaveUserDataLocation;
 end;
 
+{ Deletes the stale registration; a key that cannot be deleted would fail Setup after its files are written, so report
+  it now instead. }
+function DropUninstallRegistration(const UninstallKey: String): String;
+begin
+  Result := '';
+  if not RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey) and RegKeyExists(HKCU, UninstallKey) then
+    Result := CustomMessage('RelocationRegistryLocked');
+end;
+
+{ The executable path at the start of an UninstallString ("C:\...\unins000.exe" /args), or ''. }
+function UninstallerFromCommand(const Command: String): String;
+var
+  QuoteEnd: Integer;
+begin
+  Result := '';
+  if Copy(Command, 1, 1) = '"' then
+  begin
+    QuoteEnd := Pos('"', Copy(Command, 2, Length(Command)));
+    if QuoteEnd > 0 then
+      Result := Copy(Command, 2, QuoteEnd - 1);
+  end;
+end;
+
 function RemoveRelocatedInstallation: String;
 var
   UninstallKey, PreviousDir, PreviousCommand, PreviousUninstaller: String;
-  QuoteEnd, ResultCode: Integer;
+  ResultCode: Integer;
 begin
   UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
   Result := '';
   if not RegKeyExists(HKCU, UninstallKey) then
     Exit;
   Result := CustomMessage('RelocationUninstallFailed');
-  if not RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', PreviousDir) or (PreviousDir = '') then
+  { Inno writes InstallLocation, "Inno Setup: App Path" and UninstallString separately. Recover the old folder from
+    any of them before treating the registration as empty; only one that names nothing at all is dropped. }
+  if not RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', PreviousDir) then
+    PreviousDir := '';
+  if PreviousDir = '' then
+    if not RegQueryStringValue(HKCU, UninstallKey, 'Inno Setup: App Path', PreviousDir) then
+      PreviousDir := '';
+  if (PreviousDir = '') and RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', PreviousCommand) then
   begin
-    { A registration without a location points at nothing that can be uninstalled. Drop it rather than
-      block installing anywhere; there is no payload to remove. }
-    Log('Removing stale MDA uninstall registration without an install location.');
-    RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey);
-    Result := '';
+    PreviousUninstaller := UninstallerFromCommand(PreviousCommand);
+    if PreviousUninstaller <> '' then
+      PreviousDir := ExtractFileDir(PreviousUninstaller);
+  end;
+  if PreviousDir = '' then
+  begin
+    { No location, app path or uninstaller: nothing exists that could be uninstalled, so the registration only blocks
+      installing anywhere. }
+    Log('Removing stale MDA uninstall registration without any install location.');
+    Result := DropUninstallRegistration(UninstallKey);
     Exit;
   end;
   PreviousDir := AddBackslash(ExpandFileName(PreviousDir));
@@ -661,34 +702,36 @@ begin
   end;
   if not FileExists(PreviousDir + 'Mmd.Modern.App.exe') and not DirExists(PreviousDir) then
   begin
-    { DirExists cannot tell a deleted folder from one on a drive that is only disconnected (a USB or network
-      drive). Clear the registration automatically only when the drive itself is present; otherwise the old
-      installation may come back, so keep its uninstall entry unless the user explicitly gives it up. }
+    { A missing folder does not prove the installation is gone: its drive may be disconnected, or the letter may now
+      belong to another volume while the original one is unplugged. Setup cannot confirm the volume, so it never
+      drops the registration on its own: a silent install keeps it and stops, an interactive one asks first. }
+    if WizardSilent then
+    begin
+      Result := FmtMessage(CustomMessage('RelocationDriveMissingKept'), [PreviousDir]);
+      Exit;
+    end;
     if not DirExists(AddBackslash(ExtractFileDrive(PreviousDir))) then
     begin
-      if WizardSilent or (SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationDriveMissing'), [PreviousDir]),
-        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES) then
+      if SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationDriveMissing'), [PreviousDir]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
       begin
         Result := FmtMessage(CustomMessage('RelocationDriveMissingKept'), [PreviousDir]);
         Exit;
       end;
-      Log('User abandoned the MDA installation on an unavailable drive: ' + PreviousDir);
     end
-    else
-      Log('Removing stale MDA uninstall registration for missing folder: ' + PreviousDir);
-    RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey);
-    Result := '';
+    else if SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationFolderMissing'), [PreviousDir]),
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
+    begin
+      Result := FmtMessage(CustomMessage('RelocationDriveMissingKept'), [PreviousDir]);
+      Exit;
+    end;
+    Log('User abandoned the MDA installation registered at: ' + PreviousDir);
+    Result := DropUninstallRegistration(UninstallKey);
     Exit;
   end;
   if not RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', PreviousCommand) then
     Exit;
-  PreviousUninstaller := '';
-  if Copy(PreviousCommand, 1, 1) = '"' then
-  begin
-    QuoteEnd := Pos('"', Copy(PreviousCommand, 2, Length(PreviousCommand)));
-    if QuoteEnd > 0 then
-      PreviousUninstaller := Copy(PreviousCommand, 2, QuoteEnd - 1);
-  end;
+  PreviousUninstaller := UninstallerFromCommand(PreviousCommand);
   if not FileExists(PreviousUninstaller) or
     (CompareText(AddBackslash(ExtractFileDir(ExpandFileName(PreviousUninstaller))), PreviousDir) <> 0) or
     (CompareText(Copy(ExtractFileName(PreviousUninstaller), 1, 5), 'unins') <> 0) or
