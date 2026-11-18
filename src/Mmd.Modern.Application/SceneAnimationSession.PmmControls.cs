@@ -19,6 +19,10 @@ public sealed partial class SceneAnimationSession
             || controlledWorlds.Values.Any(world => world.UsesBackend(backend));
     internal bool UsesSoftPhysicsBackend(ISoftBodyBackend backend)
         => entries.Any(e => e.Controller?.UsesSoftBodyBackend(backend) == true);
+    internal bool SharesPhysicsBackendWith(SceneAnimationSession other)
+        => ReferenceEquals(this, other)
+            || entries.Any(e => (e.Backend is { } backend && other.UsesPhysicsBackend(backend))
+                || (e.Controller is { } controller && controller.SharesSoftBodyBackendWith(other)));
     private ScenePmmControlSample ControlSample(double frame)
     {
         if (controlSample is null || controlSampleFrame != frame)

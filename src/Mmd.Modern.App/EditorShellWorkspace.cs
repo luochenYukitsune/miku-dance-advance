@@ -9,6 +9,7 @@ namespace Mmd.Modern.App;
 public sealed partial class EditorShellViewModel : IDisposable
 {
     private readonly DispatcherTimer playbackTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
+    private EditorScrubSeekCoordinator scrubSeek = null!;
     private bool refreshingFrame;
     private long lastPlaybackTimestamp;
     private bool advancing, refreshing, playing, busy, preparingPreview, canCancelOperation;
@@ -78,15 +79,16 @@ public sealed partial class EditorShellViewModel : IDisposable
         NewProjectCommand = new WorkspaceCommand(() => Request(NewProjectRequested), () => !IsBusy);
         SaveProjectCommand = new WorkspaceCommand(() => Request(SaveProjectRequested), () => !IsBusy && HasProject);
         SaveAsCommand = new WorkspaceCommand(() => Request(SaveAsRequested), () => !IsBusy && HasProject);
-        UndoCommand = new WorkspaceCommand(() => { StopPlayback(); Workspace.Undo(); }, () => !IsBusy && Workspace.CanUndo);
-        RedoCommand = new WorkspaceCommand(() => { StopPlayback(); Workspace.Redo(); }, () => !IsBusy && Workspace.CanRedo);
+        scrubSeek = new(() => Workspace.Session, OnScrubPublished, error => ReportActivityFailure(error, previewUnavailable: true));
+        UndoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Undo(); }, () => !IsBusy && Workspace.CanUndo);
+        RedoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Redo(); }, () => !IsBusy && Workspace.CanRedo);
         Browser.ReplaceModelCommand = new WorkspaceCommand(() => Request(ReplaceModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         Browser.RemoveModelCommand = new WorkspaceCommand(() => Request(RemoveModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         PlayCommand = new WorkspaceCommand(TogglePlayback, () => !IsBusy && HasProject);
         GoToEndCommand = new WorkspaceCommand(() => CurrentFrame = (int)Math.Min(int.MaxValue, Workspace.Session?.DurationFrames ?? 0), () => !IsBusy && HasProject);
         Browser.ImportModelCommand = ImportModelCommand;
         Browser.SelectionChanged += (_, _) => RefreshSelection();
-        Animation.CommitMotion = Workspace.CommitMotion;
+        Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion); };
         Animation.CanMutateProject = () => !IsBusy;
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };
         Animation.PoseDraftChanged += (_, _) =>
@@ -94,6 +96,7 @@ public sealed partial class EditorShellViewModel : IDisposable
             if (Animation.HasAnyDraft)
             {
                 StopPlayback();
+                CancelPendingScrub();
                 if (Workspace.Session is { } session && session.CurrentFrame != CurrentFrame) session.Seek(CurrentFrame);
             }
             if (!refreshingFrame) ViewStateChanged?.Invoke(this, EventArgs.Empty);
@@ -101,8 +104,8 @@ public sealed partial class EditorShellViewModel : IDisposable
         Animation.PropertyChanged += (_, args) =>
         { if (args.PropertyName is null or nameof(EditorAnimationViewModel.SelectionLabel)) OnPropertyChanged(nameof(AnimationSelectionLabel)); };
         SceneInspector.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => SceneInspector.Status; };
-        SceneInspector.CommitSceneMotion = Workspace.CommitSceneMotion;
-        SceneInspector.CommitSceneMotionWithCameraParent = Workspace.CommitSceneMotion;
+        SceneInspector.CommitSceneMotion = motion => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion); };
+        SceneInspector.CommitSceneMotionWithCameraParent = (motion, frame, camera) => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion, frame, camera); };
         Workspace.Changed += (_, args) =>
         {
             bool preservePoseDrafts = args is EditorWorkspaceChangedEventArgs { PreservePoseDrafts: true };
@@ -149,6 +152,7 @@ public sealed partial class EditorShellViewModel : IDisposable
 
     public void RefreshWorkspace(Guid? preferredId = null, bool preservePoseDrafts = false, bool preserveRenderBinding = false)
     {
+        scrubSeek.Cancel();
         RefreshAudioWorkspace();
         using var measure = InteractionDiagnostics.Measure("shell.refresh-workspace");
         if (!preservePoseDrafts) Animation.InvalidateDrafts();
@@ -191,14 +195,56 @@ public sealed partial class EditorShellViewModel : IDisposable
         RefreshCommands(); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public void BeginScrub() => scrubSeek.BeginScrub();
+
+    public void EndScrub() => scrubSeek.EndScrub(Workspace.Session, CurrentFrame);
+
+    internal bool IsScrubbing => scrubSeek.IsScrubbing;
+    internal bool HasPendingScrubSeek => scrubSeek.HasPendingSeek;
+    internal Task WaitForScrubIdleAsync() => scrubSeek.WaitForWorkerIdleAsync();
+    internal void CancelPendingScrub() => scrubSeek.Cancel();
+
+    internal void SynchronizePendingScrub()
+    {
+        bool hadPending = scrubSeek.Cancel();
+        if (hadPending && Workspace.Session is { } session && session.CurrentFrame != CurrentFrame)
+        {
+            PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+            session.Seek(CurrentFrame);
+            if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+            SynchronizeAudioPlayback(explicitSeek: true);
+            ViewStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void OnScrubPublished(SceneProjectSession session)
+    {
+        if (!ReferenceEquals(session, Workspace.Session)) return;
+        PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+        if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+        SynchronizeAudioPlayback(explicitSeek: true);
+        ViewStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnFrameChanged()
     {
         if (!advancing)
         {
-            PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
-            Workspace.Session?.Seek(CurrentFrame);
-            if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
-            SynchronizeAudioPlayback(explicitSeek: true);
+            if (scrubSeek.IsScrubbing)
+            {
+                using var measure = InteractionDiagnostics.Measure("scrub.ui-frame", relatedId: CurrentFrame);
+                if (Workspace.Session is { } session)
+                    scrubSeek.RequestSeek(session, CurrentFrame);
+            }
+            else
+            {
+                scrubSeek.Cancel();
+                using var measure = InteractionDiagnostics.Measure("timeline.seek-sync", relatedId: CurrentFrame);
+                PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+                Workspace.Session?.Seek(CurrentFrame);
+                if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+                SynchronizeAudioPlayback(explicitSeek: true);
+            }
         }
         refreshingFrame = true;
         try
@@ -217,6 +263,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         if (frame < 0 || Workspace.Session is not { } session
             || frame != (int)Math.Min(int.MaxValue, session.CurrentFrame))
             throw new InvalidDataException("Recovered playhead does not match the project clock.");
+        scrubSeek.Cancel();
         PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
         _currentFrame = frame;
         SynchronizeAudioPlayback(explicitSeek: true);
@@ -229,6 +276,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     private void TogglePlayback()
     {
         if (IsPlaying) { StopPlayback(); return; }
+        SynchronizePendingScrub();
         if (Workspace.Session is not { } session) return;
         if (CurrentFrame >= session.DurationFrames) CurrentFrame = 0;
         audioBlocked = false; reportedAudioFailure = null;
@@ -281,6 +329,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     public void Dispose()
     {
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
+        scrubSeek.Dispose();
         DisposeAudioPlayback(); PosePreview.Dispose(); Workspace.Dispose();
     }
 }

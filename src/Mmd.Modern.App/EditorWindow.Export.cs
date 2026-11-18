@@ -10,6 +10,7 @@ public partial class EditorWindow
 
     private async Task RunExportWithStatusAsync(EditorShellViewModel shell, OutputSettingsDraft draft)
     {
+        shell.SynchronizePendingScrub();
         using var diagnostics = ExportDiagnosticSession.Start(shell.Workspace, draft, ExportDiagnosticLogRoot);
         var status = new ExportRenderStatusViewModel(draft.Destination, draft.Request.Plan.FrameCount);
         status.SetDiagnostics(diagnostics);

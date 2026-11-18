@@ -87,12 +87,16 @@ public sealed class EditorTimeline : TemplatedControl
     private long _keyDragDelta;
     private readonly List<(double X, double Center, StreamGeometry Geometry)> _diamondGeometries = [];
     private int _drawnDiamondCount;
+    private readonly PlayheadLayer _playheadLayer;
+    private TopLevel? _scalingSource;
 
     private enum TimelineGesture { None, Ruler, Keys, Box }
 
     public event EventHandler? KeyframeSelectionChanged;
     /// <summary>One request on release. The host preflights conflicts and owns the atomic edit and Undo.</summary>
     public event EventHandler<TimelineKeysMoveRequestedEventArgs>? KeysMoveRequested;
+    public event EventHandler? ScrubStarted;
+    public event EventHandler? ScrubEnded;
     /// <summary>Local gesture preview only; authored track data is never changed by pointer movement.</summary>
     public long PreviewFrameDelta => _gesture == TimelineGesture.Keys ? _keyDragDelta : 0;
 
@@ -102,14 +106,33 @@ public sealed class EditorTimeline : TemplatedControl
         BackgroundProperty.OverrideDefaultValue<EditorTimeline>(Brushes.Black);
         ForegroundProperty.OverrideDefaultValue<EditorTimeline>(Brushes.White);
         FontSizeProperty.OverrideDefaultValue<EditorTimeline>(12);
-        AffectsRender<EditorTimeline>(CurrentFrameProperty, PixelsPerFrameProperty,
-            FirstVisibleFrameProperty, HasTracksProperty, GridBrushProperty, PlayheadBrushProperty,
+        // The track layer ignores the playhead, the ruler and focus; those redraw only the playhead layer.
+        AffectsRender<EditorTimeline>(PixelsPerFrameProperty,
+            FirstVisibleFrameProperty, GridBrushProperty, PlayheadBrushProperty,
             ForegroundProperty, BackgroundProperty, FontFamilyProperty, FontSizeProperty,
-            FontStyleProperty, FontWeightProperty, FontStretchProperty, BoundsProperty, IsFocusedProperty);
+            FontStyleProperty, FontWeightProperty, FontStretchProperty, BoundsProperty);
         AffectsRender<EditorTimeline>(TracksProperty, SelectedKeyframesProperty, FirstVisibleTrackProperty, TrackHeaderWidthProperty);
     }
 
-    public EditorTimeline() => EditorLocalization.Observe(this, static timeline => timeline.InvalidateVisual());
+    private static readonly HashSet<AvaloniaProperty> PlayheadLayerProperties =
+    [
+        CurrentFrameProperty, PixelsPerFrameProperty, FirstVisibleFrameProperty, HasTracksProperty, GridBrushProperty,
+        PlayheadBrushProperty, ForegroundProperty, BackgroundProperty, FontFamilyProperty, FontSizeProperty, FontStyleProperty,
+        FontWeightProperty, FontStretchProperty, BoundsProperty, IsFocusedProperty, TracksProperty, GroupsProperty,
+        SelectedKeyframesProperty, FirstVisibleTrackProperty, TrackHeaderWidthProperty
+    ];
+
+    public EditorTimeline()
+    {
+        _playheadLayer = new PlayheadLayer(this);
+        ((ISetLogicalParent)_playheadLayer).SetParent(this);
+        VisualChildren.Add(_playheadLayer);
+        EditorLocalization.Observe(this, static timeline => timeline.InvalidateLayers());
+    }
+
+    /// <summary>Track-layer passes; the playhead layer keeps this unchanged while only the frame moves.</summary>
+    internal int TrackLayerRenderCount { get; private set; }
+    internal int PlayheadLayerRenderCount { get; private set; }
 
     /// <summary>Nonnegative frontend frame position. Input keeps an existing binding intact.</summary>
     public int CurrentFrame
@@ -154,7 +177,7 @@ public sealed class EditorTimeline : TemplatedControl
         if (_dragPointer is not null || !Groups.Any(group => group.Key == key)) return;
         bool changed = expanded ? _expandedGroups.Add(key) : _expandedGroups.Remove(key);
         if (!changed) return;
-        RebuildDisplayRows(); TrackViewChanged(contentsChanged: false); InvalidateVisual();
+        RebuildDisplayRows(); TrackViewChanged(contentsChanged: false); InvalidateLayers();
     }
     /// <summary>
     /// Complete authored rows, including rows hidden by a UI-only projection. Selection validity is
@@ -181,6 +204,30 @@ public sealed class EditorTimeline : TemplatedControl
         set => SetValue(PlayheadBrushProperty, value);
     }
 
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var size = base.ArrangeOverride(finalSize);
+        _playheadLayer.Arrange(new Rect(size));
+        return size;
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _scalingSource = TopLevel.GetTopLevel(this);
+        if (_scalingSource is not null) _scalingSource.ScalingChanged += OnScalingChanged;
+    }
+
+    private void OnScalingChanged(object? sender, EventArgs e) => InvalidateLayers();
+
+    /// <summary>Redraws both layers; geometry, selection and gesture changes affect each of them.</summary>
+    private void InvalidateLayers()
+    {
+        InvalidateVisual();
+        _playheadLayer.InvalidateVisual();
+    }
+
+    /// <summary>Track layer: background, rows, keyframes and the box-selection rectangle.</summary>
     public override void Render(DrawingContext context)
     {
         base.Render(context);
@@ -188,17 +235,15 @@ public sealed class EditorTimeline : TemplatedControl
         var height = Bounds.Height;
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
             return;
+        TrackLayerRenderCount++;
 
         var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
         if (!double.IsFinite(scale) || scale <= 0) scale = 1;
         var hairline = 1 / scale;
-        var rulerBottom = Math.Min(RulerHeight, height);
         var gridPen = new Pen(GridBrush, hairline);
         var typeface = new Typeface(FontFamily, FontStyle, FontWeight, FontStretch);
         var fontSize = Math.Clamp(FontSize, 8, 24);
-        var lastLabelRight = double.NegativeInfinity;
         var header = Math.Min(TrackHeaderWidth, width);
-        var playheadX = header + (CurrentFrame - FirstVisibleFrame) * PixelsPerFrame;
 
         using (context.PushClip(new Rect(Bounds.Size)))
         {
@@ -213,6 +258,34 @@ public sealed class EditorTimeline : TemplatedControl
                     context.DrawRectangle(new Pen(PlayheadBrush ?? Foreground, hairline), box);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Playhead layer, drawn after the track layer in the same order as one pass: ticks, frame labels
+    /// (which avoid the playhead marker), the ruler line, the playhead and the focus line.
+    /// </summary>
+    private void RenderPlayheadLayer(DrawingContext context)
+    {
+        var width = Bounds.Width;
+        var height = Bounds.Height;
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
+            return;
+        PlayheadLayerRenderCount++;
+
+        var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+        if (!double.IsFinite(scale) || scale <= 0) scale = 1;
+        var hairline = 1 / scale;
+        var rulerBottom = Math.Min(RulerHeight, height);
+        var gridPen = new Pen(GridBrush, hairline);
+        var typeface = new Typeface(FontFamily, FontStyle, FontWeight, FontStretch);
+        var fontSize = Math.Clamp(FontSize, 8, 24);
+        var lastLabelRight = double.NegativeInfinity;
+        var header = Math.Min(TrackHeaderWidth, width);
+        var playheadX = header + (CurrentFrame - FirstVisibleFrame) * PixelsPerFrame;
+
+        using (context.PushClip(new Rect(Bounds.Size)))
+        {
             foreach (var tick in BuildVisibleTicks(width - header, FirstVisibleFrame, PixelsPerFrame))
             {
                 var x = SnapStroke(header + tick.X, scale);
@@ -290,6 +363,7 @@ public sealed class EditorTimeline : TemplatedControl
         _gesture = TimelineGesture.Ruler;
         e.Pointer.Capture(this);
         e.PreventGestureRecognition();
+        ScrubStarted?.Invoke(this, EventArgs.Empty);
         SetCurrentValue(CurrentFrameProperty, FrameAtX(point.Position.X));
         e.Handled = true;
     }
@@ -393,12 +467,15 @@ public sealed class EditorTimeline : TemplatedControl
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         CancelGesture();
+        if (_scalingSource is not null) _scalingSource.ScalingChanged -= OnScalingChanged;
+        _scalingSource = null;
         base.OnDetachedFromVisualTree(e);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        if (PlayheadLayerProperties.Contains(change.Property)) _playheadLayer?.InvalidateVisual();
         if (change.Property == SelectedKeyframesProperty) KeyframeSelectionChanged?.Invoke(this, EventArgs.Empty);
         if (change.Property == FullTracksProperty)
         {
@@ -436,7 +513,7 @@ public sealed class EditorTimeline : TemplatedControl
             RebuildDisplayRows();
             if (_gesture is TimelineGesture.Keys or TimelineGesture.Box) _deferredTrackView = true;
             else TrackViewChanged(contentsChanged: true);
-            InvalidateVisual();
+            InvalidateLayers();
         }
         if (change.Property == FocusRowProperty)
         {
@@ -576,6 +653,7 @@ public sealed class EditorTimeline : TemplatedControl
     private void ReleaseDrag()
     {
         var pointer = _dragPointer;
+        var wasRuler = _gesture == TimelineGesture.Ruler;
         _dragPointer = null;
         _gesture = TimelineGesture.None;
         _gestureTracks = null;
@@ -589,7 +667,9 @@ public sealed class EditorTimeline : TemplatedControl
         if (pointer?.Captured == this) pointer.Capture(null);
         // Adopt a projection that arrived synchronously during the gesture only once it has ended.
         if (applyDeferredTrackView) TrackViewChanged(contentsChanged: true);
-        InvalidateVisual();
+        if (wasRuler && !applyDeferredTrackView) _playheadLayer.InvalidateVisual();
+        else InvalidateLayers();
+        if (wasRuler) ScrubEnded?.Invoke(this, EventArgs.Empty);
     }
 
     private void CancelGesture()
@@ -767,7 +847,7 @@ public sealed class EditorTimeline : TemplatedControl
             if (!control) SetSelection([]);
         }
         pointer.Capture(this);
-        InvalidateVisual();
+        InvalidateLayers();
     }
 
     private void UpdateGesture(Point position)
@@ -798,7 +878,7 @@ public sealed class EditorTimeline : TemplatedControl
             }
             SetSelection(selection);
         }
-        InvalidateVisual();
+        InvalidateLayers();
     }
 
     private Rect SelectionRectangle() => new(Math.Min(_gestureStart.X, _gesturePosition.X), Math.Min(_gestureStart.Y, _gesturePosition.Y),
@@ -852,6 +932,16 @@ public sealed class EditorTimeline : TemplatedControl
         var decade = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1, minimum))));
         var units = minimum / decade;
         return (long)(decade * (units <= 1 ? 1 : units <= 2 ? 2 : units <= 5 ? 5 : 10));
+    }
+
+    /// <summary>
+    /// Non-input visual above the track layer. It is not a Control, so hit testing, focus and automation
+    /// still see only the timeline itself; it draws in the timeline's own coordinates.
+    /// </summary>
+    private sealed class PlayheadLayer(EditorTimeline owner) : Visual
+    {
+        internal void Arrange(Rect bounds) { if (Bounds != bounds) { Bounds = bounds; InvalidateVisual(); } }
+        public override void Render(DrawingContext context) => owner.RenderPlayheadLayer(context);
     }
 
     public readonly record struct TimelineTick(int Frame, double X, bool IsMajor);

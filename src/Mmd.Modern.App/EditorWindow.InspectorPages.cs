@@ -149,6 +149,7 @@ public partial class EditorWindow
         try
         {
             shell.StopPlayback();
+            shell.SynchronizePendingScrub();
             if (!CommitPendingInlineLighting()) return;
             if (!await CheckPoseDraftsAsync()) return;
             if (!ReferenceEquals(session, shell.Workspace.Session) || !session.HasSupportedRenderingStyles) return;
@@ -185,6 +186,7 @@ public partial class EditorWindow
                 shell.MaterialInspector.SelectedMaterialIndex).ShowDialog<EditorModelPropertiesDraft?>(this);
             if (draft is null || !ReferenceEquals(shell, _shell)) return;
             shell.StopPlayback();
+            shell.SynchronizePendingScrub();
             shell.Workspace.ApplyModelProperties(draft);
             shell.OperationStatus = Text("模型属性已应用。");
             shell.RefreshInspectorPages();

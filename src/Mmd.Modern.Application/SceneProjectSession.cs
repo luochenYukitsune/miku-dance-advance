@@ -132,7 +132,7 @@ public sealed partial class SceneProjectSession : IDisposable
             if (validateCandidate is null && TryFreezeLightingOnly(detached, out var lightingOnly))
             {
                 animation.UpdateLighting(lightingOnly.Lighting.Snapshot, cancellationToken);
-                undo.Push(content); redo.Clear(); content = lightingOnly;
+                undo.Push(content); redo.Clear(); content = lightingOnly; stateEpoch++;
                 return;
             }
             var next = Freeze(detached);
@@ -152,7 +152,7 @@ public sealed partial class SceneProjectSession : IDisposable
                 cleanupDiagnostics.AddRange(candidate.CleanupDiagnostics);
                 throw;
             }
-            undo.Push(content); redo.Clear(); Publish(next, candidate);
+            undo.Push(content); redo.Clear(); stateEpoch++; Publish(next, candidate);
         }
         finally { editing = false; }
     }
@@ -164,10 +164,10 @@ public sealed partial class SceneProjectSession : IDisposable
         if (ReferenceEquals(next.AnimationIdentity, content.AnimationIdentity))
         {
             animation.UpdateLighting(next.Lighting.Snapshot, token);
-            source.Pop(); destination.Push(content); content = next; return true;
+            source.Pop(); destination.Push(content); content = next; stateEpoch++; return true;
         }
         var candidate = Prepare(next, animation.CurrentFrame, token);
-        source.Pop(); destination.Push(content); Publish(next, candidate); return true;
+        source.Pop(); destination.Push(content); stateEpoch++; Publish(next, candidate); return true;
     }
     private void Publish(Content next, SceneAnimationSession candidate)
     {
@@ -179,18 +179,29 @@ public sealed partial class SceneProjectSession : IDisposable
     public OriginalFrameScene Seek(double frame, CancellationToken cancellationToken = default)
     {
         RequireIdle();
-        if (!double.IsFinite(frame) || frame < 0 || frame > uint.MaxValue || frame != Math.Floor(frame))
-            throw new ArgumentOutOfRangeException(nameof(frame), "Seek requires a nonnegative integer VMD frame.");
-        if (physics.PoseInitializationSubsteps == 0) return animation.Seek(frame, cancellationToken);
+        ValidateSeekFrame(frame);
+        if (physics.PoseInitializationSubsteps == 0)
+        {
+            var result = animation.Seek(frame, cancellationToken);
+            stateEpoch++;
+            return result;
+        }
         // A fresh graph makes the initialized pose independent of playback and prior seeks. Preparing
         // can fail or be cancelled without changing the live solver, clock or project history.
-        Publish(content, Prepare(content, frame, cancellationToken, animation.PublishedTextureSource));
+        var candidate = Prepare(content, frame, cancellationToken, animation.PublishedTextureSource);
+        stateEpoch++;
+        Publish(content, candidate);
         return animation.Frame;
     }
+    private static void ValidateSeekFrame(double frame)
+    {
+        if (!double.IsFinite(frame) || frame < 0 || frame > uint.MaxValue || frame != Math.Floor(frame))
+            throw new ArgumentOutOfRangeException(nameof(frame), "Seek requires a nonnegative integer VMD frame.");
+    }
     public OriginalFrameScene Advance(double elapsedSeconds, CancellationToken cancellationToken = default)
-    { RequireIdle(); return animation.Advance(elapsedSeconds, cancellationToken); }
+    { RequireIdle(); stateEpoch++; return animation.Advance(elapsedSeconds, cancellationToken); }
     public void AdvancePreview(double elapsedSeconds, CancellationToken cancellationToken = default)
-    { RequireIdle(); animation.AdvancePreview(elapsedSeconds, cancellationToken); }
+    { RequireIdle(); stateEpoch++; animation.AdvancePreview(elapsedSeconds, cancellationToken); }
     public void Save(string path, SceneProjectSaveOptions? options = null, CancellationToken cancellationToken = default)
     {
         RequireIdle(); cancellationToken.ThrowIfCancellationRequested();
@@ -299,6 +310,6 @@ public sealed partial class SceneProjectSession : IDisposable
     {
         if (disposed) return;
         RequireDisposalAllowed();
-        disposed = true; animation.Dispose(); undo.Clear(); redo.Clear();
+        disposed = true; stateEpoch++; animation.Dispose(); undo.Clear(); redo.Clear();
     }
 }

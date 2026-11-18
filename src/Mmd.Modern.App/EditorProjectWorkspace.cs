@@ -81,6 +81,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     public IReadOnlyList<SceneActorMotion> Motions => Session?.CaptureAuthoredContent().Motions ?? [];
     public event EventHandler? Changed;
     public static IProjectPhysicsBackendProvider CreatePhysicsProvider() => ProjectPhysicsRuntime.CreateProjectProvider();
+    internal Func<IProjectPhysicsBackendProvider> PhysicsProviderFactory { get; set; } = CreatePhysicsProvider;
 
     public static SceneAnimationModelAsset LoadModelAsset(string path, CancellationToken token = default)
         => LoadModelAssetWithLimits(path, 10 * EditorPreferences.Gibibyte, token);
@@ -189,7 +190,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             {
                 CameraKeyframes = [new() { Frame = 0, Interest = new(0, 10, 0), Distance = -45, ViewAngle = 30 }]
             }, "scene.vmd");
-            var candidate = new SceneProjectSession(composition, lighting, motions, CreatePhysicsProvider(),
+            var candidate = new SceneProjectSession(composition, lighting, motions, PhysicsProviderFactory(),
                 new ProjectSettings { BackgroundRed = 1, BackgroundGreen = 1, BackgroundBlue = 1 }, sceneMotion: sceneMotion);
             IEditorProjectMetadata? metadata;
             try { metadata = PrepareInitialModelMetadata(candidate); }
@@ -572,7 +573,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         // Models and images are prepared in the background for this open only; the ordered loader consumes them.
         using (var prefetch = EditorAssetPrefetch.Begin(modelMaxBytes))
             loaded = persistence.Load(fullPath, PackageCacheDirectory, prefetch.LoadModel,
-                CreatePhysicsProvider(), limits with { ModelPrefetch = prefetch.PrefetchModels }, token);
+                PhysicsProviderFactory(), limits with { ModelPrefetch = prefetch.PrefetchModels }, token);
         try
         {
             token.ThrowIfCancellationRequested();
