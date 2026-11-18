@@ -89,8 +89,12 @@ internal sealed partial class D3D12TemporalInputPass
         var depthFormat = stencil ? Format.D24_UNorm_S8_UInt : Format.D32_Float;
         var device = context.Device; var commands = context.Commands;
         characterCache ??= new(runtime);
-        var rtvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, editorVisibility ? 1 : 3)));
-        var dsvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.DepthStencilView, editorVisibility ? 1 : 2)));
+        // Editor visibility images are cleared before use and never leave the frame: they come from the
+        // fence-protected transient pool. Temporal inputs keep their per-frame owners for the SDK passes.
+        ID3D12DescriptorHeap Heap(DescriptorHeapDescription description)
+            => editorVisibility ? runtime.Transients.Heap(description) : context.Own(device.CreateDescriptorHeap(description));
+        var rtvHeap = Heap(new(DescriptorHeapType.RenderTargetView, editorVisibility ? 1 : 3));
+        var dsvHeap = Heap(new(DescriptorHeapType.DepthStencilView, editorVisibility ? 1 : 2));
         int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
         int dsvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.DepthStencilView);
         var depthRtv = rtvHeap.GetCPUDescriptorHandleForHeapStart();
@@ -98,8 +102,12 @@ internal sealed partial class D3D12TemporalInputPass
         var reactiveRtv = depthRtv; if (!editorVisibility) reactiveRtv.Offset(2, rtvStride);
         var opaqueDsv = dsvHeap.GetCPUDescriptorHandleForHeapStart();
         var colorDsv = opaqueDsv; if (!editorVisibility) colorDsv.Offset(1, dsvStride);
-        ID3D12Resource Target(Format format, ResourceFlags flags, ResourceStates state) => context.Own(device.CreateCommittedResource(
-            HeapType.Default, ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: flags), state));
+        ID3D12Resource Target(Format format, ResourceFlags flags, ResourceStates state)
+        {
+            var description = ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: flags);
+            return editorVisibility ? runtime.Transients.Resource(context, HeapType.Default, description, state)
+                : context.Own(device.CreateCommittedResource(HeapType.Default, description, state));
+        }
         var depth = editorVisibility ? null : Target(Format.R32_Float, ResourceFlags.AllowRenderTarget, ResourceStates.RenderTarget);
         var motion = editorVisibility ? null : Target(Format.R32G32_Float, ResourceFlags.AllowRenderTarget, ResourceStates.RenderTarget);
         var reactive = Target(Format.R8_UNorm, ResourceFlags.AllowRenderTarget, ResourceStates.RenderTarget);
@@ -129,8 +137,8 @@ internal sealed partial class D3D12TemporalInputPass
                 () => CreateCharacterTextures(context, scene)):null;
             int shadowSlot = scene.Textures.Count + 1;
             int srvCount = shadowSlot + (subTexture ? 2 : 0);
-            var srvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-                srvCount, DescriptorHeapFlags.ShaderVisible)));
+            var srvHeap = Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+                srvCount, DescriptorHeapFlags.ShaderVisible));
             int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
             ID3D12Resource textureWhite;
             if(sharedGeometry is not null)
@@ -319,7 +327,7 @@ internal sealed partial class D3D12TemporalInputPass
         commands.UnsetRenderTargets();
         var visibility = new D3D12GpuTarget("$editor-guide-depth", colorVisibility, colorDsv, width, height, depthFormat, true)
             { Initialized = true, StencilInitialized = stencil };
-        if (editorVisibility) return (null, visibility);
+        if (editorVisibility) return (null, runtime.Transients.Track(visibility));
         commands.ResourceBarrierTransition(depth!, ResourceStates.RenderTarget, D3D12TemporalInputs.ShaderReadState);
         commands.ResourceBarrierTransition(motion!, ResourceStates.RenderTarget, D3D12TemporalInputs.ShaderReadState);
         commands.ResourceBarrierTransition(reactive, ResourceStates.RenderTarget, D3D12TemporalInputs.ShaderReadState);

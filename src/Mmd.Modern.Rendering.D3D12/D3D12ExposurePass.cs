@@ -35,14 +35,15 @@ internal sealed class D3D12ExposurePass(D3D12GpuRuntime runtime, D3D12GpuCache c
             new RootSignatureDescription(RootSignatureFlags.None,[
                 new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,0)),ShaderVisibility.Pixel),
                 new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.Pixel)]),RootSignatureVersion.Version10));
-        var resource=context.Own(device.CreateCommittedResource(HeapType.Default,
-            ResourceDescription.Texture2D(input.Format,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),ResourceStates.RenderTarget));
-        var rtv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView,1)));
-        var srv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible)));
+        // The opaque full-target draw overwrites every texel of the pooled image.
+        var resource=runtime.Transients.Resource(context,HeapType.Default,
+            ResourceDescription.Texture2D(input.Format,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),ResourceStates.RenderTarget);
+        var rtv=runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView,1));
+        var srv=runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible));
         device.CreateRenderTargetView(resource,null,rtv.GetCPUDescriptorHandleForHeapStart());
         device.CreateShaderResourceView(input.Resource,null,srv.GetCPUDescriptorHandleForHeapStart());
         runtime.DescriptorHighWater=Math.Max(runtime.DescriptorHighWater,1);
-        var output=new D3D12GpuTarget("$lighting-exposure",resource,rtv.GetCPUDescriptorHandleForHeapStart(),input.Width,input.Height,input.Format,false);
+        var output=runtime.Transients.Track(new D3D12GpuTarget("$lighting-exposure",resource,rtv.GetCPUDescriptorHandleForHeapStart(),input.Width,input.Height,input.Format,false));
         var pipeline=cache.Get("lighting-exposure:pso",()=>
         {
             var pso=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {

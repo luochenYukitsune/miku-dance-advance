@@ -89,6 +89,14 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public int ConstantAllocations {get;init;}
     public long ConstantBytes {get;init;}
     public int FrameOwnedAllocations {get;init;}
+    // Fence-protected transient pool: resources and heaps created or reused by this frame, and all live entries.
+    public int TransientCreations {get;init;}
+    public int TransientResourceCreations {get;init;}
+    public int TransientReuses {get;init;}
+    public int TransientLiveResources {get;init;}
+    // Shader-resource and target view descriptors written by the frame renderer's texture binding and targets.
+    public int TextureDescriptorWrites {get;init;}
+    public int TextureDescriptorSkips {get;init;}
     public int TemporalGiInFlightFrames {get;init;}
     public int TemporalGiHistoryGenerations {get;init;}
     public bool TemporalGiBoundedFlight=>TemporalGiInFlightFrames==1;
@@ -179,6 +187,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     internal ulong CompletedFence=>fence.CompletedValue;
     internal int PendingFrames=>slots.Count(s=>s.Fence>CompletedFence);
     internal bool IsRecording {get;private set;}
+    internal D3D12TransientResources Transients {get;}
     private readonly Slot[] slots;
     private readonly ID3D12Fence fence;
     private int slotIndex=-1;
@@ -205,6 +214,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
         if(DebugRequested) DebugQueue=Device.QueryInterfaceOrNull<ID3D12InfoQueue>();
         Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);
         slots=Enumerable.Range(0,3).Select(_=>new Slot(Device)).ToArray();
+        Transients=new(this);
     }
     internal D3D12RecordingContext Begin()
     {
@@ -260,16 +270,23 @@ internal sealed class D3D12GpuRuntime:IDisposable
         ObjectDisposedException.ThrowIf(disposed,this);
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         Wait(fenceValue);foreach(var slot in slots)Retire(slot);
+        Transients.ReleaseIdle();
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
     internal D3D12FrameStatistics Statistics(int scenes,int passes,int readbacks,int submissions)=>new(FrameId,submissions,readbacks,scenes,passes,
         Submissions,Readbacks,BufferUploads,TextureUploads,ShaderCompilations,PipelineCreations,fenceValue,CompletedFence,PendingFrames,DescriptorHighWater,
-        DeviceIdentity,CommandListIdentity){LiveFrameResources=LiveFrameResources,LastSlotWaitMilliseconds=LastSlotWaitMilliseconds,ConstantAllocations=ConstantAllocations,ConstantBytes=ConstantBytes,FrameOwnedAllocations=FrameOwnedAllocations};
+        DeviceIdentity,CommandListIdentity){LiveFrameResources=LiveFrameResources,LastSlotWaitMilliseconds=LastSlotWaitMilliseconds,ConstantAllocations=ConstantAllocations,ConstantBytes=ConstantBytes,FrameOwnedAllocations=FrameOwnedAllocations,
+        TransientCreations=Transients.FrameCreations,TransientResourceCreations=Transients.FrameResourceCreations,TransientReuses=Transients.FrameReuses,TransientLiveResources=Transients.LiveCount};
     public void Dispose()
     {
-        if(disposed)return;Abort();WaitForIdle();disposed=true;
-        foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-        DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        if(disposed)return;
+        try{Abort();WaitForIdle();}
+        finally
+        {
+            disposed=true;Transients.Dispose();
+            foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
+            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        }
     }
 }
 

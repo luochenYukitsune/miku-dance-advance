@@ -2,7 +2,8 @@ using Mmd.Modern.Core;
 using Vortice.Direct3D12;
 namespace Mmd.Modern.Rendering.D3D12;
 
-/// <summary>A retained GPU image. Native resources stay inside the rendering assembly; dispose the lease when consumed.</summary>
+/// <summary>A retained GPU image. Native resources stay inside the rendering assembly; dispose the lease when consumed.
+/// A pooled image is not reused by later frames before its lease is disposed.</summary>
 public sealed class D3D12FrameOutput:IDisposable
 {
     public int Width {get;}
@@ -10,10 +11,11 @@ public sealed class D3D12FrameOutput:IDisposable
     public long FrameId {get;}
     public D3D12FrameStatistics Statistics {get;}
     internal ID3D12Resource Resource {get;}
-    internal D3D12FrameOutput(int width,int height,long frameId,D3D12FrameStatistics statistics,ID3D12Resource resource)
-    {Width=width;Height=height;FrameId=frameId;Statistics=statistics;Resource=resource;}
-    private bool disposed;
-    public void Dispose(){if(disposed)return;disposed=true;Resource.Dispose();}
+    private readonly Action? release;
+    internal D3D12FrameOutput(int width,int height,long frameId,D3D12FrameStatistics statistics,ID3D12Resource resource,Action? release=null)
+    {Width=width;Height=height;FrameId=frameId;Statistics=statistics;Resource=resource;this.release=release;}
+    private int disposed;
+    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)!=0)return;Resource.Dispose();release?.Invoke();}
 }
 
 /// <summary>Persistent complete-frame recording session. Render retains GPU output; Capture alone requests CPU pixels.</summary>
@@ -48,6 +50,10 @@ public sealed class D3D12FrameSession:IDisposable
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,null,upscaling,temporalUpscaling,surfaceStyles,diffusion);
     public RenderedFrame Capture(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
         =>renderer.Render(frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+    /// <summary>Capture into caller-owned storage of at least width*height*4 bytes (tightly packed RGBA8 rows),
+    /// so repeated captures can reuse one CPU buffer. The returned frame's Rgba is empty.</summary>
+    public RenderedFrame CaptureInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
+        =>renderer.RenderInto(destination,frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
     internal D3D12FrameOutput RenderForPresent(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
         Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion);
