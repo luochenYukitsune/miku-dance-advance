@@ -10,8 +10,11 @@ internal static class EditorMotionPreferences
 {
     private static readonly ConditionalWeakTable<TopLevel, SurfaceObserver> observers = new();
 
-    internal static bool ClientAnimationsEnabled() => !OperatingSystem.IsWindows() ||
+    internal static bool ClientAnimationsEnabled(TopLevel surface) => !UsesWindowsPreferences(surface) ||
         !SystemParametersInfoW(0x1042 /* SPI_GETCLIENTAREAANIMATION */, 0, out int enabled, 0) || enabled != 0;
+
+    private static bool UsesWindowsPreferences(TopLevel surface) =>
+        OperatingSystem.IsWindows() && surface.TryGetPlatformHandle()?.HandleDescriptor == "HWND";
 
     // A settings notification, activation or visibility change refreshes every subscriber.
     // There is no recurring timer, and the last subscriber removes the native hook.
@@ -27,13 +30,15 @@ internal static class EditorMotionPreferences
         private readonly TopLevel surface;
         private event Action<bool>? changed;
         private int subscribers;
+        private readonly bool hasWindowsHook;
 
         internal SurfaceObserver(TopLevel surface)
         {
             this.surface = surface;
             surface.PropertyChanged += SurfacePropertyChanged;
             if (surface is Window window) window.Activated += WindowActivated;
-            if (OperatingSystem.IsWindows()) Win32Properties.AddWndProcHookCallback(surface, SettingsChanged);
+            hasWindowsHook = UsesWindowsPreferences(surface);
+            if (hasWindowsHook) Win32Properties.AddWndProcHookCallback(surface, SettingsChanged);
         }
 
         internal IDisposable Subscribe(Action<bool> listener)
@@ -46,7 +51,7 @@ internal static class EditorMotionPreferences
 
         private bool IsMotionAllowed() => surface.IsVisible && surface.IsEffectivelyEnabled &&
             (surface is not Window window || window.WindowState != WindowState.Minimized) &&
-            ClientAnimationsEnabled();
+            ClientAnimationsEnabled(surface);
 
         private void SurfacePropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs args)
         {
@@ -70,7 +75,7 @@ internal static class EditorMotionPreferences
             if (--subscribers != 0) return;
             surface.PropertyChanged -= SurfacePropertyChanged;
             if (surface is Window window) window.Activated -= WindowActivated;
-            if (OperatingSystem.IsWindows()) Win32Properties.RemoveWndProcHookCallback(surface, SettingsChanged);
+            if (hasWindowsHook) Win32Properties.RemoveWndProcHookCallback(surface, SettingsChanged);
             observers.Remove(surface);
         }
 

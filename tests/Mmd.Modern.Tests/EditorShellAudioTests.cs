@@ -15,7 +15,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorShellAudioTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession dispatcher = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession dispatcher = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic;
 

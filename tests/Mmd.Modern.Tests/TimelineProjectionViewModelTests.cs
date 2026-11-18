@@ -13,7 +13,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Fact]
     public async Task DefaultShowsAllCurrentModelAuthoredChannelsInNativeCategories() => await session.Dispatch(() =>

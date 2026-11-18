@@ -11,7 +11,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorValueSliderTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     private sealed class Holder { public decimal? Number { get; set; } }
 

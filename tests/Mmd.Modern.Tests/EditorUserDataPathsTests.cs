@@ -7,7 +7,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorUserDataPathsTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private readonly string directory = Path.Combine(Path.GetTempPath(), "mda-user-data-" + Guid.NewGuid().ToString("N"));
     public EditorUserDataPathsTests() => session.Dispatch(() => EditorLocalization.Text("Mda.Text.UserData.Unavailable"),
         TestContext.Current.CancellationToken).GetAwaiter().GetResult();

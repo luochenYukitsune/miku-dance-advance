@@ -169,9 +169,13 @@ public sealed class CharacterIkTests
     [Fact]
     public void ControllerLinkOrdinalScalesOriginalStepLimit()
     {
-        // The nearest link already points at the goal. The second joint receives ordinal two's .8rad cap.
+        // MMD 9.32 BA200 stops the controller when the first link's unit directions agree.
         RigBone[] bones = [new("base", new(1.5f, .1f, 0), -1), new("joint", Vector3.Zero, 0),
             new("tip", Vector3.UnitX, 1), new("goal", new(2, 0, 0), -1, Ik: new(2, 1, .1f, [new(1), new(0)]))];
+        Near(Vector3.UnitX, Animator(bones).Sample(0).BoneWorldMatrices[2].Translation);
+
+        // A zero-length effector direction skips only this link. Ordinal two still gets the .8rad cap.
+        bones[1] = new("joint", Vector3.UnitX, 0);
         Near(new(1.5f - .5f * MathF.Cos(.8f) + .1f * MathF.Sin(.8f),
             .1f - .5f * MathF.Sin(.8f) - .1f * MathF.Cos(.8f), 0), Animator(bones).Sample(0).BoneWorldMatrices[2].Translation);
     }

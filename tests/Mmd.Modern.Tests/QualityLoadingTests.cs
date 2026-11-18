@@ -28,7 +28,7 @@ public static class QualityLoadingAppBuilder
 [Collection(QualityLoadingCollection.Name)]
 public sealed class QualityLoadingTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private const BindingFlags Instance = BindingFlags.NonPublic | BindingFlags.Instance;
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
 

@@ -15,7 +15,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class StartupUpdateUiTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private const BindingFlags InternalInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly TimeSpan CompletionTimeout = TimeSpan.FromSeconds(5);
     private const string PlainNotes = "# Release summary\n<b>literal HTML</b>\n[plain link](https://example.invalid/)\n修复模型编辑。";

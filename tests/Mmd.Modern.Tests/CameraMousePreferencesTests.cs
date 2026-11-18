@@ -11,7 +11,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class CameraMousePreferencesTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private readonly string directory = Path.Combine(Path.GetTempPath(), "mda-camera-preferences-" + Guid.NewGuid().ToString("N"));
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
 

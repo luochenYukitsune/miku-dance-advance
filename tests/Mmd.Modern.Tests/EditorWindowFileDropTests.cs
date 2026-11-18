@@ -19,7 +19,7 @@ public sealed class EditorWindowFileDropTests : IAsyncDisposable
 {
     private static readonly string Root = MdaWorkRoot.Path("editor/20261113/drop688");
     private readonly string directory = Path.Combine(Root, "ui-" + Guid.NewGuid().ToString("N"));
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(12);
 

@@ -12,6 +12,7 @@ using Avalonia.Platform;
 
 namespace Mmd.Modern.Tests;
 
+[Collection(QualityLoadingCollection.Name)]
 public sealed class EditorPmmCameraParentTests : IDisposable
 {
     private readonly IDisposable locatorScope;

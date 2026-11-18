@@ -11,7 +11,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorPresentationBoundaryTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private const BindingFlags InternalStatic = BindingFlags.NonPublic | BindingFlags.Static;
     private const BindingFlags Instance = BindingFlags.NonPublic | BindingFlags.Instance;
     private readonly CancellationToken token = TestContext.Current.CancellationToken;
@@ -182,6 +182,5 @@ public sealed class EditorPresentationBoundaryTests : IAsyncDisposable
     private static void Publish(EditorViewportHost viewport, string name, object value)
         => Subscription(viewport, name)!.DynamicInvoke(value);
 
-    public ValueTask DisposeAsync()
-    { session.Dispose(); return ValueTask.CompletedTask; }
+    public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }
