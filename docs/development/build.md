@@ -4,122 +4,100 @@ title: 从源码构建
 
 [文档首页](../index.md)
 
-# MikuDance Advance (MDA) 开发者构建说明
+# 从源码构建 MikuDance Advance
 
-如果只是使用软件，无需自行编译：请到 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 下载 Windows x64 安装包。本页面向准备修改源码或自行构建的开发者。
-
-本文档面向开发者说明 MikuDance Advance（MDA）公开源码的构建结构、已验证范围、原生依赖边界以及构建注意事项。
+如果只是日常使用软件，直接前往 [GitHub Releases](https://github.com/luochenYukitsune/miku-dance-advance/releases) 下载 `MDA-<版本>-win-x64-setup.exe` 安装即可，不需要自己编译。本文面向准备阅读、修改源码或在本地构建 MDA 的开发者。
 
 ---
 
-## 1. 技术栈与目标平台
+## 1. 开发环境与仓库组成
 
-| 维度 | 说明 |
-|---|---|
-| **目标平台** | Windows x64 |
-| **核心语言与框架** | C# / .NET 10 |
-| **界面框架** | Avalonia 11 |
-| **持续集成（CI）状态** | GitHub Actions 自动构建和基础检查；Windows 开发构建可在运行记录的 Artifacts 中下载 |
+MDA 面向 Windows x64 平台开发，托管部分使用 C# / .NET 10 与 Avalonia 11，解决方案入口为仓库根目录的 `Mmd.Modern.slnx`，SDK 版本由 [global.json](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/global.json) 固定为 `.NET SDK 10.0.102`。
 
----
+公开源码仓库包含：
 
-## 2. 公开源码包含内容与排除项
+- 全部 C# 托管模块与单元测试项目源码（`src/`、`tests/`、`examples/`、`tools/`）；
+- 原生模块源码：Bullet 刚体与软体物理桥接（`native/Mmd.Modern.Bullet*`）、MikkTSpace 切线计算（`native/Mmd.Modern.Mikktspace`）以及传统引擎 D3D9／MME 兼容层（`native/Mmd.Modern.D3D9.Compatibility`、`compatibility/d3d9-mme-host`）；
+- 构建与打包脚本（`scripts/`）、Inno Setup 安装器脚本（`installer/MDA.iss`）及开源许可声明文件。
 
-### 2.1 仓库包含内容
-公开源码快照中包含：
-- 托管代码源码（C# / .NET 10）
-- 原生模块源码（Native 源码）
-- 许可证与合规声明文件
+出于许可合规与仓库体积考虑，外部二进制工具和第三方运行库不直接放进 Git 仓库，包括：
 
-### 2.2 未上传的外部二进制与依赖
-这里说的是 **GitHub 源码仓库**，与 Releases 中的 Windows 安装包不同。安装包内置 FFmpeg 和 ffprobe，用户正常安装后无需自行配置视频编码工具；自行从源码构建时，则需要另外准备这两个可执行文件。其许可证、版本与对应源码／构建材料随具体发行版本提供。
-
-自动构建使用 `scripts/fetch-ffmpeg.ps1` 下载固定版本，并校验压缩包及两个可执行文件的 SHA256；版本与地址在 `tools/ffmpeg/manifest.json`。FFmpeg 本体源码、同批依赖源码、构建脚本和日志作为 Releases 附件提供。此构建的上游 Windows 支持基线为 Windows 10 22H2。
-
-### 2.3 自动构建与发布
-
-“构建与测试”工作流（`.github/workflows/build.yml`）在推送到 main、PR 和手动触发时运行：
-
-1. **文案与清单检查**（Linux）：三语文案键一致、占位符一致、界面引用都存在；固定版本清单是合法 JSON；仓库中没有凭据。
-2. **编译**：先编 Bullet 刚体／软体和 MikkTSpace，取得固定版本 DXC，再按锁定依赖编译全部项目。
-3. **测试**：五组并行运行测试项目。云端机器没有显卡，`Category=Gpu` 的测试留给真机验收；穷举宏组合的慢速着色器编译类留在修改着色器时本地运行。标“暂不拦截”的组还有改版前就存在的失败，只报告不拦合并。
-4. **Windows 构建包**：内置现代引擎、FFmpeg、DXC、.NET 自包含运行时、FSR（AMD）／XeSS（Intel）／DLSS（NVIDIA）超分与传统（Classic）兼容引擎，并验证 Inno Setup 安装包编译通过。厂商运行库按 `tools/upscaling/manifest.json` 从官方仓库固定提交下载并校验 SHA-256，DLSS 桥接库用 MSVC 现编；能否使用由用户显卡在运行时决定。
-5. **手动推送 GitHub Release**（手动、可选）：在“构建与测试”手动运行界面勾选 `publish_release` 后，会直接复用当次编译出的双引擎安装包推送到 GitHub Releases；版本号留空时自动基于上一版末位递增 `+1`（如 `v0.1.29` → `v0.1.30`），并可通过 `prerelease` 勾选框切换预发布版或正式版。
-6. **真机 GPU 验收**（手动、可选）：在标记为 `gpu` 的自托管机器上跑真机渲染，并可要求 FSR／XeSS／DLSS 必须初始化成功。
-
-独立的“发布 GitHub Release”工作流（`.github/workflows/release.yml`）同样支持手动一键触发（版本号可留空自动递增，可选预发布版或正式版）以及推送 `v*` 标签自动触发：在云端编译包含现代引擎、三种超分与传统引擎的 `MDA-<版本>-win-x64-setup.exe` 安装包，复用并校验固定版本的 FFmpeg 对应源码附件，从上一版标签以来的提交日志（及可选 `CHANGELOG.md` 或提交正文中的 `EN:` 行）自动汇总中英双语更新说明（默认中文在前、英文在后），生成 `SHA256SUMS.txt` 后直接公开到 GitHub Releases。
-
-出于分发合规与仓库体积控制，以下文件**不上传**至公开源码仓库：
-- 原版 MMD Toon 贴图资源
-- DirectX 运行库二进制文件
-- `FFmpeg` 可执行文件或二进制库
-- 可选的硬件厂商 SDK 二进制文件
+- `ffmpeg.exe` 与 `ffprobe.exe`（Releases 安装包已内置，并提供对应源码与构建材料附件；本地构建时可通过 `scripts/fetch-ffmpeg.ps1` 按 `tools/ffmpeg/manifest.json` 下载固定版本并校验 SHA-256，上游支持基线为 Windows 10 22H2）；
+- DirectX 着色器编译器 `dxc.exe`（通过 `scripts/setup-dxc.ps1` 按 `tools/dxc/manifest.json` 拉取并校验）；
+- AMD FSR、Intel XeSS、NVIDIA DLSS 超分运行库（按 `tools/upscaling/manifest.json` 拉取官方固定版本并校验签名／哈希，`mmd_dlss` 桥接库使用 MSVC 编译）；
+- DirectX D3DX9 运行库二进制与原版 MMD Toon 贴图资源。
 
 ---
 
-## 3. 托管构建与已验证测试状态
+## 2. 编译托管代码与示例插件
 
-### 3.1 当前验证基线
-在清洁的公开源码快照下，已完成以下无原生依赖（无 Native）的托管构建与测试验证：
-
-| 验证项目 | 状态 / 结果 |
-|---|---|
-| **完整托管代码构建** | 已验证通过（0 警告、0 错误） |
-| **Formats 模块测试** | `338` 项通过，`1` 项外部样本检查跳过 |
-| **Scheduling 模块测试** | `84` 项无 Native 检查通过 |
-| **Plugins 模块测试** | `39` 项无 Native 检查通过 |
-
-### 3.2 重要边界说明
-- **托管编译不等同于完整运行**：通过托管代码编译（例如直接执行 `dotnet build`）**并不代表**完整物理模拟或传统引擎（Classic）已具备可运行条件，也**不等同于**完成了完整的原生组件与 GPU 渲染验收。
-- **不直接生成可分发安装包**：构建完整的发布版以及启用传统引擎（Classic）需要额外配置原生依赖与外部运行组件，单纯完成托管构建无法直接生成可分发的完整安装包。
-
----
-
-## 4. 构建命令说明
-
-### 4.1 宿主与主工程构建命令
-先安装 [global.json](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/global.json) 固定的 .NET SDK 10.0.102。在仓库根目录的 PowerShell 中执行：
+先安装 `.NET SDK 10.0.102`，在仓库根目录打开 PowerShell 执行：
 
 ```powershell
 ./scripts/dotnet.ps1 -DotNetArguments @('restore','Mmd.Modern.slnx','--locked-mode')
 ./scripts/dotnet.ps1 -DotNetArguments @('build','Mmd.Modern.slnx','-c','Release','--no-restore')
 ```
 
-首次还原需要访问 NuGet。包装脚本会将缓存和构建输出放在仓库外的 `../.dev-cache/modern-dotnet/`；主程序输出为其中的 `bin/Mmd.Modern.App/Release/net10.0/`。完整安装包还需准备原生库、编码器及适用的分发材料，不能只把托管输出压缩后当作安装版。
+首次 `restore` 需要联网访问 NuGet。`scripts/dotnet.ps1` 会把包缓存、临时目录和编译输出统一放在仓库上一级的 `../.dev-cache/modern-dotnet/` 下，主程序输出路径为 `../.dev-cache/modern-dotnet/bin/Mmd.Modern.App/Release/net10.0/`。
 
-### 4.2 已验证的示例插件发布命令
-仓库内置的 `Mda.HelloPlugin` 示例项目已完成实际构建验证。可在仓库根目录执行以下命令进行发布：
+仓库自带的示例插件 `Mda.HelloPlugin` 可单独发布：
 
-```bash
+```powershell
 dotnet publish examples/Mda.HelloPlugin/Mda.HelloPlugin.csproj -c Release -o ./plugin-output
 ```
 
+只执行上面的托管构建即可编译全部 C# 项目，并运行不依赖原生 DLL 和显卡的测试项目（如 `Mmd.Modern.Formats.Tests`、`Mmd.Modern.Scheduling.Tests`、`Mmd.Modern.Plugins.Tests`）。要在本地启动完整编辑器、跑刚柔体物理解算、编译 D3D12 着色器或使用传统引擎，还需要把下一节的原生组件准备好。
+
 ---
 
-## 5. 原生依赖与 Bullet 物理库构建
+## 3. 编译原生组件与装配运行库
 
-### 5.1 Bullet 物理库构建脚本
-项目中的两个 Bullet 原生物理库需通过仓库内已有的 Python 脚本进行构建：
-- `scripts/build-bullet.py`
-- `scripts/build-bullet-soft.py`
+### 3.1 Bullet 刚体与软体物理库
 
-### 5.2 编译器路径参数要求
-- **必须显式指定 `--compiler`**：调用上述两个脚本时，**必须明确传入 `--compiler` 参数**并将其指向开发者本机的编译器路径。
-- **切勿依赖脚本默认路径**：脚本内保留的默认编译器路径为旧本机私有路径，在其他开发环境中不可依赖。
-- **已验证编译器**：[Zig](https://ziglang.org/download/) 0.16.0。下面的编译器路径需替换为你的实际路径；`--compiler` 接收 `zig.exe`，不是普通 C++ 编译器的可互换入口。
+两个 Bullet 原生库使用 [Zig](https://ziglang.org/download/) `0.16.0` 通过仓库内的 Python 脚本编译。调用时请显式传入 `--compiler` 指向本机的 `zig.exe`（脚本里的默认路径是早期开发机的本地路径；`--compiler` 专门接收 `zig.exe`，不能直接替换成 `cl.exe` 或 `clang++.exe`）：
 
 ```powershell
 python scripts/build-bullet.py --compiler C:/tools/zig/zig.exe --output ../.dev-cache/bullet-cluster-bounds-20261114/rigid/mmd_bullet.dll
 python scripts/build-bullet-soft.py --compiler C:/tools/zig/zig.exe --output ../.dev-cache/bullet-cluster-bounds-20261114/soft/mmd_bullet_soft.dll
 ```
 
-两个脚本会校验构建输入，并在输出目录保存清单。脚本固定使用 `-target x86_64-windows-gnu -mcpu=baseline`：Zig 默认按构建机 CPU 生成指令，CI 机器支持而用户 CPU 不支持的指令（如 AVX-512）会让 DLL 在加载时初始化失败（0x8007045A）。不要去掉这两个参数。CI 打包前会运行 `scripts/check-native-portability.py`：发布目录里每个原生库的依赖都必须随包附带或属于 Windows 自带组件，Zig 编译的库只能用 x86-64 基线指令；任一项不满足即中止打包。生成后重新构建托管项目即可按既有项目配置复制库。Classic 原生桥接及可选切线模块另有各自构建入口，见仓库的 [Classic 原生目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.D3D9.Compatibility)与 [MikkTSpace 目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.Mikktspace)。这些构建不包含原版 MMD 资源或 DirectX 运行库。
+脚本会校验源码输入并在输出目录写入构建清单。两个脚本固定传入 `-target x86_64-windows-gnu -mcpu=baseline`（Zig 默认按构建机 CPU 生成指令，若在支持 AVX-512 等扩展指令的机器上省略这两个参数，编出的 DLL 在不支持对应指令的用户 CPU 上加载时会在初始化阶段报 `0x8007045A` 失败，请保留这两个参数）。DLL 生成后重新执行一次托管构建，项目配置会自动把它们复制到程序输出目录。
+
+### 3.2 DXC、MikkTSpace、超分与传统引擎
+
+本地一键准备测试所需的原生依赖（Bullet、MikkTSpace 与固定版本 DXC）可直接参考或运行 CI 使用的脚本：
+
+- `scripts/ci-native-deps.ps1`：一次编译 Bullet 刚体／软体、MikkTSpace（静态链接 CRT）并下载校验 DXC；
+- `scripts/ci-windows-build.ps1`：构建包含原生物理库、DXC、固定版本 FFmpeg 与 .NET 自包含运行时的 Windows x64 发布目录；
+- `scripts/ci-stage-upscalers.ps1` 与 `scripts/ci-stage-classic.ps1`：往发布目录装配 FSR／XeSS／DLSS 超分组件（需 MSVC 环境编译 `mmd_dlss.dll`）与传统引擎组件（见 [Classic 原生目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.D3D9.Compatibility) 和 [MikkTSpace 目录](https://github.com/luochenYukitsune/miku-dance-advance/tree/main/native/Mmd.Modern.Mikktspace)）；
+- `scripts/ci-package-installer.ps1`：先调用 `scripts/check-native-portability.py` 检查发布目录内所有原生库的依赖与指令集（确认原生 DLL／EXE 均为 x64、非系统自带依赖均已随包放在同目录，且 Zig 编译的物理与传统引擎库仅使用 x86-64 基线指令），通过后调用 Inno Setup 编译 `installer/MDA.iss`，生成最终的 `MDA-<版本>-win-x64-setup.exe` 安装程序。
 
 ---
 
-## 6. 许可与合规提醒
+## 4. GitHub Actions 自动构建与发版
 
-在构建、修改或分发本项目源码与衍生构建产物前，请务必仔细阅读仓库根目录下的以下文件，确保遵守开源许可与第三方组件声明要求：
-- [LICENSE](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/LICENSE)
-- [LICENSING.md](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/LICENSING.md)
-- [THIRD_PARTY_NOTICES.md](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/THIRD_PARTY_NOTICES.md)
+仓库配有两个自动化工作流：
+
+### 4.1 构建与测试（`.github/workflows/build.yml`）
+
+在推送 `main`、提交 PR（纯 `docs/**` 和 `*.md` 改动除外）或手动触发时运行：
+
+1. **文案与清单检查**（Linux）：运行 `scripts/check-localization.py` 检查 `zh-CN`、`en`、`ja` 三语文案键、占位符与界面引用一致，验证 `tools/*/manifest.json` 格式并扫描潜在凭据文本。
+2. **编译**（Windows）：编译 Bullet 刚体／软体与 MikkTSpace，拉取 DXC，按锁定依赖还原并编译整个 `Mmd.Modern.slnx`。
+3. **非 GPU 测试门禁**（Windows）：分五组并行运行测试（`格式·调度·插件`、`应用与物理`、`输出与编码`、`传统引擎兼容`、`编辑器与渲染`），五组全部作为必过门禁。由于托管运行器没有硬件显卡，`Category=Gpu` 用例和耗时的着色器宏组合穷举编译测试不在此阶段运行。
+4. **Windows 构建包与安装验证**：完整打包现代引擎、FFmpeg、DXC、三种超分和传统引擎，先执行 `scripts/check-native-portability.py` 校验原生库运行依赖与 x86-64 基线指令集，编译 Inno Setup 安装包，再通过 `scripts/ci-check-installer-associations.ps1` 实装验证简体中文向导与 Windows 文件关联逻辑，最后上传 `MDA-modern-development-win-x64` 构建产物到 Actions Artifacts。
+5. **手动发版与真机 GPU 验收**（可选）：手动触发时勾选 `publish_release` 可直接把当次编译出的双引擎安装包推送到 GitHub Releases（版本号留空时自动按上一版末位 `+1`，可选择预发布版或正式版）；勾选 `run_gpu` 则在带 `gpu` 标签的自托管 Windows 机器上执行真机渲染与超分初始化验收。
+
+### 4.2 发布 GitHub Release（`.github/workflows/release.yml`）
+
+支持推送 `v*` 标签自动触发，也支持在 Actions 页面手动触发：云端完成双引擎与三种超分安装包编译（含原生库可移植性检查）后，自动核对并复用固定版本 FFmpeg 的对应源码包附件，根据上一版标签以来的提交记录与 `CHANGELOG.md` 生成中英双语更新说明，计算全部附件的 `SHA256SUMS.txt` 并发布到 GitHub Releases。
+
+---
+
+## 5. 开源许可与第三方声明
+
+修改源码或分发构建产物前，请查阅仓库根目录下的许可与声明文件：
+
+- [LICENSE](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/LICENSE)（原创代码采用 AGPL-3.0-only）
+- [LICENSING.md](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/LICENSING.md)（原创代码与第三方组件的许可边界说明）
+- [THIRD_PARTY_NOTICES.md](https://github.com/luochenYukitsune/miku-dance-advance/blob/main/THIRD_PARTY_NOTICES.md)（第三方开源库声明）
