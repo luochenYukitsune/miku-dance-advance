@@ -23,7 +23,7 @@ namespace Mmd.Modern.Tests;
 public sealed class LoadingAndPmmPurposeUiTests : IAsyncDisposable
 {
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Fact]
     public async Task ActualBusyFeedbackDrawsBeforeItsClockAndWhenInputOrMotionIsDisabled() => await session.Dispatch(() =>

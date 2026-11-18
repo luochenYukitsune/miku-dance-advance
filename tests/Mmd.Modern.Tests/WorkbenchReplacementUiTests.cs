@@ -17,7 +17,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class WorkbenchReplacementUiTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private const BindingFlags Hidden = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly TimeSpan DialogTimeout = TimeSpan.FromSeconds(10);
 

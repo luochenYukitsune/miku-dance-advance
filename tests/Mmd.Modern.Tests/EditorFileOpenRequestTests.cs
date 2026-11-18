@@ -15,7 +15,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorFileOpenRequestTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private readonly string directory = Path.Combine(MdaWorkRoot.Path("settings/20261113/associations648/unit"), Guid.NewGuid().ToString("N"));
 
     [Theory]

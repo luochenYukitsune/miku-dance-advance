@@ -12,7 +12,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class CaptureMemorySettingsTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static string Root => MdaWorkRoot.Path("settings/20261113/memory652");
 
