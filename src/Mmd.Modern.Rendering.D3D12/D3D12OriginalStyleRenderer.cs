@@ -129,7 +129,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         var commands=context.Commands;var scene=frame.Surface.Snapshot;var style=frame.Surface;int width=color.Width,height=color.Height;
         bool subTexture=HasSubTexture(frame);
         bool textureMorph=subTexture||style.Materials.Any(binding=>!binding.TextureFactors.IsIdentity);
-        if(!HasNativeLights(frame))LastNativeLightStatistics=null;
+        if(!HasNativeLights(frame)){LastNativeLightStatistics=null;nativeShadowCasterVersions.Reset();}
         BeginVisibility(frame);
         ID3D12Resource Own(ID3D12Resource value)=>context.Own(value);
         ID3D12Resource UploadBuffer(D3D12ExpandedPositions positions)

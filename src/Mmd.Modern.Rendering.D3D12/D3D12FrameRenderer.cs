@@ -72,6 +72,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings {get;private set;}=[];
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
+    internal D3D12OriginalStyleRenderer OriginalRecorder => originalRecorder;
     public string? RayGiBackendIdentity => rayGiRenderer?.LastBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities()
     {
