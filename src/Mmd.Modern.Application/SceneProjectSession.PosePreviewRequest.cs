@@ -75,7 +75,8 @@ public sealed partial class SceneProjectSession
         var sourceAnimation = animation;
         var sourceFrame = animation.GetFrame(cancellationToken);
         double sourceClock = animation.CurrentFrame;
-        return new((provider, token) => new SceneProjectSession(next, provider, sourceClock, token)
+        bool defer = deferVertexSkinning;
+        return new((provider, token) => new SceneProjectSession(next, provider, sourceClock, token, defer)
             { isDetachedInteractivePoseOwner = true },
             source => ReferenceEquals(source, this) && !disposed && !editing
                 && ReferenceEquals(content, sourceContent) && ReferenceEquals(animation, sourceAnimation)

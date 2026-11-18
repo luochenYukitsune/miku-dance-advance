@@ -109,6 +109,7 @@ internal static class D3D12ViewShaderPrewarm
             IncludeAlphaResolve = straightAlpha,
             IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
             IncludeLightGizmos = hasLightGizmos,
+            IncludeGpuSkinning = hasDynamicVertices,
         };
     }
 }

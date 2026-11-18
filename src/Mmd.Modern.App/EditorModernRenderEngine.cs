@@ -224,6 +224,7 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                     IncludeTemporalColorTransfer = temporal,
                     IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
                     IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
+                    IncludeGpuSkinning = dynamicVerts,
                 };
                 await D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, cancellationToken).ConfigureAwait(false);
             }

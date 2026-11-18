@@ -58,6 +58,42 @@ public sealed class CharacterRig
     internal Matrix4x4[] InverseBindMatrices { get; }
     internal (Vector3 Anchor0, Vector3 Anchor1)[] SdefAnchors { get; }
     internal bool HasQdef { get; }
+    private SceneSkinningModel? skinningModel;
+    private int[]? qdefBones;
+    /// <summary>Neutral immutable bind pose and normalized weights, created once for deferred skinning.</summary>
+    internal SceneSkinningModel SkinningModel
+    {
+        get
+        {
+            if (Volatile.Read(ref skinningModel) is { } existing) return existing;
+            var bindings = new SceneSkinBinding[VertexArray.Length];
+            for (int i = 0; i < bindings.Length; i++)
+            {
+                var b = compactBdefBindings is not null ? compactBdefBindings[i].Expand() : fullBindings![i];
+                bindings[i] = new((SceneSkinKind)(int)b.Kind, b.Bone0, b.Bone1, b.Bone2, b.Bone3, b.Weights);
+            }
+            var sdef = SdefAnchors.Length == 0 ? [] : new SceneSdefBinding[VertexArray.Length];
+            for (int i = 0; i < sdef.Length; i++) sdef[i] = new(fullBindings![i].SdefC, SdefAnchors[i].Anchor0, SdefAnchors[i].Anchor1);
+            var created = new SceneSkinningModel(VertexArray, bindings, sdef, Bones.Count);
+            return Interlocked.CompareExchange(ref skinningModel, created, null) ?? created;
+        }
+    }
+    /// <summary>Bones with a nonzero QDEF influence, in the reference skinning's first-use order.</summary>
+    internal int[] QdefBones
+    {
+        get
+        {
+            if (Volatile.Read(ref qdefBones) is { } existing) return existing;
+            var order = new List<int>(); var seen = new HashSet<int>();
+            if (fullBindings is not null)
+                foreach (var binding in fullBindings)
+                    if (binding.Kind == SkinningKind.Qdef)
+                        for (int slot = 0; slot < 4; slot++)
+                            if (binding.Weight(slot) != 0 && seen.Add(binding.Bone(slot))) order.Add(binding.Bone(slot));
+            var created = order.ToArray();
+            return Interlocked.CompareExchange(ref qdefBones, created, null) ?? created;
+        }
+    }
 
     public CharacterRig(IEnumerable<RigBone> bones, IEnumerable<SceneVertex> vertices, IEnumerable<SkinBinding> bindings,
         UnsupportedRigFeatures unsupportedFeatures = UnsupportedRigFeatures.None,

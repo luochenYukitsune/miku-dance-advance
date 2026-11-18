@@ -47,6 +47,7 @@ public sealed record D3D12ShaderWarmupSpec
     public bool IncludeAlphaResolve { get; init; }
     public bool IncludeSpatialAccumulation { get; init; }
     public bool IncludeLightGizmos { get; init; }
+    public bool IncludeGpuSkinning { get; init; }
 }
 
 /// <summary>Asynchronous bounded-concurrency shader prewarmer for FXC and DXC variants.
@@ -235,6 +236,7 @@ public static class D3D12ShaderPrewarmer
             IncludeAlphaResolve = straightAlpha,
             IncludeSpatialAccumulation = (o?.SpatialSamples ?? 1) > 1,
             IncludeLightGizmos = includeLightGizmos || (frame.EditorOverlay?.Lines.Count ?? 0) > 0,
+            IncludeGpuSkinning = frame.Surface.Snapshot.HasDeferredDeformation,
         };
     }
 
@@ -381,6 +383,12 @@ public static class D3D12ShaderPrewarmer
     private static List<DxcShaderWarmupRequest> CollectDxcRequests(D3D12ShaderWarmupSpec spec)
     {
         var requests = new List<DxcShaderWarmupRequest>();
+        if (spec.IncludeGpuSkinning)
+        {
+            bool hwGi = spec.Gi && spec.GiMode == LightingMode.HardwareRayTracing;
+            bool temporal = spec.IncludeTemporalInputs || spec.IncludeTemporalCharacter || spec.IncludeGiTemporal;
+            requests.AddRange(D3D12GpuSkinning.GetPrewarmRequests(spec.Outline, temporal, hwGi));
+        }
         if (!spec.Gi) return requests;
         bool hardware = spec.GiMode == LightingMode.HardwareRayTracing;
         requests.Add(D3D12RayGiShaders.GetPrewarmRequest(hardware, spec.GiComposition, spec.TextureMorph, spec.NativeLights, spec.SubTexture));

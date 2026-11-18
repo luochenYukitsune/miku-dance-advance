@@ -162,7 +162,7 @@ public sealed class OutlineSurfaceCompositionTests
     private static byte[] VertexBytes(OriginalOutlineVertex[] values) => MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
     private static ReadOnlyMemory<OriginalOutlineVertex>[] Memories(OriginalOutlineData value)
     {
-        var storage = typeof(OriginalOutlineData).GetField("vertices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
+        var storage = typeof(OriginalOutlineData).GetProperty("vertices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
         return (ReadOnlyMemory<OriginalOutlineVertex>[])storage.GetType().GetField("chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(storage)!;
     }
     private static bool IsMaterialized(SceneSnapshot scene)

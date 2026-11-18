@@ -35,10 +35,17 @@ internal static class NativeLightShadowProjection
         if (light.Kind == SceneLightKind.Directional)
         {
             Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
-            foreach (uint index in scene.Indices)
+            if (!scene.HasDeferredDeformation || scene.Indices.IsEmpty)
             {
-                var p = Vector3.Transform(scene.GetVertex((int)index).Position, scene.World);
-                minimum = Vector3.Min(minimum, p); maximum = Vector3.Max(maximum, p);
+                foreach (uint index in scene.Indices)
+                {
+                    var p = Vector3.Transform(scene.GetVertex((int)index).Position, scene.World);
+                    minimum = Vector3.Min(minimum, p); maximum = Vector3.Max(maximum, p);
+                }
+            }
+            else
+            {
+                ModernDirectionalShadowProjection.ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
             }
             Vector3 center = minimum * .5f + maximum * .5f;
             float radius = MathF.Max((maximum - minimum).Length() * .53f, .1f);

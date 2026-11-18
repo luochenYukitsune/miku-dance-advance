@@ -67,6 +67,50 @@ public sealed partial class D3D12OriginalStyleRenderer
         return true;
     }
 
+    private bool[] GetDeferredMaterialMask(SceneSnapshot scene)
+        =>surfaceVisibilityCache.GetDeferredMaterialMask(scene);
+
+    private bool ShouldDrawOutlineDeferred(OriginalFrameScene frame,int materialIndex,bool[] deferredMaterials,Matrix4x4 worldViewProjection)
+    {
+        if(!visibilityAvailable)return true;
+        if(visibilityEnabled)
+        {
+            outlineTested++;
+            if(!deferredMaterials[materialIndex])
+            {
+                var bounds=StaticOutlineMaterialBounds(frame,materialIndex);
+                if(!OriginalFrustumVisibility.IsPotentiallyVisible(bounds,worldViewProjection))
+                {outlineCulled++;return false;}
+            }
+        }
+        outlineDrawn++;
+        return true;
+    }
+
+    private static OriginalVisibilityBounds StaticOutlineMaterialBounds(OriginalFrameScene frame,int materialIndex)
+    {
+        var scene=frame.Surface.Snapshot;
+        var staticOutline=frame.Outline!.StaticView;
+        var range=scene.Materials[materialIndex];
+        float modelBase=OriginalOutlineMath.ComputeModelBase(frame.OutlineOptions!);
+        float scale=frame.Materials[materialIndex].OutlineWidthScale;
+        var style=frame.Materials[materialIndex].CharacterOutlineStyle;
+        if(style is not null)CharacterOutlineMath.Validate(style);
+        var min=new Vector3(float.PositiveInfinity);var max=new Vector3(float.NegativeInfinity);
+        for(int i=range.StartIndex;i<range.StartIndex+range.IndexCount;i++)
+        {
+            int vertex=(int)scene.Indices[i];
+            var ov=staticOutline.Vertices[vertex];
+            float width=style?.Width??staticOutline.Materials[ov.SelectedMaterialIndex].Width;
+            var expanded=OriginalOutlineMath.ExpandPosition(ov,modelBase,width);
+            var p=scale==1||ov.Mode==OriginalOutlineVertexMode.Inward?expanded:ov.Position+(expanded-ov.Position)*scale;
+            if(!float.IsFinite(p.X)||!float.IsFinite(p.Y)||!float.IsFinite(p.Z))
+                return new(new(float.NaN),new(float.NaN));
+            min=Vector3.Min(min,p);max=Vector3.Max(max,p);
+        }
+        return new(min,max);
+    }
+
     private OriginalVisibilityBounds[] GetSurfaceVisibilityBounds(SceneSnapshot scene)
     {
         using var lookupCpu=MeasureSceneCpu(SceneCpuStage.SurfaceBoundsLookup);

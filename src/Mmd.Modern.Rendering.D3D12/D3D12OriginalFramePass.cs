@@ -253,9 +253,20 @@ public sealed partial class D3D12OriginalStyleRenderer
         {
             using var groundCpu=MeasureSceneCpu(SceneCpuStage.Ground);
             if(frame.Outline is null||frame.OutlineOptions is null) throw new ArgumentException("Ground shadow requires the independent edge position stream and explicit outline geometry inputs.");
-            var positions=GetEdgePositions(frame);
-            var groundVb=upload(positions);
-            Geometry(groundVb,16,positions.Length); commands.SetPipelineState(pipeline.Ground); commands.OMSetStencilRef(2); Constants(common with {EgColor=ground.Color});
+            ID3D12Resource groundVb;
+            int groundCount;
+            if(frame.Outline.DeferredSurface is not null||scene.HasDeferredDeformation)
+            {
+                groundVb=cache.GpuSkinning.GetOutlineStreams(frame,vertexBuffer,modern:false,needWidthSource:false).Stream;
+                groundCount=frame.Outline.VertexCount;
+            }
+            else
+            {
+                var positions=GetEdgePositions(frame);
+                groundVb=upload(positions);
+                groundCount=positions.Length;
+            }
+            Geometry(groundVb,16,groundCount); commands.SetPipelineState(pipeline.Ground); commands.OMSetStencilRef(2); Constants(common with {EgColor=ground.Color});
             for(int i=0;i<scene.Materials.Count;i++) {
                 var material=scene.Materials[i]; if(!frame.Materials[i].CastGroundShadow||material.IndexCount==0) continue;
                 commands.DrawIndexedInstanced(material.IndexCount,1,material.StartIndex,0,0); draws++;groundDrawn++;

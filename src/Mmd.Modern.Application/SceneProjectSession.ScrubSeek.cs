@@ -89,12 +89,13 @@ public sealed partial class SceneProjectSession
         var capturedEpoch = stateEpoch;
         var initialTextureSource = animation.PublishedTextureSource;
         var physicsProvider = physics;
+        bool capturedDeferSkinning = deferVertexSkinning;
         return new SceneSeekRequest(
             this,
             capturedContent,
             capturedEpoch,
             frame,
-            token => PrepareDetachedCandidate(capturedContent, physicsProvider, frame, initializationSubsteps, initialTextureSource, token));
+            token => PrepareDetachedCandidate(capturedContent, physicsProvider, frame, initializationSubsteps, initialTextureSource, capturedDeferSkinning, token));
     }
 
     /// <summary>Publishes a worker-prepared candidate on the owner thread when the request is still current.
@@ -138,6 +139,7 @@ public sealed partial class SceneProjectSession
         double frame,
         int initializationSubsteps,
         SceneSnapshot? initialTextureSource,
+        bool deferVertexSkinning,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -159,7 +161,8 @@ public sealed partial class SceneProjectSession
                 coupledSoftBodies: snapshot.Settings.Physics.CoupledSoftBodies,
                 modelRoles: snapshot.Lighting.ModelRoles,
                 deferInitialComposition: initializationSubsteps > 0,
-                initialTextureSource: initialTextureSource);
+                initialTextureSource: initialTextureSource,
+                deferVertexSkinning: deferVertexSkinning);
         try
         {
             using var measure = PoseEvaluationMetrics.Measure("project.prepare.stabilize");

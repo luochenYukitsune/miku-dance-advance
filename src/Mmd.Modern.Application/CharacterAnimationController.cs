@@ -60,8 +60,19 @@ public sealed partial class CharacterAnimationController : IDisposable
             .Concat(physicsDiagnostics).Concat(physics.Diagnostics).Distinct(StringComparer.Ordinal).ToArray();
     public IReadOnlyList<string> Diagnostics=>(softBodies is null?RigidDiagnostics:RigidDiagnostics.Concat(softBodies.Diagnostics))
         .Concat(CoupledSoftBodies?.Diagnostics??[])
+        .Concat(deferVertexSkinningRequested&&model.SoftBodies.Count!=0?new[]{SoftBodyCpuSkinningDiagnostic}:Array.Empty<string>())
         .Concat(physicsCleanupDiagnostics).Distinct(StringComparer.Ordinal).ToArray();
     public bool SupportsPhysics=>model.RigidBodies.Count>0;
+    internal const string SoftBodyCpuSkinningDiagnostic="This model has soft bodies; its vertices are skinned on the CPU, not by the renderer's GPU skinning.";
+    private bool deferVertexSkinningRequested;
+    /// <summary>Requested by the owning session for a renderer that skins on the GPU. Soft-body models keep CPU
+    /// skinning explicitly (their solvers read skinned positions); see UsesDeferredVertexSkinning and Diagnostics.</summary>
+    internal bool DeferVertexSkinning
+    {
+        get=>deferVertexSkinningRequested;
+        set{ObjectDisposedException.ThrowIf(disposed,this);deferVertexSkinningRequested=value;animator.DeferVertexSkinning=value&&model.SoftBodies.Count==0;}
+    }
+    public bool UsesDeferredVertexSkinning=>animator.DeferVertexSkinning;
     public bool PhysicsEnabled=>physics is not null||sharedPhysicsStatus is not null||SoftBodiesEnabled;
     public bool PhysicsFaulted=>sharedPhysicsStatus?.IsFaulted??physics?.IsFaulted??false;
     public int PhysicsLastStepCount=>sharedPhysicsStatus?.LastStepCount??physics?.LastStepCount??0;
@@ -288,10 +299,13 @@ public sealed partial class CharacterAnimationController : IDisposable
     {if(!double.IsFinite(frame)||frame<0||frame>uint.MaxValue)throw new ArgumentOutOfRangeException(nameof(frame));}
     private (OriginalStyleScene Surface,OriginalOutlineData Outline) Store(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,double? softElapsed=null)
     {
+        // Deferred samples exist only for models without soft bodies; nothing reads their vertices here.
+        if(pose.Deformation is not null&&softBodies is null&&CoupledSoftBodies is null)
+            return StoreVertices(pose,frame,enableIk,enableMorphs,prepared,null);
         var vertices=ApplySoftBodies(pose.Vertices,pose.BoneWorldMatrices,softElapsed);
         return StoreVertices(pose,frame,enableIk,enableMorphs,prepared,vertices);
     }
-    private (OriginalStyleScene Surface,OriginalOutlineData Outline) StoreVertices(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,SceneVertex[] vertices)
+    private (OriginalStyleScene Surface,OriginalOutlineData Outline) StoreVertices(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,SceneVertex[]? vertices)
     {
         var scene=CreateScene(pose,prepared,vertices);
         sampled=scene;MorphChannels=prepared.Channels;sampledFrame=frame;sampledIk=enableIk;sampledMorphs=enableMorphs;
@@ -399,6 +413,16 @@ public sealed partial class CharacterAnimationController : IDisposable
     }
     private (OriginalStyleScene Surface,OriginalOutlineData Outline) CreateScene(CharacterSample pose,PreparedMorphs prepared,SceneVertex[]? vertices=null)
     {
+        if(vertices is null&&pose.Deformation is {} deformation)
+        {
+            // Equal palettes and the same morph instance reuse the published lineage, like equal CPU bytes.
+            var prior=sampled.Surface?.Snapshot;
+            var reused=prior is null?null:prepared.Surface.Snapshot.ReuseUnchangedDeferredDeformation(prior,deformation);
+            if(reused is not null)
+                return(new(reused,prepared.Surface.Materials,prepared.Surface.Profile),sampled.Outline.WithMaterials(prepared.Outline.Materials));
+            var deferred=prepared.Surface.Snapshot.WithDeferredDeformation(deformation);
+            return(new(deferred,prepared.Surface.Materials,prepared.Surface.Profile),prepared.Outline.WithDeferredSurface(deferred));
+        }
         vertices??=pose.Vertices;
         var previous=sampled.Surface?.Snapshot;
         var snapshot=previous is null?null:prepared.Surface.Snapshot.ReuseUnchangedDeformation(previous,vertices);

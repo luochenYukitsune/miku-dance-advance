@@ -96,6 +96,25 @@ public sealed class SceneProjectSessionTests : IDisposable
         Assert.Throws<ObjectDisposedException>(() => project.Seek(0, Token));
         Assert.Throws<ObjectDisposedException>(() => project.Edit(_ => { }, Token));
     }
+    [Fact]
+    public void DeferredVertexSkinningPreservesExportSessionAndAvoidsCpuMaterialization()
+    {
+        var f = Fixture();
+        using var project = new SceneProjectSession(f.Layout, f.Lights, [f.Motion], new NoPhysics());
+        long matBefore = SceneDeformation.CpuMaterializations;
+        project.DeferVertexSkinningToRenderer = true;
+        project.Seek(30, Token);
+        Assert.True(project.Frame.Surface.Snapshot.HasDeferredDeformation);
+        Assert.True(project.DeferVertexSkinningToRenderer);
+        Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
+
+        var previewReq = project.CapturePosePreviewRequest(new Dictionary<Guid, VmdMotion>());
+        using var cloned = previewReq.CreateSession(new NoPhysics(), Token);
+        Assert.True(cloned.DeferVertexSkinningToRenderer);
+        cloned.Seek(30, Token);
+        Assert.True(cloned.Frame.Surface.Snapshot.HasDeferredDeformation);
+        Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
+    }
     private sealed class NoPhysics : IProjectPhysicsBackendProvider
     {
         public ICharacterPhysicsBackend CreateIndependent(ProjectPhysicsSettings settings, EditableSceneObject actor) => throw new InvalidOperationException("No physical actor.");

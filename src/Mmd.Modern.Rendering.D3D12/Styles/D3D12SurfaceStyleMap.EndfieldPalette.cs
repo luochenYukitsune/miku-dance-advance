@@ -38,7 +38,7 @@ public sealed partial class D3D12SurfaceStyleMap
         {
             int vertex = checked((int)vertexIndex);
             float u;
-            if (parent.UvChannel == 0) u = snapshot.GetVertex(vertex).Uv.X;
+            if (parent.UvChannel == 0) u = D3D12GpuSkinning.EffectiveUv(snapshot, vertex).X;
             else
             {
                 var additional = snapshot.AdditionalUvs!.Vertices[vertex];

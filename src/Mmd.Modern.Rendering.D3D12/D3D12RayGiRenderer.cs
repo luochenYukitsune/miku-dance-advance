@@ -239,28 +239,41 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         EndCpuStage("OtherUploadAndPreparation");
         // Obtain current-frame leases on every call. No lookup may survive an aborted upload.
         bool dynamicGeometry=frame.Surface.Snapshot.HasDynamicVertices;
-        bool useScratch=UsesTriangleScratch(frame.Surface.Snapshot,options,capture);
-        RayGiScene scene=useScratch?RayGiScene.FromOriginalForGpu(frame):RayGiScene.FromOriginal(frame);
+        bool gpuDeferredTriangles=hardware&&frame.Surface.Snapshot.HasDeferredDeformation;
+        bool useScratch=!gpuDeferredTriangles&&UsesTriangleScratch(frame.Surface.Snapshot,options,capture);
+        RayGiScene scene=(gpuDeferredTriangles||useScratch)?RayGiScene.FromOriginalForGpu(frame):RayGiScene.FromOriginal(frame);
         EndCpuStage("FromOriginal");
         RayGiBvh? bvh=hardware?null:scene.Bvh;
         EndCpuStage("OtherUploadAndPreparation");
         ID3D12Resource Upload<T>(string name,ReadOnlySpan<T> bytes,object identity) where T:unmanaged
             =>cache.BufferByIdentity("gi:"+name,MemoryMarshal.AsBytes(bytes),ResourceStates.NonPixelShaderResource,identity);
         RayGiTriangleGpu[]? scratchRows=null;
-        var triangles=useScratch
-            ?cache.DeferredBufferByIdentity("gi:triangles",ResourceStates.NonPixelShaderResource,scene.GeometryIdentity,() =>
-            {
-                // The cache invokes this synchronously only when it needs new triangle bytes.
-                // Keep its actual upload separate from scratch allocation and row assembly.
-                EndCpuStage("TriangleUpload");
-                scratchRows=triangleScratch.GetBuffer(scene.TriangleCount);
-                ReadOnlySpan<RayGiTriangleGpu> rows;
-                if(scratchRows is null)rows=scene.Triangles;
-                else{scene.WriteTriangleRows(scratchRows);rows=scratchRows;}
-                EndCpuStage("TriangleAssembly");
-                return MemoryMarshal.AsBytes(rows);
-            })
-            :Upload("triangles",scene.Triangles,scene.GeometryIdentity);
+        ID3D12Resource? gpuBlasPositions=null;
+        ID3D12Resource triangles;
+        if(gpuDeferredTriangles)
+        {
+            var built=cache.GpuSkinning.BuildRayGiTriangles(frame,vb,ib);
+            triangles=built.Triangles;
+            gpuBlasPositions=built.BlasPositions;
+            EndCpuStage("TriangleAssembly");
+        }
+        else
+        {
+            triangles=useScratch
+                ?cache.DeferredBufferByIdentity("gi:triangles",ResourceStates.NonPixelShaderResource,scene.GeometryIdentity,() =>
+                {
+                    // The cache invokes this synchronously only when it needs new triangle bytes.
+                    // Keep its actual upload separate from scratch allocation and row assembly.
+                    EndCpuStage("TriangleUpload");
+                    scratchRows=triangleScratch.GetBuffer(scene.TriangleCount);
+                    ReadOnlySpan<RayGiTriangleGpu> rows;
+                    if(scratchRows is null)rows=scene.Triangles;
+                    else{scene.WriteTriangleRows(scratchRows);rows=scratchRows;}
+                    EndCpuStage("TriangleAssembly");
+                    return MemoryMarshal.AsBytes(rows);
+                })
+                :Upload("triangles",scene.Triangles,scene.GeometryIdentity);
+        }
         EndCpuStage("TriangleUpload");
         var materials=Upload("materials",scene.Materials,scene.MaterialIdentity);
         bool textureMorph=!scene.DiffuseTextureFactors.IsEmpty;
@@ -329,7 +342,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         {
             var asTiming=BeginStage("AS");
             acceleration=D3D12HardwareRayGi.GetAccelerationStructure(context,cache,scene,dynamicGeometry,
-                triangleBuffer:triangles,compiler:compiler,scratchRows:scratchRows);identity=acceleration.BackendIdentity;
+                triangleBuffer:triangles,compiler:compiler,scratchRows:scratchRows,
+                positionBuffer:gpuBlasPositions,deferredSnapshot:gpuDeferredTriangles?frame.Surface.Snapshot:null);identity=acceleration.BackendIdentity;
             EndStage(asTiming,"GI stage/AS "+(acceleration.OperationFrameId!=runtime.FrameId||countedAcceleration.Contains(acceleration)?"reuse":acceleration.WasUpdate?"update":"build"));
             EndCpuStage("DxrAccelerationStructure");
         }

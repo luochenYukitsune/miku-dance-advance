@@ -37,6 +37,7 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
     public ViewRendererDeviceInfo DeviceInfo { get; }
     public D3D12FrameStatistics? Statistics => session.Statistics;
     public D3D12RayGiStatistics? RayGiStatistics => session.RayGiStatistics;
+    public D3D12GpuSkinningStatistics? GpuSkinningStatistics => session.GpuSkinningStatistics;
 
     public D3D12ViewRenderer(ViewRenderRequest request, string? fsrLoaderPath = null, string? xessLibraryPath = null,
         string? dlssBridgePath = null, string? dlssSdkDirectory = null, D3D12StylePresetCatalog? stylePresets = null,

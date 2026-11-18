@@ -34,7 +34,7 @@ public sealed partial class SceneProjectSession
         var sourceFrame = animation.GetFrame(cancellationToken);
         double sourceClock = animation.CurrentFrame;
         var preview = new SceneProjectSession(next, new PosePreviewPhysicsProvider(this, physics),
-            sourceClock, cancellationToken)
+            sourceClock, cancellationToken, deferVertexSkinning)
         {
             posePreviewSource = this,
             posePreviewSourceContent = content,
@@ -46,9 +46,10 @@ public sealed partial class SceneProjectSession
         return preview;
     }
 
-    private SceneProjectSession(Content initial, IProjectPhysicsBackendProvider physics, double frame, CancellationToken token)
+    private SceneProjectSession(Content initial, IProjectPhysicsBackendProvider physics, double frame, CancellationToken token, bool deferVertexSkinning = false)
     {
         this.physics = physics;
+        this.deferVertexSkinning = deferVertexSkinning;
         content = initial;
         animation = Prepare(initial, frame, token);
     }

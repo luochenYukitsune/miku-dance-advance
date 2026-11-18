@@ -22,35 +22,69 @@ internal sealed class D3D12NativeShadowCasterVersions
             spans=Spans(scene);versions=new long[spans.Length];
             for(int i=0;i<versions.Length;i++)versions[i]=++next;
         }
-        else if(!ReferenceEquals(previous.VertexRevision,scene.VertexRevision))
+        else
         {
-            // Unrelated roots report every chunk; only Core compositions are worth an exact comparison.
-            bool compare=scene.VertexRevision.SupportsIncrementalUpdates;
-            foreach(var range in scene.VertexRevision.GetChangedRanges(previous.VertexRevision))
+            var prevStatic=previous.StaticVertexView;
+            var currStatic=scene.StaticVertexView;
+            if(!ReferenceEquals(prevStatic.VertexRevision,currStatic.VertexRevision))
             {
-                if(!compare){Invalidate(range.Start,range.Start+range.Count-1);continue;}
-                int end=range.Start+range.Count;
-                for(int start=range.Start;start<end;)
+                // Unrelated roots report every chunk; only Core compositions are worth an exact comparison.
+                bool compare=currStatic.VertexRevision.SupportsIncrementalUpdates;
+                foreach(var range in currStatic.VertexRevision.GetChangedRanges(prevStatic.VertexRevision))
                 {
-                    int chunk=start/SceneVertexRevision.ChunkSize,offset=start%SceneVertexRevision.ChunkSize;
-                    var before=previous.GetVertexChunk(chunk);var after=scene.GetVertexChunk(chunk);
-                    int count=Math.Min(end-start,after.Length-offset);
-                    before=before.Slice(offset,count);after=after.Slice(offset,count);
-                    // Exact payload bytes, including signed zero, normal and UV, decide the change.
-                    int first=MemoryMarshal.AsBytes(before).CommonPrefixLength(MemoryMarshal.AsBytes(after))/Unsafe.SizeOf<SceneVertex>();
-                    if(first<count)
+                    if(!compare){Invalidate(range.Start,range.Start+range.Count-1);continue;}
+                    int end=range.Start+range.Count;
+                    for(int start=range.Start;start<end;)
                     {
-                        int last=count-1;
-                        while(last>first&&MemoryMarshal.AsBytes(before.Slice(last,1)).SequenceEqual(MemoryMarshal.AsBytes(after.Slice(last,1))))last--;
-                        Invalidate(start+first,start+last);
+                        int chunk=start/SceneVertexRevision.ChunkSize,offset=start%SceneVertexRevision.ChunkSize;
+                        var before=prevStatic.GetVertexChunk(chunk);var after=currStatic.GetVertexChunk(chunk);
+                        int count=Math.Min(end-start,after.Length-offset);
+                        before=before.Slice(offset,count);after=after.Slice(offset,count);
+                        // Exact payload bytes, including signed zero, normal and UV, decide the change.
+                        int first=MemoryMarshal.AsBytes(before).CommonPrefixLength(MemoryMarshal.AsBytes(after))/Unsafe.SizeOf<SceneVertex>();
+                        if(first<count)
+                        {
+                            int last=count-1;
+                            while(last>first&&MemoryMarshal.AsBytes(before.Slice(last,1)).SequenceEqual(MemoryMarshal.AsBytes(after.Slice(last,1))))last--;
+                            Invalidate(start+first,start+last);
+                        }
+                        start+=count;
                     }
-                    start+=count;
+                }
+            }
+            var prevRanges=previous.DeformationRanges;
+            var currRanges=scene.DeformationRanges;
+            if(prevRanges.Count>0||currRanges.Count>0)
+            {
+                for(int i=0;i<prevRanges.Count;i++)
+                {
+                    var p=prevRanges[i];
+                    if(p.Count>0&&FindRange(currRanges,p.Start,p.Count) is null)
+                        Invalidate(p.Start,p.Start+p.Count-1);
+                }
+                for(int i=0;i<currRanges.Count;i++)
+                {
+                    var nextRange=currRanges[i];
+                    if(nextRange.Count<=0)continue;
+                    var prevRange=FindRange(prevRanges,nextRange.Start,nextRange.Count);
+                    if(prevRange is null||!SameMatrixBits(prevRange.World,nextRange.World)||!prevRange.Deformation.HasSameInputs(nextRange.Deformation))
+                        Invalidate(nextRange.Start,nextRange.Start+nextRange.Count-1);
                 }
             }
         }
         previous=scene;
         return versions;
     }
+
+    private static SceneDeformationRange? FindRange(IReadOnlyList<SceneDeformationRange> ranges,int start,int count)
+    {
+        for(int i=0;i<ranges.Count;i++)
+            if(ranges[i].Start==start&&ranges[i].Count==count)return ranges[i];
+        return null;
+    }
+
+    private static bool SameMatrixBits(Matrix4x4 a,Matrix4x4 b)
+        =>MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref a,1)).SequenceEqual(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref b,1)));
 
     internal void Reset(){previous=null;spans=[];versions=[];}
 
