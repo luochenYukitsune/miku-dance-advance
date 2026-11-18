@@ -70,10 +70,33 @@ public sealed class AddedModelHostOrderTests
         var low = Imported(0, 0); var high = Imported(4, 1); var accessory = Accessory(0, 0); var added = Added(3);
         var orders = Orders([low, high, accessory, added]);
         Assert.Equal(4, orders.Values.Distinct().Count());
-        Assert.DoesNotContain(0, orders.Values);
+        // The imported raw 0 model keeps MME's no-object sentinel; only the added model must never be 0.
+        Assert.Equal(0, orders[low.ObjectId]); Assert.NotEqual(0, orders[added.ObjectId]);
         Assert.True(orders[low.ObjectId] < orders[high.ObjectId]);
         Assert.True(orders[high.ObjectId] < orders[added.ObjectId]);
         Assert.True(orders[added.ObjectId] < orders[accessory.ObjectId]);
+    }
+
+    [Fact]
+    public void RenumberingWithoutAddedModelsKeepsTheUncollidedZeroSentinel()
+    {
+        // Models raw 0 and 4, accessories raw 0 and 1, split 0: orders 0, 4, 3, 4. Only order 4 collides.
+        var low = Imported(0, 0); var high = Imported(4, 1); var first = Accessory(0, 0); var second = Accessory(1, 1);
+        var orders = Orders([low, high, first, second]);
+        Assert.Equal(0, orders[low.ObjectId]);
+        Assert.Equal(4, orders.Values.Distinct().Count());
+        Assert.True(orders[low.ObjectId] < orders[high.ObjectId]);
+        Assert.True(orders[high.ObjectId] < orders[first.ObjectId]);
+        Assert.True(orders[first.ObjectId] < orders[second.ObjectId]);
+    }
+
+    [Fact]
+    public void ImportedModelsSharingTheZeroSentinelAreNotACollision()
+    {
+        // Two imported models at raw 0 both draw with no current object in the original loader; the host never maps 0.
+        var a = Imported(0, 0); var b = Imported(0, 1); var accessory = Accessory(0, 0);
+        var orders = Orders([a, b, accessory]);
+        Assert.Equal(0, orders[a.ObjectId]); Assert.Equal(0, orders[b.ObjectId]); Assert.Equal(3, orders[accessory.ObjectId]);
     }
 
     [Fact]

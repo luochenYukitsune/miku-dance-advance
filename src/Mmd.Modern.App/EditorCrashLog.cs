@@ -48,11 +48,18 @@ internal static class EditorCrashLog
         Dispatcher.UIThread.UnhandledException += (_, args) =>
         {
             args.Handled = true;
-            string signature = Signature("ui", args.Exception);
-            ShouldRecord("ui", args.Exception, out string? path);
-            try { UiExceptionRecorded?.Invoke(args.Exception, signature, path); }
-            catch (Exception notify) { SafeTrace("Crash notice failed: " + Describe(notify)); }
+            DispatchUiException(args.Exception);
         };
+    }
+
+    /// <summary>Records (throttled) and notifies every UI exception. Notification never depends on whether this
+    /// occurrence was written, so a fault that shares the log's overflow bucket still reaches the windows.</summary>
+    internal static void DispatchUiException(Exception error, string? directory = null)
+    {
+        string signature = Signature("ui", error);
+        ShouldRecord("ui", error, out string? path, directory);
+        try { UiExceptionRecorded?.Invoke(error, signature, path); }
+        catch (Exception notify) { SafeTrace("Crash notice failed: " + Describe(notify)); }
     }
 
     /// <summary>Most recent crash files kept; older ones are deleted when a new one is written.</summary>
@@ -87,7 +94,18 @@ internal static class EditorCrashLog
 
     /// <summary>Source, exception type and throw site. TargetSite.ToString() omits the declaring type, so Location
     /// includes it; A.Refresh() and B.Refresh() stay distinct.</summary>
-    internal static string Signature(string source, Exception error) => source + "|" + error.GetType().FullName + "|" + Location(error);
+    internal static string Signature(string source, Exception error) => source + "|" + error.GetType().FullName + "|" + Location(error)
+        + InnerSites(error);
+
+    /// <summary>An AggregateException with several inner exceptions (an unobserved task's, never thrown) has no throw
+    /// site of its own and a message made of the inner messages, so two different faults with equal messages would
+    /// share a counter. Their inner types and throw sites tell them apart.</summary>
+    private static string InnerSites(Exception error)
+    {
+        if (error is not AggregateException { InnerExceptions.Count: > 1 } aggregate) return "";
+        try { return "|" + string.Join(";", aggregate.InnerExceptions.Select(inner => inner.GetType().FullName + "@" + Location(inner))); }
+        catch (Exception) { return "|" + UnknownLocation; }
+    }
 
     /// <summary>Signatures one window has already shown. Bounded and recency-ordered, independent of the log's overflow
     /// counter, so two new faults after the log table filled are both shown once.</summary>
@@ -105,6 +123,8 @@ internal static class EditorCrashLog
         }
         /// <summary>A hit also counts as recent use, so a fault that keeps recurring is not evicted by a burst of new
         /// ones and shown again.</summary>
+        /// <summary>Forget every signature, so the next fault of each is shown again.</summary>
+        internal void Clear() { order.Clear(); shown.Clear(); }
         internal bool WasShown(string signature)
         {
             if (!shown.TryGetValue(signature, out var node)) return false;
@@ -158,7 +178,12 @@ internal static class EditorCrashLog
             var kept = recentWrites.Where(present.Contains).Take(MaxFiles).ToHashSet(StringComparer.Ordinal);
             var others = files.Where(file => !kept.Contains(file.FullName))
                 .OrderByDescending(file => file.Name, StringComparer.Ordinal).Skip(MaxFiles - kept.Count);
-            foreach (var file in others) file.Delete();
+            // One file that cannot be deleted (open in a viewer without delete sharing) must not stop the rest.
+            foreach (var file in others)
+            {
+                try { file.Delete(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
