@@ -17,7 +17,7 @@ namespace Mmd.Modern.Tests;
 [Collection(QualityLoadingCollection.Name)]
 public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
 {
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static NativeSceneLight Light() => new(Guid.NewGuid(), "Existing", SceneLightKind.Point,
         new(1, 10, 0), Quaternion.Identity, Vector3.One);
 

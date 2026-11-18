@@ -175,7 +175,9 @@ public sealed class ChunkedSceneUploadTests
     {
         var entries=(Array)typeof(D3D12VisibilityBoundsCache).GetField("entries",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(cache)!;
         var entry=entries.GetValue(0)!;
-        return ((int[] Offsets,int[] Materials))entry.GetType().GetField("Map",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(entry)!;
+        var map = entry.GetType().GetField("Map", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(entry)!;
+        var type = map.GetType();
+        return ((int[])type.GetProperty("Offsets")!.GetValue(map)!, (int[])type.GetProperty("Materials")!.GetValue(map)!);
     }
     private static ID3D12Resource Copy(D3D12GpuRuntime runtime,ID3D12Resource source,int count)
     {

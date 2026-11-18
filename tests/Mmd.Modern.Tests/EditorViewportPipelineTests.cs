@@ -36,8 +36,8 @@ public sealed class EditorViewportPipelineSession : IAsyncDisposable
                 ?? throw new InvalidOperationException("Avalonia locator scope was not returned.");
             try
             {
-                return session = HeadlessUnitTestSession.StartNew(
-                    typeof(QualityLoadingAppBuilder), AvaloniaTestIsolationLevel.PerAssembly);
+                return session = HeadlessTestHost.Start(
+                    QualityLoadingAppBuilder.BuildAvaloniaApp, AvaloniaTestIsolationLevel.PerAssembly);
             }
             catch
             {

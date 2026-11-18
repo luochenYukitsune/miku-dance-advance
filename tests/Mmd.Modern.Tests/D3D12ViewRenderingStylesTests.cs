@@ -90,7 +90,8 @@ public sealed class D3D12ViewRenderingStylesTests : IDisposable
             _ => throw new InvalidOperationException("No physics in the static style fixture.")));
         var snapshot = project.CaptureRenderSnapshot();
         Assert.Equal("mmd", Assert.Single(snapshot.RenderingStyles).Preset.StableId);
-        Assert.Equal(policy.Materials, snapshot.Scene.Materials);
+        var composedMaterials = policy.Materials.Select(flags => flags with { LightReceiverObjectId = actor.Id }).ToArray();
+        Assert.Equal(composedMaterials, snapshot.Scene.Materials);
         var resolved = D3D12ViewScene.Resolve(snapshot.Scene, snapshot.Camera, snapshot.Light,
             snapshot.SelfShadow, snapshot.MorphChannels, new(), snapshot.ResolvedCamera);
         var incomingFlags = resolved.Materials.ToArray();
@@ -122,7 +123,7 @@ public sealed class D3D12ViewRenderingStylesTests : IDisposable
                 GiToonResponseOverride = RayGiToonResponse.PreservePaletteBands,
             }, customOutput.Materials[index]);
         Assert.Equal(incomingFlags, resolved.Materials);
-        Assert.Equal(policy.Materials, project.Frame.Materials);
+        Assert.Equal(composedMaterials, project.Frame.Materials);
         Assert.Equal(originalFlags, source.Materials);
         Assert.Null(source.Materials[3].CharacterOutlineStyle);
     }

@@ -45,7 +45,13 @@ public sealed class ViewportDirectLightTests
     {
         var light = Light("test", Vector3.Zero);
         var lights = new SceneLightingSnapshot([light]);
-        Assert.Equal(8, LightViewportInteraction.CreateOverlay(lights, null, Camera, 800, 600, 2).Lines.Count);
+        var markers = LightViewportInteraction.CreateOverlay(lights, null, Camera, 800, 600, 2).Lines;
+        Assert.Equal(2, markers.Count);
+        Assert.All(markers, marker =>
+        {
+            Assert.Equal(ViewportOverlayShape.Square, marker.Shape);
+            Assert.Equal(6, marker.Radius);
+        });
         var move = LightViewportInteraction.CreateOverlay(lights, light.Id, Camera, 800, 600, 2);
         var rotate = LightViewportInteraction.CreateOverlay(lights, light.Id, Camera, 800, 600, 2, rotate: true);
         Assert.True(rotate.Lines.Count > move.Lines.Count);
@@ -61,20 +67,19 @@ public sealed class ViewportDirectLightTests
         var whiteLamp = LightViewportInteraction.CreateOverlay(new([light]), null, Camera, 800, 600, 2);
         var blackLamp = LightViewportInteraction.CreateOverlay(new([light with { Color = Vector3.Zero }]), null, Camera, 800, 600, 2);
         Assert.Equal(whiteLamp.Lines, blackLamp.Lines);
-        Assert.All(whiteLamp.Lines.Take(4), line =>
+        Assert.Collection(whiteLamp.Lines, border =>
         {
-            Assert.True(line.Color.X < .25f && line.Color.Y < .25f && line.Color.Z < .25f);
-            Assert.Equal(4.5f, line.Width);
-        });
-        Assert.All(whiteLamp.Lines.Skip(4), line =>
+            Assert.True(border.Color.X < .25f && border.Color.Y < .25f && border.Color.Z < .25f);
+            Assert.Equal(4.5f, border.Width);
+        }, fill =>
         {
-            Assert.True(line.Color.X > .7f && line.Color.Y > .7f && line.Color.Z > .7f);
-            Assert.Equal(1.5f, line.Width);
+            Assert.True(fill.Color.X > .7f && fill.Color.Y > .7f && fill.Color.Z > .7f);
+            Assert.Equal(1.5f, fill.Width);
         });
         var selected = LightViewportInteraction.CreateOverlay(new([light]), light.Id, Camera, 800, 600, 2);
         Assert.Equal(whiteLamp.Lines[0].Color, selected.Lines[0].Color);
-        Assert.True(selected.Lines[4].Color.X > selected.Lines[4].Color.Y
-            && selected.Lines[4].Color.Y > selected.Lines[4].Color.Z);
+        Assert.True(selected.Lines[1].Color.X > selected.Lines[1].Color.Y
+            && selected.Lines[1].Color.Y > selected.Lines[1].Color.Z);
     }
 
     [Theory]
