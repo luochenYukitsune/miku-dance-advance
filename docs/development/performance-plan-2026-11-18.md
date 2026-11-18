@@ -1,6 +1,6 @@
-# 图形性能与多核调度优化方案（2026-11-18）
+# 图形性能与多核调度优化方案（2026-11-19 修订）
 
-基于云端 `main` 的 `2abe9a9`（分支 `perf/plan-20261119`）只读分析，没有改代码。证据给出文件和行号，行号以这个版本为准。
+2026-11-19 用项目内的便携 `gh` 核对上游 `luochenYukitsune/miku-dance-advance`。GitHub 的 `main`、发布标签 `v0.2.2` 和本地方案提交 `cd27054` 的父提交均为 `2abe9a9`。目标分支在本地工作树 `wt-perf-plan`。代码位置以 `2abe9a9` 为准。第 5.9 节是本次实测，其余阶段的整机收益有待建立基线。
 
 范围和已定的前提：
 
@@ -11,17 +11,17 @@
 
 ## 1. 结论
 
-现在的瓶颈不在某一个热点函数上，而在帧的组织方式。前几轮局部优化（并行蒙皮、16 路控制器准备、GI 提前录制等）都有效，但每次只省几毫秒，因为有下面几个结构问题：
+先用一条完成帧的时间线区分 UI 求值、CPU 录制、GPU 执行与输出等待。当前实现有以下可验证的开销。
 
 1. **动画、IK、物理和场景合并都在 UI 线程上执行。** 播放由 UI 线程上 16ms 的 `DispatcherTimer` 推进，取帧快照也在 UI 线程。模拟一慢，面板、时间轴和输入就一起卡。
-2. **顶点变形在 CPU 上做，下游还要再处理好几遍。** 蒙皮后每帧新建顶点数组，然后依次是场景合并拷贝、CPU 算描边位置、逐材质包围盒归约、整份上传；开 GI 时还要再写一遍三角形位置并上传。所有开销都随顶点总数线性增长，多角色场景会成倍放大。
-3. **不开 GI 时帧是串行的。** 等交换链许可、UI 线程取快照、录制、GPU 执行，四步依次进行。只有硬件 GI 模式会提前录制。
+2. **大范围变形会让多段处理重复访问顶点。** CPU 蒙皮后，场景拼装、描边、包围盒和上传均有复用路径。全身运动时应同时量变形顶点数、实际重建的块数与上传字节；仅改灯光或局部表情的帧可作对照。
+3. **常规预览的快照要等交换链许可。** 非 GI 路径缺少当前硬件 GI 配置可用的提前录制机会。用同帧时序检查这段等待能否与 CPU 工作重叠。
 4. **D3D12 层有几处常见的低效用法。** 输出和深度目标等资源每帧新建，围栏等待用 `Thread.Sleep(1)` 轮询，所有工作都挤在一个 Direct 队列和一条命令列表上。
 5. **导出完全串行。** 模拟、渲染、同步读回、写管道逐帧依次执行，每帧还要新分配一整帧大小的 `byte[]`。
 6. **并行各管各的。** 蒙皮、合并、描边、包围盒、GI 写入各自调用 `Parallel.For`，上限分别是 4、16 或 `ProcessorCount`，都抢同一个线程池，没有统一的优先级和预算。
 7. **打开和跳帧时有同步等待。** 贴图串行解码；首帧时才上传贴图、编译着色器（每次编译启动一个 `dxc.exe` 进程）；跳帧后要做物理预热。
 
-按收益排序：模拟移出 UI 线程，再加上 GPU 蒙皮，是两项收益最大的改动；D3D12 层和导出流水线改动风险低，适合先做。
+播放时优先验证 UI 求值与顶点变形是否占据关键路径；导出单独看 GPU、读回与编码之间的空闲。先选可以独立对照的改动，顺序见第 8 节。
 
 ## 2. 现状证据
 
@@ -31,12 +31,12 @@
 | UI 线程取快照 | `src/Mmd.Modern.App/EditorViewportHost.cs:322-347`、`:521-528` | 等到交换链许可后，以 Background 优先级投递到 UI 线程执行 `CaptureRenderSnapshot` |
 | 只有 GI 能提前录制 | `src/Mmd.Modern.App/EditorViewportHost.cs:297-299` | `CanRecordAheadLocked` 要求硬件光追 GI，并且关闭时序超分 |
 | CPU 蒙皮、每帧新数组 | `src/Mmd.Modern.Animation/CharacterAnimator.cs:19-20`、`:288-306` | 每个顶点 32 字节；3.2 万顶点以上才并行，默认 4 路 |
-| CPU 描边位置 | `src/Mmd.Modern.Rendering.D3D12/D3D12OutlinePositionCache.cs:30`、`:80` | 每帧根据变形后的顶点重算 |
-| CPU 包围盒归约 | `src/Mmd.Modern.Rendering.D3D12/D3D12VisibilityBoundsCache.cs:453` | 逐材质扫描顶点 |
-| GI 三角形 CPU 写入 | `src/Mmd.Modern.Rendering.D3D12/D3D12HardwareRayGi.cs:216`、`:266`、`:341` | 写入后上传，BLAS 已经用 refit（`:373`） |
+| CPU 描边位置 | `src/Mmd.Modern.Rendering.D3D12/D3D12OutlinePositionCache.cs:30`、`:80` | 同引用可直接返回；宽度与模型基值一致时按变更范围检查，并可复用输出块 |
+| CPU 包围盒归约 | `src/Mmd.Modern.Rendering.D3D12/D3D12VisibilityBoundsCache.cs:306`、`:453` | 已有增量失效、稀疏扫描和按材质并行归约；用 `LastScannedIndices`、`LastRebuiltLeaves` 区分局部与整材质重算 |
+| GI 几何准备 | `src/Mmd.Modern.Rendering.D3D12/D3D12HardwareRayGi.cs:339`、`:373`、`:432` | 已支持从三角形缓冲在 GPU 上提取位置、CPU 备选路径及 BLAS refit。分别计量三角形属性上传、位置提取与加速结构构建 |
 | 每帧新建渲染目标 | `src/Mmd.Modern.Rendering.D3D12/D3D12FrameRenderer.cs:372-381` | 输出和深度每帧 `CreateCommittedResource`；Exposure、AlphaResolve、Diffusion、Fsr1、CharacterTemporalInputs 等 pass 也每帧新建资源和描述符堆 |
 | 每帧重建 SRV | `src/Mmd.Modern.Rendering.D3D12/D3D12FrameRenderer.cs:390-406` | 所有贴图的 SRV 每帧重新创建 |
-| 围栏轮询 | `src/Mmd.Modern.Rendering.D3D12/D3D12GpuRuntime.cs:248-256` | `Thread.Sleep(1)` 循环；Windows 默认计时器精度约 15.6ms，最坏情况下一次等待会多出十几毫秒 |
+| 围栏轮询 | `src/Mmd.Modern.Rendering.D3D12/D3D12GpuRuntime.cs:248-256` | `Thread.Sleep(1)` 循环。实测围栏完成至 CPU 恢复的延迟分布，平台计时精度和系统负载都会影响结果 |
 | 单队列、单命令列表 | `src/Mmd.Modern.Rendering.D3D12/D3D12GpuRuntime.cs:204-207` | 一个 Direct 队列，3 个录制槽，每帧一条命令列表 |
 | 贴图无 mip | `src/Mmd.Modern.Rendering.D3D12/D3D12GpuCache.cs:222`、`:251` | `mipLevels:1` |
 | 导出串行 | `src/Mmd.Modern.ViewOutput/ExportCoordinator.cs:7`、`:93-102`；`src/Mmd.Modern.Application/OfflineFrameRunner.cs:132` | 一次只持有一帧 |
@@ -53,6 +53,8 @@
 - 完整姿态（含 4 路蒙皮）约 0.85ms；表面包围盒归约约 1.2ms，描边包围盒约 2.6ms。
 - GI 三角形上传约 67MiB，约 7.8ms。
 - 不开 GI 时播放约 24fps，硬件 GI 16 采样时约 11.5fps。
+
+**旧标签的处理。** [更新日志](../../CHANGELOG.md) 已记录 0.1.28 的共享物理准备列表、重复 Bullet 模式调用消除和包围盒块复用，以及 0.1.29 的场景拼装、表情姿态复用和分块多核蒙皮。到 `v0.2.2`，`D3D12FrameRenderer.GetGeometry` 也会对有变更记录的场景走按槽局部更新。下轮保留这些路径作对照，分别统计静止、局部编辑和全身运动的命中率与字节数。未命中占主导才值得改数据生产端。
 
 ## 3. 参考的成熟做法
 
@@ -90,11 +92,13 @@
 - 只走无头方式，产物放在 `MDA_WORK_ROOT/perf/<日期>/<任务>/`，本机 RTX 5060 串行使用 GPU。
 - 每个阶段完成后用同一套场景和指标对照，ABBA 排列，至少跑两轮。
 
+先从单角色播放、三角色共享物理播放和同工程离线导出各取一段固定时间轴。同帧关联 `InteractionDiagnostics`、`PoseEvaluationMetrics`、录制统计、提交围栏与 GPU 时间戳。父计时已包含子阶段，跨帧重叠的工作也分别标记。输入延迟以同一输入对应的首次 Present 提交为软件端点；UI 回调只说明消息被处理。冷启动和缓存命中分开报告。固定驱动、电源模式、采样与分辨率，记录采集自身开销。进入实现的条件是瓶颈出现在目标场景的关键路径，对照差值超过重复运行间的波动。
+
 ### 5.1 第 1 阶段：D3D12 层低风险修正（只改 `Rendering.D3D12`）
 
 1. **围栏等待改成事件**：`SetEventOnCompletion` 加 `WaitHandle`，替换 `Thread.Sleep(1)` 轮询，并保留取消支持。
-2. **临时资源池**：渲染目标和中间纹理按（尺寸、格式、用途）做键，跨帧复用，帧结束时归还；尺寸变化或长期不用时再释放。各个 pass 里每帧新建的描述符堆，改成从按帧轮转的大堆里分配。暂时不做完整的 render graph，只做这个池，以后需要显存别名复用时再升级。
-3. **贴图 SRV 常驻**：贴图上传后，SRV 写进一个常驻的 shader-visible 堆，每帧只更新变化的部分。
+2. **临时资源池**。沿用 `D3D12FrameDescriptorHeaps` 已有的三个围栏保护槽，先池化 `$depth`，再选分配次数最高的中间纹理。按尺寸、格式、采样、资源标志及用途匹配，保存资源状态。最后一次使用的围栏完成后方可覆盖；对 `$output` 还须等 `LastGpuOutput` 的外部消费者释放或提供完成信号。录制中止与 resize 分别回收未提交资源和旧代资源。用延迟消费旧画面的测试检查提前覆盖。
+3. **贴图 SRV 复用**。在现有每槽 shader-visible 堆中缓存槽位的贴图身份、视图格式和堆代数，仅在内容或布局变化时写入。堆扩容后重填；同一提交内不同 GI 采样引用的槽位继续独立。用 `TextureBindingMilliseconds` 和每帧 SRV 写入数验收。
 4. **读回缓冲复用**：按尺寸缓存读回缓冲，不再每次新建（导出流水线见 5.4）。
 
 验收：画面逐字节不变（这一阶段不改任何着色计算）；每帧 `FrameOwnedAllocations` 和 `CreateCommittedResource` 次数在稳态下降到 0 附近；帧时间不能变差。
@@ -110,15 +114,15 @@
 **现代引擎（`Rendering.D3D12`、`ViewOutput.D3D12`）**
 - 每个角色一个 compute pass：先加表情增量，再做 BDEF、SDEF、QDEF 蒙皮，输出到场景顶点缓冲里对应的区段。同时保留上一帧的结果，供运动矢量、时序抗锯齿和超分使用。
 - 描边在同一个 pass 里按法线挤出，或者在描边顶点着色器里读蒙皮结果，取代 `D3D12OutlinePositionCache`。
-- 剔除包围盒改用骨骼推出的保守包围盒，取代逐顶点归约。只允许包围盒偏大，不能偏小。
-- 光追 GI 的 BLAS 直接以蒙皮输出作为几何输入做 refit，不再从 CPU 写入和上传三角形（对应 UE 的 Skin Cache）。
+- 剔除先试保守包围盒。用 CPU 变形顶点作包含关系对照，覆盖表情极值、SDEF/QDEF、骨骼缩放及描边扩张；无法保证包住时沿用精确归约，或对该批次关闭剔除。
+- GI 分两步迁移。先让 BLAS 使用蒙皮后的位置与模型索引，几何描述和 refit 兼容键随拓扑更新；再让命中着色获取正确的法线、UV、材质与图元映射。现用的 `RayGiTriangleGpu` 为 160 字节，去掉位置提取仅节省其中一部分工作。分别记录动态上传字节、refit / rebuild 次数和 GPU 时间。
 
 **不变的部分**
 - Classic 引擎和软体模型继续走 CPU。
-- 物理只用骨骼，不受影响。
+- 保留刚体与骨骼的固定步交互顺序；耦合软体还读取蒙皮位置，继续使用 CPU 结果。
 - 导出和预览走同一条 GPU 路径（这是已定的前提）。
 
-验收：第 4 节的标准；3 角色和 5 角色场景下，CPU 帧时间明显下降；GI 场景中不再有三角形上传。
+验收按第 4 节核对；同时检查 3 角色和 5 角色的 CPU 帧时间、GI 动态属性上传与 BLAS 几何更新。分开报告位置和完整三角形属性的传输量。
 
 ### 5.3 第 3 阶段：模拟移出 UI 线程（Application 和 App）
 
@@ -127,7 +131,7 @@
 1. **播放所有权租约**：开始播放时，UI 把工程会话的求值权交给模拟线程。播放期间，UI 的编辑操作通过命令队列送到模拟线程按顺序执行（或者按现有规则禁止），暂停时再把求值权交回。这样不用一次改掉 `SceneProjectSession` 的单线程约定，风险可控。
 2. **时钟**：模拟线程用高精度计时，或者以音频时钟为准推进源帧，不再依赖 16ms 的 `DispatcherTimer`。30fps 源时间轴和 120Hz 物理网格保持不变。
 3. **发布不可变帧**：模拟线程每推进一次就发布一份不可变快照（现在的快照本来就是不可变的），视口渲染线程取最新的一份，UI 只读用于显示的少量状态（当前帧号、选中骨骼等）。
-4. **三级流水线**：模拟第 N+1 帧，同时录制第 N 帧，GPU 执行第 N-1 帧。最多领先一帧，避免延迟增加。把现在只有 GI 才有的提前录制推广到所有模式，交换链仍保持 `MaximumFrameLatency = 1`。
+4. **三级流水线**。从关闭时序超分的非 GI 预览开始，模拟最多领先一个可展示快照，交换链仍保持 `MaximumFrameLatency = 1`。丢弃或取消的录制不得提交上一帧姿态或时序历史。跳帧、resize、相机切换均应使旧记录失效；GI 和时序超分逐模式验证后再扩大范围。
 5. **跟手**：拖动骨骼或灯光时，直接以最新输入采样，跳过排队中的旧帧。现有的 `poseFrameAdmission` 逻辑保留。
 
 验收：
@@ -147,14 +151,14 @@
 
 ### 5.5 第 5 阶段：统一调度和 CPU 侧细化
 
-1. **统一工作预算**：所有 `Parallel.For` 改为通过同一个调度入口提交。按优先级分级（输入和 UI 最高，其次是模拟、渲染准备，最低是后台加载），总并行度按物理核数设定，留一个核给 UI。避免嵌套并行和线程池临时扩线程造成的抖动。调度入口放在哪个模块待定（见第 7 节）。
+1. **先在一个调用链试共享预算**。由 Application 的播放会话持有每帧预算，传给角色求值与蒙皮分块；外层已用完配额时内层顺序执行，调用线程参与工作。`Mmd.Modern.Scheduling` 目前承担语义时间与回调顺序。预览先比较 1、2、4、8 个工作者与当前默认值，记录就绪到开工的 P95、同步等待和输入延迟；导出可独立选择吞吐最好的预算。
 2. **物理**：
    - 互相没有关联的独立物理世界（不共享世界的模型）可以并行步进。
    - 共享世界内部的并行化需要 Bullet 的多线程构建（`BT_THREADSAFE` 加 `btDiscreteDynamicsWorldMt`），会改变求解顺序，可能影响结果的确定性。这一项只做评估，不直接上线，需要另外决定。
 3. **GC 和运行时**：
    - 第 2、4 阶段之后，每帧大块分配会少很多。再评估播放期间使用 `GCLatencyMode.SustainedLowLatency`。
    - 评估 ReadyToRun 是否能缩短启动时间。
-   - 模拟线程和渲染线程设为高于普通的优先级。
+   - 保持普通线程优先级做基线。仅当跟踪显示就绪线程长期得不到运行时，再单独实验提高优先级，复测输入与音频延迟。
 
 ### 5.6 第 6 阶段：GPU 进阶（含光追）
 
@@ -170,7 +174,45 @@
 3. **首帧不等全部就绪**：先出低优先级资源齐全前的画面，还是保持现在“齐了再出”，属于产品取向，待定。
 4. **跳帧的物理预热**：现有的 120Hz 预热沿用 saba 的做法，不改。可以考虑加物理缓存（类似 Blender 的 point cache）：播放过的区间缓存刚体状态，跳到缓存区间内时直接恢复。这会改变跳帧时的物理结果来源，待定。
 
+### 5.8 ECS 试点与多核依赖
+
+**建议先试共享物理的运行时数据布局。** 场景已经使用 `Entry[]`。在 `SceneAnimationSession.Index(Guid)` 仍可见线性查找；`PrepareSharedBoundaryGraph` 已为一次固定时钟操作预建索引、父子顺序和绑定分组，`EvaluateSharedBoundary` 的耦合软体预览还会按角色筛选父绑定、查找父对象。先量这些操作在 120 Hz 边界出现的次数、分配和耗时。只有几个角色时，一次字典查找也可能比顺序扫描贵。[共享物理实现](../../src/Mmd.Modern.Application/SceneAnimationSession.SharedPhysics.cs)
+
+| 试验 | 实现范围 | 如何决定去留 |
+|---|---|---|
+| A · 复用现有绑定图 | 从已验证的角色顺序派生连续槽号，以数组访问父槽和绑定范围。缓存键包括角色增删、外部亲子关系及控制轨道当前有效区间。每步仍采样父骨矩阵、冻结状态、IK 和物理输入。 | 逐步比较父子姿态、冻结锚点、碰撞与异常顺序。若 A 已消除查找开销，保留 A 即可。 |
+| B · 局部 ECS 数据布局 | 以同一个槽号索引热列（本步状态、父槽、姿态偏移）；GUID、工程对象与撤销历史保留在编辑层。拓扑变更在模拟边界发布新版本，旧快照持有旧版。和 A 在同一线程数、相同求值顺序下比较，以隔离布局收益。 | 记录每步分配字节、准备时间和整帧 P95，兼测单角色与频繁编辑。若收益落入噪声或缓存维护拖慢编辑，停止扩展。 |
+| C · 按依赖并行 | 在胜出的布局上，按父子拓扑层分发互不依赖的角色准备任务。工作者写私有结果；按原顺序提交目标到同一 Bullet 世界，世界步进一次，再按依赖应用姿态并发布快照。 | 比较 1/2/4/8 工作者；覆盖跨角色挂骨、共享碰撞、耦合软体、取消及工作者错误。检查每个固定步与输出帧序号。 |
+
+已有 `PrepareInitialControllers` 和实验性的 `CompletePreviewLeavesParallel` 可提供并行与串行对照。自定义集合读取可能有副作用，初始化工厂也可修改后续角色；沿用现有资格检查、错误报告顺序和取消语义。预览可丢弃过时的显示快照，每一个物理步及离线输出帧仍须按序完成。Unity 的 archetype chunk 解释了连续存放相同组件的访问优势，Job 依赖解释了何时需要同步。这里分别用 B 和 C 验证这两种收益。[Unity Entities 数据布局](https://docs.unity3d.com/Packages/com.unity.entities@1.0/manual/concepts-archetypes.html) · [Unity Job 依赖](https://docs.unity3d.com/Manual/job-system-job-dependencies.html)
+
+**图形侧也可独立试一次小改动。** `D3D12OriginalStyleRenderer` 的表面循环逐材质计算逆转置之外的部分帧常量、设置 PSO 和描述符表。若 `SceneRecordCpuStatistics` 指向此循环，先把相机矩阵、眼点和归一化灯光方向提到循环外，再试跳过相邻且相同的绑定。保留材质提交、透明混合和描边顺序；用多材质场景比较录制时间、绑定次数、draw 数和逐像素结果。GPU 时间主导时则先量各 pass 与依赖间隙，只有出现可重叠工作才试第 5.6 节的队列拆分。资源池按最后一次 GPU 使用退休的设计参考 D3D12 围栏，后续跨 pass 生命周期可参考 UE RDG。[表面录制代码](../../src/Mmd.Modern.Rendering.D3D12/D3D12OriginalStyleRenderer.cs) · [D3D12 资源与围栏](https://learn.microsoft.com/en-us/windows/win32/direct3d12/fence-based-resource-management) · [Unreal Render Dependency Graph](https://dev.epicgames.com/documentation/en-us/unreal-engine/render-dependency-graph-in-unreal-engine)
+
+### 5.9 Rust 实测：耦合软体的目标点打包
+
+`BulletCharacterPhysicsBackend.SoftBodies.Points` 按组件索引读取蒙皮顶点，检查 XYZ 有限，再把坐标交给原生 Bullet。带软体的模型在第 5.2 节之后仍需要这段 CPU 工作。取单个组件，以三种实现处理相同数据：照现有循环分别写三个 float 的 C#，一次写入 Vector3 的 C#，以及每组件一次 P/Invoke 的 Rust。三者都复用输出区，借此单独测打包；实际产品的数组分配、组件遍历和 Bullet 步进需在集成时另计。[实际入口](../../src/Mmd.Modern.Physics.Bullet/BulletCharacterPhysicsBackend.SoftBodies.cs) · [C# 对照](../../tools/perf/soft-targets/compare.cs) · [Rust 内核](../../tools/perf/soft-targets/pack.rs)
+
+本机 Core Ultra 7 251HX，Windows x64，.NET SDK 10.0.102 / Runtime 10.0.2，Release，分层编译开启，rustc 1.90.0，通用 x64 优化。每次批调用处理表中的全部点，索引固定种子乱序，预热后轮换三种实现的六种先后顺序。每组 24 个批次样本，独立启动三次。表中是三次 P50 的中位数，单位为微秒/组件；Rust 含固定数组和 P/Invoke。有效数据按字节核对，另查越界索引和 NaN。
+
+| 每组件点数 | C# 逐坐标写 | C# 一次写 Vector3 | Rust | Rust 相对改进版 C# 节省 |
+|---:|---:|---:|---:|---:|
+| 256 | 0.250 | 0.201 | 0.169 | 0.032 µs |
+| 4,096 | 4.178 | 3.299 | 3.101 | 0.198 µs |
+| 32,768 | 40.873 | 31.775 | 29.669 | 2.106 µs |
+
+**采用决定。** 大组中 C# 改写已节省约 9.1 µs，Rust 在此基础上再省约 2.1 µs。该组两者的批次 P95 跨进程范围分别为 36.1–43.4 µs 和 35.5–55.0 µs，尾部没有稳定优势。先在软体实景记下每步组件数、打包总时间和分配量，再验证托管写法与每组件缓冲复用。仅当残余打包时间仍影响完成帧，才将 Rust 接入相同调用链复测，计入封送、所有权及发布成本。刚体场景另行统计 `SetKinematicTarget` / `GetBodyPose` 的单体跨界次数；若边界成本显著，先在现有 Bullet C++ 桥试按世界批量读写。
+
+交付前另起进程复核一次，32,768 点的三个 P50 依次为 48.006、39.172、36.086 µs。顺序一致，绝对值随运行环境波动。复现时从仓库根在可使用 x64 MSVC 链接器的 PowerShell 中执行。输出依次是点数、实现、批次均值的 P50 与 P95（µs/调用）。
+
+```powershell
+$probeDll = Join-Path $env:TEMP 'mda_soft_target_probe.dll'
+rustc --edition 2021 -C opt-level=3 -C panic=abort --crate-type cdylib tools/perf/soft-targets/pack.rs -o $probeDll
+$env:DOTNET_TieredCompilation = '1'
+dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
+```
+
 ## 6. 模块边界
+
 
 | 改动 | 所在模块 | 不能越过的边界 |
 |---|---|---|
@@ -179,12 +221,12 @@
 | GPU 蒙皮、描边、包围盒、BLAS 输入 | `Rendering.D3D12`、`ViewOutput.D3D12` | Classic 继续使用已变形顶点 |
 | 播放所有权租约、模拟线程、命令队列 | Application（会话）、App（只负责交接和显示） | 视图不另外推进动画或物理时钟，模拟时钟只有一个 |
 | 导出流水线 | `ViewOutput`、`ViewOutput.FFmpeg` | 中立接口里不出现 D3D12 类型 |
-| 统一调度 | 待定（第 7 节） | 不能依赖 GUI 或引擎 |
+| 统一调度试点 | Application 持有预算，Animation 接收并行度 | 调度契约不依赖 GUI 或引擎 |
 | 物理并行 | `Physics.Bullet`、native | 共享世界内部并行要另外决定 |
 
 ## 7. 待定决策
 
-1. **统一调度放在哪里**：放进现在没有被产品使用的 `Mmd.Modern.Scheduling`，还是放在 Core 里。
+1. **并行预算**。建议先在 Application 验证（第 5.5 节）。计入调度成本后仍能降低完成帧 P95，再决定是否推广至其他模块。
 2. **Mipmap**：核对原版之后，是否改变贴图采样。
 3. **物理缓存**：跳帧时是否允许直接读缓存的物理状态。
 4. **进程内 DXC**：是否新增依赖。
@@ -200,7 +242,7 @@
 | 3 | 第 4 阶段：导出流水线（不含 GPU 颜色转换） | 低 | 无 |
 | 4 | 第 2 阶段：GPU 蒙皮 | 中 | 浮点级差异，按第 4 节验收 |
 | 5 | 第 3 阶段：模拟线程 | 中高 | 无 |
-| 6 | 第 5 阶段：统一调度 | 中 | 无 |
+| 6 | 第 5 阶段、第 5.8 节：共享物理数据布局与并行预算分别做对照 | 中 | 无 |
 | 7 | 第 6 阶段和 5.7：GPU 进阶、打开和跳帧 | 各项不同 | 见各项 |
 
-每个阶段单独开分支和 PR，先测再合，不把多个阶段混在同一个 PR 里。
+第 5.9 节的语言实验已经完成。是否集成由真实软体场景决定。其余阶段每次只提交一项可独立验收的改动，记录触发场景、对照基线与停止条件。
