@@ -148,14 +148,19 @@ internal sealed class OwnedVertexChunks<T> : IList<T> where T : unmanaged
         else
         {
             var failures = new ExceptionDispatchInfo?[plan.Length];
-            Parallel.For(0, plan.Length, new ParallelOptions
+            int workerCount = Math.Min(degree, plan.Length), claimed = -1;
+            Parallel.For(0, workerCount, new ParallelOptions
             {
-                MaxDegreeOfParallelism = degree,
+                MaxDegreeOfParallelism = workerCount,
                 TaskScheduler = TaskScheduler.Default,
-            }, index =>
+            }, _ =>
             {
-                try { WriteChunk(index); }
-                catch (Exception error) { failures[index] = ExceptionDispatchInfo.Capture(error); }
+                // Claim one chunk at a time so slower cores cannot stall later chunks.
+                for (int index; (index = Interlocked.Increment(ref claimed)) < plan.Length;)
+                {
+                    try { WriteChunk(index); }
+                    catch (Exception error) { failures[index] = ExceptionDispatchInfo.Capture(error); }
+                }
             });
             // Every worker has joined before an error or immutable result escapes. Preserve
             // the first failing target chunk's original exception, independent of completion.

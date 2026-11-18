@@ -329,14 +329,18 @@ public sealed class CharacterAnimator
         int blockCount = (vertices.Length - 1) / SkinningBlockSize + 1;
         degree = Math.Min(degree, blockCount);
         var failures = new ExceptionDispatchInfo?[blockCount];
+        int claimed = -1;
         Parallel.For(0, degree, new ParallelOptions { MaxDegreeOfParallelism = degree, TaskScheduler = TaskScheduler.Default }, worker =>
         {
-            // QDEF's palette is lazy and mutable. Give each fixed worker its own
-            // cache, reused across that worker's blocks; sharing one cache would
-            // race its ready/real/dual publication. All other inputs are immutable
-            // or sample-owned and completed before workers start.
+            // QDEF's palette is lazy and mutable. Give each worker its own cache,
+            // reused across that worker's blocks; sharing one cache would race its
+            // ready/real/dual publication. All other inputs are immutable or
+            // sample-owned and completed before workers start. Workers claim the
+            // next unclaimed block, so a slower core (or a late-starting worker)
+            // takes fewer blocks instead of holding back a fixed share. Each block
+            // writes only its own vertex range, so the output is claim-order independent.
             var qdef = rig.HasQdef ? new QdefSkinning(skin) : null;
-            for (int block = worker; block < blockCount; block += degree)
+            for (int block; (block = Interlocked.Increment(ref claimed)) < blockCount;)
             {
                 int start = block * SkinningBlockSize;
                 int end = start + Math.Min(SkinningBlockSize, vertices.Length - start);

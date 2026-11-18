@@ -450,11 +450,20 @@ internal sealed class D3D12VisibilityBoundsCache
         if(parallel)
         {
             LastParallelMaterialCount=eligible.Count;
-            Parallel.For(0,eligible.Count,new ParallelOptions
-            {MaxDegreeOfParallelism=parallelDegree,TaskScheduler=TaskScheduler.Default},index=>
+            eligible.Sort((a,b)=>
             {
-                int material=eligible[index];
-                results[material]=RebuildMaterial(entry,scene,positions,material,sparse[material],marked[material]);
+                int cmp=scene.Materials[b].IndexCount.CompareTo(scene.Materials[a].IndexCount);
+                return cmp!=0?cmp:a.CompareTo(b);
+            });
+            int workerCount=Math.Min(parallelDegree,eligible.Count),claimed=-1;
+            Parallel.For(0,workerCount,new ParallelOptions
+            {MaxDegreeOfParallelism=workerCount,TaskScheduler=TaskScheduler.Default},_=>
+            {
+                for(int index;(index=Interlocked.Increment(ref claimed))<eligible.Count;)
+                {
+                    int material=eligible[index];
+                    results[material]=RebuildMaterial(entry,scene,positions,material,sparse[material],marked[material]);
+                }
             });
         }
         for(int i=0;i<count;i++)
