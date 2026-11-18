@@ -24,7 +24,7 @@ internal static class EditorClassicModelAssets
 
         string root = Path.GetDirectoryName(Path.GetFullPath(path))!;
         var adapted = PmxOriginalStyleAdapter.FromRestPose(asset.Model,
-            relative => EditorTextureLoader.Load(root, relative, token), loadCommonToon,
+            relative => EditorAssetPrefetch.LoadTexture(root, relative, token), loadCommonToon,
             source.Surface.Profile, retainToonTextures: true, loadDefaultToon: loadDefaultToon).Scene;
         // The caller's geometry, camera, materials and runtime flags stay authoritative. Append only
         // the selected image bindings, keeping all pre-existing diffuse/sphere identities intact.

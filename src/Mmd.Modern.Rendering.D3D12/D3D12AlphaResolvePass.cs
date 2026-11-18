@@ -40,13 +40,13 @@ internal sealed class D3D12AlphaResolvePass(D3D12GpuRuntime runtime,D3D12GpuCach
             throw new InvalidOperationException("Alpha resolve requires initialized premultiplied RGBA16F.");
         var device=context.Device;var commands=context.Commands;
         var compiled=GetShaders();
-        var root=cache.Get("alpha-resolve:root",()=>device.CreateRootSignature<ID3D12RootSignature>(
+        var root=cache.Get("alpha-resolve:root",()=>runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,0)),ShaderVisibility.Pixel)]),
             RootSignatureVersion.Version10));
         var pipeline=cache.Get("alpha-resolve:pso",()=>
         {
-            var created=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            var created=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature=root,VertexShader=compiled.Vertex,PixelShader=compiled.Pixel,
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=RasterizerDescription.CullNone,
                 DepthStencilState=DepthStencilDescription.None,PrimitiveTopologyType=PrimitiveTopologyType.Triangle,
@@ -72,12 +72,19 @@ internal sealed class D3D12AlphaResolvePass(D3D12GpuRuntime runtime,D3D12GpuCach
         commands.UnsetRenderTargets();output.Initialized=true;return output;
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        yield return new(Source, "VSMain", "alpha-resolve.hlsl", "vs_5_1", flags);
+        yield return new(Source, "PSMain", "alpha-resolve.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex,byte[] Pixel) GetShaders()
     {
         if(shaders is {} compiled)return compiled;
         const ShaderFlags flags=ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness;
-        compiled=(Compiler.Compile(Source,"VSMain","alpha-resolve.hlsl","vs_5_1",flags).ToArray(),
-            Compiler.Compile(Source,"PSMain","alpha-resolve.hlsl","ps_5_1",flags).ToArray());
+        compiled=(D3D12FxcShaderCache.Compile(Source,"VSMain","alpha-resolve.hlsl","vs_5_1",flags),
+            D3D12FxcShaderCache.Compile(Source,"PSMain","alpha-resolve.hlsl","ps_5_1",flags));
         shaders=compiled;runtime.ShaderCompilations+=2;return compiled;
     }
 

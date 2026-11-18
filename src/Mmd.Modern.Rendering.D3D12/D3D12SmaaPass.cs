@@ -68,14 +68,14 @@ internal sealed class D3D12SmaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         {
             var compiled = GetShaders(name, quality, alphaCoverage);
             string variant = quality + ":" + name + (alphaCoverage?":coverage":"") + (target.Format==Format.R8G8B8A8_UNorm?"":":fp16");
-            var root = cache.Get("smaa:root:" + variant, () => device.CreateRootSignature<ID3D12RootSignature>(
+            var root = cache.Get("smaa:root:" + variant, () => runtime.CreateRootSignature(
                 new RootSignatureDescription(RootSignatureFlags.None,
                     [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
                      new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 5, 0)), ShaderVisibility.Pixel)],
                     compiled.Samplers), RootSignatureVersion.Version10));
             var pipeline = cache.Get("smaa:pso:" + variant, () =>
             {
-                var created = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+                var created = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
                 {
                     RootSignature = root, VertexShader = compiled.Vertex, PixelShader = compiled.Pixel,
                     BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -103,6 +103,27 @@ internal sealed class D3D12SmaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         return new(output, edges, weights);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests(SmaaQuality quality, bool alphaCoverage)
+    {
+        string preset = quality switch
+        {
+            SmaaQuality.Low => "SMAA_PRESET_LOW",
+            SmaaQuality.Medium => "SMAA_PRESET_MEDIUM",
+            SmaaQuality.High => "SMAA_PRESET_HIGH",
+            SmaaQuality.Ultra => "SMAA_PRESET_ULTRA",
+            _ => throw new ArgumentOutOfRangeException(nameof(quality))
+        };
+        string entries = alphaCoverage ? Entries.Replace("struct EdgeVertex", CoverageEdges + "\nstruct EdgeVertex", StringComparison.Ordinal)
+            .Replace("SMAALumaEdgeDetectionPS(i.uv, i.offset, SmaaColor)", "SmaaCoverageEdges(i.uv, i.offset)", StringComparison.Ordinal) : Entries;
+        string source = Prefix.Replace("#define SMAA_PRESET_HIGH", "#define " + preset, StringComparison.Ordinal) + Algorithm.Value + entries;
+        var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        foreach (string pass in new[] { "Edges", "Weights", "Blend" })
+        {
+            yield return new(source, "VS" + pass, "smaa-wrapper.hlsl", "vs_5_1", flags);
+            yield return new(source, "PS" + pass, "smaa-wrapper.hlsl", "ps_5_1", flags);
+        }
+    }
+
     private (byte[] Vertex, byte[] Pixel, StaticSamplerDescription[] Samplers) GetShaders(string pass, SmaaQuality quality, bool alphaCoverage)
     {
         var key = (quality, pass, alphaCoverage);
@@ -120,8 +141,8 @@ internal sealed class D3D12SmaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             .Replace("SMAALumaEdgeDetectionPS(i.uv, i.offset, SmaaColor)","SmaaCoverageEdges(i.uv, i.offset)",StringComparison.Ordinal):Entries;
         string source = Prefix.Replace("#define SMAA_PRESET_HIGH", "#define " + preset, StringComparison.Ordinal) + Algorithm.Value + entries;
         var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
-        var vertex = Compiler.Compile(source, "VS" + pass, "smaa-wrapper.hlsl", "vs_5_1", flags).ToArray();
-        var pixel = Compiler.Compile(source, "PS" + pass, "smaa-wrapper.hlsl", "ps_5_1", flags).ToArray();
+        var vertex = D3D12FxcShaderCache.Compile(source, "VS" + pass, "smaa-wrapper.hlsl", "vs_5_1", flags);
+        var pixel = D3D12FxcShaderCache.Compile(source, "PS" + pass, "smaa-wrapper.hlsl", "ps_5_1", flags);
         // The unmodified upstream HLSL4 declares its linear/point samplers without explicit registers.
         // FXC can compact an unused sampler out and give PointSampler s0. Bind each compiled
         // pass's actual registers instead of assuming declaration order survives optimization.

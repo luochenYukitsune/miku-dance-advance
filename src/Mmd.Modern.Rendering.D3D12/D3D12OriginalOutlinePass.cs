@@ -89,7 +89,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         var key=(Depth:depthFormat,FrontCounterClockwise:D3D12RasterWinding.FrontCounterClockwise(frame));
         if(outlinePipelines.TryGetValue(key,out var cached))return cached;
         RootParameter[] parameters=[new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)];
-        var root=device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
+        var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
         ID3D12PipelineState? state=null;
         try
         {
@@ -107,7 +107,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=depth,
                 PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[Format.R8G8B8A8_UNorm],DepthStencilFormat=depthFormat,
                 SampleDescription=new SampleDescription(1,0),IndexBufferStripCutValue=IndexBufferStripCutValue.Disabled };
-            state=device.CreateGraphicsPipelineState(description);
+            state=runtime.CreateGraphicsPipelineState(description);
             var result=new OutlinePipeline(root,state);outlinePipelines.Add(key,result);return result;
         }
         catch { state?.Dispose();root.Dispose(); throw; }

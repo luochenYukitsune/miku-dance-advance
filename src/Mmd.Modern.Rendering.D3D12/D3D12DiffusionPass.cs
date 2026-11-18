@@ -24,7 +24,7 @@ internal sealed class D3D12DiffusionPass(D3D12GpuRuntime runtime, D3D12GpuCache 
             throw new InvalidOperationException("Diffusion requires initialized opaque RGBA8 or premultiplied RGBA16F scene color.");
         var device = context.Device; var commands = context.Commands;
         var compiled = GetShaders(alphaCoverage);
-        var root = cache.Get("diffusion:root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var root = cache.Get("diffusion:root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
                  new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 2, 0)), ShaderVisibility.Pixel)],
@@ -65,7 +65,7 @@ internal sealed class D3D12DiffusionPass(D3D12GpuRuntime runtime, D3D12GpuCache 
         {
             var pipeline = cache.Get($"diffusion:pso:{pass}:{target.Format}", () =>
             {
-                var pso = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+                var pso = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
                 {
                     RootSignature = root, VertexShader = compiled.Vertex, PixelShader = pixel,
                     BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -85,22 +85,39 @@ internal sealed class D3D12DiffusionPass(D3D12GpuRuntime runtime, D3D12GpuCache 
         return new(horizontal, composite);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests(bool alphaCoverage)
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        if (alphaCoverage)
+        {
+            yield return new(AlphaSource, "VSMain", "diffusion-alpha.hlsl", "vs_5_1", flags);
+            yield return new(AlphaSource, "PSHorizontalAlpha", "diffusion-alpha.hlsl", "ps_5_1", flags);
+            yield return new(AlphaSource, "PSCompositeAlpha", "diffusion-alpha.hlsl", "ps_5_1", flags);
+        }
+        else
+        {
+            yield return new(Source, "VSMain", "diffusion-native.hlsl", "vs_5_1", flags);
+            yield return new(Source, "PSHorizontal", "diffusion-native.hlsl", "ps_5_1", flags);
+            yield return new(Source, "PSComposite", "diffusion-native.hlsl", "ps_5_1", flags);
+        }
+    }
+
     private (byte[] Vertex, byte[] Horizontal, byte[] Composite) GetShaders(bool alphaCoverage)
     {
         if (alphaCoverage)
         {
             if (alphaShaders is { } existing) return existing;
             const ShaderFlags alphaFlags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
-            var created = (Compiler.Compile(AlphaSource, "VSMain", "diffusion-alpha.hlsl", "vs_5_1", alphaFlags).ToArray(),
-                Compiler.Compile(AlphaSource, "PSHorizontalAlpha", "diffusion-alpha.hlsl", "ps_5_1", alphaFlags).ToArray(),
-                Compiler.Compile(AlphaSource, "PSCompositeAlpha", "diffusion-alpha.hlsl", "ps_5_1", alphaFlags).ToArray());
+            var created = (D3D12FxcShaderCache.Compile(AlphaSource, "VSMain", "diffusion-alpha.hlsl", "vs_5_1", alphaFlags),
+                D3D12FxcShaderCache.Compile(AlphaSource, "PSHorizontalAlpha", "diffusion-alpha.hlsl", "ps_5_1", alphaFlags),
+                D3D12FxcShaderCache.Compile(AlphaSource, "PSCompositeAlpha", "diffusion-alpha.hlsl", "ps_5_1", alphaFlags));
             alphaShaders = created; runtime.ShaderCompilations += 3; return created;
         }
         if (shaders is { } compiled) return compiled;
         const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
-        compiled = (Compiler.Compile(Source, "VSMain", "diffusion-native.hlsl", "vs_5_1", flags).ToArray(),
-            Compiler.Compile(Source, "PSHorizontal", "diffusion-native.hlsl", "ps_5_1", flags).ToArray(),
-            Compiler.Compile(Source, "PSComposite", "diffusion-native.hlsl", "ps_5_1", flags).ToArray());
+        compiled = (D3D12FxcShaderCache.Compile(Source, "VSMain", "diffusion-native.hlsl", "vs_5_1", flags),
+            D3D12FxcShaderCache.Compile(Source, "PSHorizontal", "diffusion-native.hlsl", "ps_5_1", flags),
+            D3D12FxcShaderCache.Compile(Source, "PSComposite", "diffusion-native.hlsl", "ps_5_1", flags));
         shaders = compiled; runtime.ShaderCompilations += 3; return compiled;
     }
 

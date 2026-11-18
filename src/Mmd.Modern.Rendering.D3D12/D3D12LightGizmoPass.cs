@@ -23,12 +23,12 @@ internal sealed class D3D12LightGizmoPass(D3D12GpuRuntime runtime,D3D12GpuCache 
             throw new ArgumentException("World guides require scene visibility depth.",nameof(visibilityDepth));
         if(shaders is null)
         {
-            shaders=(Compiler.Compile(Source,"VSMain","EditorGizmo.hlsl","vs_5_1",ShaderFlags.OptimizationLevel3).ToArray(),
-                Compiler.Compile(Source,"PSMain","EditorGizmo.hlsl","ps_5_1",ShaderFlags.OptimizationLevel3).ToArray());
+            shaders=(D3D12FxcShaderCache.Compile(Source,"VSMain","EditorGizmo.hlsl","vs_5_1",ShaderFlags.OptimizationLevel3),
+                D3D12FxcShaderCache.Compile(Source,"PSMain","EditorGizmo.hlsl","ps_5_1",ShaderFlags.OptimizationLevel3));
             runtime.ShaderCompilations+=2;
         }
         var device=runtime.Device;var commands=runtime.Commands;
-        var root=cache.Get("editor-gizmo:root",()=>device.CreateRootSignature<ID3D12RootSignature>(
+        var root=cache.Get("editor-gizmo:root",()=>runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)]),RootSignatureVersion.Version10));
         int draws=0;
@@ -44,7 +44,7 @@ internal sealed class D3D12LightGizmoPass(D3D12GpuRuntime runtime,D3D12GpuCache 
         {
             var depthState=depthTest?DepthStencilDescription.Default:DepthStencilDescription.None;
             if(depthTest){depthState.DepthFunc=ComparisonFunction.LessEqual;depthState.DepthWriteMask=DepthWriteMask.Zero;}
-            var pso=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            var pso=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature=root,VertexShader=shaders.Value.Vertex,PixelShader=shaders.Value.Pixel,
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,
@@ -117,4 +117,9 @@ internal sealed class D3D12LightGizmoPass(D3D12GpuRuntime runtime,D3D12GpuCache 
             return input.Color;
         }
         """;
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        yield return new(Source, "VSMain", "EditorGizmo.hlsl", "vs_5_1", ShaderFlags.OptimizationLevel3);
+        yield return new(Source, "PSMain", "EditorGizmo.hlsl", "ps_5_1", ShaderFlags.OptimizationLevel3);
+    }
 }

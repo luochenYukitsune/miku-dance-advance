@@ -202,6 +202,6 @@ internal static partial class OriginalFrameShaders
         """;
 
     internal static byte[] CompileStarMcBodySurface(D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub)
-        => Compiler.Compile(StarMcBodySurfaceSource(family, entry, native, gi, morph, sub), entry,
-            "OriginalStarMcBody.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(StarMcBodySurfaceSource(family, entry, native, gi, morph, sub), entry,
+            "OriginalStarMcBody.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

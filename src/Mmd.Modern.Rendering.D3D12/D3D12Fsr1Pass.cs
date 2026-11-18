@@ -22,7 +22,7 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             throw new InvalidOperationException("FSR1 requires initialized RGBA8 scene color.");
         var device = context.Device; var commands = context.Commands;
         var compiled = GetShaders();
-        var root = cache.Get("fsr1:root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var root = cache.Get("fsr1:root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
                  new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel)],
@@ -58,7 +58,7 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         {
             var pipeline = cache.Get($"fsr1:pso:{pass}:{target.Format}", () =>
             {
-                var pso = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+                var pso = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
                 {
                     RootSignature = root, VertexShader = compiled.Vertex, PixelShader = pixel,
                     BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -77,14 +77,23 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         return new(easu, rcas);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        string source = Prefix + Read("ffx_a.h") + Read("ffx_fsr1.h") + Entries;
+        var flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        yield return new(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags);
+        yield return new(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags);
+        yield return new(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex, byte[] Easu, byte[] Rcas) GetShaders()
     {
         if (shaders is { } compiled) return compiled;
         string source = Prefix + Read("ffx_a.h") + Read("ffx_fsr1.h") + Entries;
         var flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
-        compiled = (Compiler.Compile(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags).ToArray(),
-            Compiler.Compile(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags).ToArray(),
-            Compiler.Compile(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags).ToArray());
+        compiled = (D3D12FxcShaderCache.Compile(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags),
+            D3D12FxcShaderCache.Compile(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags),
+            D3D12FxcShaderCache.Compile(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags));
         shaders = compiled; runtime.ShaderCompilations += 3; return compiled;
     }
     private static string Read(string name)

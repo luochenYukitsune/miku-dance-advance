@@ -23,6 +23,10 @@ public sealed class D3D12FrameSession:IDisposable
 {
     internal D3D12GpuRuntime Runtime {get;}
     private readonly D3D12FrameRenderer renderer;
+    private readonly object prewarmGate = new();
+    private CancellationTokenSource? prewarmCts;
+    private Task prewarmTask = Task.CompletedTask;
+    private bool disposed;
     public string AdapterName=>Runtime.AdapterName;
     public long AdapterLuid=>Runtime.Device.AdapterLuid;
     public bool IsWarp=>Runtime.IsWarp;
@@ -46,7 +50,11 @@ public sealed class D3D12FrameSession:IDisposable
     public IReadOnlyList<PostEffectPassRecord> LastPasses=>renderer.LastPasses;
     public IReadOnlyList<PostEffectTargetRecord> LastTargets=>renderer.LastTargets;
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings=>renderer.LastRecordings;
-    public D3D12FrameSession(){Runtime=new();renderer=new(Runtime);}
+    internal bool IsPipelineLibraryLoadedFromDisk => Runtime.PipelineLibrary.LoadedFromDisk;
+    internal int PipelineLibraryHits => Runtime.PipelineLibrary.LibraryHits;
+    internal string? PipelineLibraryCachePath => Runtime.PipelineLibrary.CacheFilePath;
+    public D3D12FrameSession() : this(null) { }
+    internal D3D12FrameSession(string? pipelineCacheDirectory){Runtime=new(pipelineCacheDirectory);renderer=new(Runtime);}
     public D3D12FrameOutput Render(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,null,upscaling,temporalUpscaling,surfaceStyles,diffusion);
     public RenderedFrame Capture(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
@@ -58,6 +66,52 @@ public sealed class D3D12FrameSession:IDisposable
     internal D3D12FrameOutput RenderForPresent(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
         Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion);
+    public Task PrewarmAsync(D3D12ShaderWarmupSpec spec, int maxParallelism = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed), this);
+        DxcShaderCompiler? compiler = null;
+        if (spec.Gi)
+        {
+            try { compiler = Runtime.GetOrCreateDxcCompiler(); } catch { }
+        }
+        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, compiler, cancellationToken);
+    }
+    internal void StartBackgroundPrewarm(D3D12ShaderWarmupSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        CancellationTokenSource? prior;
+        CancellationTokenSource next;
+        lock (prewarmGate)
+        {
+            if (disposed) return;
+            prior = prewarmCts;
+            next = new();
+            prewarmCts = next;
+            prewarmTask = PrewarmAsync(spec, 0, next.Token);
+        }
+        try { prior?.Cancel(); prior?.Dispose(); } catch { }
+    }
     public void WaitForIdle()=>Runtime.WaitForIdle();
-    public void Dispose(){renderer.Dispose();Runtime.Dispose();}
+    public void Dispose()
+    {
+        CancellationTokenSource? cts;
+        Task task;
+        lock (prewarmGate)
+        {
+            if (disposed) return;
+            disposed = true;
+            cts = prewarmCts;
+            prewarmCts = null;
+            task = prewarmTask;
+            prewarmTask = Task.CompletedTask;
+        }
+        if (cts is not null)
+        {
+            try { cts.Cancel(); } catch { }
+            try { task.GetAwaiter().GetResult(); } catch { }
+            cts.Dispose();
+        }
+        renderer.Dispose();Runtime.Dispose();
+    }
 }

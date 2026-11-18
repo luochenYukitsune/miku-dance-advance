@@ -62,6 +62,6 @@ internal static partial class OriginalStyleShaders
         }
         """;
     public static (byte[] Vertex,byte[] Pixel) Compile()=>(
-        Compiler.Compile(Source,"VSMain","OriginalSurface.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray(),
-        Compiler.Compile(Source,"PSMain","OriginalSurface.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray());
+        D3D12FxcShaderCache.Compile(Source,"VSMain","OriginalSurface.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness),
+        D3D12FxcShaderCache.Compile(Source,"PSMain","OriginalSurface.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness));
 }

@@ -135,8 +135,8 @@ internal static partial class OriginalFrameShaders
             return color;
         }
         """;
-    public static byte[] Compile(string entry,bool vertex)=>Compiler.Compile(Source,entry,"OriginalFrame.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
-    internal static byte[] CompileGi(string entry,bool vertex)=>Compiler.Compile(Source+GiSource,entry,"OriginalFrameGi.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+    public static byte[] Compile(string entry,bool vertex)=>D3D12FxcShaderCache.Compile(Source,entry,"OriginalFrame.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    internal static byte[] CompileGi(string entry,bool vertex)=>D3D12FxcShaderCache.Compile(Source+GiSource,entry,"OriginalFrameGi.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
     // Native direct lights are a separate variant. Their shadow atlas never changes the
     // primary MMD shadow map or the independently optional GI transport/composition.
     private static readonly string NativeSource=NativeSourceTemplate.Replace("NATIVE_LIGHT_MODEL",NativeLightModel.Hlsl,StringComparison.Ordinal);
@@ -328,5 +328,5 @@ internal static partial class OriginalFrameShaders
             float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
         }
         """;
-    internal static byte[] CompileNative(string entry,bool vertex)=>Compiler.Compile(Source+GiSource+NativeSource,entry,"OriginalFrameNative.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+    internal static byte[] CompileNative(string entry,bool vertex)=>D3D12FxcShaderCache.Compile(Source+GiSource+NativeSource,entry,"OriginalFrameNative.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

@@ -68,8 +68,8 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileFaceSdfSurface(D3D12SurfaceStyle family, string entry, bool native, bool gi, bool textureMorph, bool subTexture)
-        => Compiler.Compile(FaceSdfSurfaceSource(family, native, gi, textureMorph, subTexture), entry,
-            "ExplicitFaceSdf.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(FaceSdfSurfaceSource(family, native, gi, textureMorph, subTexture), entry,
+            "ExplicitFaceSdf.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 
     // Independent implementation of the inspected packed graph's numerical shape only.
     // Source cm_M and RGB data are explicit caller inputs; no reference images/code

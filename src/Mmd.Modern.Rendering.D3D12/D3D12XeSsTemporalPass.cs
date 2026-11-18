@@ -224,14 +224,14 @@ internal sealed class D3D12XeSsTemporalPass : IDisposable
             }
             float2 PS(float4 pos : SV_Position) : SV_Target { return Motion.Load(int3(pos.xy,0)); }
             """;
-        var vertex = Compiler.Compile(source, "VS", "xess-motion-format.hlsl", "vs_5_1").ToArray();
-        var pixel = Compiler.Compile(source, "PS", "xess-motion-format.hlsl", "ps_5_1").ToArray();
+        var vertex = D3D12FxcShaderCache.Compile(source, "VS", "xess-motion-format.hlsl", "vs_5_1");
+        var pixel = D3D12FxcShaderCache.Compile(source, "PS", "xess-motion-format.hlsl", "ps_5_1");
         runtime.ShaderCompilations += 2;
-        var root = runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.None,
+        var root = runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,
             [new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel)]), RootSignatureVersion.Version10);
         try
         {
-            motionPipeline = runtime.Device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            motionPipeline = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature = root, VertexShader = vertex, PixelShader = pixel,
                 BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue, RasterizerState = RasterizerDescription.CullNone,

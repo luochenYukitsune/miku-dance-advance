@@ -186,6 +186,8 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         AbortFrame();foreach(var history in previous.Values)history.Owner.Dispose();
         previous.Clear();submittedSampleCount=0;invalidationReason=reason;
     }
+    internal static DxcShaderWarmupRequest GetPrewarmRequest() => new(Source, "CSMain", "cs_6_0");
+
     private void EnsurePipeline(DxcShaderCompiler compiler)
     {
         if(pipeline is not null)return;
@@ -195,8 +197,8 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         parameters.Add(new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,2,3)),ShaderVisibility.All));
         for(int i=5;i<9;i++)parameters.Add(new(RootParameterType.ShaderResourceView,new RootDescriptor(i,0),ShaderVisibility.All));
         for(int i=0;i<4;i++)parameters.Add(new(RootParameterType.UnorderedAccessView,new RootDescriptor(i,0),ShaderVisibility.All));
-        var signature=runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
-        try{pipeline=runtime.Device.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=signature,ComputeShader=shader.Dxil});root=signature;runtime.ShaderCompilations++;runtime.PipelineCreations++;}
+        var signature=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
+        try{pipeline=runtime.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=signature,ComputeShader=shader.Dxil});root=signature;runtime.ShaderCompilations++;runtime.PipelineCreations++;}
         catch{signature.Dispose();throw;}
     }
     public void Dispose(){Invalidate("Disposed");pipeline?.Dispose();root?.Dispose();pipeline=null;root=null;}

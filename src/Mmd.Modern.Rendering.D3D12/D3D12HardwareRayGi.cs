@@ -161,6 +161,9 @@ internal static class D3D12HardwareRayGi
 
     // Mirrors the single flattened geometry/instance layout below, without creating GPU resources.
     // Preflight must query AllowUpdate and reserve max(build scratch, update scratch), like Build.
+    internal static DxcShaderWarmupRequest GetPositionGatherPrewarmRequest()
+        => new(PositionGatherPipeline.Source, "CSMain", "cs_6_0");
+
     internal static (ulong Bottom, ulong Top, ulong BottomScratch, ulong TopScratch) PrebuildResources(
         ID3D12Device device, int triangleCount, bool dynamicGeometry)
     {
@@ -473,7 +476,7 @@ internal static class D3D12HardwareRayGi
             && Marshal.OffsetOf<RayGiTriangleGpu>(nameof(RayGiTriangleGpu.P2)) == 32;
 
         // Copy integer words so DXR receives the same float bits and nonindexed primitive order.
-        private static readonly string Source = $$"""
+        internal static readonly string Source = $$"""
             cbuffer GatherConstants : register(b0) { uint TriangleCount; }
             ByteAddressBuffer Triangles : register(t0);
             RWByteAddressBuffer Positions : register(u0);
@@ -504,9 +507,9 @@ internal static class D3D12HardwareRayGi
                     new(RootParameterType.UnorderedAccessView, new RootDescriptor(0, 0), ShaderVisibility.All),
                 ];
                 using var construction = new D3D12ConstructionScope();
-                var signature = construction.Own(context.Device.CreateRootSignature<ID3D12RootSignature>(
+                var signature = construction.Own(context.Runtime.CreateRootSignature(
                     new RootSignatureDescription(RootSignatureFlags.None, parameters), RootSignatureVersion.Version10));
-                var pipeline = construction.Own(context.Device.CreateComputePipelineState(
+                var pipeline = construction.Own(context.Runtime.CreateComputePipelineState(
                     new ComputePipelineStateDescription { RootSignature = signature, ComputeShader = shader.Dxil }));
                 var result = new PositionGatherPipeline(signature, pipeline);
                 construction.Complete();

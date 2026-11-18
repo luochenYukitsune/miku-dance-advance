@@ -114,7 +114,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 2)), ShaderVisibility.Pixel),
             new(RootParameterType.ConstantBufferView, new RootDescriptor(3, 0), ShaderVisibility.Pixel),
             new(RootParameterType.ConstantBufferView, new RootDescriptor(4, 0), ShaderVisibility.All)];
-        var root = device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(
+        var root = runtime.CreateRootSignature(new RootSignatureDescription(
             RootSignatureFlags.AllowInputAssemblerInputLayout, parameters, [Sampler(key.Sampling, 0), Sampler(key.ShadowSampling, 1)]), RootSignatureVersion.Version10);
         try
         {
@@ -134,7 +134,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 depth.FrontFace.StencilFunc = ComparisonFunction.Always; depth.FrontFace.StencilPassOp = StencilOperation.Replace;
                 depth.BackFace = depth.FrontFace;
             }
-            var state = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            var state = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature = root, VertexShader = shader.Vertex, PixelShader = shader.Pixel,
                 InputLayout = new InputLayoutDescription([
                     new("POSITION", 0, Format.R32G32B32_Float, 0, 0), new("POSITION", 1, Format.R32G32B32_Float, 12, 0),

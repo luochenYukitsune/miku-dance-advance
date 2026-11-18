@@ -451,7 +451,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
     private Pipeline GetComputePipeline(bool hardware,RayGiComposition composition,bool textureMorph=false,bool nativeLights=false,bool subTexture=false,bool diagnostics=false)
     {
         var key=(hardware,composition,textureMorph,nativeLights,subTexture,diagnostics);
-        if(computePipelines.TryGetValue(key,out var found))return found;compiler??=new DxcShaderCompiler();
+        if(computePipelines.TryGetValue(key,out var found))return found;compiler??=runtime.GetOrCreateDxcCompiler();
         var defines=new Dictionary<string,string?>();if(hardware)defines.Add("GI_HARDWARE","1");
         if(composition==RayGiComposition.ToonPalette)defines.Add("GI_TOON","1");
         if(diagnostics)defines.Add("GI_DIAGNOSTICS","1");
@@ -467,8 +467,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         if(nativeLights)parameters.Add(new(RootParameterType.ShaderResourceView,new RootDescriptor(9,0),ShaderVisibility.All));
         int subTextureRoot=subTexture?parameters.Count:-1;
         if(subTexture)parameters.Add(new(RootParameterType.ShaderResourceView,new RootDescriptor(10,0),ShaderVisibility.All));
-        var root=runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
-        try{runtime.ShaderCompilations++;runtime.PipelineCreations++;var state=runtime.Device.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=root,ComputeShader=shader.Dxil});var result=new Pipeline(root,state,textureFactorRoot,nativeLightRoot,subTextureRoot);computePipelines.Add(key,result);return result;}catch{root.Dispose();throw;}
+        var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
+        try{runtime.ShaderCompilations++;runtime.PipelineCreations++;var state=runtime.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=root,ComputeShader=shader.Dxil});var result=new Pipeline(root,state,textureFactorRoot,nativeLightRoot,subTextureRoot);computePipelines.Add(key,result);return result;}catch{root.Dispose();throw;}
     }
     public void Dispose(){if(disposed)return;disposed=true;triangleScratch.Clear();temporalDenoiser?.Dispose();denoiser?.Dispose();foreach(var p in computePipelines.Values){p.State.Dispose();p.Root.Dispose();}computePipelines.Clear();}
 }

@@ -152,19 +152,26 @@ internal sealed partial class D3D12TemporalInputPass(D3D12GpuRuntime runtime) : 
         }
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness | ShaderFlags.OptimizationLevel3;
+        yield return new(Source, "VSMain", "TemporalInputs.hlsl", "vs_5_1", flags);
+        yield return new(Source, "PSMain", "TemporalInputs.hlsl", "ps_5_1", flags);
+    }
+
     private void EnsurePipeline()
     {
         if (pipeline is not null) return;
         var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness | ShaderFlags.OptimizationLevel3;
-        var vertex = Compiler.Compile(Source, "VSMain", "TemporalInputs.hlsl", "vs_5_1", flags).ToArray();
-        var pixel = Compiler.Compile(Source, "PSMain", "TemporalInputs.hlsl", "ps_5_1", flags).ToArray();
+        var vertex = D3D12FxcShaderCache.Compile(Source, "VSMain", "TemporalInputs.hlsl", "vs_5_1", flags);
+        var pixel = D3D12FxcShaderCache.Compile(Source, "PSMain", "TemporalInputs.hlsl", "ps_5_1", flags);
         runtime.ShaderCompilations += 2;
-        var createdRoot = runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(
+        var createdRoot = runtime.CreateRootSignature(new RootSignatureDescription(
             RootSignatureFlags.AllowInputAssemblerInputLayout,
             [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All)]), RootSignatureVersion.Version10);
         try
         {
-            var createdPipeline = runtime.Device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            var createdPipeline = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature = createdRoot, VertexShader = vertex, PixelShader = pixel,
                 InputLayout = new InputLayoutDescription([

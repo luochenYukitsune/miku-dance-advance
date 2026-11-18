@@ -561,7 +561,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         if(key.GenshinAtlas)samplers=[..samplers,Sampler(OriginalTextureSampling.LinearWrap,6)];
         if(key.EndfieldMatcap)samplers=[..samplers,Sampler(OriginalTextureSampling.LinearWrap,7)];
         if(key.GenshinMetallic)samplers=[..samplers,Sampler(OriginalTextureSampling.LinearWrap,8)];
-        var root=device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters,samplers),RootSignatureVersion.Version10);
+        var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters,samplers),RootSignatureVersion.Version10);
         var surfaceFormat=o.AlphaOutput==FrameAlphaOutput.Straight?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm;
         var created=new List<IDisposable>{root};
         try {
@@ -581,7 +581,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             ID3D12PipelineState Pso(string vs,string ps,InputLayoutDescription input,RasterizerDescription raster,DepthStencilDescription ds,BlendDescription blend,Format colorFormat,Format dsFormat) {
                 runtime.PipelineCreations++;
                 bool nativeShader=ps.Contains("Native",StringComparison.Ordinal);
-                var state=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {RootSignature=root,
+                var state=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {RootSignature=root,
                     VertexShader=key.SubTexture&&(vs is "VSSurface" or "VSNativeDepth")?GetSubTextureFrameShader(vs,true,key.NativeLights,gi):vs=="VSNativeDepth"?GetNativeFrameShader(vs,true):GetFrameShader(vs,true),
                     PixelShader=key.CharacterDirectPalette&&ps.StartsWith("PSSurface",StringComparison.Ordinal)?GetCharacterDirectPaletteShader(ps,gi,key.TextureMorph,key.SubTexture,key.CharacterToon):key.CharacterToon&&ps.StartsWith("PSSurface",StringComparison.Ordinal)?GetCharacterToonFrameShader(ps,key.NativeLights,gi,key.TextureMorph,key.SubTexture):key.SubTexture&&(ps.StartsWith("PSSurface",StringComparison.Ordinal)||ps=="PSNativeDepth")?GetSubTextureFrameShader(ps,false,key.NativeLights,gi):key.TextureMorph&&ps.StartsWith("PSSurface",StringComparison.Ordinal)?GetTextureMorphFrameShader(ps,key.NativeLights,gi):nativeShader?GetNativeFrameShader(ps,false):gi&&ps=="PSSurfaceGi"?GetGiFrameShader(ps,false):GetFrameShader(ps,false),
                     InputLayout=input,BlendState=blend,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=ds,PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[colorFormat],DepthStencilFormat=dsFormat,SampleDescription=new(1,0)});
@@ -599,11 +599,11 @@ public sealed partial class D3D12OriginalStyleRenderer
                 nativeShadowBack=Pso("VSNativeDepth","PSNativeDepth",layout,shadowBackRaster,DepthStencilDescription.Default,BlendDescription.Opaque,Format.R32_Float,Format.D32_Float);
                 nativeShadowBoth=Pso("VSNativeDepth","PSNativeDepth",layout,both,DepthStencilDescription.Default,BlendDescription.Opaque,Format.R32_Float,Format.D32_Float);
             }
-            var outlineRoot=device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,[new RootParameter(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)]),RootSignatureVersion.Version10);created.Add(outlineRoot);
+            var outlineRoot=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,[new RootParameter(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)]),RootSignatureVersion.Version10);created.Add(outlineRoot);
             var outlineShader=GetOutlineShaders();runtime.PipelineCreations++;
             var outlineLayout=new InputLayoutDescription([new InputElementDescription("POSITION",0,Format.R32G32B32_Float,0,0),
                 new("TEXCOORD",2,Format.R32G32B32A32_Float,0,1)]);
-            var outline=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {RootSignature=outlineRoot,VertexShader=outlineShader.Vertex,PixelShader=outlineShader.Pixel,InputLayout=outlineLayout,BlendState=FrameBlend(o.BlendMode,o.AlphaOutput),SampleMask=uint.MaxValue,RasterizerState=front,DepthStencilState=depth,PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[surfaceFormat],DepthStencilFormat=depthFormat,SampleDescription=new(1,0)});created.Add(outline);
+            var outline=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {RootSignature=outlineRoot,VertexShader=outlineShader.Vertex,PixelShader=outlineShader.Pixel,InputLayout=outlineLayout,BlendState=FrameBlend(o.BlendMode,o.AlphaOutput),SampleMask=uint.MaxValue,RasterizerState=front,DepthStencilState=depth,PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[surfaceFormat],DepthStencilFormat=depthFormat,SampleDescription=new(1,0)});created.Add(outline);
             var result=new FramePipelines(root,surfaceBack,surfaceBoth,shadowBack,shadowBoth,ground,new(outlineRoot,outline),nativeShadowBack,nativeShadowBoth,textureMorphRoot,faceSdfRoot,genshinHairRoot,starMcHairRoot,endfieldHairRoot,endfieldRimRoot,genshinAtlasRoot,endfieldMatcapRoot,genshinMetallicRoot,genshinMetallicSpecularRoot,endfieldPaletteRoot,endfieldBaseImageRoot,starMcBodyRoot,key);framePipelines.Add(key,result);return result;
         } catch { for(int i=created.Count-1;i>=0;i--)created[i].Dispose();throw; }
     }

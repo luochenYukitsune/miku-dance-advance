@@ -193,7 +193,12 @@ internal sealed class D3D12GpuRuntime:IDisposable
     private int slotIndex=-1;
     private ulong fenceValue;
     private bool disposed;
-    internal D3D12GpuRuntime()
+    private readonly D3D12PipelineLibraryCache pipelineLibrary;
+    private DxcShaderCompiler? dxcCompiler;
+    private readonly object dxcLock = new();
+    internal D3D12PipelineLibraryCache PipelineLibrary => pipelineLibrary;
+    internal D3D12GpuRuntime() : this(null) { }
+    internal D3D12GpuRuntime(string? pipelineCacheDirectory)
     {
         DebugRequested=Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG")=="1";
         DebugLayerEnabled=D3D12DebugLayerBootstrap.BeforeDeviceCreation(DebugRequested);
@@ -203,6 +208,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
         Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);fenceWaiter=new(fence);
         slots=Enumerable.Range(0,3).Select(_=>new Slot(Device)).ToArray();
         Transients=new(this);
+        pipelineLibrary=new(Device,pipelineCacheDirectory);
     }
     internal D3D12RecordingContext Begin()
     {
@@ -234,7 +240,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         if(!IsRecording)throw new InvalidOperationException("No open GPU frame.");
         var slot=slots[slotIndex];slot.Commands.Close();IsRecording=false;
-        Queue.ExecuteCommandList(slot.Commands);Queue.Signal(fence,++fenceValue).CheckError();slot.Fence=fenceValue;slot.AbortActions.Clear();Submissions++;return fenceValue;
+        Queue.ExecuteCommandList(slot.Commands);Queue.Signal(fence,++fenceValue).CheckError();slot.Fence=fenceValue;slot.AbortActions.Clear();Submissions++;pipelineLibrary.FlushIfDirtyAsync();return fenceValue;
     }
     internal void Abort()
     {
@@ -267,11 +273,25 @@ internal sealed class D3D12GpuRuntime:IDisposable
         try{Abort();WaitForIdle();}
         finally
         {
-            disposed=true;Transients.Dispose();
+            disposed=true;Transients.Dispose();pipelineLibrary.Dispose();
             foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
             DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceWaiter.Dispose();
         }
     }
+    internal DxcShaderCompiler GetOrCreateDxcCompiler()
+    {
+        lock (dxcLock) return dxcCompiler ??= DxcShaderCompiler.GetOrCreateShared();
+    }
+    internal ID3D12RootSignature CreateRootSignature(RootSignatureDescription description, RootSignatureVersion version = RootSignatureVersion.Version10)
+    {
+        var root = Device.CreateRootSignature<ID3D12RootSignature>(description, version);
+        pipelineLibrary.RegisterRootSignature(root, description, version);
+        return root;
+    }
+    internal ID3D12PipelineState CreateGraphicsPipelineState(GraphicsPipelineStateDescription description)
+        => pipelineLibrary.CreateGraphicsPipelineState(description);
+    internal ID3D12PipelineState CreateComputePipelineState(ComputePipelineStateDescription description)
+        => pipelineLibrary.CreateComputePipelineState(description);
 }
 
 internal sealed class D3D12RecordingContext(D3D12GpuRuntime runtime)

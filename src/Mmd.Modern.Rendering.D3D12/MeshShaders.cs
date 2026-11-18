@@ -45,6 +45,6 @@ internal static class MeshShaders
         """;
 
     public static (byte[] Vertex, byte[] Pixel) Compile() => (
-        Compiler.Compile(Source, "VSMain", "D3D12Mesh.hlsl", "vs_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray(),
-        Compiler.Compile(Source, "PSMain", "D3D12Mesh.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray());
+        D3D12FxcShaderCache.Compile(Source, "VSMain", "D3D12Mesh.hlsl", "vs_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness),
+        D3D12FxcShaderCache.Compile(Source, "PSMain", "D3D12Mesh.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness));
 }
