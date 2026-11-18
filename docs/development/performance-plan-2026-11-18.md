@@ -1,6 +1,6 @@
 # 图形性能与多核调度优化方案（2026-11-19 修订）
 
-2026-11-19 用项目内的便携 `gh` 核对上游 `luochenYukitsune/miku-dance-advance`。GitHub 的 `main`、发布标签 `v0.2.2` 和本地方案提交 `cd27054` 的父提交均为 `2abe9a9`。目标分支在本地工作树 `wt-perf-plan`。代码位置以 `2abe9a9` 为准。第 5.9 节是本次实测，其余阶段的整机收益有待建立基线。
+2026-11-19 用项目内的便携 `gh` 核对上游 `luochenYukitsune/miku-dance-advance`。GitHub 的 `main`、发布标签 `v0.2.2` 和本地方案提交 `cd27054` 的父提交均为 `2abe9a9`。目标分支在本地工作树 `wt-perf-plan`。代码位置以 `2abe9a9` 为准。第 5.9 节测了 Rust 打包，第 5.10 节用真实 PMX 验证了共享物理、GPU 读回与 HEVC 导出。
 
 范围和已定的前提：
 
@@ -205,11 +205,15 @@
 交付前另起进程复核一次，32,768 点的三个 P50 依次为 48.006、39.172、36.086 µs。顺序一致，绝对值随运行环境波动。复现时从仓库根在可使用 x64 MSVC 链接器的 PowerShell 中执行。输出依次是点数、实现、批次均值的 P50 与 P95（µs/调用）。
 
 ```powershell
-$probeDll = Join-Path $env:TEMP 'mda_soft_target_probe.dll'
+$probeDll = Join-Path $env:ModernCacheRoot 'mda_soft_target_probe.dll'
 rustc --edition 2021 -C opt-level=3 -C panic=abort --crate-type cdylib tools/perf/soft-targets/pack.rs -o $probeDll
 $env:DOTNET_TieredCompilation = '1'
 dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 ```
+
+### 5.10 真实 PMX 对照与实施取舍
+
+在 RTX 5060 Laptop 上，1080p 的同步读回从 **15.51 降至 7.46 ms/帧**；相同场景仅保留 GPU 输出时为 **2.90 与 2.89 ms/帧**。导出端将 32 行合为一次写入，把 FFmpeg 写入 P50 从 **3.39 降至 0.70 ms/帧**。三角色共享物理时，预热后的默认 .NET 配置下，把蒙皮从 4 路增至 8 路，求值 P50 为 **20.56 与 20.70 ms**。这些结果将无取消令牌的围栏等待和导出批写提前到第一批实现；物理与 GPU 蒙皮继续分开验证。详细对照、尾延迟、复现入口和下一轮可行性见[真实模型测试报告](performance-measurements-2026-11-19.md)。
 
 ## 6. 模块边界
 
@@ -238,8 +242,8 @@ dotnet run -c Release --file tools/perf/soft-targets/compare.cs -- $probeDll
 | 顺序 | 阶段 | 风险 | 画面变化 |
 |---|---|---|---|
 | 1 | 第 0 阶段：测量基线 | 无 | 无 |
-| 2 | 第 1 阶段：D3D12 修正 | 低 | 无 |
-| 3 | 第 4 阶段：导出流水线（不含 GPU 颜色转换） | 低 | 无 |
+| 2 | 第 1 阶段先实现不可取消等待的围栏修正；深度池单独测 | 低 | 无 |
+| 3 | 第 4 阶段先实现管道批写；复测长片和背压后决定是否引入读回环 | 低；多帧在途另评 | 无 |
 | 4 | 第 2 阶段：GPU 蒙皮 | 中 | 浮点级差异，按第 4 节验收 |
 | 5 | 第 3 阶段：模拟线程 | 中高 | 无 |
 | 6 | 第 5 阶段、第 5.8 节：共享物理数据布局与并行预算分别做对照 | 中 | 无 |
