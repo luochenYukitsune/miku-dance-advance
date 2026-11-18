@@ -17,10 +17,26 @@ internal sealed class D3D12GpuCache:IDisposable
     private readonly D3D12BufferUploadStaging bufferUploadStaging;
     private readonly D3D12VertexBufferPool sceneVertexBuffers;
     private readonly D3D12VertexBufferPool expandedPositionBuffers;
+    // UAV-capable streams whose deferred ranges are overwritten by GPU skinning after the static upload.
+    private readonly D3D12VertexBufferPool skinnedVertexBuffers,skinnedExpandedBuffers;
     private long largeGiRetentionFrameId=-1;
     private bool retainLargeGiUploads;
     internal D3D12GpuCache(D3D12GpuRuntime runtime)
-    {this.runtime=runtime;bufferUploadStaging=new(runtime);sceneVertexBuffers=new(runtime,bufferUploadStaging);expandedPositionBuffers=new(runtime,bufferUploadStaging);}
+    {this.runtime=runtime;bufferUploadStaging=new(runtime);sceneVertexBuffers=new(runtime,bufferUploadStaging);expandedPositionBuffers=new(runtime,bufferUploadStaging);
+        skinnedVertexBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);skinnedExpandedBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);}
+    /// <summary>Per-slot UAV vertex stream holding the static view's bytes; wrote reports any copy or replacement.</summary>
+    internal ID3D12Resource SkinnedVertexBuffer(string stream,SceneSnapshot staticView,out bool wrote)
+    {
+        if(!runtime.IsRecording)throw new InvalidOperationException("Scene vertex uploads require an open GPU frame.");
+        var buffer=skinnedVertexBuffers.Get(stream,staticView);wrote=skinnedVertexBuffers.LastGetWrote;return buffer;
+    }
+    internal ID3D12Resource SkinnedExpandedBuffer(string stream,D3D12ExpandedPositions positions,out bool wrote)
+    {
+        if(!runtime.IsRecording)throw new InvalidOperationException("Expanded position uploads require an open GPU frame.");
+        var buffer=skinnedExpandedBuffers.GetExpanded(stream,positions);wrote=skinnedExpandedBuffers.LastGetWrote;return buffer;
+    }
+    /// <summary>Frame-lifetime upload-heap bytes, usable directly as a root SRV by this recording.</summary>
+    internal D3D12BufferUploadStaging.Allocation StageFrameBytes(ReadOnlySpan<byte> bytes)=>bufferUploadStaging.Write(bytes);
     internal D3D12BufferUploadStatistics BufferUploadStatistics=>bufferUploadStaging.Statistics;
     internal void BeginFrame(bool retainLargeGiUploads)
     {
@@ -35,7 +51,8 @@ internal sealed class D3D12GpuCache:IDisposable
     // The same source bytes may be numerical UNorm and authored sRGB in one frame.
     // Separate identity and content namespaces prevent either role from changing the other.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbColorTextureIdentities=new();
-    internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount;
+    internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount
+        +skinnedVertexBuffers.RetainedBufferCount+skinnedExpandedBuffers.RetainedBufferCount;
     internal ID3D12Resource ExpandedPositionBuffer(string stream,Vector4[] positions)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stream);ArgumentNullException.ThrowIfNull(positions);
@@ -278,7 +295,7 @@ internal sealed class D3D12GpuCache:IDisposable
         dynamicBuffers[key]=(hash,gpu,identity);
         runtime.OnAbort(()=>{if(dynamicBuffers.Remove(key,out var aborted))aborted.Resource.Dispose();});return gpu;
     }
-    public void Dispose(){foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();bufferUploadStaging.Dispose();}
+    public void Dispose(){foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();skinnedVertexBuffers.Dispose();skinnedExpandedBuffers.Dispose();bufferUploadStaging.Dispose();}
 }
 
 /// <summary>Snapshot topology arrays are private and immutable. Exact span origin permits constant-time reuse.</summary>

@@ -7,12 +7,29 @@ using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using Mmd.Modern.Core;
 
 namespace Mmd.Modern.Animation;
 
 /// <summary>Caller-owned sample arrays; no array is reused by subsequent samples.</summary>
-public sealed record CharacterSample(SceneVertex[] Vertices, Matrix4x4[] BoneWorldMatrices, Matrix4x4[] SkinMatrices);
+public sealed record CharacterSample
+{
+    private readonly SceneVertex[]? vertices;
+    private readonly Lazy<SceneVertex[]>? deferredVertices;
+    public SceneVertex[] Vertices => vertices ?? deferredVertices!.Value;
+    public Matrix4x4[] BoneWorldMatrices { get; }
+    public Matrix4x4[] SkinMatrices { get; }
+    /// <summary>Deferred skinning input. Vertices then lazily copies the deformation's exact CPU reference.</summary>
+    public SceneDeformation? Deformation { get; }
+    public CharacterSample(SceneVertex[] Vertices, Matrix4x4[] BoneWorldMatrices, Matrix4x4[] SkinMatrices)
+    { vertices = Vertices; this.BoneWorldMatrices = BoneWorldMatrices; this.SkinMatrices = SkinMatrices; }
+    internal CharacterSample(SceneDeformation deformation, Matrix4x4[] boneWorldMatrices, Matrix4x4[] skinMatrices)
+    {
+        Deformation = deformation; BoneWorldMatrices = boneWorldMatrices; SkinMatrices = skinMatrices;
+        deferredVertices = new(deformation.CopyReferenceVertices, LazyThreadSafetyMode.ExecutionAndPublication);
+    }
+}
 
 public sealed class CharacterAnimator
 {
@@ -28,7 +45,12 @@ public sealed class CharacterAnimator
     // retain a sample's arrays. Read-only per instance so concurrent samples do
     // not introduce mutable animator scratch or last-sample diagnostics.
     private readonly Action<int, int, int>? skinningRangeObserverForTesting;
+    private static readonly ConditionalWeakTable<MorphPose, SceneMorphDeltas> morphDeltas = new();
+    private volatile bool deferVertexSkinning;
     public IReadOnlyList<string> Diagnostics { get; }
+    /// <summary>Selected by the owner only between samples. Samples then carry a deformation input instead of
+    /// skinned vertices; bones, IK, physics and morph weights are still evaluated here.</summary>
+    internal bool DeferVertexSkinning { get => deferVertexSkinning; set => deferVertexSkinning = value; }
 
     internal CharacterAnimator(CharacterRig rig, MotionClip clip, int skinningDegree,
         Action<int, int, int>? skinningRangeObserverForTesting = null) : this(rig, clip)
@@ -286,6 +308,42 @@ public sealed class CharacterAnimator
     }
 
     private CharacterSample Skin(Matrix4x4[] world, Matrix4x4[] skin, MorphPose? morphs)
+        => deferVertexSkinning ? Defer(world, skin, morphs) : SkinVertices(world, skin, morphs);
+
+    // The palettes are the reference skinning's own derived inputs. QDEF bones are validated now, in
+    // the reference order, so a non-rigid QDEF palette still fails at the sample instead of at render.
+    private CharacterSample Defer(Matrix4x4[] world, Matrix4x4[] skin, MorphPose? morphs)
+    {
+        var model = rig.SkinningModel;
+        Quaternion[] real = [], dual = [];
+        if (model.HasQdef)
+        {
+            real = new Quaternion[skin.Length]; dual = new Quaternion[skin.Length];
+            new QdefSkinning(skin).CopyPalette(rig.QdefBones, real, dual);
+        }
+        var deltas = morphs is { HasVertexEffects: true } or { HasUvEffects: true } ? morphDeltas.GetValue(morphs, BuildMorphDeltas) : null;
+        var ownedWorld = world.ToArray(); var ownedSkin = skin.ToArray();
+        var deformation = new SceneDeformation(model, skin, model.HasSdef ? SdefWorldRotations(world) : [], real, dual, deltas,
+            () => SkinVertices(ownedWorld, ownedSkin, morphs).Vertices);
+        return new(deformation, world, skin);
+    }
+
+    private static SceneMorphDeltas BuildMorphDeltas(MorphPose morphs)
+    {
+        var positions = morphs.HasVertexEffects ? morphs.VertexDeltaSpan : default;
+        var uvs = morphs.HasUvEffects ? morphs.VertexUvDeltaSpan : default;
+        int count = Math.Max(positions.Length, uvs.Length);
+        var indices = new List<int>(); var p = new List<Vector3>(); var t = new List<Vector2>();
+        for (int i = 0; i < count; i++)
+        {
+            var position = positions.IsEmpty ? Vector3.Zero : positions[i]; var uv = uvs.IsEmpty ? Vector2.Zero : uvs[i];
+            if (position == Vector3.Zero && uv == Vector2.Zero) continue;
+            indices.Add(i); p.Add(position); t.Add(uv);
+        }
+        return new(morphs.VertexDeltas.Count, CollectionsMarshal.AsSpan(indices), CollectionsMarshal.AsSpan(p), CollectionsMarshal.AsSpan(t));
+    }
+
+    private CharacterSample SkinVertices(Matrix4x4[] world, Matrix4x4[] skin, MorphPose? morphs)
     {
         if (rig.HasCompactBdefBindings) return SkinBdef(world, skin, morphs);
         var worldRotations = SdefWorldRotations(world);

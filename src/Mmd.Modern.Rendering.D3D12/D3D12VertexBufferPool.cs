@@ -15,7 +15,7 @@ internal readonly record struct D3D12SceneVertexBufferStatistics(long FullUpload
 /// <summary>One mutable DEFAULT vertex buffer per fence slot and stream. Begin has already waited
 /// that slot's fence. Each destination remembers its own actual revision, so omitted publications
 /// and branches cannot drop changes. Only small revision metadata, never older CPU arrays, is held.</summary>
-internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferUploadStaging staging):IDisposable
+internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferUploadStaging staging,bool unorderedAccess=false):IDisposable
 {
     private sealed class Buffer(ID3D12Resource resource,int bytes,Action released):IDisposable
     {
@@ -37,6 +37,8 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
     private long fullUploads,partialUploads,unchangedHits,copyCalls,copiedBytes,fullPotentialBytes,bufferCreations,liveBytes;
     private int liveBuffers;
     private bool disposed;
+    /// <summary>False only when the latest Get returned an existing buffer without any copy.</summary>
+    internal bool LastGetWrote {get;private set;}
     internal int RetainedBufferCount=>streams.Values.Sum(slots=>slots.Count(entry=>entry is not null));
     internal D3D12SceneVertexBufferStatistics Statistics=>new(fullUploads,partialUploads,unchangedHits,copyCalls,copiedBytes,
         fullPotentialBytes,bufferCreations,RetainedBufferCount,streams.Values.Sum(slots=>slots.Sum(entry=>(long)(entry?.Buffer.Bytes??0))),
@@ -71,6 +73,7 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         {slots=new Entry?[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];streams.Add(stream,slots);}
         int slot=runtime.SlotIndex,bytes=checked(count*stride);
         var entry=slots[slot];
+        LastGetWrote=false;
         if(entry is not null&&ReferenceEquals(entry.Revision,revision))return Hit(entry);
 
         bool replacement=entry is null||entry.Buffer.Bytes!=bytes||entry.RecordingFrame==runtime.FrameId;
@@ -79,12 +82,13 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         bool full=ranges.Count==1&&ranges[0].Start==0&&ranges[0].Count==count;
         if(replacement)
         {
-            var resource=runtime.Device.CreateCommittedResource(HeapType.Default,ResourceDescription.Buffer((ulong)bytes),ResourceStates.CopyDest);
+            var resource=runtime.Device.CreateCommittedResource(HeapType.Default,
+                ResourceDescription.Buffer((ulong)bytes,unorderedAccess?ResourceFlags.AllowUnorderedAccess:ResourceFlags.None),ResourceStates.CopyDest);
             var owned=new Buffer(resource,bytes,()=>{liveBuffers--;liveBytes-=bytes;});
             bufferCreations++;liveBuffers++;liveBytes+=bytes;
             var previous=entry;entry=new(new(revision,owned),revision);slots[slot]=entry;previous?.Owner.Dispose();
         }
-        var changed=entry!;KeepForFrame(changed);changed.RecordingFrame=runtime.FrameId;
+        var changed=entry!;KeepForFrame(changed);changed.RecordingFrame=runtime.FrameId;LastGetWrote=true;
         // Removing a touched entry handles both preexisting buffers and newly allocated buffers:
         // aborted barriers/copies never ran, so neither their final state nor revision is reusable.
         runtime.OnAbort(()=>

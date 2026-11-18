@@ -78,6 +78,14 @@ public sealed partial class SceneProjectSession : IDisposable
         animation.StabilizePhysicsAtCurrentFrame(physics.PoseInitializationSubsteps, cancellationToken);
     }
     public OriginalFrameScene Frame { get { RequireAlive(); return animation.Frame; } }
+    private bool deferVertexSkinning;
+    /// <summary>Host selection for a renderer that skins on the GPU; retained by every later prepared candidate.
+    /// See SceneAnimationSession.DeferVertexSkinningToRenderer. Never persisted with the project.</summary>
+    public bool DeferVertexSkinningToRenderer
+    {
+        get { RequireAlive(); return deferVertexSkinning; }
+        set { RequireAlive(); deferVertexSkinning = value; animation.DeferVertexSkinningToRenderer = value; }
+    }
     public IReadOnlyList<EditableSceneObject> Objects { get { RequireAlive(); return content.Composition.Objects; } }
     public IReadOnlyList<SceneActorPlaybackState> Actors { get { RequireAlive(); return animation.Actors; } }
     public SceneLightingSnapshot Lighting { get { RequireAlive(); return content.Lighting.Snapshot; } }
@@ -241,7 +249,8 @@ public sealed partial class SceneProjectSession : IDisposable
             next.Settings.Physics.SharedWorld ? Shared : null, next.Settings.Physics.CoupledSoftBodies ? null : Soft,
             sharedWorldGravity: next.Settings.Physics.SharedWorld ? next.Settings.Physics.Gravity : null, pmmControls: next.PmmControls,
             coupledSoftBodies: next.Settings.Physics.CoupledSoftBodies, modelRoles: next.Lighting.ModelRoles,
-            deferInitialComposition: initializationSubsteps > 0, initialTextureSource: initialTextureSource);
+            deferInitialComposition: initializationSubsteps > 0, initialTextureSource: initialTextureSource,
+            deferVertexSkinning: deferVertexSkinning);
         try
         {
             using var measure = PoseEvaluationMetrics.Measure("project.prepare.stabilize");
