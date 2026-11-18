@@ -130,7 +130,6 @@ jobs:
 
   # 云端机器没有显卡：跳过 Category=Gpu 的测试，留给下面的真机验收。
   # “编辑器与渲染”额外跳过穷举 48 种宏组合的慢速着色器编译类（改着色器时在本地跑），将测试耗时控制在数分钟内。
-  # required=false 的组还有改版前就存在的失败；先只报告、不拦合并，修好后再改成 true。
   test:
     needs: build
     runs-on: windows-latest
@@ -147,7 +146,7 @@ jobs:
           - name: 应用与物理
             projects: Mmd.Modern.Application.Tests
             filter: Category!=Gpu
-            required: false
+            required: true
           - name: 输出与编码
             projects: Mmd.Modern.ViewOutput.Tests Mmd.Modern.ViewOutput.FFmpeg.Tests
             filter: Category!=Gpu
@@ -159,8 +158,8 @@ jobs:
           - name: 编辑器与渲染
             projects: Mmd.Modern.Tests
             filter: Category!=Gpu&FullyQualifiedName!~ShaderTests&FullyQualifiedName!~ShaderVariantsTests&FullyQualifiedName!~SurfaceTests&FullyQualifiedName!~FaceSdfTests
-            required: false
-    name: 测试（${{ matrix.name }}${{ !matrix.required && '，暂不拦截' || '' }}）
+            required: true
+    name: 测试（${{ matrix.name }}）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -247,10 +246,10 @@ jobs:
           if ($LASTEXITCODE) { Write-Output '::warning::云端机器没有 D3D12 显卡，这里只检查安装是否正确。' }
         continue-on-error: true
       - name: 编译 Inno Setup 安装包
+        id: installer
         shell: pwsh
         env:
           RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
-          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         run: |
           $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.1.30.0' }
           ./scripts/ci-package-installer.ps1 `
@@ -260,9 +259,13 @@ jobs:
             -InstallerOutputDirectory "${{ runner.temp }}/mda-installer-out" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check" -Recurse -Force -ErrorAction SilentlyContinue
-          if ($env:PUBLISH_RELEASE -ne 'true') {
-            Remove-Item -LiteralPath "${{ runner.temp }}/mda-installer-out" -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          "setup=$env:RUNNER_TEMP/mda-installer-out/MDA-$ver-win-x64-setup.exe" >> $env:GITHUB_OUTPUT
+      - name: 实装验证简体中文与文件关联
+        shell: pwsh
+        run: |
+          ./scripts/ci-check-installer-associations.ps1 `
+            -Installer "${{ steps.installer.outputs.setup }}" `
+            -WorkDirectory "${{ runner.temp }}/mda-associations"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release
         with:

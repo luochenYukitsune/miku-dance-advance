@@ -26,7 +26,7 @@ public sealed class EditorViewportFrameAgeDiagnosticsTests : IAsyncDisposable
     // Reuse the drawing-free headless builder, never Show an EditorWindow or create an HWND.
     private HeadlessUnitTestSession? session;
     private HeadlessUnitTestSession Headless =>
-        session ??= HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+        session ??= HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     public EditorViewportFrameAgeDiagnosticsTests() => InteractionDiagnostics.Stop();
 

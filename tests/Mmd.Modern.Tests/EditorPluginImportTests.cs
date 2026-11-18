@@ -21,7 +21,7 @@ public sealed class EditorPluginImportTests : IAsyncDisposable
 {
     private static readonly string Root = MdaWorkRoot.Path("plugins/20261113/import681");
     private readonly string directory = Path.Combine(Root, "editor-" + Guid.NewGuid().ToString("N"));
-    private readonly HeadlessUnitTestSession session = HeadlessUnitTestSession.StartNew(typeof(QualityLoadingAppBuilder));
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -147,13 +147,13 @@ public sealed class EditorPluginImportTests : IAsyncDisposable
         window.UpdateLayout();
         var button = Find<Button>(window, "ImportPluginButton");
         var point = button.TranslatePoint(default, window);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.WriteAllText(destination + ".layout.json", JsonSerializer.Serialize(new
         {
             window = window.Bounds.ToString(), importBounds = button.Bounds.ToString(), importOrigin = point?.ToString(),
             button.IsVisible, button.Opacity, button.IsEffectivelyEnabled, content = button.Content?.ToString()
         }));
         using var bitmap = new RenderTargetBitmap(new PixelSize((int)window.Bounds.Width, (int)window.Bounds.Height), new Vector(96, 96));
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         bitmap.Render(window); bitmap.Save(destination);
     }
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
