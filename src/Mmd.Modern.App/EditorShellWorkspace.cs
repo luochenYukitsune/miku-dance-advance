@@ -11,11 +11,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     // Fallback pacing only: the viewport's frame permits advance playback at the display cadence.
     // Win32 delivers this 16 ms timer only ~30 ms apart, so it covers intervals without a permit.
     private readonly DispatcherTimer playbackTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
-<<<<<<< HEAD
     private EditorScrubSeekCoordinator scrubSeek = null!;
-    private bool refreshingFrame;
-    private long lastPlaybackTimestamp;
-=======
     // Numeric inspectors are read by people: while playing, their bindings refresh at a fixed UX
     // rate (10 Hz, as Unity's Inspector and UE's Details panel do at runtime), on the next playback
     // advance after the interval, so never faster than the display cadence. The models stay exact;
@@ -25,7 +21,6 @@ public sealed partial class EditorShellViewModel : IDisposable
     private bool refreshingFrame, playbackPacedSinceTick;
     private long lastPlaybackTimestamp, panelPresentationTimestamp;
     internal Func<long> PlaybackClock { get; set; } = Stopwatch.GetTimestamp;
->>>>>>> perf/t07-playback-panels
     private bool advancing, refreshing, playing, busy, preparingPreview, canCancelOperation;
     private string operationStatus = "就绪";
     private Func<string>? operationStatusSource;
@@ -225,8 +220,9 @@ public sealed partial class EditorShellViewModel : IDisposable
         {
             PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
             session.Seek(CurrentFrame);
-            if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+            if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
             SynchronizeAudioPlayback(explicitSeek: true);
+            FlushPanelPresentation(force: true);
             ViewStateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -235,8 +231,9 @@ public sealed partial class EditorShellViewModel : IDisposable
     {
         if (!ReferenceEquals(session, Workspace.Session)) return;
         PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
-        if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+        if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
         SynchronizeAudioPlayback(explicitSeek: true);
+        FlushPanelPresentation(force: true);
         ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -244,7 +241,6 @@ public sealed partial class EditorShellViewModel : IDisposable
     {
         if (!advancing)
         {
-<<<<<<< HEAD
             if (scrubSeek.IsScrubbing)
             {
                 using var measure = InteractionDiagnostics.Measure("scrub.ui-frame", relatedId: CurrentFrame);
@@ -257,15 +253,9 @@ public sealed partial class EditorShellViewModel : IDisposable
                 using var measure = InteractionDiagnostics.Measure("timeline.seek-sync", relatedId: CurrentFrame);
                 PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
                 Workspace.Session?.Seek(CurrentFrame);
-                if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
+                if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
                 SynchronizeAudioPlayback(explicitSeek: true);
             }
-=======
-            PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
-            Workspace.Session?.Seek(CurrentFrame);
-            if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
-            SynchronizeAudioPlayback(explicitSeek: true);
->>>>>>> perf/t07-playback-panels
         }
         PublishPanelFrame();
         ViewStateChanged?.Invoke(this, advancing ? PlaybackFrameAdvanced : EventArgs.Empty);
@@ -309,6 +299,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         refreshingFrame = true;
         try { Animation.CurrentFrame = frame; SceneInspector.CurrentFrame = frame; }
         finally { refreshingFrame = false; }
+        FlushPanelPresentation(force: true);
         OnPropertyChanged(nameof(CurrentFrame)); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
