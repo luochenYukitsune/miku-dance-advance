@@ -4,7 +4,6 @@ using Vortice.Direct3D;
 using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
-using D3D12Api=Vortice.Direct3D12.D3D12;
 namespace Mmd.Modern.Rendering.D3D12;
 
 /// <summary>Elapsed wall time within the recording thread, including driver blocking or preemption,
@@ -181,6 +180,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     internal bool IsRecording {get;private set;}
     private readonly Slot[] slots;
     private readonly ID3D12Fence fence;
+    private readonly D3D12FenceWaiter fenceWaiter;
     private int slotIndex=-1;
     private ulong fenceValue;
     private bool disposed;
@@ -188,22 +188,10 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         DebugRequested=Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG")=="1";
         DebugLayerEnabled=D3D12DebugLayerBootstrap.BeforeDeviceCreation(DebugRequested);
-        using var factory=DXGI.CreateDXGIFactory1<IDXGIFactory4>();
-        ID3D12Device? selected=null; string name="";
-        for(int i=0;factory.EnumAdapters1(i,out var adapter).Success&&adapter is not null;i++)
-        {
-            using(adapter) if((adapter.Description1.Flags&AdapterFlags.Software)==0&&D3D12Api.D3D12CreateDevice(adapter,FeatureLevel.Level_11_0,out selected).Success&&selected is not null)
-            {name=adapter.Description1.Description;break;}
-        }
-        if(selected is null)
-        {
-            using var warp=factory.EnumWarpAdapter<IDXGIAdapter1>();
-            D3D12Api.D3D12CreateDevice(warp,FeatureLevel.Level_11_0,out selected).CheckError();name=warp.Description1.Description;IsWarp=true;
-        }
-        Device=selected??throw new InvalidOperationException("No D3D12 device.");AdapterName=name;
+        (Device,AdapterName,IsWarp)=D3D12AdapterSelection.CreateDevice(FeatureLevel.Level_11_0);
         FeatureLevel=Device.CheckMaxSupportedFeatureLevel();
         if(DebugRequested) DebugQueue=Device.QueryInterfaceOrNull<ID3D12InfoQueue>();
-        Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);
+        Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);fenceWaiter=new(fence);
         slots=Enumerable.Range(0,3).Select(_=>new Slot(Device)).ToArray();
     }
     internal D3D12RecordingContext Begin()
@@ -247,11 +235,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
 
     internal void WaitForFence(ulong value,CancellationToken cancellationToken)
     {
-        while(fence.CompletedValue<value)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(1);
-        }
+        fenceWaiter.Wait(value,cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
     }
@@ -269,7 +253,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         if(disposed)return;Abort();WaitForIdle();disposed=true;
         foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-        DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceWaiter.Dispose();
     }
 }
 

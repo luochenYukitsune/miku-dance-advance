@@ -7,7 +7,6 @@ using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
-using D3D12Api = Vortice.Direct3D12.D3D12;
 
 namespace Mmd.Modern.Rendering.D3D12;
 
@@ -20,12 +19,14 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     private readonly ID3D12CommandAllocator allocator;
     private readonly ID3D12GraphicsCommandList commands;
     private readonly ID3D12Fence fence;
+    private readonly D3D12FenceWaiter fenceWaiter;
     private readonly ID3D12RootSignature root;
     private readonly ID3D12PipelineState pipeline;
     private readonly ID3D12InfoQueue? debugQueue;
     private ulong fenceValue;
     private bool disposed, rendering;
     public string AdapterName { get; }
+    internal long AdapterLuid => device.AdapterLuid;
     public bool IsWarp { get; }
     public FeatureLevel FeatureLevel { get; }
     public int LastVertexCount { get; private set; }
@@ -36,13 +37,13 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     public D3D12MeshRenderer()
     {
         _ = D3D12DebugLayerBootstrap.BeforeDeviceCreation(Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG") == "1");
-        (device, AdapterName, IsWarp) = CreateDevice();
+        (device, AdapterName, IsWarp) = D3D12AdapterSelection.CreateDevice(FeatureLevel.Level_11_0);
         FeatureLevel = device.CheckMaxSupportedFeatureLevel();
         if (Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG") == "1") debugQueue = device.QueryInterfaceOrNull<ID3D12InfoQueue>();
         queue = device.CreateCommandQueue(CommandListType.Direct);
         allocator = device.CreateCommandAllocator(CommandListType.Direct);
         commands = device.CreateCommandList<ID3D12GraphicsCommandList>(CommandListType.Direct, allocator, null);
-        commands.Close(); fence = device.CreateFence(0, FenceFlags.None);
+        commands.Close(); fence = device.CreateFence(0, FenceFlags.None); fenceWaiter = new(fence);
         RootParameter[] parameters = [
             new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel),
@@ -192,32 +193,14 @@ public sealed class D3D12MeshRenderer : IRenderBackend
     private void WaitForGpu()
     {
         queue.Signal(fence, ++fenceValue).CheckError();
-        while (fence.CompletedValue < fenceValue)
-        {
-            if (fence.CompletedValue == ulong.MaxValue) throw new InvalidOperationException("D3D12 mesh device removed while waiting for the GPU.");
-            Thread.Sleep(1);
-        }
-    }
-
-    private static (ID3D12Device Device, string Name, bool Warp) CreateDevice()
-    {
-        using var factory = DXGI.CreateDXGIFactory1<IDXGIFactory4>();
-        for (int i = 0; factory.EnumAdapters1(i, out var adapter).Success && adapter is not null; i++)
-        {
-            using (adapter)
-                if ((adapter.Description1.Flags & AdapterFlags.Software) == 0
-                    && D3D12Api.D3D12CreateDevice(adapter, FeatureLevel.Level_11_0, out ID3D12Device? hardware).Success && hardware is not null)
-                    return (hardware, adapter.Description1.Description, false);
-        }
-        using var warp = factory.EnumWarpAdapter<IDXGIAdapter1>();
-        D3D12Api.D3D12CreateDevice(warp, FeatureLevel.Level_11_0, out ID3D12Device? fallback).CheckError();
-        return (fallback ?? throw new InvalidOperationException("D3D12 WARP device unavailable."), warp.Description1.Description, true);
+        fenceWaiter.Wait(fenceValue, CancellationToken.None);
+        if (fence.CompletedValue == ulong.MaxValue) throw new InvalidOperationException("D3D12 mesh device removed while waiting for the GPU.");
     }
 
     public void Dispose()
     {
         if (disposed) return; disposed = true; WaitForGpu();
-        debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose();
+        debugQueue?.Dispose(); pipeline.Dispose(); root.Dispose(); commands.Dispose(); allocator.Dispose(); fence.Dispose(); queue.Dispose(); device.Dispose(); fenceWaiter.Dispose();
     }
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct MeshConstants(Matrix4x4 World, Matrix4x4 NormalWorld, Matrix4x4 ViewProjection,
