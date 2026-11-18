@@ -424,8 +424,10 @@ public static class ModelDirectoryPaths
 
     private static bool SameDirectory(string spelled, string folder)
     {
-        // Walk the spelled prefix from the deepest component that differs: each step must resolve, by its on-disk name
-        // in its parent, to exactly the corresponding component of the model folder.
+        // Walk both paths from the deepest component: at each level where the spellings differ, both names must resolve
+        // to the same on-disk entry of the shared parent (the directory's identity there), so "MOD" and "Mod" match on a
+        // case-insensitive volume whichever one the caller used, while "mod" next to "Mod" in a case-sensitive directory
+        // are two entries and do not.
         string a = Path.TrimEndingDirectorySeparator(spelled), b = Path.TrimEndingDirectorySeparator(folder);
         while (!string.Equals(a, b, StringComparison.Ordinal))
         {
@@ -436,12 +438,9 @@ public static class ModelDirectoryPaths
             {
                 try
                 {
-                    // An exact sibling with the spelled name exists: in a case-sensitive directory that is a different
-                    // folder. Otherwise the volume must map the spelling onto the model folder's own on-disk entry.
-                    var entries = new DirectoryInfo(parentB).GetDirectories();
-                    if (entries.Any(entry => string.Equals(entry.Name, nameA, StringComparison.Ordinal))) return false;
-                    if (!entries.Any(entry => string.Equals(entry.Name, nameB, StringComparison.Ordinal))) return false;
-                    if (!Directory.Exists(Path.Combine(parentB, nameA))) return false;
+                    var entries = new DirectoryInfo(parentB).GetDirectories().Select(entry => entry.Name).ToList();
+                    string? first = OnDiskName(parentB, nameA, entries), second = OnDiskName(parentB, nameB, entries);
+                    if (first is null || !string.Equals(first, second, StringComparison.Ordinal)) return false;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
@@ -451,5 +450,15 @@ public static class ModelDirectoryPaths
             a = parentA; b = parentB;
         }
         return true;
+    }
+
+    /// <summary>The entry of <paramref name="parent"/> that <paramref name="name"/> opens: the exact entry when one exists,
+    /// otherwise the only entry equal ignoring case, provided the name actually opens a directory there (the volume
+    /// folds case). Null when it opens nothing or is ambiguous.</summary>
+    private static string? OnDiskName(string parent, string name, IReadOnlyList<string> entries)
+    {
+        if (entries.Contains(name, StringComparer.Ordinal)) return name;
+        var folded = entries.Where(entry => string.Equals(entry, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return folded.Count == 1 && Directory.Exists(Path.Combine(parent, name)) ? folded[0] : null;
     }
 }

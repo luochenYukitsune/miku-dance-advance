@@ -28,6 +28,16 @@ public sealed class ModelDirectoryPathsTests : IDisposable
     }
 
     [Fact]
+    public void AModelFolderPassedInADifferentCaseAcceptsItsOnDiskSpelling()
+    {
+        Directory.CreateDirectory(Path.Combine(root, "Mod"));
+        string passed = Path.Combine(root, "MOD");
+        if (!Directory.Exists(passed)) return; // case-sensitive volume: "MOD" is not this folder
+        // The caller's spelling is "MOD"; the reference uses the real name "Mod". Both name the same directory.
+        Assert.Equal(Path.Combine(passed, "paint.png"), ModelDirectoryPaths.ResolveContained(passed, Path.Combine("..", "Mod", "paint.png")));
+    }
+
+    [Fact]
     public void ACaseVariantSiblingInACaseSensitiveDirectoryIsRejected()
     {
         string model = Directory.CreateDirectory(Path.Combine(root, "Mod")).FullName;
