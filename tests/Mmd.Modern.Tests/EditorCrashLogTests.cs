@@ -83,25 +83,42 @@ public sealed class EditorCrashLogTests : IDisposable
     }
 
     [Fact]
-    public async Task ConcurrentWritersLeaveExactlyOneNewFileAfterThePrunes()
+    public void AnEarlierReturnedPathSurvivesTheNextWritersPrune()
     {
         Directory.CreateDirectory(directory);
-        // MaxFiles - 1 names that sort after anything written now: every prune keeps them plus its own new file only.
+        // MaxFiles - 1 names that sort after anything written now. Writer B's prune runs after writer A released the
+        // lock (here: after A returned). Keeping only B's own new file plus the newest names would delete A's log.
         for (int i = 0; i < EditorCrashLog.MaxFiles - 1; i++)
             File.WriteAllText(Path.Combine(directory, $"99991231-235959-{i:000}-ui-{i:x8}.txt"), "old");
-        var paths = new System.Collections.Concurrent.ConcurrentBag<string?>();
-        using var start = new Barrier(16);
-        var writers = Enumerable.Range(0, 16).Select(i => Task.Run(() =>
+        string? first = EditorCrashLog.TryWrite("ui", new Exception("a"), directory);
+        string? second = EditorCrashLog.TryWrite("ui", new Exception("b"), directory);
+        Assert.True(File.Exists(first)); Assert.True(File.Exists(second));
+        Assert.Equal(EditorCrashLog.MaxFiles, Directory.GetFiles(directory, "*.txt").Length);
+    }
+
+    [Fact]
+    public async Task EveryPathReturnedToConcurrentWritersStillExists()
+    {
+        Directory.CreateDirectory(directory);
+        for (int i = 0; i < EditorCrashLog.MaxFiles - 1; i++)
+            File.WriteAllText(Path.Combine(directory, $"99991231-235959-{i:000}-ui-{i:x8}.txt"), "old");
+        // 8 x 6 = 48 writes, fewer than MaxFiles: no returned path may be pruned, whichever writer prunes after it.
+        var missing = new System.Collections.Concurrent.ConcurrentBag<string?>();
+        var paths = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var start = new Barrier(8);
+        var writers = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
         {
             start.SignalAndWait(TestContext.Current.CancellationToken);
-            for (int n = 0; n < 8; n++) paths.Add(EditorCrashLog.TryWrite("ui", new Exception("w" + i), directory));
+            for (int n = 0; n < 6; n++)
+            {
+                string? path = EditorCrashLog.TryWrite("ui", new Exception("w" + i), directory);
+                if (path is null || !File.Exists(path)) missing.Add(path); else paths.Add(path);
+            }
         }, TestContext.Current.CancellationToken)).ToArray();
         await Task.WhenAll(writers);
-        Assert.All(paths, Assert.NotNull);
-        // Serialized write + prune: the last writer removed every other new file and kept its own. Interleaved prunes
-        // (each excluding only its own file) could instead leave two new files, or delete each other's and leave none.
+        Assert.Empty(missing);
+        Assert.All(paths, path => Assert.True(File.Exists(path)));
         Assert.Equal(EditorCrashLog.MaxFiles, Directory.GetFiles(directory, "*.txt").Length);
-        Assert.Single(paths, path => File.Exists(path));
     }
 
     [Fact]

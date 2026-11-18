@@ -59,6 +59,35 @@ public sealed class AddedModelHostOrderTests
     }
 
     [Fact]
+    public void AnImportedModelNeverSharesAHostOrderWithAnAccessoryShiftedByAnAddedModel()
+    {
+        // Imported models raw 0 and 4, accessory raw 0 with split 0. Adding a model raises the model count to 3, so the
+        // raw formula gives the accessory 0 + 3 + 1 = 4, the imported model's order. Every object must keep a distinct
+        // order, with the draw order (models by raw byte, then the post-split accessory) unchanged.
+        var low = Imported(0, 0); var high = Imported(4, 1); var accessory = Accessory(0, 0); var added = Added(3);
+        var orders = Orders([low, high, accessory, added]);
+        Assert.Equal(4, orders.Values.Distinct().Count());
+        Assert.DoesNotContain(0, orders.Values);
+        Assert.True(orders[low.ObjectId] < orders[high.ObjectId]);
+        Assert.True(orders[high.ObjectId] < orders[added.ObjectId]);
+        Assert.True(orders[added.ObjectId] < orders[accessory.ObjectId]);
+    }
+
+    [Fact]
+    public void RenumberingKeepsPreSplitAccessoriesNegativeAndInTheirOriginalOrder()
+    {
+        var first = Accessory(0, 0); var second = Accessory(1, 1); var after = Accessory(2, 2);
+        var low = Imported(0, 3); var high = Imported(5, 4); var added = Added(5);
+        // split 2: pre-split -1, -2; models 0 + 2, 5 + 2; post-split 2 + 3 + 1 = 6; added -> 8. No collision yet.
+        var plain = Orders([first, second, after, low, high, added], split: 2);
+        Assert.Equal([-1, -2, 2, 7, 6, 8], new[] { first, second, low, high, after, added }.Select(value => plain[value.ObjectId]));
+        // Model raw 4 collides with the post-split accessory (4 + 2 = 6): renumber, keeping groups and order.
+        var shifted = Imported(4, 4);
+        var dense = Orders([first, second, after, low, shifted, added], split: 2);
+        Assert.Equal([-1, -2, 3, 4, 5, 6], new[] { first, second, low, shifted, added, after }.Select(value => dense[value.ObjectId]));
+    }
+
+    [Fact]
     public void AddedModelsStayDistinctFromEveryAccessoryOrderInALargeMixedTable()
     {
         var accessories = Enumerable.Range(0, 40).Select(index => Accessory((byte)(index * 3), index)).ToArray();
