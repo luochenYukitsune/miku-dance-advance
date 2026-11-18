@@ -825,6 +825,7 @@
                 Groups="{Binding Animation.TimelineGroups}"
                 HasTracks="{Binding Animation.HasVisibleTracks}" FocusRow="{Binding Animation.TimelineFocusRow}"
                 SelectedKeyframes="{Binding Animation.SelectedKeyframes, Mode=TwoWay}" KeyframeSelectionChanged="SelectTimelineKeys" KeysMoveRequested="MoveTimelineKeys"
+                ScrubStarted="BeginTimelineScrub" ScrubEnded="EndTimelineScrub"
                 Background="{DynamicResource EditorPanelSurface}" Foreground="{DynamicResource EditorMuted}"
                 GridBrush="{DynamicResource EditorBorder}" PlayheadBrush="{DynamicResource EditorSelection}"
                 FontFamily="{DynamicResource EditorFont}" FontSize="12"

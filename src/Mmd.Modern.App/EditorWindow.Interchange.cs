@@ -95,6 +95,7 @@ public partial class EditorWindow
     {
         if (_shell is not { IsBusy: false } shell || shell.Browser.SelectedModel is not { } selected) return false;
         shell.StopPlayback();
+        shell.SynchronizePendingScrub();
         if (!await CheckPoseDraftsAsync()) return false;
         string? path = requestedPath;
         if (path is null)
@@ -147,6 +148,7 @@ public partial class EditorWindow
     {
         if (_shell is not { IsBusy: false } shell || shell.Browser.SelectedModel is not { } selected) return;
         shell.StopPlayback();
+        shell.SynchronizePendingScrub();
         var file = await StorageProvider.SaveFilePickerAsync(new() { Title = Text("导出姿态…"), DefaultExtension = "vpd",
             SuggestedFileName = selected.Name + ".vpd", ShowOverwritePrompt = true, FileTypeChoices = [new("VPD") { Patterns = ["*.vpd"] }] });
         if (file?.TryGetLocalPath() is not { } path) return;
@@ -163,7 +165,7 @@ public partial class EditorWindow
     private async void SavePmm(object? sender, RoutedEventArgs args)
     {
         if (_shell is not { IsBusy: false, HasProject: true } shell || !await CheckPoseDraftsAsync()) return;
-        shell.StopPlayback(); shell.Workspace.Session!.Seek(shell.CurrentFrame);
+        shell.StopPlayback(); shell.CancelPendingScrub(); shell.Workspace.Session!.Seek(shell.CurrentFrame);
         var options = new PmmSessionExportOptions();
         var report = EditorProjectInterchange.InspectPmmExport(shell.Workspace.Session, options);
         if (report.Issues.Any(issue => issue.Code == "pmm-name-encoding"))

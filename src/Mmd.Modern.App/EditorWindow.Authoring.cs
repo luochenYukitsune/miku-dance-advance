@@ -23,7 +23,7 @@ public partial class EditorWindow
         shell.StopPlayback();
         try
         {
-            var session = shell.Workspace.Session!; session.Seek(shell.CurrentFrame);
+            shell.CancelPendingScrub(); var session = shell.Workspace.Session!; session.Seek(shell.CurrentFrame);
             var dialog = new EditorRigSettingsWindow(shell.Workspace, selected.ObjectId, shell.Browser.SelectedBoneIndex)
             { ConfirmOverwriteAsync = plan => EditorDialogs.ConfirmAsync(this, Text("覆盖关键帧"),
                 Format("目标位置已有 {0} 个关键帧。覆盖后可以撤销。", plan.Conflicts.Count), Text("覆盖")) };

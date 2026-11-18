@@ -253,6 +253,10 @@ public partial class EditorWindow : Window
         catch (Exception error) { await ShowErrorAsync(error); }
     }
 
+    private void BeginTimelineScrub(object? sender, EventArgs args) => _shell?.BeginScrub();
+
+    private void EndTimelineScrub(object? sender, EventArgs args) => _shell?.EndScrub();
+
     private void SelectTimelineKeys(object? sender, EventArgs args)
     {
         if (_shell is null || sender is not EditorTimeline timeline) return;
@@ -286,6 +290,7 @@ public partial class EditorWindow : Window
     private async void OpenModelProperties(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
     {
         if (_shell is not { IsBusy: false } shell || shell.Browser.SelectedModel is not { } selected) return;
+        shell.SynchronizePendingScrub();
         if (!await CheckPoseDraftsAsync()) return;
         try
         {
@@ -401,6 +406,7 @@ public partial class EditorWindow : Window
         if (_shell is not { } shell) return false;
         if (Path.GetExtension(path).Equals(".pmm", StringComparison.OrdinalIgnoreCase)) return await OpenPmmAsync(path);
         bool committed = false;
+        shell.CancelPendingScrub();
         await ExecuteAsync(EditorLocalization.Text("正在打开工程…"), async token =>
         {
             await Task.Run(() => shell.Workspace.Open(path, token), token);
@@ -414,6 +420,7 @@ public partial class EditorWindow : Window
     private async Task SaveProjectAsync(bool saveAs)
     {
         if (_shell is not { HasProject: true } shell || !CommitPendingInlineLighting() || !await CheckPoseDraftsAsync() || !await EnsureMotionHeadersAsync()) return;
+        shell.SynchronizePendingScrub();
         string? path = saveAs ? null : shell.Workspace.ProjectPath;
         if (path is null)
         {
@@ -441,6 +448,7 @@ public partial class EditorWindow : Window
     private async Task NewProjectAsync()
     {
         if (!await CheckUnsavedAsync() || _shell is null) return;
+        _shell.CancelPendingScrub();
         _shell.Workspace.New(); _shell.CurrentFrame = 0; _shell.OperationStatus = EditorLocalization.Text("新建空工程。");
     }
 
