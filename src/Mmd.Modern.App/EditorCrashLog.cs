@@ -103,7 +103,14 @@ internal static class EditorCrashLog
             if (shown.Count > capacity) { shown.Remove(order.Last!.Value); order.RemoveLast(); }
             return true;
         }
-        internal bool WasShown(string signature) => shown.ContainsKey(signature);
+        /// <summary>A hit also counts as recent use, so a fault that keeps recurring is not evicted by a burst of new
+        /// ones and shown again.</summary>
+        internal bool WasShown(string signature)
+        {
+            if (!shown.TryGetValue(signature, out var node)) return false;
+            order.Remove(node); order.AddFirst(node);
+            return true;
+        }
     }
 
     /// <summary>Throw-site identity for throttling. Never throws: a DynamicMethod's MetadataToken (and other
@@ -158,6 +165,11 @@ internal static class EditorCrashLog
         catch (Exception) { }
     }
 
+    /// <summary>Serializes write + prune inside this process. Without it, a concurrent writer's prune (which keeps only
+    /// its own new file explicitly) could delete another writer's file before that path is returned, so a caller would
+    /// report a log that no longer exists.</summary>
+    private static readonly object writeGate = new();
+
     internal static string? TryWrite(string source, Exception error, string? directory = null)
     {
         try
@@ -170,9 +182,12 @@ internal static class EditorCrashLog
             text.AppendLine("Source: " + source);
             text.AppendLine("UTC: " + DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             text.Append(ExportDiagnosticException.Readable(error));
-            File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
             path = Path.GetFullPath(path);
-            Prune(root, path);
+            lock (writeGate)
+            {
+                File.WriteAllText(path, text.ToString(), new UTF8Encoding(false));
+                Prune(root, path);
+            }
             // A throwing TraceListener must not turn a completed write into a failure.
             SafeTrace("Unhandled " + source + " exception recorded at " + path + ": " + Describe(error));
             return path;

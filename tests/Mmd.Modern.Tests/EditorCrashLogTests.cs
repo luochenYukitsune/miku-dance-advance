@@ -83,6 +83,38 @@ public sealed class EditorCrashLogTests : IDisposable
     }
 
     [Fact]
+    public async Task ConcurrentWritersLeaveExactlyOneNewFileAfterThePrunes()
+    {
+        Directory.CreateDirectory(directory);
+        // MaxFiles - 1 names that sort after anything written now: every prune keeps them plus its own new file only.
+        for (int i = 0; i < EditorCrashLog.MaxFiles - 1; i++)
+            File.WriteAllText(Path.Combine(directory, $"99991231-235959-{i:000}-ui-{i:x8}.txt"), "old");
+        var paths = new System.Collections.Concurrent.ConcurrentBag<string?>();
+        using var start = new Barrier(16);
+        var writers = Enumerable.Range(0, 16).Select(i => Task.Run(() =>
+        {
+            start.SignalAndWait(TestContext.Current.CancellationToken);
+            for (int n = 0; n < 8; n++) paths.Add(EditorCrashLog.TryWrite("ui", new Exception("w" + i), directory));
+        }, TestContext.Current.CancellationToken)).ToArray();
+        await Task.WhenAll(writers);
+        Assert.All(paths, Assert.NotNull);
+        // Serialized write + prune: the last writer removed every other new file and kept its own. Interleaved prunes
+        // (each excluding only its own file) could instead leave two new files, or delete each other's and leave none.
+        Assert.Equal(EditorCrashLog.MaxFiles, Directory.GetFiles(directory, "*.txt").Length);
+        Assert.Single(paths, path => File.Exists(path));
+    }
+
+    [Fact]
+    public void AWindowFilterHitRefreshesRecencySoARecurringFaultIsNotEvicted()
+    {
+        var filter = new EditorCrashLog.NoticeFilter(capacity: 2);
+        Assert.True(filter.MarkShown("a")); Assert.True(filter.MarkShown("b"));
+        Assert.True(filter.WasShown("a"));
+        Assert.True(filter.MarkShown("c"));
+        Assert.True(filter.WasShown("a")); Assert.False(filter.WasShown("b")); Assert.True(filter.WasShown("c"));
+    }
+
+    [Fact]
     public void AWindowFilterShowsEachNewSignatureOnceEvenAfterTheLogTableOverflows()
     {
         EditorCrashLog.ResetThrottleForTests();

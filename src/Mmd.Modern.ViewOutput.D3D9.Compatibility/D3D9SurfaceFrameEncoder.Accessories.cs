@@ -246,20 +246,9 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             || frame.MixedDrawOrder.Any(value => !objects.TryGetValue(value.ObjectId, out var binding) || binding.Kind != value.Kind))
             throw new InvalidDataException("Traditional rendering requires a complete same-sample mixed object table.");
         int split = frame.AccessoryIndexAfterModels!.Value;
-        int modelCount = frame.RenderingStyles.Count;
-        var result = new Dictionary<Guid, int>();
-        // Models added after the PMM import have no raw byte. Give them raw values after the highest imported model so
-        // the native order sorts them after every imported model, by their neutral DrawOrderIndex. A raw value of 0 is
-        // never assigned to them: with no accessories before the models it becomes host order 0, which MME reads as
-        // "no current object" and would drop their configured effects.
-        var addedRaw = AddedModelRawOrders(frame.MixedDrawOrder);
+        var result = ComputeHostOrders(frame.MixedDrawOrder, frame.Accessories.Count, split, frame.RenderingStyles.Count);
         foreach (var value in frame.MixedDrawOrder)
         {
-            // The original PMM loader copies the raw model/accessory byte without renumbering.
-            // Its native getters use different formulas from the core's neutral sorted keys.
-            int raw = value.IsAddedAfterImport ? addedRaw[value.ObjectId] : value.SourceDrawOrderIndex;
-            int order = value.Kind == PmmDrawableKind.Model ? checked(raw + Math.Min(frame.Accessories.Count, split))
-                : raw < split ? checked(-raw - 1) : checked(raw + modelCount + 1);
             if (value.Kind == PmmDrawableKind.Accessory)
             {
                 var item = frame.Accessories.Single(item => item.ObjectId == value.ObjectId);
@@ -268,19 +257,30 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             }
             else if (value.Visible != frame.SceneInputs[value.ObjectId].Visible)
                 throw new InvalidDataException("Mixed model visibility differs from the same frozen sample.");
-            result.Add(value.ObjectId, order);
         }
         return result;
     }
 
-    /// <summary>Raw source orders for models added after the PMM import: after the highest imported model byte (never 0),
-    /// in DrawOrderIndex order. Not limited to 0..255; the native packet carries a 32-bit signed order.</summary>
-    internal static IReadOnlyDictionary<Guid, int> AddedModelRawOrders(IReadOnlyList<SceneProjectDrawItem> order)
+    /// <summary>Host (MME) orders. Imported objects use the original PMM loader's formulas on their raw bytes, unchanged.
+    /// Models added after the import have no byte: each gets the next order above every order already assigned, in
+    /// DrawOrderIndex order. That keeps them after all imported models in the native model sort, never 0 (MME's "no
+    /// current object"), unbounded by the byte range, and distinct from every model and accessory order, so MME's
+    /// order-to-object map cannot attach one of them to an accessory.</summary>
+    internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount)
     {
-        int next = Math.Max(1, order.Where(value => value.Kind == PmmDrawableKind.Model && !value.IsAddedAfterImport)
-            .Select(value => value.SourceDrawOrderIndex + 1).DefaultIfEmpty(1).Max());
-        return order.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex)
-            .ToDictionary(value => value.ObjectId, _ => next++);
+        var result = new Dictionary<Guid, int>();
+        foreach (var value in drawOrder.Where(value => !value.IsAddedAfterImport))
+        {
+            // The original PMM loader copies the raw model/accessory byte without renumbering.
+            // Its native getters use different formulas from the core's neutral sorted keys.
+            int raw = value.SourceDrawOrderIndex;
+            result.Add(value.ObjectId, value.Kind == PmmDrawableKind.Model ? checked(raw + Math.Min(accessoryCount, split))
+                : raw < split ? checked(-raw - 1) : checked(raw + modelCount + 1));
+        }
+        int next = Math.Max(1, result.Values.DefaultIfEmpty(0).Max() + 1);
+        foreach (var value in drawOrder.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex))
+            result.Add(value.ObjectId, next++);
+        return result;
     }
 
     private static (uint Type, int Primary, int Sphere) ResolveAccessoryTexture(string token, D3D9SurfaceObjectBinding binding,
