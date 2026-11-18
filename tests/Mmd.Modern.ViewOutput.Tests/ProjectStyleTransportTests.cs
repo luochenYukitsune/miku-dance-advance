@@ -60,6 +60,7 @@ public sealed class ProjectStyleTransportTests : IDisposable
         };
         var coordinator = ExportCoordinator.ForProject(_ => ValueTask.FromResult(exportProject),
             (_, _) => ValueTask.FromResult<IViewRenderer>(renderer));
+        coordinator.OverlapCapture = false; // Capturing reads the live owner, which only the serial order permits.
         var result = await coordinator.RunAsync(new(new(2, 2, new(60000, 1001), 0, 30)), sink, cancellationToken: Token);
         Assert.Equal(60, result.CompletedFrames); Assert.Equal(118, result.SimulationTicks);
         Assert.Equal(new OfflineFrameTime(1, 2), renderer.Frames[1].Sample.SampledSourceFrame);

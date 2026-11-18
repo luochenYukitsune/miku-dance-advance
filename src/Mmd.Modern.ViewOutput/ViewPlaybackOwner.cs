@@ -11,7 +11,7 @@ internal abstract class ViewPlaybackOwner : IDisposable
     internal abstract PreviewFrame Snapshot(int width, int height, IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null);
     internal abstract Task<OfflineFrameRunResult> RunAsync(OfflineFramePlan plan,
         Func<OfflineFrame, CancellationToken, ValueTask> capture, IProgress<OfflineFrameProgress>? progress, CancellationToken token,
-        IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null);
+        IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null, bool overlapCapture = false);
     public abstract void Dispose();
     internal static ViewPlaybackOwner From(SceneAnimationSession session) => new SceneOwner(session);
     internal static ViewPlaybackOwner From(PmmProjectPlayback playback) => new PmmOwner(playback);
@@ -40,8 +40,8 @@ internal abstract class ViewPlaybackOwner : IDisposable
         }
         internal override Task<OfflineFrameRunResult> RunAsync(OfflineFramePlan plan,
             Func<OfflineFrame, CancellationToken, ValueTask> capture, IProgress<OfflineFrameProgress>? progress, CancellationToken token,
-            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null)
-            => OfflineFrameRunner.RunProjectAsync(project, plan, capture, progress, token, sceneInputRequests);
+            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null, bool overlapCapture = false)
+            => OfflineFrameRunner.RunProjectAsync(project, plan, capture, progress, token, sceneInputRequests, overlapCapture);
         public override void Dispose() => project.Dispose();
     }
 
@@ -56,8 +56,8 @@ internal abstract class ViewPlaybackOwner : IDisposable
             => owner.Snapshot(width, height, sceneInputRequests);
         internal override Task<OfflineFrameRunResult> RunAsync(OfflineFramePlan plan,
             Func<OfflineFrame, CancellationToken, ValueTask> capture, IProgress<OfflineFrameProgress>? progress, CancellationToken token,
-            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null)
-            => owner.RunAsync(plan, capture, progress, token, sceneInputRequests);
+            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null, bool overlapCapture = false)
+            => owner.RunAsync(plan, capture, progress, token, sceneInputRequests, overlapCapture);
         public override void Dispose() => project.Dispose();
     }
 
@@ -78,10 +78,10 @@ internal abstract class ViewPlaybackOwner : IDisposable
         }
         internal override Task<OfflineFrameRunResult> RunAsync(OfflineFramePlan plan,
             Func<OfflineFrame, CancellationToken, ValueTask> capture, IProgress<OfflineFrameProgress>? progress, CancellationToken token,
-            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null)
+            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null, bool overlapCapture = false)
         {
             ViewSceneInputRequests.RejectNonProject(sceneInputRequests);
-            return OfflineFrameRunner.RunAsync(session, plan, capture, progress, token);
+            return OfflineFrameRunner.RunAsync(session, plan, capture, progress, token, overlapCapture);
         }
         public override void Dispose() => session.Dispose();
     }
@@ -108,10 +108,10 @@ internal abstract class ViewPlaybackOwner : IDisposable
         }
         internal override Task<OfflineFrameRunResult> RunAsync(OfflineFramePlan plan,
             Func<OfflineFrame, CancellationToken, ValueTask> capture, IProgress<OfflineFrameProgress>? progress, CancellationToken token,
-            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null)
+            IReadOnlyList<SceneObjectRenderRequest>? sceneInputRequests = null, bool overlapCapture = false)
         {
             ViewSceneInputRequests.RejectNonProject(sceneInputRequests);
-            return OfflineFrameRunner.RunPmmAsync(playback, plan, capture, progress, token);
+            return OfflineFrameRunner.RunPmmAsync(playback, plan, capture, progress, token, overlapCapture);
         }
         public override void Dispose() => playback.Dispose();
     }

@@ -25,13 +25,18 @@ public sealed class FrameBufferLease : IDisposable
 
     public FrameBufferLease(int width, int height, int stride, Memory<byte> pixels, Action? release = null)
     {
+        int length = ValidateShape(width, height, stride);
+        if (pixels.Length < length) throw new ArgumentException("Pixel storage is shorter than stride times height.", nameof(pixels));
+        Width = width; Height = height; Stride = stride; this.pixels = pixels[..length]; this.release = release;
+    }
+
+    internal static int ValidateShape(int width, int height, int stride)
+    {
         if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || (long)width * height > 268_435_456)
             throw new ArgumentOutOfRangeException(nameof(width));
         if (stride < (long)width * 4 || (long)stride * height > int.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(stride));
-        int length = checked(stride * height);
-        if (pixels.Length < length) throw new ArgumentException("Pixel storage is shorter than stride times height.", nameof(pixels));
-        Width = width; Height = height; Stride = stride; this.pixels = pixels[..length]; this.release = release;
+        return checked(stride * height);
     }
 
     public void Dispose()
