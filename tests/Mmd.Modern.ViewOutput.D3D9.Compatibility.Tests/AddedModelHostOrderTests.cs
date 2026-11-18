@@ -10,9 +10,12 @@ public sealed class AddedModelHostOrderTests
     private static SceneProjectDrawItem Accessory(byte raw, int index) => new(Guid.NewGuid(), PmmDrawableKind.Accessory, index, raw, raw, true, false);
     private static SceneProjectDrawItem Added(int order) => new(Guid.NewGuid(), PmmDrawableKind.Model, -1, 0, order, true, false);
 
-    private static Dictionary<Guid, int> Orders(IReadOnlyList<SceneProjectDrawItem> items, int split = 0) =>
+    // Packet rows: models, then accessories, each in the order given (unless a test passes its own scene order).
+    private static Dictionary<Guid, int> Orders(IReadOnlyList<SceneProjectDrawItem> items, int split = 0, IReadOnlyList<Guid>? packet = null) =>
         D3D9SurfaceFrameEncoder.ComputeHostOrders(items, items.Count(value => value.Kind == PmmDrawableKind.Accessory), split,
-            items.Count(value => value.Kind == PmmDrawableKind.Model));
+            items.Count(value => value.Kind == PmmDrawableKind.Model),
+            packet ?? items.Where(value => value.Kind == PmmDrawableKind.Model).Concat(items.Where(value => value.Kind == PmmDrawableKind.Accessory))
+                .Select(value => value.ObjectId).ToList());
 
     [Fact]
     public void AddedModelsFollowEveryImportedModelEvenAfterASparseByte()
@@ -85,6 +88,22 @@ public sealed class AddedModelHostOrderTests
         var shifted = Imported(4, 4);
         var dense = Orders([first, second, after, low, shifted, added], split: 2);
         Assert.Equal([-1, -2, 3, 4, 5, 6], new[] { first, second, low, shifted, added, after }.Select(value => dense[value.ObjectId]));
+    }
+
+    [Fact]
+    public void RenumberingBreaksEqualModelOrdersByPacketRowNotByThePmmTable()
+    {
+        // PMM table A, B (both raw 4); the scene (packet rows) has B before A, so the native stable sort draws B first.
+        // An accessory after the models plus an added model forces the renumbering (accessory 0 + 3 + 1 = 4 = A and B).
+        var a = Imported(4, 0); var b = Imported(4, 1); var accessory = Accessory(0, 0); var added = Added(2);
+        var orders = Orders([a, b, accessory, added], packet: [b.ObjectId, a.ObjectId, added.ObjectId, accessory.ObjectId]);
+        Assert.Equal(4, orders.Values.Distinct().Count());
+        Assert.True(orders[b.ObjectId] < orders[a.ObjectId]);
+        Assert.True(orders[a.ObjectId] < orders[added.ObjectId]);
+        Assert.True(orders[added.ObjectId] < orders[accessory.ObjectId]);
+        // The same table with the scene in PMM order keeps A first.
+        var same = Orders([a, b, accessory, added], packet: [a.ObjectId, b.ObjectId, added.ObjectId, accessory.ObjectId]);
+        Assert.True(same[a.ObjectId] < same[b.ObjectId]);
     }
 
     [Fact]

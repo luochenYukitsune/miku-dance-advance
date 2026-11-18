@@ -246,7 +246,10 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             || frame.MixedDrawOrder.Any(value => !objects.TryGetValue(value.ObjectId, out var binding) || binding.Kind != value.Kind))
             throw new InvalidDataException("Traditional rendering requires a complete same-sample mixed object table.");
         int split = frame.AccessoryIndexAfterModels!.Value;
-        var result = ComputeHostOrders(frame.MixedDrawOrder, frame.Accessories.Count, split, frame.RenderingStyles.Count);
+        // Packet row order (models in rendering-style order, then accessories in table order) is what the native stable
+        // draw sort falls back to on equal orders, so renumbering breaks ties the same way.
+        var packetOrder = frame.RenderingStyles.Select(row => row.ObjectId).Concat(frame.Accessories.Select(item => item.ObjectId)).ToList();
+        var result = ComputeHostOrders(frame.MixedDrawOrder, frame.Accessories.Count, split, frame.RenderingStyles.Count, packetOrder);
         foreach (var value in frame.MixedDrawOrder)
         {
             if (value.Kind == PmmDrawableKind.Accessory)
@@ -272,8 +275,10 @@ internal sealed partial class D3D9SurfaceFrameEncoder
     /// a post-split accessory shifted onto an imported model by the larger model count), every object is renumbered
     /// densely in the native draw order instead, in the original loader's layout: pre-split accessories -1..-b, then
     /// models b+1.., then post-split accessories. Each object keeps its group and its position within it, so the
-    /// drawn order is unchanged.</summary>
-    internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount)
+    /// drawn order is unchanged: equal orders within a group keep the order of <paramref name="packetOrder"/>, the
+    /// object rows of the native packet, which is the tie-break of the native stable sort.</summary>
+    internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount,
+        IReadOnlyList<Guid> packetOrder)
     {
         var result = new Dictionary<Guid, int>();
         foreach (var value in drawOrder.Where(value => !value.IsAddedAfterImport))
@@ -287,17 +292,22 @@ internal sealed partial class D3D9SurfaceFrameEncoder
         int next = Math.Max(1, result.Values.DefaultIfEmpty(0).Max() + 1);
         foreach (var value in drawOrder.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex))
             result.Add(value.ObjectId, next++);
-        return result.Values.Distinct().Count() == result.Count ? result : DenseHostOrders(drawOrder, result);
+        return result.Values.Distinct().Count() == result.Count ? result : DenseHostOrders(drawOrder, result, packetOrder);
     }
 
-    private static Dictionary<Guid, int> DenseHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, Dictionary<Guid, int> original)
+    private static Dictionary<Guid, int> DenseHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, Dictionary<Guid, int> original,
+        IReadOnlyList<Guid> packetOrder)
     {
         // Native draw groups (session.cpp originalDrawBefore): accessories with a negative order first, by descending
-        // order; then models; then the remaining accessories, both by ascending order. Ties keep DrawOrderIndex order.
+        // order; then models; then the remaining accessories, both by ascending order. The sort is a std::stable_sort
+        // over packet rows, so ties keep packet row order, not the PMM draw table's.
+        var row = packetOrder.Select((id, index) => (id, index)).ToDictionary(pair => pair.id, pair => pair.index);
+        if (row.Count != drawOrder.Count || drawOrder.Any(value => !row.ContainsKey(value.ObjectId)))
+            throw new InvalidDataException("Host order renumbering requires the packet row of every drawn object.");
         int Group(SceneProjectDrawItem value) => value.Kind == PmmDrawableKind.Model ? 1 : original[value.ObjectId] < 0 ? 0 : 2;
         var sorted = drawOrder.OrderBy(Group)
             .ThenBy(value => Group(value) == 0 ? -original[value.ObjectId] : original[value.ObjectId])
-            .ThenBy(value => value.DrawOrderIndex).ToList();
+            .ThenBy(value => row[value.ObjectId]).ToList();
         var result = new Dictionary<Guid, int>();
         int before = 0, after = sorted.Count(value => Group(value) == 0);
         foreach (var value in sorted)
