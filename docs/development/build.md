@@ -16,7 +16,7 @@ MDA 面向 Windows x64 平台开发，托管部分使用 C# / .NET 10 与 Avalon
 
 公开源码仓库包含：
 
-- 全部 C# 托管模块与单元测试项目源码（`src/`、`tests/`、`examples/`、`tools/`）；
+- 全部 C# 托管模块、官方随附画风插件（`src/Mda.StylePlugin.*`）、示例插件（`examples/Mda.HelloPlugin`、`examples/Mda.CustomStylePlugin`）与单元测试项目源码（`src/`、`tests/`、`examples/`、`tools/`）；
 - 原生模块源码：Bullet 刚体与软体物理桥接（`native/Mmd.Modern.Bullet*`）、MikkTSpace 切线计算（`native/Mmd.Modern.Mikktspace`）以及传统引擎 D3D9／MME 兼容层（`native/Mmd.Modern.D3D9.Compatibility`、`compatibility/d3d9-mme-host`）；
 - 构建与打包脚本（`scripts/`）、Inno Setup 安装器脚本（`installer/MDA.iss`）及开源许可声明文件。
 
@@ -38,12 +38,13 @@ MDA 面向 Windows x64 平台开发，托管部分使用 C# / .NET 10 与 Avalon
 ./scripts/dotnet.ps1 -DotNetArguments @('build','Mmd.Modern.slnx','-c','Release','--no-restore')
 ```
 
-首次 `restore` 需要联网访问 NuGet。`scripts/dotnet.ps1` 会把包缓存、临时目录和编译输出统一放在仓库上一级的 `../.dev-cache/modern-dotnet/` 下，主程序输出路径为 `../.dev-cache/modern-dotnet/bin/Mmd.Modern.App/Release/net10.0/`。
+首次 `restore` 需要联网访问 NuGet。`scripts/dotnet.ps1` 会把包缓存、临时目录和编译输出统一放在仓库上一级的 `../.dev-cache/modern-dotnet/` 下，主程序输出路径为 `../.dev-cache/modern-dotnet/bin/Mmd.Modern.App/Release/net10.0/`。在常规构建或自包含发布 `Mmd.Modern.App` 时，项目配置会自动构建四套官方随附画风插件并暂存到输出目录的 `plugins/<plugin-id>/`（仅包含 `mda-plugin.json`、插件 `.dll` 与 `.deps.json`，不复制重复的 `Mmd.Modern.Plugins.Contracts.dll`）。
 
-仓库自带的示例插件 `Mda.HelloPlugin` 可单独发布：
+仓库自带的示例插件 `Mda.HelloPlugin` 与第三方画风插件示例 `Mda.CustomStylePlugin` 可分别单独发布：
 
 ```powershell
 dotnet publish examples/Mda.HelloPlugin/Mda.HelloPlugin.csproj -c Release -o ./plugin-output
+dotnet publish examples/Mda.CustomStylePlugin/Mda.CustomStylePlugin.csproj -c Release -o ./style-plugin-output
 ```
 
 只执行上面的托管构建即可编译全部 C# 项目，并运行不依赖原生 DLL 和显卡的测试项目（如 `Mmd.Modern.Formats.Tests`、`Mmd.Modern.Scheduling.Tests`、`Mmd.Modern.Plugins.Tests`）。要在本地启动完整编辑器、跑刚柔体物理解算、编译 D3D12 着色器或使用传统引擎，还需要把下一节的原生组件准备好。

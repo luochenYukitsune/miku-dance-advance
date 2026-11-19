@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.style.wuthering-waves",
+  "name": "鸣潮",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.StylePlugin.WutheringWaves.dll",
+  "entryType": "Mda.StylePlugin.WutheringWaves.WutheringWavesStylePlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": ["rendering.styles"],
+  "providesStyles": ["wuthering-waves"],
+  "description": "Wuthering Waves stylized rendering pipeline with raw-NdotL banding, bounded specular, GrayRed FaceSDF, Hair masks, and MikkTSpace Body MatCap.",
+  "author": "MDA",
+  "localizedNames": {
+    "zh-CN": "鸣潮",
+    "en": "Wuthering Waves",
+    "ja": "鳴潮"
+  },
+  "localizedDescriptions": {
+    "zh-CN": "鸣潮风格化渲染管线：原始法线亮暗带、受限高光、灰度 FaceSDF（支持骨骼追踪）、头发高光遮罩与 MikkTSpace 身体 MatCap。",
+    "en": "Wuthering Waves stylized rendering pipeline with raw-NdotL banding, bounded specular, GrayRed FaceSDF with bone tracking, Hair masks, and MikkTSpace Body MatCap.",
+    "ja": "鳴潮スタイルレンダリングパイプライン：生 NdotL バンド、制限付きスペキュラ、ボーン追従対応 GrayRed FaceSDF、ヘアマスク、MikkTSpace ボディ MatCap。"
+  }
+}

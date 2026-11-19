@@ -96,7 +96,8 @@ public sealed class OutlineEditorTests : IAsyncDisposable
     public async Task MaterialWidthsSurvivePmaReopenAndIndependentRecoveryAfterTheSourceDocumentCloses()
         => await session.Dispatch(async () =>
         {
-            using var workspace = Workspace("source-cache");
+            await using var sourcePlugins = await BundledPluginsAsync("source-plugins");
+            using var workspace = Workspace("source-cache", sourcePlugins);
             Guid id = AddModel(workspace, out var sourceBytes);
             string source = workspace.Session!.Objects.Single().SourcePath;
             var properties = new EditorModelPropertiesViewModel(workspace, id);
@@ -125,11 +126,13 @@ public sealed class OutlineEditorTests : IAsyncDisposable
             var available = Assert.Single(await new EditorRecoveryStore(store.RootDirectory).ListRecoverableAsync(Token));
             Assert.Equal(checkpoint.CheckpointId, Assert.Single(available.Checkpoints).CheckpointId);
 
-            using var reopened = Workspace("open-cache");
+            await using var reopenedPlugins = await BundledPluginsAsync("open-plugins");
+            using var reopened = Workspace("open-cache", reopenedPlugins);
             reopened.Open(path, Token);
             AssertRestored(reopened, id, expectedProfile);
             Assert.False(reopened.IsDirty);
-            using var recovered = Workspace("recovery-cache");
+            await using var recoveryPlugins = await BundledPluginsAsync("recovery-plugins");
+            using var recovered = Workspace("recovery-cache", recoveryPlugins);
             _ = recovered.OpenRecovery(checkpoint, Token);
             AssertRestored(recovered, id, expectedProfile);
             Assert.Null(recovered.ProjectPath);
@@ -157,10 +160,22 @@ public sealed class OutlineEditorTests : IAsyncDisposable
             .OrderBy(row => row.LocalMaterialIndex).Select(row => (row.LocalMaterialIndex, row.Scale)).ToArray());
     }
 
-    private EditorProjectWorkspace Workspace(string cache)
+    private EditorProjectWorkspace Workspace(string cache, EditorPluginService? plugins = null)
     {
         Directory.CreateDirectory(directory);
-        return new EditorProjectWorkspace { PackageCacheDirectory = Path.Combine(directory, cache) };
+        var workspace = new EditorProjectWorkspace { PackageCacheDirectory = Path.Combine(directory, cache) };
+        if (plugins is not null) workspace.AttachPluginService(plugins);
+        return workspace;
+    }
+
+    private async Task<EditorPluginService> BundledPluginsAsync(string name)
+    {
+        string installDir = Path.Combine(directory, name);
+        var service = new EditorPluginService(installDir, Path.Combine(installDir, "enabled.json"),
+            new(new(0, 1, 0), 1, EditorLocalization.CurrentLanguage),
+            [TestStylePlugins.BundledPluginsRoot], EditorPluginService.BundledDefaultPluginIds);
+        await service.InitializeAsync(Token);
+        return service;
     }
 
     private Guid AddModel(EditorProjectWorkspace workspace, out byte[] sourceBytes)

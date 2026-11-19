@@ -1,5 +1,7 @@
+using System.Collections.ObjectModel;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.ViewOutput.D3D12;
@@ -15,17 +17,12 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private readonly string? xessLibraryPath;
     private readonly string? dlssBridgePath;
     private readonly string? dlssSdkDirectory;
+    private readonly D3D12ViewStyleCatalog styleCatalog;
     private readonly D3D12StylePresetCatalog stylePresets;
-    private readonly IReadOnlyList<D3D12ViewCharacterMaterialBinding> characterMaterials;
-    private readonly IReadOnlyList<D3D12ViewCharacterMaterialBinding> explicitMaterials;
-    private readonly IReadOnlyList<D3D12ViewFaceSdfBinding> faceDataBindings;
-    private readonly IReadOnlyList<D3D12ViewGenshinHairBinding> hairDataBindings;
-    private readonly IReadOnlyList<D3D12ViewStarMcHairBinding> starMcHairDataBindings;
-    private readonly IReadOnlyList<D3D12ViewEndfieldHairBinding> endfieldHairDataBindings;
-    private readonly IReadOnlyList<D3D12ViewGenshinHairAtlasBinding> genshinHairAtlasDataBindings;
-    private readonly IReadOnlyList<D3D12ViewEndfieldMatcapBinding> endfieldMatcapDataBindings;
-    private readonly IReadOnlyList<D3D12ViewGenshinMetallicBinding> genshinMetallicDataBindings;
-    private readonly IReadOnlyList<D3D12ViewStarMcBodyBinding> starMcBodyDataBindings;
+    private readonly IReadOnlyList<D3D12ViewCharacterMaterial> characterMaterials;
+    private readonly IReadOnlyList<D3D12ViewPluginMaterialBinding> pluginBindings;
+    private readonly IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters;
+    private readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject;
     private readonly IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths;
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     private readonly object prewarmGate = new();
@@ -42,18 +39,20 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         PreviewSamplingAdjustmentReason = previewSampling.LastAdjustmentReason
     };
 
-    public D3D12RealtimeViewRenderer(nint windowHandle, ViewRenderRequest request, string? fsrLoaderPath = null, string? xessLibraryPath = null,
-        string? dlssBridgePath = null, string? dlssSdkDirectory = null, D3D12StylePresetCatalog? stylePresets = null,
-        IEnumerable<D3D12ViewCharacterMaterialBinding>? characterMaterials = null,
-        IEnumerable<D3D12ViewFaceSdfBinding>? faceDataBindings = null,
-        IEnumerable<D3D12ViewGenshinHairBinding>? hairDataBindings = null,
-        IEnumerable<D3D12ViewStarMcHairBinding>? starMcHairDataBindings = null,
-        IEnumerable<D3D12ViewEndfieldHairBinding>? endfieldHairDataBindings = null,
-        IEnumerable<D3D12ViewGenshinHairAtlasBinding>? genshinHairAtlasDataBindings = null,
-        IEnumerable<D3D12ViewEndfieldMatcapBinding>? endfieldMatcapDataBindings = null,
-        IEnumerable<D3D12ViewGenshinMetallicBinding>? genshinMetallicDataBindings = null,
-        IEnumerable<D3D12ViewStarMcBodyBinding>? starMcBodyDataBindings = null,
-        IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null)
+    public D3D12RealtimeViewRenderer(
+        nint windowHandle,
+        ViewRenderRequest request,
+        string? fsrLoaderPath = null,
+        string? xessLibraryPath = null,
+        string? dlssBridgePath = null,
+        string? dlssSdkDirectory = null,
+        D3D12StylePresetCatalog? stylePresets = null,
+        IEnumerable<D3D12ViewCharacterMaterial>? characterMaterials = null,
+        IEnumerable<D3D12ViewPluginMaterialBinding>? pluginBindings = null,
+        IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null,
+        D3D12ViewStyleCatalog? styleCatalog = null,
+        IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters = null,
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         new ViewRendererCapabilities("d3d12", 4096, 4096, false, true).Validate(request, capture: false);
@@ -65,43 +64,24 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             throw new ArgumentException("The optional DLSS bridge path must be absolute.", nameof(dlssBridgePath));
         if (dlssSdkDirectory is not null && !Path.IsPathFullyQualified(dlssSdkDirectory))
             throw new ArgumentException("The optional DLSS component directory must be absolute.", nameof(dlssSdkDirectory));
-        this.request = request; this.fsrLoaderPath = fsrLoaderPath; this.xessLibraryPath = xessLibraryPath;
-        this.dlssBridgePath = dlssBridgePath; this.dlssSdkDirectory = dlssSdkDirectory;
+
+        this.request = request;
+        this.fsrLoaderPath = fsrLoaderPath;
+        this.xessLibraryPath = xessLibraryPath;
+        this.dlssBridgePath = dlssBridgePath;
+        this.dlssSdkDirectory = dlssSdkDirectory;
+        this.styleCatalog = styleCatalog ?? D3D12ViewStyleCatalog.Empty;
+        this.stylePresets = D3D12ViewRenderingStyles.MergePresetCatalog(stylePresets ?? D3D12StylePresetCatalog.BuiltIn, this.styleCatalog);
         this.outlineWidths = D3D12ViewOutlineWidths.Detach(outlineWidths);
-        this.hairDataBindings = D3D12ViewGenshinHairBindings.Detach(hairDataBindings);
-        this.starMcHairDataBindings = D3D12ViewStarMcHairBindings.Detach(starMcHairDataBindings);
-        this.endfieldHairDataBindings = D3D12ViewEndfieldHairBindings.Detach(endfieldHairDataBindings);
-        this.genshinHairAtlasDataBindings = D3D12ViewGenshinHairAtlasBindings.Detach(genshinHairAtlasDataBindings);
-        explicitMaterials = D3D12ViewCharacterMaterials.Detach(characterMaterials);
-        this.characterMaterials = D3D12ViewGenshinHairAtlasBindings.SelectCharacterMaterials(
-            D3D12ViewEndfieldHairBindings.SelectCharacterMaterials(
-            D3D12ViewStarMcHairBindings.SelectCharacterMaterials(
-            D3D12ViewGenshinHairBindings.SelectCharacterMaterials(
-                explicitMaterials, this.hairDataBindings),
-            this.starMcHairDataBindings, this.hairDataBindings), this.endfieldHairDataBindings, this.hairDataBindings, this.starMcHairDataBindings), this.genshinHairAtlasDataBindings, this.starMcHairDataBindings, this.endfieldHairDataBindings);
-        this.endfieldMatcapDataBindings = D3D12ViewEndfieldMatcapBindings.Detach(endfieldMatcapDataBindings);
-        this.characterMaterials = D3D12ViewEndfieldMatcapBindings.SelectCharacterMaterials(this.characterMaterials,
-            this.endfieldMatcapDataBindings, this.hairDataBindings, this.starMcHairDataBindings, this.genshinHairAtlasDataBindings, this.endfieldHairDataBindings);
-        this.genshinMetallicDataBindings = D3D12ViewGenshinMetallicBindings.Detach(genshinMetallicDataBindings);
-        this.characterMaterials = D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials(this.characterMaterials,
-            this.genshinMetallicDataBindings, this.hairDataBindings, this.genshinHairAtlasDataBindings,
-            this.starMcHairDataBindings, this.endfieldHairDataBindings, this.endfieldMatcapDataBindings);
-        this.starMcBodyDataBindings = D3D12ViewStarMcBodyBindings.Detach(starMcBodyDataBindings);
-        this.characterMaterials = D3D12ViewStarMcBodyBindings.SelectCharacterMaterials(this.characterMaterials,
-            this.starMcBodyDataBindings, this.hairDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex))
-                .Concat(this.starMcHairDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex)))
-                .Concat(this.endfieldHairDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex)))
-                .Concat(this.genshinHairAtlasDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex)))
-                .Concat(this.endfieldMatcapDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex)))
-                .Concat(this.genshinMetallicDataBindings.Select(v => (v.ObjectId, v.LocalMaterialIndex))));
-        this.faceDataBindings = D3D12ViewFaceSdfBindings.Detach(faceDataBindings);
-        D3D12ViewFaceSdfBindings.ValidateCharacterMaterials(this.characterMaterials, this.faceDataBindings);
-        SceneInputRequests = D3D12ViewGenshinHairAtlasBindings.CreateRequests(this.genshinHairAtlasDataBindings,
-            D3D12ViewEndfieldHairBindings.CreateRequests(this.endfieldHairDataBindings, this.faceDataBindings, this.hairDataBindings, this.starMcHairDataBindings, this.characterMaterials));
-        SceneInputRequests = D3D12ViewEndfieldMatcapBindings.CreateRequests(this.endfieldMatcapDataBindings, SceneInputRequests, this.characterMaterials);
-        SceneInputRequests = D3D12ViewGenshinMetallicBindings.CreateRequests(this.genshinMetallicDataBindings, SceneInputRequests);
-        SceneInputRequests = D3D12ViewStarMcBodyBindings.CreateRequests(this.starMcBodyDataBindings, SceneInputRequests, this.characterMaterials);
-        this.stylePresets = stylePresets ?? D3D12StylePresetCatalog.BuiltIn;
+        this.characterMaterials = D3D12ViewCharacterMaterials.Detach(characterMaterials);
+        this.pluginBindings = D3D12ViewPluginMaterialBindings.Detach(pluginBindings);
+        this.styleGlobalParameters = D3D12ViewPluginMaterialBindings.DetachGlobalParameters(styleGlobalParameters);
+        this.boneIndicesByObject = DetachBoneIndices(boneIndicesByObject);
+
+        D3D12ViewPluginMaterialBindings.Validate(this.characterMaterials, this.pluginBindings, this.styleCatalog);
+        SceneInputRequests = D3D12ViewPluginMaterialBindings.CreateRequests(
+            this.pluginBindings, this.styleCatalog, this.characterMaterials, this.boneIndicesByObject);
+
         presenter = new(windowHandle, request.Width, request.Height);
         Capabilities = new(presenter.IsWarp ? "d3d12-warp" : "d3d12-hardware", 4096, 4096, false, true);
         StartShaderPrewarm(request.EffectiveQuality);
@@ -125,8 +105,17 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(frame); cancellationToken.ThrowIfCancellationRequested();
             if (frame.Width != request.Width || frame.Height != request.Height) throw new InvalidOperationException("Resize the realtime renderer before presenting new dimensions.");
             var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow, frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
-            var style = D3D12ViewRenderingStyles.Resolve(scene, stylePresets, frame.RenderingStyles, explicitMaterials,
-                faceDataBindings, frame.SceneInputs, hairDataBindings, starMcHairDataBindings, endfieldHairDataBindings, genshinHairAtlasDataBindings, endfieldMatcapDataBindings, genshinMetallicDataBindings, starMcBodyDataBindings, outlineWidths);
+            var style = D3D12ViewRenderingStyles.Resolve(
+                scene,
+                stylePresets,
+                frame.RenderingStyles,
+                characterMaterials,
+                pluginBindings,
+                frame.SceneInputs,
+                outlineWidths,
+                styleCatalog,
+                styleGlobalParameters,
+                boneIndicesByObject: boneIndicesByObject);
             scene = style.Scene;
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             previewSampling.Prepare(frame.Width, frame.Height, request.EffectiveQuality, scene, style.SurfaceStyles);
@@ -162,7 +151,8 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     public void ValidateRenderingStyles(OriginalFrameScene scene, IReadOnlyList<SceneRenderingStyleBinding> bindings)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        D3D12ViewRenderingStyles.Preflight(scene, stylePresets, bindings, explicitMaterials, faceDataBindings, hairDataBindings, starMcHairDataBindings, endfieldHairDataBindings, genshinHairAtlasDataBindings, endfieldMatcapDataBindings, genshinMetallicDataBindings, starMcBodyDataBindings, outlineWidths).EnsureAvailable();
+        D3D12ViewRenderingStyles.Preflight(
+            scene, stylePresets, bindings, characterMaterials, pluginBindings, outlineWidths, styleCatalog).EnsureAvailable();
     }
 
     /// <summary>Drains in-flight GPU work now. The existing presenter applies its native backbuffer resize on the next Present.</summary>
@@ -200,24 +190,32 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         }
         finally { gate.Release(); }
     }
+
     public void ValidateSceneInputs(PreviewFrame frame)
     {
         ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(frame);
-        // Legacy renderers retain their old preflight path. Only this new data-dependent request
-        // needs the exact current object source availability before the owner advances.
-        if (starMcBodyDataBindings.Count == 0 && genshinMetallicDataBindings.Count == 0 && endfieldMatcapDataBindings.Count == 0 && genshinHairAtlasDataBindings.Count == 0 && endfieldHairDataBindings.Count == 0
-            && !characterMaterials.Any(value => value.Style.EndfieldHair is not null || value.Style.EndfieldMatcap is not null || value.Style.GenshinMetallic is not null || value.Style.StarMcBody is not null)
-            && !(request.EffectiveQuality.EffectiveDiffusion is { Enabled: true, Strength: > 0 })) return;
+        if (pluginBindings.Count == 0 && !(request.EffectiveQuality.EffectiveDiffusion is { Enabled: true, Strength: > 0 }))
+            return;
         var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow,
             frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
         D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
-        _ = D3D12ViewRenderingStyles.Resolve(scene, stylePresets, frame.RenderingStyles, explicitMaterials,
-            faceDataBindings, frame.SceneInputs, hairDataBindings, starMcHairDataBindings, endfieldHairDataBindings, genshinHairAtlasDataBindings, endfieldMatcapDataBindings, genshinMetallicDataBindings, starMcBodyDataBindings, outlineWidths);
+        _ = D3D12ViewRenderingStyles.Resolve(
+            scene,
+            stylePresets,
+            frame.RenderingStyles,
+            characterMaterials,
+            pluginBindings,
+            frame.SceneInputs,
+            outlineWidths,
+            styleCatalog,
+            styleGlobalParameters,
+            boneIndicesByObject: boneIndicesByObject);
     }
 
     private void StartShaderPrewarm(ViewQualityOptions quality)
     {
-        var spec = D3D12ViewShaderPrewarm.BuildFromViewRequest(quality, characterMaterials, faceDataBindings);
+        var spec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
+            quality, styleCatalog, characterMaterials, pluginBindings, stylePresets);
         CancellationTokenSource? prior;
         CancellationTokenSource next;
         lock (prewarmGate)
@@ -229,6 +227,33 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             prewarmTask = D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, next.Token);
         }
         try { prior?.Cancel(); prior?.Dispose(); } catch { }
+    }
+
+    internal static IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? DetachBoneIndices(
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject)
+    {
+        if (boneIndicesByObject is null || boneIndicesByObject.Count == 0)
+            return null;
+
+        var copy = new Dictionary<Guid, IReadOnlyDictionary<string, int>>(boneIndicesByObject.Count);
+        foreach (var (objectId, bones) in boneIndicesByObject)
+        {
+            if (objectId == Guid.Empty)
+                throw new ArgumentException("Bone index map requires nonempty object identities.", nameof(boneIndicesByObject));
+            if (bones is null)
+                throw new ArgumentException("Bone index map entries cannot be null.", nameof(boneIndicesByObject));
+            var boneCopy = new Dictionary<string, int>(bones.Count, StringComparer.Ordinal);
+            foreach (var (name, idx) in bones)
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    throw new ArgumentException("Bone names cannot be null or whitespace.", nameof(boneIndicesByObject));
+                if (idx < 0)
+                    throw new ArgumentOutOfRangeException(nameof(boneIndicesByObject), "Bone indices must be nonnegative.");
+                boneCopy.Add(name, idx);
+            }
+            copy.Add(objectId, new ReadOnlyDictionary<string, int>(boneCopy));
+        }
+        return new ReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>(copy);
     }
 
     public async ValueTask DisposeAsync()

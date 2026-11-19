@@ -23,33 +23,37 @@ public sealed class D3D12EndfieldSurfaceTests
     [Theory,MemberData(nameof(SurfaceVariants))]
     public void EveryActualSurfaceVariantCompilesWithOneCanonicalThreeKnotResponse(string entry,bool native,bool gi,bool morph,bool sub)
     {
-        var shader=OriginalFrameShaders.CompileEndfieldSurface(entry,native,gi,morph,sub);
+        var shader=T8dTestHelpers.CompileEndfieldPixel("default",entry,native,gi,morph,sub);
         var mmd=OriginalFrameShaders.CompileCharacterToon(entry,native,gi,morph,sub);
-        var genshin=OriginalFrameShaders.CompileGenshinSurface(entry,native,gi,morph,sub);
+        var genshinModule=TestStylePlugins.AllViewCatalog.FindRegistration("genshin")!.ShaderModules!["default"];
+        var genshin=D3D12StyleShaderAssembler.CompilePixel("genshin",entry,genshinModule,
+            D3D12StyleShaderAssembler.ResolveEffectiveHooks(genshinModule,null),
+            D3D12StyleShaderAssembler.ResolveEffectiveGeometry(genshinModule,sub),native,gi,morph,sub,false,false);
         Assert.Equal(new byte[]{(byte)'D',(byte)'X',(byte)'B',(byte)'C'},shader[..4]);
         Assert.NotEqual(Convert.ToHexString(SHA256.HashData(mmd)),Convert.ToHexString(SHA256.HashData(shader)));
         Assert.NotEqual(Convert.ToHexString(SHA256.HashData(genshin)),Convert.ToHexString(SHA256.HashData(shader)));
-        var source=OriginalFrameShaders.EndfieldSurfaceSource(native,gi,morph,sub);
-        Assert.Contains("EndfieldLightResponse(dot(n,l),visibility)",source);
-        Assert.Contains("halfLambert=saturate(nDotL*.5+.5)",source);
-        Assert.Contains("if(IncomingLight.w<=0) band=halfLambert>=ShadowOptions.w?1:0;",source);
-        Assert.Contains("lowerThreshold=ShadowOptions.w-IncomingLight.w",source);
-        Assert.Contains("upperThreshold=ShadowOptions.w+IncomingLight.w",source);
-        Assert.Contains("halfTransition=IncomingLight.w*.25",source);
-        Assert.Contains("band=.5*lowerBand+.5*upperBand;",source);
-        Assert.Contains("+highlight*originalC;",source);
-        Assert.Contains("float3 highlight=saturate(pow(max(0,dot(n,h)),SpecularPower.w)*SpecularPower.rgb);",source);
+        var source=T8dTestHelpers.AssembleEndfieldPixelSource("default",entry,native,gi,morph,sub);
+        Assert.Contains("EndfieldLightResponseCore(dot(n, l), visibility)",source);
+        Assert.Contains("float halfLambert = saturate(nDotL * .5 + .5);",source);
+        Assert.Contains("if (IncomingLight.w <= 0) band = halfLambert >= ShadowOptions.w ? 1 : 0;",source);
+        Assert.Contains("float lowerThreshold = ShadowOptions.w - IncomingLight.w;",source);
+        Assert.Contains("float upperThreshold = ShadowOptions.w + IncomingLight.w;",source);
+        Assert.Contains("float halfTransition = IncomingLight.w * .25;",source);
+        Assert.Contains("band = .5 * lowerBand + .5 * upperBand;",source);
+        Assert.Contains("+ highlight * originalC;",source);
+        Assert.Contains("float3 highlight = saturate(pow(max(0, dot(n, h)), SpecularPower.w) * SpecularPower.rgb);",source);
         Assert.DoesNotContain("CharacterMainToon(",source);
         Assert.DoesNotContain("GenshinLightResponse",source);
         Assert.DoesNotContain("highlightBand",source);
-        if(gi||native)Assert.Contains("EndfieldLightResponse(dot(normalize(v.Normal),IncomingLight.xyz),visibility)",source);
+        if(gi||native)Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)",source);
         if(native)
         {
             // Additional lights take the family band and the shared highlight compression, not a palette budget.
-            Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) EndfieldLightResponse(dot(n,l),1)",source);
+            Assert.Contains("NATIVE_LIGHT_RESPONSE(v, n, l)",source);
+            Assert.Contains("MdaStyleLightResponse(v, n, l, 1)",source);
             Assert.DoesNotContain("remainingPalette",source);
         }
-        if(sub)Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)",source);
+        if(sub)Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)",source);
     }
 
     [Fact,Trait("Category","Gpu")]
@@ -57,10 +61,8 @@ public sealed class D3D12EndfieldSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var frame=Rows();
-        var previous=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.GenshinPmx,
-            D3D12SurfaceStyle.StarRailPmx,D3D12SurfaceStyle.Mmd]);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.GenshinPmx,
-            D3D12SurfaceStyle.StarRailPmx,D3D12SurfaceStyle.Mmd]);
+        var previous=new D3D12SurfaceStyleMap(["genshin","genshin","star-rail","mmd"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
+        var map=new D3D12SurfaceStyleMap(["endfield","genshin","star-rail","mmd"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var baseline=session.Capture(frame,Width,Height);
         var existing=session.Capture(frame,Width,Height,surfaceStyles:previous);
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
@@ -106,9 +108,9 @@ public sealed class D3D12EndfieldSurfaceTests
     public void NumericGpuSamplesKeepDarkMidLitPlateausAndExplicitFaceLiftInsideAndOutsideProjection(bool outside)
     {
         using var session=new D3D12FrameSession();
-        var body=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx]);
-        var face=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx],
-            [new(D3D12CharacterMaterialRole.Face,.35f,.35f)]);
+        var body=new D3D12SurfaceStyleMap(["endfield"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
+        var face=new D3D12SurfaceStyleMap(["endfield"],
+            [new(D3D12CharacterMaterialRole.Face,.35f,.35f)],TestStylePlugins.AllPresetCatalog);
         // Default threshold .5, width .1: transitions cover half-Lambert
         // [.375,.425] and [.575,.625]. Several interior samples share exactly
         // the same .5 plateau; the two separate shoulders reach .25 and .75.
@@ -158,9 +160,9 @@ public sealed class D3D12EndfieldSurfaceTests
                 new(Vector3.One,Vector3.Zero,Matrix4x4.Identity,OriginalTextureSampling.PointClamp)),
             options:Options() with {SelfShadow=new(projection,64,64,true,false,OriginalTextureSampling.PointClamp,OriginalDepthComparison.LessEqual)},
             materials:[new(false,true,false),new(false,true,false),new(true,false,false,SurfaceEnabled:false,ShadowDoubleSided:true)]);
-        D3D12SurfaceStyle[] families=[D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.Mmd];
-        var plain=new D3D12SurfaceStyleMap(families);
-        var selected=new D3D12SurfaceStyleMap(families,[new(D3D12CharacterMaterialRole.Face,.35f,.35f),new(),new()]);
+        string[] families=["endfield","endfield","mmd"];
+        var plain=new D3D12SurfaceStyleMap(families,registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
+        var selected=new D3D12SurfaceStyleMap(families,[new(D3D12CharacterMaterialRole.Face,.35f,.35f),new(),new()],TestStylePlugins.AllPresetCatalog);
         var before=session.Capture(frame,Width,Height,surfaceStyles:plain);
         var after=session.Capture(frame,Width,Height,surfaceStyles:selected);
         var face=Project(frame,new(-.9f,0,0));var sunlitFace=Project(frame,new(-.35f,0,0));
@@ -197,7 +199,7 @@ public sealed class D3D12EndfieldSurfaceTests
         using var session=new D3D12FrameSession();
         var frame=Layers(straight,both,sphere,sub);
         var baseline=session.Capture(frame,Width,Height);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.Mmd]);
+        var map=new D3D12SurfaceStyleMap(["endfield","mmd"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
         for(int offset=3;offset<baseline.Rgba.Length;offset+=4)Assert.Equal(baseline.Rgba[offset],mixed.Rgba[offset]);
         // Original raw c=.15 continues to control SubTexture coverage. It must not
@@ -230,7 +232,7 @@ public sealed class D3D12EndfieldSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var frame=GiReceiver(native);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.Mmd]);
+        var map=new D3D12SurfaceStyleMap(["endfield","mmd"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var options=new RayGiOptions(LightingMode.SoftwareRayTracing,Strength:20,SamplesPerPixel:32,Seed:17,
             MaxRayDistance:50,RayEpsilon:.001f,DirectionalLightDirection:Vector3.UnitZ,DirectionalIrradiance:new(3),
             Composition:RayGiComposition.ToonPalette);
@@ -274,7 +276,7 @@ public sealed class D3D12EndfieldSurfaceTests
                 materials:[new(false,true,false)]);
         }
         var withoutSpecular=Fixture(Vector3.Zero);var withSpecular=Fixture(authoredSpecular);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx]);
+        var map=new D3D12SurfaceStyleMap(["endfield"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var mmdBase=session.Capture(withoutSpecular,Width,Height);
         var mmdLit=session.Capture(withSpecular,Width,Height);
         var newBase=session.Capture(withoutSpecular,Width,Height,surfaceStyles:map);

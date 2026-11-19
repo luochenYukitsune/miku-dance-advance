@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -14,7 +15,14 @@ public sealed class D3D12FaceSdfTests
     [InlineData(-1)]
     [InlineData(1)]
     public void ExplicitCombinedIndicesMustBelongToThisFrame(int index)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => Map(D3D12SurfaceStyle.StarRailPmx, Binding() with { CombinedTextureIndex = index }).Validate(Fixture()));
+    {
+        var binding = Binding(T8cTestHelpers.StarRailStyleId, primary: index);
+        var validation = T8cTestHelpers.ValidateMaterialBinding(
+            T8cTestHelpers.StarRailStyleId, binding, D3D12CharacterMaterialRole.Face, sourceTextureCount: 1);
+        Assert.False(validation.IsValid);
+        if (index >= 0)
+            Assert.Throws<ArgumentOutOfRangeException>(() => Map(T8cTestHelpers.StarRailStyleId, binding).Validate(Fixture()));
+    }
 
     [Theory]
     [InlineData(float.NaN)]
@@ -23,49 +31,67 @@ public sealed class D3D12FaceSdfTests
     [InlineData(-1)]
     [InlineData(101)]
     public void InvalidTransitionIsRejectedBeforeRecording(float value)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => (Binding() with { Transition = value }).Validate());
+    {
+        foreach (string styleId in new[] { T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId })
+        {
+            var binding = Binding(styleId, transition: value);
+            Assert.False(T8cTestHelpers.ValidateMaterialBinding(styleId, binding, D3D12CharacterMaterialRole.Face, 1).IsValid);
+        }
+    }
 
     [Fact]
     public void ExplicitRoleFamilyChannelSamplerAndHeadBasisAreValidated()
     {
-        var binding = Binding(); binding.Validate();
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(FaceSdf: binding).Validate());
-        Assert.Throws<NotSupportedException>(() => (binding with { Channel = (D3D12FaceSdfChannel)20 }).Validate());
-        Assert.Throws<NotSupportedException>(() => (binding with { Sampling = OriginalTextureSampling.PointClamp }).Validate());
-        Assert.Throws<ArgumentException>(() => (binding with { HeadWorldForward = Vector3.Zero }).Validate());
-        Assert.Throws<ArgumentException>(() => (binding with { HeadWorldRight = Vector3.UnitZ }).Validate());
-        Assert.Throws<ArgumentException>(() => (binding with { HeadWorldRight = new(float.NaN, 0, 0) }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { Offset = float.NaN }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { Offset = 3 }).Validate());
-        foreach (var family in new[] { D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.EndfieldPmx })
-            Assert.Throws<NotSupportedException>(() => Map(family, binding).Validate(Fixture()));
+        var binding = Binding(T8cTestHelpers.StarRailStyleId);
+        Assert.True(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, binding, D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.WutheringStyleId, Binding(T8cTestHelpers.WutheringStyleId), D3D12CharacterMaterialRole.Body, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, binding, D3D12CharacterMaterialRole.Eye, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, encoding: "Invalid"), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, secondary: 0), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, forward: Vector3.Zero), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, right: Vector3.UnitZ), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, right: new(float.NaN, 0, 0)), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, offset: float.NaN), D3D12CharacterMaterialRole.Face, 1).IsValid);
+        Assert.False(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, offset: 3), D3D12CharacterMaterialRole.Face, 1).IsValid);
+
+        Assert.Throws<NotSupportedException>(() => T8cTestHelpers.CreateDirectMap(
+            [T8cTestHelpers.MmdStyleId, T8cTestHelpers.MmdStyleId],
+            [new(D3D12CharacterMaterialRole.Face, PluginDraw: T8cTestHelpers.BuildPluginDraw(T8cTestHelpers.StarRailStyleId, binding, D3D12CharacterMaterialRole.Face)), new()]).Validate(Fixture()));
+        foreach (string family in new[] { T8cTestHelpers.GenshinStyleId, T8cTestHelpers.EndfieldStyleId })
+            Assert.False(T8cTestHelpers.ValidateMaterialBinding(family, Binding(family, encoding: "GrayRed"), D3D12CharacterMaterialRole.Face, 2).IsValid);
+
         // The source MC template's broad transition=10 is valid, not silently changed to Star's inverse width.
-        Map(D3D12SurfaceStyle.WutheringPmx, binding with { Transition = 10 }).Validate(Fixture());
+        var wutheringBroad = Binding(T8cTestHelpers.WutheringStyleId, transition: 10);
+        Assert.True(T8cTestHelpers.ValidateMaterialBinding(T8cTestHelpers.WutheringStyleId, wutheringBroad, D3D12CharacterMaterialRole.Face, 1).IsValid);
+        var wutheringMap = Map(T8cTestHelpers.WutheringStyleId, wutheringBroad);
+        wutheringMap.Validate(Fixture());
+        Assert.Equal(10f, T8cTestHelpers.ReadFaceSdfConstants(wutheringMap.CharacterMaterials[0].PluginDraw!).Transition);
     }
 
     [Fact]
     public void ConsumptionEqualityIncludesMaskContentAndNormalizedHeadPoseButIgnoresDisabledInput()
     {
-        var frame = Fixture(); var basis = Binding();
-        var a = Map(D3D12SurfaceStyle.StarRailPmx, basis);
-        var equal = Map(D3D12SurfaceStyle.StarRailPmx, basis with { HeadWorldForward = -Vector3.UnitZ * 2, HeadWorldRight = Vector3.UnitX * 3 });
+        var frame = Fixture();
+        var basis = Binding(T8cTestHelpers.StarRailStyleId);
+        var a = Map(T8cTestHelpers.StarRailStyleId, basis);
+        var equal = Map(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, forward: -Vector3.UnitZ * 2, right: Vector3.UnitX * 3));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(a, equal));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(a, Map(D3D12SurfaceStyle.StarRailPmx, basis with { HeadWorldRight = -Vector3.UnitX })));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(a, Map(D3D12SurfaceStyle.StarRailPmx, basis with { Transition = 2 })));
-        var captured = a.CaptureFaceTextures(frame);
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, equal.CaptureFaceTextures(Fixture())));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, a.CaptureFaceTextures(Fixture(invertMask: true))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(a, Map(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, right: -Vector3.UnitX))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(a, Map(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, transition: 2))));
+        var captured = a.CaptureResolvedInputs(frame);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, equal.CaptureResolvedInputs(Fixture())));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, a.CaptureResolvedInputs(Fixture(invertMask: true))));
         // Reusing a public map captures new frame data separately; previous submitted state stays detached.
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, a.CaptureFaceTextures(frame)));
-        var zero = Map(D3D12SurfaceStyle.StarRailPmx, basis, strength: 0);
-        Assert.False(zero.HasConsumedFaceSdf);
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(zero, Map(D3D12SurfaceStyle.StarRailPmx, null, strength: 0)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(zero, Map(D3D12SurfaceStyle.StarRailPmx, basis with { Offset = 0 }, strength: 0)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, a.CaptureResolvedInputs(frame)));
+        var zero = Map(T8cTestHelpers.StarRailStyleId, basis, strength: 0);
+        Assert.Equal("default", zero.CharacterMaterials[0].PluginDraw!.ShaderModuleId);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(zero, Map(T8cTestHelpers.StarRailStyleId, null, strength: 0)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(zero, Map(T8cTestHelpers.StarRailStyleId, Binding(T8cTestHelpers.StarRailStyleId, offset: 0), strength: 0)));
     }
 
     public static IEnumerable<object[]> Variants()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx })
+        foreach (string family in new[] { T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId })
         foreach (bool native in new[] { false, true })
         foreach (bool gi in new[] { false, true })
         foreach (var variant in new[] { (Morph: false, Sub: false), (Morph: true, Sub: false), (Morph: true, Sub: true) })
@@ -73,36 +99,33 @@ public sealed class D3D12FaceSdfTests
     }
 
     [Theory, MemberData(nameof(Variants))]
-    public void EveryDedicatedVariantCompilesAndAllActualLightConsumersUseTheSameFaceResponse(D3D12SurfaceStyle family, bool native, bool gi, bool morph, bool sub)
+    public void EveryDedicatedVariantCompilesAndAllActualLightConsumersUseTheSameFaceResponse(string family, bool native, bool gi, bool morph, bool sub)
     {
         string entry = native ? (gi ? "PSSurfaceGiNative" : "PSSurfaceNative") : gi ? "PSSurfaceGi" : "PSSurface";
-        var shader = OriginalFrameShaders.CompileFaceSdfSurface(family, entry, native, gi, morph, sub);
+        var shader = T8cTestHelpers.CompilePluginSurface(family, "face-sdf", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
-        string source = OriginalFrameShaders.FaceSdfSurfaceSource(family, native, gi, morph, sub);
-        string prefix = family == D3D12SurfaceStyle.StarRailPmx ? "StarRail" : "Wuthering";
-        Assert.Contains("FaceSdfConstants:register(b4)", source);
-        Assert.Contains("FaceSdfMap:register(t7)", source);
-        Assert.Contains("FaceSdfSampler:register(s2)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,visibility)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,1)", source);
-        Assert.DoesNotContain($"{prefix}LightResponse(dot(n,l)", source);
-        Assert.DoesNotContain($"{prefix}LightResponse(dot(normalize(v.Normal),IncomingLight.xyz)", source);
-        Assert.Contains("+highlight*originalC;", source);
-        if (gi || native) Assert.Contains("FaceSdfLightResponse(v,IncomingLight.xyz,visibility)", source);
-        if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
-        if (family == D3D12SurfaceStyle.StarRailPmx) Assert.Contains(".15/FaceSdfParameters.x", source);
-        else Assert.Contains("float width=FaceSdfParameters.x", source);
+        string source = T8cTestHelpers.AssemblePluginSurfaceSource(family, "face-sdf", entry, native, gi, morph, sub);
+        string fallbackMethod = family == T8cTestHelpers.StarRailStyleId ? "StarRailLightResponse" : "WutheringRawLightResponse";
+        Assert.Contains("cbuffer PluginStyleConstants : register(b0, space2)", source);
+        Assert.Contains("Texture2D<float4> FaceSdfMap : register(t0, space2);", source);
+        Assert.Contains("SamplerState MdaLinearWrapSampler : register(s0, space2);", source);
+        Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)", source);
+        Assert.Equal(1, source.Split(fallbackMethod, StringSplitOptions.None).Length - 2);
+        Assert.Contains("highlight * originalC", source);
+        if (sub) Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)", source);
+        if (family == T8cTestHelpers.StarRailStyleId) Assert.Contains(".15 / FaceSdfParameters.x", source);
+        else Assert.Contains("float width = FaceSdfParameters.x", source);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void ActualGrayTextureAndWorldHeadBasisDriveOnlyTheExplicitFaceAndRestoreTheOrdinaryFrame(D3D12SurfaceStyle family)
+    public void ActualGrayTextureAndWorldHeadBasisDriveOnlyTheExplicitFaceAndRestoreTheOrdinaryFrame(string family)
     {
         using var session = new D3D12FrameSession(); var frame = Fixture();
         var ordinary = Map(family, null);
         var before = session.Capture(frame, Width, Height, surfaceStyles: ordinary);
         var left = session.Capture(frame, Width, Height, surfaceStyles: Map(family, Binding(family)));
-        var right = session.Capture(frame, Width, Height, surfaceStyles: Map(family, Binding(family) with { HeadWorldRight = -Vector3.UnitX }));
+        var right = session.Capture(frame, Width, Height, surfaceStyles: Map(family, Binding(family, right: -Vector3.UnitX)));
         // UV .375 samples gray 64/255; mirroring by -U with Repeat samples 192/255.
         // At sideways light center=.5. Both families' selected halfwidths place these
         // values on exact opposite plateaus, independently of the unchanged +X normal.
@@ -124,7 +147,7 @@ public sealed class D3D12FaceSdfTests
         var warm = session.Statistics!; long readbacks = session.Runtime.Readbacks;
         for (int i = 0; i < 8; i++)
         {
-            using var output = session.Render(frame, Width, Height, surfaceStyles: Map(family, Binding(family) with { Offset = 1 + i * .01f }));
+            using var output = session.Render(frame, Width, Height, surfaceStyles: Map(family, Binding(family, offset: 1 + i * .01f)));
             Assert.Equal(warm.ShaderCompilations, output.Statistics.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, output.Statistics.PipelineCreations);
             Assert.Equal(0, output.Statistics.ReadbackCount);
@@ -133,9 +156,9 @@ public sealed class D3D12FaceSdfTests
         Assert.Equal(readbacks, session.Runtime.Readbacks);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void VerticalLightUsesExactOrdinaryFallbackAndFrontTieKeepsOriginalUv(D3D12SurfaceStyle family)
+    public void VerticalLightUsesExactOrdinaryFallbackAndFrontTieKeepsOriginalUv(string family)
     {
         using var session = new D3D12FrameSession(); var binding = Binding(family);
         var vertical = Fixture(light: Vector3.UnitY);
@@ -148,20 +171,20 @@ public sealed class D3D12FaceSdfTests
         AssertPixel(full, Height / 3, new(.6f, .4f, .2f, 1));
         // At this center, a collapsed U=0 would sample the repeated seam gray .5
         // and produce a non-dark value in either family. Retaining .375 stays dark.
-        var tie = session.Capture(front, Width, Height, surfaceStyles: Map(family, binding with { Offset = 1.45f }));
+        var tie = session.Capture(front, Width, Height, surfaceStyles: Map(family, Binding(family, offset: 1.45f)));
         AssertPixel(tie, Height / 3, new(.12f, .08f, .04f, 1));
         var back = session.Capture(Fixture(light: Vector3.UnitZ), Width, Height, surfaceStyles: Map(family, binding));
         AssertPixel(back, Height / 3, new(.12f, .08f, .04f, 1));
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void MaskDataDoesNotBecomeCoverageAndSubTextureRawAlphaRemainsExact(D3D12SurfaceStyle family)
+    public void MaskDataDoesNotBecomeCoverageAndSubTextureRawAlphaRemainsExact(string family)
     {
         using var session = new D3D12FrameSession(); var frame = Fixture(subTexture: true);
         var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(family, null));
         var bound = session.Capture(frame, Width, Height, surfaceStyles: Map(family,
-            Binding(family) with { CombinedTextureIndex = 2, HeadWorldRight = -Vector3.UnitX }));
+            Binding(family, primary: 2, right: -Vector3.UnitX)));
         int changed = 0, covered = 0;
         for (int offset = 0; offset < bound.Rgba.Length; offset += 4)
         {
@@ -173,27 +196,27 @@ public sealed class D3D12FaceSdfTests
         Assert.Equal(ordinary.Rgba, session.Capture(frame, Width, Height, surfaceStyles: Map(family, null)).Rgba);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void IntermediateSdfValuesUseTheAuditedLinearRangesRatherThanSmoothstep(D3D12SurfaceStyle family)
+    public void IntermediateSdfValuesUseTheAuditedLinearRangesRatherThanSmoothstep(string family)
     {
         using var session = new D3D12FrameSession(); var frame = Fixture();
-        float transition = family == D3D12SurfaceStyle.StarRailPmx ? .3f : .1f;
-        float offset = family == D3D12SurfaceStyle.StarRailPmx ? 1 : 1.27f;
-        var actual = session.Capture(frame, Width, Height, surfaceStyles: Map(family, Binding(family) with { Transition = transition, Offset = offset }));
+        float transition = family == T8cTestHelpers.StarRailStyleId ? .3f : .1f;
+        float offset = family == T8cTestHelpers.StarRailStyleId ? 1 : 1.27f;
+        var actual = session.Capture(frame, Width, Height, surfaceStyles: Map(family, Binding(family, transition: transition, offset: offset)));
         // The exact texel red is 192/255. With Star's halfwidth .5 and center .5,
         // q0 is the texel value itself. MC's halfwidth .1 and center .77 give a
         // separate independently calculated MapRange/ColorRamp interior value.
-        float q0 = family == D3D12SurfaceStyle.StarRailPmx ? 192f / 255 : ((192f / 255 - .77f) + .1f) / .2f;
-        float band = family == D3D12SurfaceStyle.StarRailPmx ? (q0 - .6f) / .3f : (q0 - .35f) / .15f;
+        float q0 = family == T8cTestHelpers.StarRailStyleId ? 192f / 255 : ((192f / 255 - .77f) + .1f) / .2f;
+        float band = family == T8cTestHelpers.StarRailStyleId ? (q0 - .6f) / .3f : (q0 - .35f) / .15f;
         band = Math.Clamp(band, 0, 1);
         var expected = new Vector3(.6f, .4f, .2f) * (.2f + .8f * band);
         AssertPixel(actual, Height / 3, new(expected, 1));
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void NativePointUsesPerFragmentTowardLightInsteadOfThePrimaryDirection(D3D12SurfaceStyle family)
+    public void NativePointUsesPerFragmentTowardLightInsteadOfThePrimaryDirection(string family)
     {
         using var session = new D3D12FrameSession();
         var source = Fixture(light: -Vector3.UnitX);
@@ -212,10 +235,32 @@ public sealed class D3D12FaceSdfTests
         Assert.Equal(off.Rgba, session.Capture(source, Width, Height, surfaceStyles: map).Rgba);
     }
 
-    private static D3D12FaceSdfBinding Binding(D3D12SurfaceStyle family = D3D12SurfaceStyle.StarRailPmx)
-        => new(0, -Vector3.UnitZ, Vector3.UnitX, family == D3D12SurfaceStyle.WutheringPmx ? .1f : 1);
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12FaceSdfBinding? binding, float strength = 1)
-        => new([family, family], [new(D3D12CharacterMaterialRole.Face, strength, 1, binding), new()]);
+    private static StyleMaterialBindingData Binding(
+        string family = T8cTestHelpers.StarRailStyleId,
+        int primary = 0,
+        int secondary = -1,
+        Vector3? forward = null,
+        Vector3? right = null,
+        float? transition = null,
+        float offset = 1f,
+        string? encoding = null)
+        => T8cTestHelpers.FaceSdfBinding(
+            family,
+            primary,
+            secondary,
+            forward ?? -Vector3.UnitZ,
+            right ?? Vector3.UnitX,
+            transition ?? (family == T8cTestHelpers.WutheringStyleId ? .1f : 1f),
+            offset,
+            encoding);
+
+    private static D3D12SurfaceStyleMap Map(string family, StyleMaterialBindingData? binding, float strength = 1)
+        => T8cTestHelpers.CreateDirectMap(
+            [family, family],
+            [
+                T8cTestHelpers.MaterialWithBinding(family, binding, D3D12CharacterMaterialRole.Face, strength, 1, buildWhenNull: true),
+                new(),
+            ]);
 
     private static OriginalFrameScene Fixture(bool invertMask = false, bool subTexture = false, Vector3? light = null)
     {

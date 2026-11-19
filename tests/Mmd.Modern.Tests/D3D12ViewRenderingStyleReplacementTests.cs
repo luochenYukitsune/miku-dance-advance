@@ -32,8 +32,8 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         var styles = project.RenderingStyles; var frame = project.Frame;
         int creates = physics.Creates;
 
-        var inspection = D3D12ViewRenderingStyleReplacements.Inspect(project, D3D12StylePresetCatalog.BuiltIn);
-        var plan = D3D12ViewRenderingStyleReplacements.Prepare(project, D3D12StylePresetCatalog.BuiltIn,
+        var inspection = D3D12ViewRenderingStyleReplacements.Inspect(project, TestStylePlugins.AllPresetCatalog);
+        var plan = D3D12ViewRenderingStyleReplacements.Prepare(project, TestStylePlugins.AllPresetCatalog,
             Map(("missing-default", "mmd")));
 
         Assert.Equal(new[] { "missing-default", "missing-hidden" }, inspection.MissingStyles.Select(item => item.Preset.StableId));
@@ -83,7 +83,7 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         using var project = Project(out var ids, out _);
         var store = new D3D12StylePresetStore(directory);
         var unsupported = store.SaveAsNew("Future pipeline", "future-surface", null, null);
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllViewCatalog.Registrations);
         project.EditRenderingStyles(edit =>
         {
             edit.DefaultStyle = RenderingStyleId.Genshin;
@@ -104,9 +104,9 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         Assert.True(genshin.Resolution.IsAvailable);
         Assert.True(genshin.IsDefault);
         Assert.Empty(genshin.AffectedObjectIds);
-        Assert.Contains("ordinary PMX basic body", genshin.Resolution.Diagnostic);
-        Assert.Contains("character-only", genshin.Resolution.Diagnostic);
-        Assert.Contains("Dedicated face/hair", genshin.Resolution.Diagnostic);
+        Assert.NotNull(genshin.Resolution.PluginRegistration);
+        Assert.Equal("genshin", genshin.Resolution.PluginRegistration!.StyleId);
+        Assert.NotNull(genshin.Resolution.DefaultStylizedShading);
         var plan = D3D12ViewRenderingStyleReplacements.Prepare(project, catalog,
             inspection.MissingStyles.Select(item => KeyValuePair.Create(item.Preset.StableId, "mmd")));
         Assert.True(plan.CanConfirm); Assert.Same(before, project.RenderingStyles);
@@ -131,7 +131,7 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         project.SetDefaultRenderingStyle(new("missing-a"), Token);
         var store = new D3D12StylePresetStore(directory);
         var unsupported = store.SaveAsNew("Future pipeline", "future-surface", null, null);
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllViewCatalog.Registrations);
         var before = project.RenderingStyles; var frame = project.Frame;
         var mappings = variant switch
         {
@@ -203,7 +203,7 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         using var project = Project(out var ids, out var physics);
         var store = new D3D12StylePresetStore(Path.Combine(directory, "presets"));
         var custom = store.SaveAsNew("Replacement", "mmd", new(.4f), new(.6f, .1f));
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllViewCatalog.Registrations);
         project.EditRenderingStyles(edit =>
         {
             edit.DefaultStyle = new("missing-a");
@@ -248,7 +248,7 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         string original = Save(project, "missing.pma"); byte[] originalBytes = File.ReadAllBytes(original);
         var store = new D3D12StylePresetStore(Path.Combine(directory, "presets"));
         var target = store.SaveAsNew("Installed replacement", "mmd", new(.4f), new(.5f, .1f));
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllViewCatalog.Registrations);
         using var loaded = Load(original);
         Assert.Equal("missing-a", loaded.Session.RenderingStyles.DefaultStyle.StableId);
         var plan = D3D12ViewRenderingStyleReplacements.Prepare(loaded.Session, catalog, Map(("missing-a", target.StableId)));
@@ -286,7 +286,7 @@ public sealed class D3D12ViewRenderingStyleReplacementTests : IDisposable
         string missing = Save(project, "gpu-missing.pma");
         var store = new D3D12StylePresetStore(Path.Combine(directory, "presets"));
         var target = store.SaveAsNew("GPU replacement", "mmd", new(.4f), new(.5f, .1f));
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllViewCatalog.Registrations);
         string saved;
         using (var loaded = Load(missing))
         {

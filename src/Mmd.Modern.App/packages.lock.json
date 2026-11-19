@@ -206,33 +206,6 @@
         "resolved": "0.11.0",
         "contentHash": "MEnrZ3UIiH40hjzMDsxrTyi8dtqB5ziv3iBeeU4bXsL/7NLSal9F1lZKpK+tfBRnUoDSdtcW3KufE4yhATOMCA=="
       },
-      "Microsoft.DotNet.PlatformAbstractions": {
-        "type": "Transitive",
-        "resolved": "2.0.3",
-        "contentHash": "cXgVdJmW3fLwmSxsv0RlTe4BIKs6slVXV5xRvsO4CV4aUeY67GelaujxY/lP5yVlaMjMM22pXKbKtUY9x050Mw=="
-      },
-      "Microsoft.Extensions.DependencyModel": {
-        "type": "Transitive",
-        "resolved": "2.0.3",
-        "contentHash": "OiNYN/QeZLuYcn4CvYrOmYgODPB1Jpqft+cT4F3Hkq5poj+1DLfbIBftMI/Pn8J7DyHhYeBMLxJUuugjvk/Fuw==",
-        "dependencies": {
-          "Microsoft.DotNet.PlatformAbstractions": "2.0.3",
-          "Newtonsoft.Json": "9.0.1"
-        }
-      },
-      "NativeLibraryLoader": {
-        "type": "Transitive",
-        "resolved": "1.0.13",
-        "contentHash": "78Lg887CZb4W8ZwmcNuoE75/7x//ljw/wnCuaUnThfe/RcAyuorfK9YkxBBpMWXTqfmjCb/FEsBFniySs+HcOQ==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyModel": "2.0.3"
-        }
-      },
-      "Newtonsoft.Json": {
-        "type": "Transitive",
-        "resolved": "13.0.3",
-        "contentHash": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ=="
-      },
       "PolySharp": {
         "type": "Transitive",
         "resolved": "1.10.0",
@@ -316,42 +289,6 @@
         "resolved": "0.21.3",
         "contentHash": "hDwB8WsQoyALQKqIbwzS68UKdlnafDm4T/DkO/JrA/YIneP/rKv96SxYPVXeh3FP4i/SXfShrYftKLtciJAIlw=="
       },
-      "Veldrid": {
-        "type": "Transitive",
-        "resolved": "4.9.0",
-        "contentHash": "Rvu7/OLNt6Yy/hbC+rAmjBbxcSirbG/BjOdLCF7kl5mGBkMGka3pLuTlkbXSt4UONh3tks0I7k/OJ7Sr8HFIoA==",
-        "dependencies": {
-          "NativeLibraryLoader": "1.0.13",
-          "Veldrid.MetalBindings": "4.9.0",
-          "Veldrid.OpenGLBindings": "4.9.0",
-          "Vk": "1.0.25",
-          "Vortice.D3DCompiler": "2.3.0",
-          "Vortice.Direct3D11": "2.3.0"
-        }
-      },
-      "Veldrid.MetalBindings": {
-        "type": "Transitive",
-        "resolved": "4.9.0",
-        "contentHash": "9qWYalATCT+/smQzFi2IFyEZpLE1l+A1r3tntKao8sYVAe18+P9rDIvpxyIL4T7Ritfm0JU2TnqckXmLenyfhQ=="
-      },
-      "Veldrid.OpenGLBindings": {
-        "type": "Transitive",
-        "resolved": "4.9.0",
-        "contentHash": "Du3zr+qWQO2Pzsl2iOeLmg23gxdr6BQ9yx5ygmcoBn6nm1AsbG4JMeEIpSGDt8WiTmy2VsUNY0kIGZklkrRoWQ=="
-      },
-      "Veldrid.SPIRV": {
-        "type": "Transitive",
-        "resolved": "1.0.15",
-        "contentHash": "hzupRH5uGibW8P/URwTFX1lDEmi1LWZKWf0euQyfS0FKVDI2gGDTB5ucq6JViG8Bk6U7Q2s1EsTXIDfXpu0oVQ==",
-        "dependencies": {
-          "Veldrid": "4.8.0"
-        }
-      },
-      "Vk": {
-        "type": "Transitive",
-        "resolved": "1.0.25",
-        "contentHash": "n1tpY/n9YV7j+wViUD31yc6TQMK3tkcdUXUbJUr3vIVifrRySzq5hpdxUnvC0SvBp8WrbAgowwd1YDvtc+u67A=="
-      },
       "Vortice.D3DCompiler": {
         "type": "Transitive",
         "resolved": "2.3.0",
@@ -360,17 +297,6 @@
           "SharpGen.Runtime": "2.0.0-beta.13",
           "SharpGen.Runtime.COM": "2.0.0-beta.13",
           "Vortice.DirectX": "2.3.0",
-          "Vortice.Mathematics": "1.4.25"
-        }
-      },
-      "Vortice.Direct3D11": {
-        "type": "Transitive",
-        "resolved": "2.3.0",
-        "contentHash": "cNpadAL5HTm2zc3ZJhySGVJWgOD12RSX3OEk96j24rLdigfAbvzTtFJgn68gHviYMwwY76ukcobhJNDWZc4a3w==",
-        "dependencies": {
-          "SharpGen.Runtime": "2.0.0-beta.13",
-          "SharpGen.Runtime.COM": "2.0.0-beta.13",
-          "Vortice.DXGI": "2.3.0",
           "Vortice.Mathematics": "1.4.25"
         }
       },
@@ -484,15 +410,6 @@
           "Mmd.Modern.Formats": "[1.0.0, )"
         }
       },
-      "mmd.modern.rendering.veldrid": {
-        "type": "Project",
-        "dependencies": {
-          "Mmd.Modern.Core": "[1.0.0, )",
-          "Newtonsoft.Json": "[13.0.3, )",
-          "Veldrid": "[4.9.0, )",
-          "Veldrid.SPIRV": "[1.0.15, )"
-        }
-      },
       "mmd.modern.viewoutput": {
         "type": "Project",
         "dependencies": {
@@ -502,6 +419,7 @@
       "mmd.modern.viewoutput.d3d12": {
         "type": "Project",
         "dependencies": {
+          "Mmd.Modern.Plugins.Contracts": "[1.0.0, )",
           "Mmd.Modern.Rendering.D3D12": "[1.0.0, )",
           "Mmd.Modern.ViewOutput": "[1.0.0, )"
         }

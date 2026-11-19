@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -17,34 +18,40 @@ public sealed class D3D12GenshinHairHistoryTests
         RequireSoftwareGi(session);
         var temporal = NativeAa(session);
         var frame = Frame(Texture());
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0);
+        var binding = TestStylePlugins.GenshinHair(0);
         var baseline = Map(binding);
         var ordinary = Map(null);
         var gi = Gi();
         long readbacks = session.Runtime.Readbacks;
         Render(baseline, 1, "FirstFrame", "FirstFrame");
         Render(Map(binding with { }), 2, "None", "None");
-        foreach (var changed in new[] { binding with { GlobalSpecularScale = .5f }, binding with { Shininess = 1 },
-            binding with { Multiplier = .25f }, binding with { Intensity = 2 } })
+        foreach (var changed in new[]
+        {
+            TestStylePlugins.GenshinHair(0, globalSpecularScale: .5f),
+            TestStylePlugins.GenshinHair(0, shininess: 1),
+            TestStylePlugins.GenshinHair(0, multiplier: .25f),
+            TestStylePlugins.GenshinHair(0, intensity: 2),
+        })
         {
             Render(Map(changed), 1, "ExplicitReset", "ExplicitRequest");
             Render(Map(changed with { }), 2, "None", "None");
         }
         Render(ordinary, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd],
-            [new(D3D12CharacterMaterialRole.Hair, .99f, .01f, EyeGeometricShadowStrength: .8f), new()]), 2, "None", "None");
+        Render(T8bTestHelpers.CreateDirectMap(["genshin", "mmd"],
+            (D3D12CharacterMaterialRole.Hair, null, .99f, .01f, .8f),
+            (D3D12CharacterMaterialRole.Body, null, .35f, 1f, .2f)), 2, "None", "None");
         Render(baseline, 1, "ExplicitReset", "ExplicitRequest");
         Render(baseline, 2, "None", "None");
 
         long submissions = session.Runtime.Submissions;
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Render(frame, Width, Height, gi,
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { CombinedTextureIndex = 1 })));
+            temporalUpscaling: temporal, surfaceStyles: Map(TestStylePlugins.GenshinHair(1))));
         Assert.Equal(submissions, session.Runtime.Submissions);
         Assert.False(session.Runtime.IsRecording);
         Render(baseline, 3, "None", "None");
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(frame, Width, Height, gi,
             (_, _) => throw new OperationCanceledException("Abort unsubmitted hair parameters."),
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { Multiplier = .5f })));
+            temporalUpscaling: temporal, surfaceStyles: Map(TestStylePlugins.GenshinHair(0, multiplier: .5f))));
         Assert.Equal(submissions + 1, session.Runtime.Submissions);
         Assert.False(session.Runtime.IsRecording);
         Render(baseline, 4, "None", "AbortedFrame");
@@ -52,7 +59,7 @@ public sealed class D3D12GenshinHairHistoryTests
         var warm = session.Statistics!;
         for (int i = 0; i < 4; i++)
         {
-            var map = Map(binding with { Intensity = 1 + i * .1f });
+            var map = Map(TestStylePlugins.GenshinHair(0, intensity: 1 + i * .1f));
             Render(map, i == 0 ? 6UL : 1UL, i == 0 ? "None" : "ExplicitReset", i == 0 ? "None" : "ExplicitRequest");
             Assert.Equal(warm.ShaderCompilations, session.Statistics!.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, session.Statistics.PipelineCreations);
@@ -70,19 +77,19 @@ public sealed class D3D12GenshinHairHistoryTests
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
         var temporal = NativeAa(session); var gi = Gi();
-        var map = Map(new(0));
+        var map = Map(TestStylePlugins.GenshinHair(0));
         var initial = Frame(Texture());
         var newOwner = Frame(Texture("different owner and label"));
         var unusedChannels = Frame(Texture(g: 240, a: 255));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(newOwner)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(unusedChannels)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(newOwner)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(unusedChannels)));
         AssertHistories(session, initial, map, temporal, gi, 1, "FirstFrame", "FirstFrame");
-        AssertHistories(session, initial, Map(new(0)), temporal, gi, 2, "None", "None");
+        AssertHistories(session, initial, Map(TestStylePlugins.GenshinHair(0)), temporal, gi, 2, "None", "None");
         // These reset for the established full SceneTexture identity contract,
-        // despite the dedicated surface-key equality ignoring G/A and owner identity.
+        // while plugin-resolved texture bytes conservatively reset on unused channel edits.
         AssertHistories(session, newOwner, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
-        AssertHistories(session, newOwner, Map(new(0)), temporal, gi, 2, "None", "None");
-        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
+        AssertHistories(session, newOwner, Map(TestStylePlugins.GenshinHair(0)), temporal, gi, 2, "None", "None");
+        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         AssertHistories(session, unusedChannels, map, temporal, gi, 2, "None", "None");
         var changedR = Frame(Texture(r: 32));
         AssertHistories(session, changedR, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
@@ -99,8 +106,8 @@ public sealed class D3D12GenshinHairHistoryTests
         RequireSoftwareGi(session);
         var temporal = NativeAa(session); var gi = Gi();
         var frame = Frame(Texture()); var changedFrame = Frame(Texture(r: 255));
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0);
-        var map = Map(binding); var changed = Map(binding with { Multiplier = .6f });
+        var binding = TestStylePlugins.GenshinHair(0);
+        var map = Map(binding); var changed = Map(TestStylePlugins.GenshinHair(0, multiplier: .6f));
         AssertHistories(session, frame, map, temporal, gi, 1, "FirstFrame", "FirstFrame");
         AssertHistories(session, frame, map, temporal, gi, 2, "None", "None");
         long submissions = session.Runtime.Submissions;
@@ -158,9 +165,8 @@ public sealed class D3D12GenshinHairHistoryTests
         return new() { Mode = D3D12TemporalUpscalingMode.Fsr, QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12GenshinNonMetallicSpecularBinding? binding)
-        => new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd],
-            [new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: binding), new()]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding)
+        => T8bTestHelpers.CreateGenshinTwoMap("mmd", D3D12CharacterMaterialRole.Hair, binding is null ? null : [binding]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 31, MaxRayDistance: 30, RayEpsilon: .001f,

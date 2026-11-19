@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.style.star-rail",
+  "name": "崩坏：星穹铁道",
+  "localizedNames": {
+    "zh-CN": "崩坏：星穹铁道",
+    "en": "Honkai: Star Rail",
+    "ja": "崩壊：スターレイル"
+  },
+  "description": "《崩坏：星穹铁道》渲染风格：包含普通 PMX 三渲二明暗、灰度 FaceSDF、Star 头发高光与 Body 切线 MatCap/边缘光材质。",
+  "localizedDescriptions": {
+    "zh-CN": "《崩坏：星穹铁道》渲染风格：包含普通 PMX 三渲二明暗、灰度 FaceSDF、Star 头发高光与 Body 切线 MatCap/边缘光材质。",
+    "en": "Honkai: Star Rail stylized rendering: ordinary PMX cel shading, GrayRed FaceSDF, Star hair highlight, and StarMcBody tangent MatCap/rim.",
+    "ja": "崩壊：スターレイルスタイル描画：通常PMXトゥーンシェーディング、GrayRed FaceSDF、Star髪ハイライト、StarMcBody接線MatCap・リムライトに対応。"
+  },
+  "author": "MDA",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.StylePlugin.StarRail.dll",
+  "entryType": "Mda.StylePlugin.StarRail.StarRailStylePlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": [
+    "rendering.styles"
+  ],
+  "providesStyles": [
+    "star-rail"
+  ]
+}

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Use the host's shared contract identity; do not ship a private copy. -->
+    <ProjectReference Include="../../src/Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" Private="false" />
+    <None Update="mda-plugin.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

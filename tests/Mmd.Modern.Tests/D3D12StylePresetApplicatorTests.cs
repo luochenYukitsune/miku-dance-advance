@@ -209,7 +209,7 @@ public sealed class D3D12StylePresetApplicatorTests : IDisposable
         var source = new OriginalFrameScene(original.Surface, original.Outline, original.OutlineOptions,
             materials: original.Materials, lighting: original.Lighting, editorOverlay: original.EditorOverlay);
         var flags = source.Materials.ToArray();
-        var catalog = D3D12StylePresetCatalog.BuiltIn;
+        var catalog = TestStylePlugins.AllPresetCatalog;
         var range = new D3D12StylePresetMaterialRange(Guid.NewGuid(), 0, source.Materials.Count, "genshin", true);
 
         var error = Assert.Throws<NotSupportedException>(() => D3D12StylePresetApplicator.Apply(source, catalog, [range]));

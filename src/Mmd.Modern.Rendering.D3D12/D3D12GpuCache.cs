@@ -64,6 +64,7 @@ internal sealed class D3D12GpuCache:IDisposable
     // The same source bytes may be numerical UNorm and authored sRGB in one frame.
     // Separate identity and content namespaces prevent either role from changing the other.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbColorTextureIdentities=new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbMipmappedTextureIdentities=new();
     internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount
         +skinnedVertexBuffers.RetainedBufferCount+skinnedExpandedBuffers.RetainedBufferCount+staticOutlineBuffers.RetainedBufferCount+writableGpuBuffers.RetainedBufferCount;
     internal ID3D12Resource ExpandedPositionBuffer(string stream,Vector4[] positions)
@@ -254,8 +255,67 @@ internal sealed class D3D12GpuCache:IDisposable
         string prefix=useMips?"texture-mip":"texture";
         string key=$"{prefix}:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
         if(objects.TryGetValue(key,out var found)){identities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;}
-        ushort mipCount=useMips?checked((ushort)D3D12TextureMipmaps.MipLevelCount(texture.Width,texture.Height)):(ushort)1;
-        var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)texture.Width,(uint)texture.Height,mipLevels:mipCount);
+        var gpu=UploadTexture2D(texture.Width,texture.Height,4,Format.R8G8B8A8_UNorm,texture.Rgba,useMips,canBoxDownsample:true);
+        objects.Add(key,gpu);identities.Add(texture,new(key,gpu));runtime.TextureUploads++;
+        runtime.OnAbort(()=>{identities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
+    }
+    private static void CopyMipLevel(int width,int height,int bytesPerPixel,ReadOnlySpan<byte> pixels,Span<byte> mapped,PlacedSubresourceFootPrint layout)
+    {
+        int rowBytes=checked(width*bytesPerPixel),baseOffset=checked((int)layout.Offset),pitch=layout.Footprint.RowPitch;
+        for(int y=0;y<height;y++)pixels.Slice(y*rowBytes,rowBytes).CopyTo(mapped.Slice(baseOffset+y*pitch,rowBytes));
+    }
+    /// <summary>Authored plugin texture color role. Hardware sRGB decode precedes bilinear filtering;
+    /// alpha remains linear. Linear color reuses the unchanged numerical UNorm resource.</summary>
+    internal ID3D12Resource TextureColor(SceneTexture texture,D3D12PluginTextureEncoding encoding,bool generateMipmaps=false)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        if(!Enum.IsDefined(encoding))throw new ArgumentOutOfRangeException(nameof(encoding));
+        if(encoding==D3D12PluginTextureEncoding.Linear)return Texture(texture,generateMipmaps);
+        bool useMips=generateMipmaps&&(texture.Width>1||texture.Height>1);
+        var identities=useMips?srgbMipmappedTextureIdentities:srgbColorTextureIdentities;
+        if(identities.TryGetValue(texture,out var identity))
+        {
+            if(objects.TryGetValue(identity.Key,out var live)&&ReferenceEquals(live,identity.Resource))return identity.Resource;
+            identities.Remove(texture);
+        }
+        string prefix=useMips?"texture-color-srgb-mip":"texture-color-srgb";
+        string key=$"{prefix}:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        if(objects.TryGetValue(key,out var found))
+        {
+            identities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;
+        }
+        var gpu=UploadTexture2D(texture.Width,texture.Height,4,Format.R8G8B8A8_UNorm_SRgb,texture.Rgba,useMips,canBoxDownsample:true);
+        objects.Add(key,gpu);identities.Add(texture,new(key,gpu));runtime.TextureUploads++;
+        runtime.OnAbort(()=>{identities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});
+        return gpu;
+    }
+    internal ID3D12Resource PluginInlineTexture(D3D12PluginInlineTexture texture,D3D12PluginTextureEncoding encoding,D3D12PluginTextureMipRule mipRule)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+        texture.Validate();
+        Format format=texture.Format switch
+        {
+            D3D12PluginTexturePixelFormat.Rgba8Unorm=>encoding==D3D12PluginTextureEncoding.SrgbColor?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm,
+            D3D12PluginTexturePixelFormat.Rgba8UnormSrgb=>Format.R8G8B8A8_UNorm_SRgb,
+            D3D12PluginTexturePixelFormat.Rgba16Float=>Format.R16G16B16A16_Float,
+            D3D12PluginTexturePixelFormat.Rgba32Float=>Format.R32G32B32A32_Float,
+            D3D12PluginTexturePixelFormat.R8Unorm=>Format.R8_UNorm,
+            _=>throw new ArgumentOutOfRangeException(nameof(texture))
+        };
+        bool canDownsample=texture.Format is D3D12PluginTexturePixelFormat.Rgba8Unorm or D3D12PluginTexturePixelFormat.Rgba8UnormSrgb;
+        bool useMips=mipRule==D3D12PluginTextureMipRule.GenerateMips&&canDownsample&&(texture.Width>1||texture.Height>1);
+        string key=$"plugin-inline:{texture.AssetKey}:{format}:{texture.Width}:{texture.Height}:{(useMips?1:0)}:{Convert.ToHexString(SHA256.HashData(texture.Pixels.Span))}";
+        if(objects.TryGetValue(key,out var found))return (ID3D12Resource)found;
+        int bpp=D3D12PluginInlineTexture.BytesPerPixel(texture.Format);
+        var gpu=UploadTexture2D(texture.Width,texture.Height,bpp,format,texture.Pixels.Span,useMips,canDownsample);
+        objects.Add(key,gpu);runtime.TextureUploads++;
+        runtime.OnAbort(()=>{if(objects.Remove(key,out var aborted))aborted.Dispose();});
+        return gpu;
+    }
+    private ID3D12Resource UploadTexture2D(int width,int height,int bytesPerPixel,Format format,ReadOnlySpan<byte> pixels,bool useMips,bool canBoxDownsample)
+    {
+        ushort mipCount=useMips&&canBoxDownsample?checked((ushort)D3D12TextureMipmaps.MipLevelCount(width,height)):(ushort)1;
+        var desc=ResourceDescription.Texture2D(format,(uint)width,(uint)height,mipLevels:mipCount);
         var gpu=runtime.Device.CreateCommittedResource(HeapType.Default,desc,ResourceStates.CopyDest);
         try
         {
@@ -265,10 +325,10 @@ internal sealed class D3D12GpuCache:IDisposable
             var mapped=upload.Map<byte>(0,checked((int)size));
             try
             {
-                CopyMipLevel(texture.Width,texture.Height,texture.Rgba,mapped,layouts[0]);
+                CopyMipLevel(width,height,bytesPerPixel,pixels,mapped,layouts[0]);
                 if(mipCount>1)
                 {
-                    int prevWidth=texture.Width,prevHeight=texture.Height;
+                    int prevWidth=width,prevHeight=height;
                     byte[]? prevPixels=null,nextPixels=null;
                     for(int mip=1;mip<mipCount;mip++)
                     {
@@ -276,9 +336,9 @@ internal sealed class D3D12GpuCache:IDisposable
                         int byteCount=checked(mipWidth*mipHeight*4);
                         var dstBuffer=nextPixels is not null&&nextPixels.Length>=byteCount?nextPixels:new byte[byteCount];
                         var dstSpan=dstBuffer.AsSpan(0,byteCount);
-                        ReadOnlySpan<byte> srcSpan=prevPixels is null?texture.Rgba:prevPixels.AsSpan(0,checked(prevWidth*prevHeight*4));
+                        ReadOnlySpan<byte> srcSpan=prevPixels is null?pixels:prevPixels.AsSpan(0,checked(prevWidth*prevHeight*4));
                         D3D12TextureMipmaps.DownsampleBox2x2(prevWidth,prevHeight,srcSpan,mipWidth,mipHeight,dstSpan);
-                        CopyMipLevel(mipWidth,mipHeight,dstSpan,mapped,layouts[mip]);
+                        CopyMipLevel(mipWidth,mipHeight,4,dstSpan,mapped,layouts[mip]);
                         nextPixels=prevPixels;prevPixels=dstBuffer;prevWidth=mipWidth;prevHeight=mipHeight;
                     }
                 }
@@ -287,46 +347,7 @@ internal sealed class D3D12GpuCache:IDisposable
             for(int mip=0;mip<mipCount;mip++)
                 runtime.Commands.CopyTextureRegion(new TextureCopyLocation(gpu,mip),0,0,0,new TextureCopyLocation(upload,layouts[mip]));
             runtime.Commands.ResourceBarrierTransition(gpu,ResourceStates.CopyDest,ResourceStates.PixelShaderResource);
-            objects.Add(key,gpu);identities.Add(texture,new(key,gpu));runtime.TextureUploads++;
-            runtime.OnAbort(()=>{identities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
-        }
-        catch{gpu.Dispose();throw;}
-    }
-    private static void CopyMipLevel(int width,int height,ReadOnlySpan<byte> pixels,Span<byte> mapped,PlacedSubresourceFootPrint layout)
-    {
-        int rowBytes=checked(width*4),baseOffset=checked((int)layout.Offset),pitch=layout.Footprint.RowPitch;
-        for(int y=0;y<height;y++)pixels.Slice(y*rowBytes,rowBytes).CopyTo(mapped.Slice(baseOffset+y*pitch,rowBytes));
-    }
-    /// <summary>MatCap authored color role. Hardware sRGB decode precedes bilinear filtering;
-    /// alpha remains linear. Linear color reuses the unchanged numerical UNorm resource.</summary>
-    internal ID3D12Resource TextureColor(SceneTexture texture,D3D12MatcapColorEncoding encoding)
-    {
-        ArgumentNullException.ThrowIfNull(texture);
-        if(!Enum.IsDefined(encoding))throw new ArgumentOutOfRangeException(nameof(encoding));
-        if(encoding==D3D12MatcapColorEncoding.LinearRgb)return Texture(texture);
-        if(srgbColorTextureIdentities.TryGetValue(texture,out var identity))
-        {
-            if(objects.TryGetValue(identity.Key,out var live)&&ReferenceEquals(live,identity.Resource))return identity.Resource;
-            srgbColorTextureIdentities.Remove(texture);
-        }
-        string key=$"texture-color-srgb:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
-        if(objects.TryGetValue(key,out var found))
-        {
-            srgbColorTextureIdentities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;
-        }
-        var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm_SRgb,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
-        var gpu=runtime.Device.CreateCommittedResource(HeapType.Default,desc,ResourceStates.CopyDest);
-        try
-        {
-            var layouts=new PlacedSubresourceFootPrint[1];var rows=new int[1];var sizes=new ulong[1];
-            runtime.Device.GetCopyableFootprints(desc,0,1,0,layouts,rows,sizes,out ulong size);
-            var upload=runtime.Own(runtime.Device.CreateCommittedResource(HeapType.Upload,ResourceDescription.Buffer(size),ResourceStates.GenericRead));
-            var mapped=upload.Map<byte>(0,checked((int)size));
-            for(int y=0;y<texture.Height;y++)texture.Rgba.Slice(y*texture.Width*4,texture.Width*4).CopyTo(mapped.Slice(y*layouts[0].Footprint.RowPitch,texture.Width*4));
-            upload.Unmap(0);runtime.Commands.CopyTextureRegion(new TextureCopyLocation(gpu,0),0,0,0,new TextureCopyLocation(upload,layouts[0]));
-            runtime.Commands.ResourceBarrierTransition(gpu,ResourceStates.CopyDest,ResourceStates.PixelShaderResource);
-            objects.Add(key,gpu);srgbColorTextureIdentities.Add(texture,new(key,gpu));runtime.TextureUploads++;
-            runtime.OnAbort(()=>{srgbColorTextureIdentities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
+            return gpu;
         }
         catch{gpu.Dispose();throw;}
     }

@@ -1,4 +1,5 @@
 using Mmd.Modern.Application;
+using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 
 namespace Mmd.Modern.App;
@@ -8,7 +9,12 @@ public sealed partial class EditorProjectWorkspace
     public bool ReplacementKeepsMaterialMapping(SceneModelReplacementPlan plan, SceneAnimationModelAsset asset)
     {
         if (!MaterialBindings.TryGetValue(plan.ObjectId, out var profile)) return true;
-        try { _ = D3D12MaterialBindingProfileResolver.Resolve(profile, asset.Source, plan.ObjectId, "mmd"); return true; }
+        string requestedId = Session?.GetRenderingStyle(plan.ObjectId).StableId ?? D3D12SurfaceStyleMap.DefaultStyleId;
+        var resolvedPreset = PresetCatalog.Find(requestedId);
+        string pipelineId = resolvedPreset.IsAvailable && resolvedPreset.Definition is not null
+            ? resolvedPreset.Definition.PipelineId
+            : D3D12SurfaceStyleMap.DefaultStyleId;
+        try { _ = D3D12MaterialBindingProfileResolver.Resolve(profile, asset.Source, plan.ObjectId, pipelineId, StyleCatalog); return true; }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or InvalidDataException or NotSupportedException)
         { return false; }
     }

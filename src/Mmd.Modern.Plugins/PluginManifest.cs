@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -15,7 +16,12 @@ internal sealed record PluginManifest(
     Version MinimumHostVersion,
     IReadOnlyList<PluginDependency> Dependencies,
     IReadOnlySet<string> Capabilities,
-    byte[] Digest)
+    byte[] Digest,
+    string? Description = null,
+    string? Author = null,
+    IReadOnlyList<string>? ProvidedStyles = null,
+    IReadOnlyDictionary<string, string>? LocalizedNames = null,
+    IReadOnlyDictionary<string, string>? LocalizedDescriptions = null)
 {
     internal const string FileName = "mda-plugin.json";
     private const int MaximumBytes = 65536;
@@ -27,7 +33,8 @@ internal sealed record PluginManifest(
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 12 });
         var root = document.RootElement;
         RequireProperties(root, ["schemaVersion", "id", "name", "version", "entryAssembly", "entryType",
-            "apiVersion", "minimumHostVersion", "dependencies", "capabilities"]);
+            "apiVersion", "minimumHostVersion", "dependencies", "capabilities",
+            "description", "author", "localizedNames", "localizedDescriptions", "providesStyles"]);
         if (RequireInt(root, "schemaVersion") != 1)
             throw new InvalidDataException("Unsupported plugin manifest schemaVersion; expected 1.");
         var id = RequireIdentifier(RequireString(root, "id"), "plugin id");
@@ -77,8 +84,16 @@ internal sealed record PluginManifest(
                     throw new InvalidDataException($"Duplicate capability '{capabilityId}'.");
             }
         }
+        var description = ReadOptionalString(root, "description", maximumLength: 2048, allowNewlines: true);
+        var author = ReadOptionalString(root, "author", maximumLength: 200, allowNewlines: false);
+        var localizedNames = ReadOptionalLocalizedMap(root, "localizedNames", maximumLength: 200,
+            requireNonEmptyValue: true, allowNewlines: false);
+        var localizedDescriptions = ReadOptionalLocalizedMap(root, "localizedDescriptions", maximumLength: 2048,
+            requireNonEmptyValue: false, allowNewlines: true);
+        var providedStyles = ReadOptionalStyleSlugs(root, "providesStyles");
         return new PluginManifest(id, name, version, entryPath, entryType, apiVersion,
-            minimumHostVersion, dependencies.AsReadOnly(), capabilities, SHA256.HashData(bytes));
+            minimumHostVersion, dependencies.AsReadOnly(), capabilities, SHA256.HashData(bytes),
+            description, author, providedStyles, localizedNames, localizedDescriptions);
     }
 
     internal async Task VerifyUnchangedAsync(string directory, CancellationToken cancellationToken)
@@ -160,4 +175,82 @@ internal sealed record PluginManifest(
         if (element.ValueKind != JsonValueKind.Array || element.GetArrayLength() > 64)
             throw new InvalidDataException($"Manifest property '{property}' must be an array of at most 64 entries.");
     }
+
+    private static string? ReadOptionalString(JsonElement element, string property, int maximumLength, bool allowNewlines)
+    {
+        if (!element.TryGetProperty(property, out var value))
+            return null;
+        if (value.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"Manifest property '{property}' must be a string.");
+        var text = value.GetString()!;
+        if (text.Length > maximumLength || HasDisallowedControlChars(text, allowNewlines))
+            throw new InvalidDataException($"Manifest property '{property}' exceeds {maximumLength} characters or contains invalid control characters.");
+        return text;
+    }
+
+    private static IReadOnlyDictionary<string, string>? ReadOptionalLocalizedMap(
+        JsonElement element,
+        string property,
+        int maximumLength,
+        bool requireNonEmptyValue,
+        bool allowNewlines)
+    {
+        if (!element.TryGetProperty(property, out var mapElement))
+            return null;
+        if (mapElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException($"Manifest property '{property}' must be a JSON object mapping language tags to strings.");
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in mapElement.EnumerateObject())
+        {
+            if (map.Count >= 64)
+                throw new InvalidDataException($"Manifest property '{property}' may contain at most 64 entries.");
+            if (!IsValidLanguageKey(entry.Name))
+                throw new InvalidDataException($"Invalid language key '{entry.Name}' in manifest property '{property}'.");
+            if (entry.Value.ValueKind != JsonValueKind.String)
+                throw new InvalidDataException($"Values in manifest property '{property}' must be strings.");
+            var text = entry.Value.GetString()!;
+            if (requireNonEmptyValue && string.IsNullOrWhiteSpace(text))
+                throw new InvalidDataException($"Values in manifest property '{property}' must be non-empty strings.");
+            if (text.Length > maximumLength || HasDisallowedControlChars(text, allowNewlines))
+                throw new InvalidDataException($"Value for '{entry.Name}' in manifest property '{property}' exceeds {maximumLength} characters or contains invalid control characters.");
+            if (!map.TryAdd(entry.Name, text))
+                throw new InvalidDataException($"Duplicate language key '{entry.Name}' in manifest property '{property}'.");
+        }
+        return new ReadOnlyDictionary<string, string>(map);
+    }
+
+    private static IReadOnlyList<string>? ReadOptionalStyleSlugs(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var arrayElement))
+            return null;
+        RequireArray(arrayElement, property);
+        var slugs = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in arrayElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                throw new InvalidDataException($"Entries in manifest property '{property}' must be strings.");
+            var slug = RequireStyleSlug(item.GetString()!);
+            if (!seen.Add(slug))
+                throw new InvalidDataException($"Duplicate style slug '{slug}' in manifest property '{property}'.");
+            slugs.Add(slug);
+        }
+        return slugs.AsReadOnly();
+    }
+
+    private static string RequireStyleSlug(string value)
+    {
+        if (value.Length is < 1 or > 128 || !char.IsAsciiLetterOrDigit(value[0]) ||
+            value.Any(static c => !char.IsAsciiLetterOrDigit(c) && c is not ('.' or '_' or '-')))
+            throw new InvalidDataException("Style slugs in 'providesStyles' must be non-empty ASCII strings of letters, digits, '.', '_' or '-'.");
+        return value;
+    }
+
+    private static bool IsValidLanguageKey(string key) =>
+        key.Length is >= 1 and <= 32 &&
+        char.IsAsciiLetter(key[0]) &&
+        key.All(static c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
+    private static bool HasDisallowedControlChars(string value, bool allowNewlines) =>
+        value.Any(c => char.IsControl(c) && (!allowNewlines || c is not ('\r' or '\n' or '\t')));
 }

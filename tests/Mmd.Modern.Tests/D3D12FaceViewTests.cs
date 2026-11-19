@@ -11,7 +11,8 @@ namespace Mmd.Modern.Tests;
 
 public sealed class D3D12FaceViewTests
 {
-    private static readonly D3D12StylePresetCatalog Catalog = D3D12StylePresetCatalog.BuiltIn;
+    private static D3D12StylePresetCatalog Catalog => TestStylePlugins.AllPresetCatalog;
+    private static D3D12ViewStyleCatalog ViewCatalog => TestStylePlugins.AllViewCatalog;
 
     [Fact]
     public void ExplicitLocalIndicesKeepSameSourceInstancesIndependentAndDetachHostInput()
@@ -19,28 +20,29 @@ public sealed class D3D12FaceViewTests
         var scene = Frame();
         var first = Binding(0, 1);
         var second = Binding(1, 1);
-        var source = new[] { new D3D12ViewCharacterMaterialBinding(second.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .7f)),
-            new D3D12ViewCharacterMaterialBinding(first.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .25f)) };
+        var source = new[] { new D3D12ViewCharacterMaterial(second.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .7f),
+            new D3D12ViewCharacterMaterial(first.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .25f) };
         int enumerations = 0;
-        IEnumerable<D3D12ViewCharacterMaterialBinding> Once()
+        IEnumerable<D3D12ViewCharacterMaterial> Once()
         {
             enumerations++;
             foreach (var item in source) yield return item;
         }
 
-        var resolved = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [second, first], Once());
+        var resolved = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [second, first], Once(), styleCatalog: ViewCatalog);
 
         Assert.Equal(1, enumerations);
         Assert.Equal(.25f, resolved.SurfaceStyles.EffectiveNormalShadeStrength(0));
         Assert.Equal(.7f, resolved.SurfaceStyles.EffectiveNormalShadeStrength(1));
-        source[0] = source[0] with { Style = new() };
+        source[0] = source[0] with { Role = D3D12CharacterMaterialRole.Body, FaceNormalShadeStrength = .35f };
         Assert.Equal(D3D12CharacterMaterialRole.Face, resolved.SurfaceStyles.CharacterMaterials[1].Role);
         Assert.Equal(.7f, resolved.SurfaceStyles.EffectiveNormalShadeStrength(1));
         Assert.All(scene.Surface.Snapshot.Materials, material => Assert.Equal("same-source.pmx", material.Name));
         Assert.Equal(resolved.Scene.Materials,
             D3D12ViewRenderingStyles.Apply(scene, Catalog, [second, first],
-                [new(first.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .25f)),
-                    new(second.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .7f))]).Materials);
+                [new(first.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .25f),
+                    new(second.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .7f)],
+                styleCatalog: ViewCatalog).Materials);
     }
 
     [Fact]
@@ -49,18 +51,18 @@ public sealed class D3D12FaceViewTests
         var scene = Frame();
         var visible = Binding(0, 2);
         var hidden = Binding(2, 0) with { Visible = false };
-        D3D12ViewCharacterMaterialBinding[] selected = [new(hidden.ObjectId, 200, new(D3D12CharacterMaterialRole.Face))];
+        D3D12ViewCharacterMaterial[] selected = [new(hidden.ObjectId, 200, D3D12CharacterMaterialRole.Face)];
 
-        Assert.True(D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, hidden], selected).IsAvailable);
-        var resolved = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, hidden], selected);
+        Assert.True(D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, hidden], selected, styleCatalog: ViewCatalog).IsAvailable);
+        var resolved = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, hidden], selected, styleCatalog: ViewCatalog);
         Assert.All(resolved.SurfaceStyles.CharacterMaterials, material => Assert.Equal(D3D12CharacterMaterialRole.Body, material.Role));
         Assert.Contains(resolved.Diagnostics, diagnostic => diagnostic.Contains(hidden.ObjectId.ToString("D"))
             && diagnostic.Contains("Hidden") && diagnostic.Contains("200"));
 
         SceneRenderingStyleBinding[] nowVisible = [visible with { MaterialCount = 1 }, hidden with
             { MaterialStart = 1, MaterialCount = 1, Visible = true }];
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, nowVisible, selected));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, nowVisible, selected));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, nowVisible, selected, styleCatalog: ViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, nowVisible, selected, styleCatalog: ViewCatalog));
     }
 
     [Fact]
@@ -68,24 +70,24 @@ public sealed class D3D12FaceViewTests
     {
         var scene = Frame();
         var binding = Binding(0, 2, "mmd");
-        var plain = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [binding]);
+        var plain = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [binding], styleCatalog: ViewCatalog);
         var face = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [binding],
-            [new(binding.ObjectId, 1, new(D3D12CharacterMaterialRole.Face, .2f))]);
+            [new(binding.ObjectId, 1, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .2f)],
+            styleCatalog: ViewCatalog);
 
         Assert.Equal(plain.Scene.Materials, face.Scene.Materials);
         Assert.Equal(D3D12CharacterMaterialRole.Face, face.SurfaceStyles.CharacterMaterials[1].Role);
         Assert.Equal(1f, face.SurfaceStyles.EffectiveNormalShadeStrength(1));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(plain.SurfaceStyles, face.SurfaceStyles));
-        Assert.Contains(face.Diagnostics, diagnostic => diagnostic.Contains("whole draw") && diagnostic.Contains("MMD"));
+        Assert.Empty(face.Diagnostics);
         var genshin = binding with { Preset = new("genshin") };
-        var genshinBody = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [genshin]);
-        // Explicit Body classification now opts into the renderer's ordinary PMX
-        // profile. Identity isolates this test's unused Face-only scalar contract.
+        var genshinBody = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [genshin], styleCatalog: ViewCatalog);
         var unusedBodySetting = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [genshin],
-            [new(binding.ObjectId, 1, new(D3D12CharacterMaterialRole.Body, .1f, PmxMaterialTreatment: new()))]);
+            [new(binding.ObjectId, 1, D3D12CharacterMaterialRole.Body, FaceNormalShadeStrength: .1f)],
+            styleCatalog: ViewCatalog);
         Assert.Equal(1f, unusedBodySetting.SurfaceStyles.EffectiveNormalShadeStrength(1));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(genshinBody.SurfaceStyles, unusedBodySetting.SurfaceStyles));
-        var legacy = D3D12ViewRenderingStyles.Resolve(scene, Catalog, []);
+        var legacy = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [], styleCatalog: ViewCatalog);
         Assert.Same(scene, legacy.Scene);
         Assert.Empty(legacy.Diagnostics);
     }
@@ -99,43 +101,43 @@ public sealed class D3D12FaceViewTests
         var scene = Frame();
         var visible = Binding(0, 2);
         var other = Binding(2, 0) with { Role = role, Visible = false };
-        D3D12ViewCharacterMaterialBinding[] selected = [new(other.ObjectId, 0, new(D3D12CharacterMaterialRole.Face))];
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, other], selected));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, other], selected));
+        D3D12ViewCharacterMaterial[] selected = [new(other.ObjectId, 0, D3D12CharacterMaterialRole.Face)];
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, other], selected, styleCatalog: ViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, other], selected, styleCatalog: ViewCatalog));
     }
 
     [Fact]
     public void InvalidIdentityIndexStyleAndDuplicateBindingsRejectBeforeDeviceConstruction()
     {
         var id = Guid.NewGuid();
-        D3D12ViewCharacterMaterialBinding[][] invalid =
+        D3D12ViewCharacterMaterial[][] invalid =
         [
-            [new(Guid.Empty, 0, new())], [new(id, -1, new())], [new(id, 0, null!)], [null!],
-            [new(id, 0, new((D3D12CharacterMaterialRole)200))],
-            [new(id, 0, new(D3D12CharacterMaterialRole.Face, float.NaN))],
-            [new(id, 0, new(D3D12CharacterMaterialRole.Face, float.PositiveInfinity))],
-            [new(id, 0, new(D3D12CharacterMaterialRole.Face, -.01f))],
-            [new(id, 0, new(D3D12CharacterMaterialRole.Body, 1.01f))],
-            [new(id, 0, new()), new(id, 0, new(D3D12CharacterMaterialRole.Face))],
+            [new(Guid.Empty, 0)], [new(id, -1)], [null!],
+            [new(id, 0, (D3D12CharacterMaterialRole)200)],
+            [new(id, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: float.NaN)],
+            [new(id, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: float.PositiveInfinity)],
+            [new(id, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: -.01f)],
+            [new(id, 0, D3D12CharacterMaterialRole.Body, FaceNormalShadeStrength: 1.01f)],
+            [new(id, 0), new(id, 0, D3D12CharacterMaterialRole.Face)],
         ];
         foreach (var bindings in invalid)
         {
-            Assert.ThrowsAny<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), characterMaterials: bindings));
+            Assert.ThrowsAny<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), characterMaterials: bindings, styleCatalog: ViewCatalog));
             // A zero HWND would fail native construction if static input were not checked first.
-            Assert.ThrowsAny<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), characterMaterials: bindings));
+            Assert.ThrowsAny<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), characterMaterials: bindings, styleCatalog: ViewCatalog));
         }
         var scene = Frame();
         var known = Binding(0, 2);
         foreach (var selected in new[]
         {
-            new[] { new D3D12ViewCharacterMaterialBinding(Guid.NewGuid(), 0, new()) },
-            new[] { new D3D12ViewCharacterMaterialBinding(known.ObjectId, 2, new()) },
+            new[] { new D3D12ViewCharacterMaterial(Guid.NewGuid(), 0) },
+            new[] { new D3D12ViewCharacterMaterial(known.ObjectId, 2) },
         })
         {
-            Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, [known], selected));
-            Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [known], selected));
+            Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog, [known], selected, styleCatalog: ViewCatalog));
+            Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [known], selected, styleCatalog: ViewCatalog));
         }
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [], [new(id, 0, new())]));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog, [], [new(id, 0)], styleCatalog: ViewCatalog));
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -144,23 +146,23 @@ public sealed class D3D12FaceViewTests
         const int width = 129, height = 97;
         var scene = Frame();
         var binding = Binding(0, 2);
-        var selected = new[] { new D3D12ViewCharacterMaterialBinding(binding.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .35f)) };
+        var selected = new[] { new D3D12ViewCharacterMaterial(binding.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .35f) };
         var request = new ViewRenderRequest(width, height);
         var plan = new OfflineFramePlan(width, height, new(30), 0, 3);
         OfflineFrame FrameAt(int index, SceneRenderingStyleBinding instance) => new(plan.GetSample(index), width, height, scene, null, null, null)
         { RenderingStyles = Array.AsReadOnly(new[] { instance }) };
         var token = TestContext.Current.CancellationToken;
-        await using var renderer = new D3D12ViewRenderer(request, characterMaterials: selected);
-        selected[0] = selected[0] with { Style = new() };
+        await using var renderer = new D3D12ViewRenderer(request, characterMaterials: selected, styleCatalog: ViewCatalog);
+        selected[0] = selected[0] with { Role = D3D12CharacterMaterialRole.Body, FaceNormalShadeStrength = .35f };
         Assert.False(renderer.IsWarp);
         using var face = await renderer.CaptureAsync(FrameAt(0, binding), token);
         var viewScene = D3D12ViewScene.Resolve(scene, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality);
         var expected = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, [binding],
-            [new(binding.ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .35f))]);
+            [new(binding.ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .35f)], styleCatalog: ViewCatalog);
         using var direct = new D3D12FrameSession();
         Assert.Equal(direct.Capture(expected.Scene, width, height, surfaceStyles: expected.SurfaceStyles).Rgba, face.Pixels.ToArray());
-        var body = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, [binding]);
+        var body = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, [binding], styleCatalog: ViewCatalog);
         var baseline = direct.Capture(body.Scene, width, height, surfaceStyles: body.SurfaceStyles);
         int changed = 0;
         for (int offset = 0; offset < baseline.Rgba.Length; offset += 4)
@@ -184,7 +186,7 @@ public sealed class D3D12FaceViewTests
         await Assert.ThrowsAsync<ArgumentException>(() => renderer.CaptureAsync(FrameAt(1, invalid), token).AsTask());
         Assert.Same(before, renderer.Statistics);
         using var mmd = await renderer.CaptureAsync(FrameAt(1, binding with { Preset = new("mmd") }), token);
-        var mmdScene = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, [binding with { Preset = new("mmd") }]);
+        var mmdScene = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, [binding with { Preset = new("mmd") }], styleCatalog: ViewCatalog);
         Assert.Equal(direct.Capture(mmdScene.Scene, width, height, surfaceStyles: mmdScene.SurfaceStyles).Rgba, mmd.Pixels.ToArray());
         Assert.Equal(before.FrameId + 1, renderer.Statistics!.FrameId);
         Assert.Equal(before.TotalSubmissions + 1, renderer.Statistics.TotalSubmissions);
@@ -201,9 +203,9 @@ public sealed class D3D12FaceViewTests
             var binding = Binding(0, 2);
             var frame = new PreviewFrame(96, 72, 0, scene, null, null, null)
             { RenderingStyles = Array.AsReadOnly(new[] { binding }) };
-            var selected = new[] { new D3D12ViewCharacterMaterialBinding(binding.ObjectId, 0, new(D3D12CharacterMaterialRole.Face)) };
-            await using var renderer = new D3D12RealtimeViewRenderer(window, new(96, 72), characterMaterials: selected);
-            selected[0] = selected[0] with { MaterialIndex = 999 };
+            var selected = new[] { new D3D12ViewCharacterMaterial(binding.ObjectId, 0, D3D12CharacterMaterialRole.Face) };
+            await using var renderer = new D3D12RealtimeViewRenderer(window, new(96, 72), characterMaterials: selected, styleCatalog: ViewCatalog);
+            selected[0] = selected[0] with { LocalMaterialIndex = 999 };
             var token = TestContext.Current.CancellationToken;
             renderer.ValidateRenderingStyles(scene, frame.RenderingStyles);
             await renderer.PresentAsync(frame, token);

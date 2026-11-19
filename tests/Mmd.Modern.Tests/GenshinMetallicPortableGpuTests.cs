@@ -3,6 +3,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.Smoke;
 using Mmd.Modern.ViewOutput;
@@ -53,15 +54,26 @@ public sealed class GenshinMetallicPortableGpuTests
             using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
             project.SetDefaultRenderingStyle(new("genshin"), Token);
             var layout = D3D12MaterialBindingLayout.Capture(source);
+            var binding = TestStylePlugins.GenshinMetallic(
+                start, start + 1, "SrgbRgb",
+                new(.2f, .3f, .4f), new(.9f, 1.1f, .8f), new(.8f, .7f, .6f),
+                .65f, 1.7f, .8f, "Uniform", .95f,
+                hasSpecular: withSpecular,
+                specularColor: new(.75f, .85f, .95f),
+                specularSharpColor: Vector3.Zero,
+                specularShininess: 0f,
+                specularScale: 1f,
+                specularAttenuation: .5f,
+                specularSharpOffset: 1f,
+                specularRampSlot: withSpecular ? start + 2 : -1,
+                specularRampMix: withSpecular ? 1f : 0f);
+            D3D12MaterialBindingProfileTexture[] guards = withSpecular
+                ? [layout.CaptureTexture(start), layout.CaptureTexture(start + 1), layout.CaptureTexture(start + 2)]
+                : [layout.CaptureTexture(start), layout.CaptureTexture(start + 1)];
             var profile = new D3D12MaterialBindingProfile("metallic-portable-gpu", "Portable metallic GPU", layout.Fingerprint,
-                [new(0, D3D12CharacterMaterialRole.Body, GenshinMetallic: new(layout.CaptureTexture(start),
-                    layout.CaptureTexture(start + 1), D3D12MatcapColorEncoding.SrgbRgb, new(.2f, .3f, .4f),
-                    new(.9f, 1.1f, .8f), new(.8f, .7f, .6f), .65f, 1.7f, .8f,
-                    D3D12GenshinMetallicLitMode.Uniform, .95f,
-                    Specular: withSpecular ? new(new(.75f,.85f,.95f),Vector3.Zero,Shininess:0,
-                        Ramp:layout.CaptureTexture(start+2),RampMix:1) : null))]);
-            Assert.Equal(withSpecular ? 7 : 6, profile.SchemaVersion);
-            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "genshin");
+                [new(0, D3D12CharacterMaterialRole.Body, pluginBindings: [binding], textureGuards: guards)]);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profile.SchemaVersion);
+            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "genshin", TestStylePlugins.AllViewCatalog);
             byte[] expected = await Capture(project, mapping);
             byte[] off = await Capture(project, mapping, dedicated: false);
             AssertVisibleChange(off, expected);
@@ -83,9 +95,10 @@ public sealed class GenshinMetallicPortableGpuTests
                 var restored = Assert.Single(loaded.Session.Objects);
                 Assert.Equal(item.Id, restored.Id);
                 AssertRestored(profile, profiles[restored.Id], table, restored.Source);
-                var restoredMapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[restored.Id], restored.Source, restored.Id, "genshin");
-                Assert.Equal(start, Assert.Single(restoredMapping.GenshinMetallicBindings).LightmapLocalTextureIndex);
-                Assert.Equal(start + 1, Assert.Single(restoredMapping.GenshinMetallicBindings).MatcapLocalTextureIndex);
+                var restoredMapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[restored.Id], restored.Source, restored.Id, "genshin", TestStylePlugins.AllViewCatalog);
+                var restoredBinding = Assert.Single(restoredMapping.PluginBindings).Binding;
+                Assert.Equal(start, restoredBinding.TextureSlots!["lightmap"]);
+                Assert.Equal(start + 1, restoredBinding.TextureSlots["matcap"]);
                 Assert.Equal(expected, await Capture(loaded.Session, restoredMapping));
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
@@ -93,7 +106,7 @@ public sealed class GenshinMetallicPortableGpuTests
                 new NoPhysics(), out var savedProfiles, cancellationToken: Token);
             var again = Assert.Single(reopened.Session.Objects);
             AssertRestored(profile, savedProfiles[again.Id], table, again.Source);
-            var savedMapping = D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[again.Id], again.Source, again.Id, "genshin");
+            var savedMapping = D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[again.Id], again.Source, again.Id, "genshin", TestStylePlugins.AllViewCatalog);
             Assert.Equal(expected, await Capture(reopened.Session, savedMapping));
         }
         finally { Directory.Delete(directory, true); }
@@ -118,19 +131,20 @@ public sealed class GenshinMetallicPortableGpuTests
              new("endfield color", 1, 1, [180, 70, 120, 255])], camera: Camera, lightDirection: -Vector3.UnitZ);
         var frame = new OriginalFrameScene(new(scene, [new(new(.3f), DoubleSided: true), new(new(.3f), DoubleSided: true)],
             new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)), options: ModernOptions);
-        var metallic = new D3D12GenshinMetallicBinding(0, 1, D3D12MatcapColorEncoding.SrgbRgb,
-            new(.2f), new(.8f), Vector3.One, LitMode: D3D12GenshinMetallicLitMode.Uniform);
-        var matcap = new D3D12EndfieldMatcapBinding(2, 3, 4, D3D12MatcapColorEncoding.SrgbRgb, 0,
-            new(.4f), new(.1f), NormalStrength: 0, HighlightCoefficient: 1, LightControlDirection: -Vector3.UnitZ);
-        D3D12SurfaceStyleMap Styles(D3D12GenshinMetallicBinding metal, D3D12EndfieldMatcapBinding cap)
-            => new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.EndfieldPmx],
-                [new(GenshinMetallic: metal), new(EndfieldMatcap: cap)]);
+        StyleMaterialBindingData Metal(string enc) => TestStylePlugins.GenshinMetallic(
+            0, 1, enc, new(.2f), new(.8f), Vector3.One, litMode: "Uniform");
+        StyleMaterialBindingData Cap(string enc) => T8bTestHelpers.CreateEndfieldMatcapBinding(
+            2, 3, 4, enc, 0, new(.4f), new(.1f), normalStrength: 0f, highlightCoefficient: 1f, lightControlDirection: -Vector3.UnitZ);
+        var metallic = Metal("SrgbRgb");
+        var matcap = Cap("SrgbRgb");
+        D3D12SurfaceStyleMap Styles(StyleMaterialBindingData metal, StyleMaterialBindingData cap)
+            => T8bTestHelpers.CreateDirectMap(["genshin", "endfield"],
+                (D3D12CharacterMaterialRole.Body, [metal], .35f, 1f, .2f),
+                (D3D12CharacterMaterialRole.Body, [cap], .35f, 1f, .2f));
         using var session = new D3D12FrameSession();
         var both = session.Capture(frame, W, H, surfaceStyles: Styles(metallic, matcap));
-        var genshinLinear = session.Capture(frame, W, H, surfaceStyles: Styles(
-            metallic with { MatcapEncoding = D3D12MatcapColorEncoding.LinearRgb }, matcap));
-        var endfieldLinear = session.Capture(frame, W, H, surfaceStyles: Styles(metallic,
-            matcap with { MatcapEncoding = D3D12MatcapColorEncoding.LinearRgb }));
+        var genshinLinear = session.Capture(frame, W, H, surfaceStyles: Styles(Metal("LinearRgb"), matcap));
+        var endfieldLinear = session.Capture(frame, W, H, surfaceStyles: Styles(metallic, Cap("LinearRgb")));
         int genshinChanged = 0, endfieldChanged = 0;
         for (int y = 0; y < H; y++) for (int x = 0; x < W; x++)
         {
@@ -153,11 +167,30 @@ public sealed class GenshinMetallicPortableGpuTests
         Assert.Equal(both.Rgba, session.Capture(frame, W, H, surfaceStyles: Styles(metallic, matcap)).Rgba);
     }
 
+    private static StyleMaterialBindingData StripSpecular(StyleMaterialBindingData binding)
+        => TestStylePlugins.GenshinMetallic(
+            binding.TextureSlots!["lightmap"],
+            binding.TextureSlots["matcap"],
+            binding.StringValues!["matcapEncoding"],
+            new(binding.VectorValues!["darkColor"][0], binding.VectorValues["darkColor"][1], binding.VectorValues["darkColor"][2]),
+            new(binding.VectorValues["lightColor"][0], binding.VectorValues["lightColor"][1], binding.VectorValues["lightColor"][2]),
+            new(binding.VectorValues["shadowMultiplyColor"][0], binding.VectorValues["shadowMultiplyColor"][1], binding.VectorValues["shadowMultiplyColor"][2]),
+            (float)binding.NumberValues!["enableMetallics"],
+            (float)binding.NumberValues["tileScale"],
+            (float)binding.NumberValues["brightness"],
+            binding.StringValues["litMode"],
+            (float)binding.NumberValues["uniformLitFactor"],
+            hasSpecular: false);
+
     private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool dedicated = true, bool withoutSpecular = false)
     {
+        var bindings = dedicated
+            ? (withoutSpecular
+                ? mapping.PluginBindings.Select(b => new D3D12ViewPluginMaterialBinding(b.ObjectId, b.LocalMaterialIndex, StripSpecular(b.Binding)))
+                : mapping.PluginBindings)
+            : Array.Empty<D3D12ViewPluginMaterialBinding>();
         await using var renderer = new D3D12ViewRenderer(new(W, H), characterMaterials: mapping.CharacterMaterials,
-            genshinMetallicDataBindings: dedicated ? withoutSpecular
-                ? mapping.GenshinMetallicBindings.Select(v=>v with{Specular=null}) : mapping.GenshinMetallicBindings : []);
+            pluginBindings: bindings, styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         // Composition has a legacy default. Resolve the explicitly modern fixture options before style validation.

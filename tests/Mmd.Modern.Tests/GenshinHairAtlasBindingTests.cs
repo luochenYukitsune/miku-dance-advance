@@ -1,5 +1,8 @@
-﻿using Mmd.Modern.Core;
+﻿using System.Collections.ObjectModel;
+using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -11,56 +14,79 @@ public sealed class GenshinHairAtlasBindingTests
     {
         var binding=GenshinHairAtlasSurfaceTests.Binding;
         var frame=GenshinHairAtlasSurfaceTests.Frame(GenshinHairAtlasSurfaceTests.Atlas());
-        var map=GenshinHairAtlasSurfaceTests.Map(binding,new(0));
-        map.Validate(frame);Assert.True(map.HasConsumedGenshinHairShadowAtlas);
-        var body=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx],[new(GenshinHairShadowAtlas:binding)]);
-        body.Validate(frame);Assert.True(body.HasConsumedGenshinHairShadowAtlas);Assert.Same(binding,body.EffectiveGenshinHairShadowAtlas(0));
-        Assert.Throws<ArgumentException>(()=>new D3D12CharacterMaterialStyle(GenshinHairShadowAtlas:binding,GenshinNonMetallicSpecular:new(0)).Validate());
-        foreach(var role in new[]{D3D12CharacterMaterialRole.Face,D3D12CharacterMaterialRole.Eye})
-            Assert.Throws<ArgumentException>(()=>new D3D12CharacterMaterialStyle(role,GenshinHairShadowAtlas:binding).Validate());
-        foreach(var family in Enum.GetValues<D3D12SurfaceStyle>().Where(f=>f!=D3D12SurfaceStyle.GenshinPmx))
-            Assert.Throws<NotSupportedException>(()=>new D3D12SurfaceStyleMap([family],map.CharacterMaterials).Validate(frame));
-        Assert.Throws<ArgumentException>(()=>new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair,
-            GenshinHairShadowAtlas:binding,PmxMaterialTreatment:new()).Validate());
-        Assert.Throws<ArgumentException>(()=>new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair,
-            GenshinHairShadowAtlas:binding,EndfieldHair:new(0,System.Numerics.Vector3.One)).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>GenshinHairAtlasSurfaceTests.Map(binding with {LightmapCombinedTextureIndex=3}).Validate(frame));
-        Assert.Throws<ArgumentOutOfRangeException>(()=>GenshinHairAtlasSurfaceTests.Map(binding with {AtlasCombinedTextureIndex=3}).Validate(frame));
+        var map=GenshinHairAtlasSurfaceTests.Map(binding,TestStylePlugins.GenshinHair(0));
+        map.Validate(frame);
+        Assert.Equal("hair-atlas-rb",map.ResolveShaderModule(0)!.ModuleId);
+        var body=T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Body,binding);
+        body.Validate(frame);
+        Assert.Equal("hair-atlas",body.ResolveShaderModule(0)!.ModuleId);
+        Assert.Equal(2,body.GetPluginDraw(0)!.TextureBindings!.Count);
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body,frame,binding,TestStylePlugins.GenshinHair(0)).IsValid);
+        foreach(var role in new[]{StyleMaterialRole.Face,StyleMaterialRole.Eye})
+            Assert.False(T8bTestHelpers.ValidateGenshin(role,frame,binding).IsValid);
+        foreach(var family in new[]{"mmd","star-rail","wuthering-waves","endfield"})
+            Assert.Throws<NotSupportedException>(()=>new D3D12SurfaceStyleMap([family],map.CharacterMaterials,TestStylePlugins.AllPresetCatalog).Validate(frame));
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Hair,frame,binding,new StyleMaterialBindingData("genshin","default")).IsValid);
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Hair,frame,binding,
+            new StyleMaterialBindingData("endfield","hair",new ReadOnlyDictionary<string,int>(new Dictionary<string,int>(StringComparer.Ordinal){["texture"]=0}))).IsValid);
+        Assert.Throws<ArgumentOutOfRangeException>(()=>GenshinHairAtlasSurfaceTests.Map(GenshinHairAtlasSurfaceTests.AtlasBinding(lightmapSlot:3)).Validate(frame));
+        Assert.Throws<ArgumentOutOfRangeException>(()=>GenshinHairAtlasSurfaceTests.Map(GenshinHairAtlasSurfaceTests.AtlasBinding(atlasSlot:3)).Validate(frame));
     }
 
     [Fact]
     public void FiniteSignedSourceDomainRetainsSafeZeroAndRejectsMalformedInputs()
     {
-        var b=GenshinHairAtlasSurfaceTests.Binding;
-        (b with {ShadowPosition=0,ShadowRampWidth=0,VertexWidth=0,VertexAo=-16}).Validate();
-        (b with {ShadowPosition=-16,ShadowRampWidth=-16,VertexWidth=16,VertexAo=16,ExplicitRowId=2.5f}).Validate();
-        foreach(var bad in new[]{b with {LightmapCombinedTextureIndex=-1},b with {AtlasCombinedTextureIndex=-1},
-            b with {AtlasEncoding=(D3D12GenshinAtlasColorEncoding)99},b with {ExplicitRowId=.9f},b with {ExplicitRowId=5.1f},
-            b with {DayNight=1.1f},b with {UseLightmapAo=-.1f},b with {UseVertexColorAo=1.1f},
-            b with {ShadowPosition=17},b with {ShadowRampWidth=float.NaN},b with {VertexWidth=float.PositiveInfinity},
-            b with {VertexAo=float.NegativeInfinity}})
-            Assert.Throws<ArgumentOutOfRangeException>(bad.Validate);
+        var frame=GenshinHairAtlasSurfaceTests.Frame(GenshinHairAtlasSurfaceTests.Atlas());
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Hair,frame,
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowPosition:0,shadowRampWidth:0,vertexWidth:0,vertexAo:-16)).IsValid);
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Hair,frame,
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowPosition:-16,shadowRampWidth:-16,vertexWidth:16,vertexAo:16,explicitRowId:2.5f)).IsValid);
+        foreach(var bad in new[]{
+            GenshinHairAtlasSurfaceTests.AtlasBinding(lightmapSlot:-1),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(atlasSlot:-1),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(atlasEncoding:"Unknown"),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(explicitRowId:.9f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(explicitRowId:5.1f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(dayNight:1.1f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(useLightmapAo:-.1f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(useVertexColorAo:1.1f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowPosition:17),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowRampWidth:float.NaN),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(vertexWidth:float.PositiveInfinity),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(vertexAo:float.NegativeInfinity)})
+        {
+            Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Hair,frame,bad).IsValid);
+            Assert.ThrowsAny<ArgumentException>(()=>D3D12ViewPluginMaterialBindings.Validate([],
+                [TestStylePlugins.Bind(Guid.NewGuid(),0,bad)],TestStylePlugins.AllViewCatalog));
+        }
     }
 
     [Fact]
     public void EveryConsumedScalarAndRemovalChangesDetachedKeyButUnusedChannelsDoNot()
     {
-        var b=GenshinHairAtlasSurfaceTests.Binding;
-        var map=GenshinHairAtlasSurfaceTests.Map(b);
+        var map=GenshinHairAtlasSurfaceTests.Map(GenshinHairAtlasSurfaceTests.Binding);
         var frame=GenshinHairAtlasSurfaceTests.Frame(GenshinHairAtlasSurfaceTests.Atlas());
-        var first=map.CaptureFaceTextures(frame);
+        var first=map.CaptureResolvedInputs(frame);
         Assert.NotSame(map,first);
-        foreach(var changed in new[]{b with {AtlasEncoding=D3D12GenshinAtlasColorEncoding.SrgbRgb},b with {ExplicitRowId=2},
-            b with {DayNight=.5f},b with {ShadowPosition=.7f},b with {ShadowRampWidth=.7f},b with {VertexWidth=.7f},
-            b with {VertexAo=.7f},b with {UseLightmapAo=1},b with {UseVertexColorAo=1}})
-            Assert.False(D3D12SurfaceStyleMap.Equivalent(first,GenshinHairAtlasSurfaceTests.Map(changed).CaptureFaceTextures(frame)));
+        foreach(var changed in new[]{
+            GenshinHairAtlasSurfaceTests.AtlasBinding(atlasEncoding:"SrgbRgb"),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(explicitRowId:2),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(dayNight:.5f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowPosition:.7f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(shadowRampWidth:.7f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(vertexWidth:.7f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(vertexAo:.7f),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(useLightmapAo:1),
+            GenshinHairAtlasSurfaceTests.AtlasBinding(useVertexColorAo:1)})
+            Assert.False(D3D12SurfaceStyleMap.Equivalent(first,GenshinHairAtlasSurfaceTests.Map(changed).CaptureResolvedInputs(frame)));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(first,GenshinHairAtlasSurfaceTests.Map(null)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureResolvedInputs(GenshinHairAtlasSurfaceTests.Frame(GenshinHairAtlasSurfaceTests.Atlas()))));
         var colors=GenshinHairAtlasSurfaceTests.Atlas();for(int i=3;i<colors.Length;i+=4)colors[i]=255;
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureFaceTextures(GenshinHairAtlasSurfaceTests.Frame(colors,unusedAlpha:255))));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureFaceTextures(GenshinHairAtlasSurfaceTests.Frame(colors,green:80))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureResolvedInputs(GenshinHairAtlasSurfaceTests.Frame(colors,unusedAlpha:255))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureResolvedInputs(GenshinHairAtlasSurfaceTests.Frame(colors,green:80))));
         colors[0]++;
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureFaceTextures(GenshinHairAtlasSurfaceTests.Frame(colors))));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureFaceTextures(frame)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureResolvedInputs(GenshinHairAtlasSurfaceTests.Frame(colors))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,map.CaptureResolvedInputs(frame)));
     }
 
     [Fact]
@@ -68,13 +94,13 @@ public sealed class GenshinHairAtlasBindingTests
     {
         var frame=GenshinHairAtlasSurfaceTests.Frame(GenshinHairAtlasSurfaceTests.Atlas());
         var b=GenshinHairAtlasSurfaceTests.Binding;
-        var first=GenshinHairAtlasSurfaceTests.Map(b).CaptureFaceTextures(frame);
+        var first=GenshinHairAtlasSurfaceTests.Map(b).CaptureResolvedInputs(frame);
         var old=frame.Surface.Snapshot;
         var swapped=new SceneSnapshot(old.Vertices.ToArray(),old.Indices.ToArray(),old.Materials,
             [old.Textures[1],old.Textures[0],old.Textures[2]],camera:old.Camera,lightDirection:old.LightDirection);
         var rebuilt=new OriginalFrameScene(new(swapped,frame.Surface.Materials,frame.Surface.Profile),options:frame.Options);
-        var second=GenshinHairAtlasSurfaceTests.Map(b with {LightmapCombinedTextureIndex=1,AtlasCombinedTextureIndex=0}).CaptureFaceTextures(rebuilt);
+        var second=GenshinHairAtlasSurfaceTests.Map(GenshinHairAtlasSurfaceTests.AtlasBinding(lightmapSlot:1,atlasSlot:0)).CaptureResolvedInputs(rebuilt);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(first,second));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,GenshinHairAtlasSurfaceTests.Map(b).CaptureFaceTextures(frame)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first,GenshinHairAtlasSurfaceTests.Map(b).CaptureResolvedInputs(frame)));
     }
 }

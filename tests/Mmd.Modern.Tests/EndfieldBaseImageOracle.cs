@@ -1,12 +1,11 @@
 using System.Numerics;
-using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.Tests;
 
 // Independent binary32 equations for the bounded source-default ColorBands and Cpre.
 internal static class EndfieldBaseImageOracle
 {
-    internal static Vector3 Evaluate(D3D12EndfieldBaseImageBinding binding, bool front,
+    internal static Vector3 Evaluate(EndfieldBaseImageSpec binding, bool front,
         Vector3? sampledBase = null, float? sampledDetailBlue = null, float? sampledShadowFactor = null)
     {
         Vector3 x = sampledBase ?? binding.BaseImageLinearRgb;

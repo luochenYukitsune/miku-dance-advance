@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="../Mmd.Modern.ViewOutput/Mmd.Modern.ViewOutput.csproj" />
     <ProjectReference Include="../Mmd.Modern.Rendering.D3D12/Mmd.Modern.Rendering.D3D12.csproj" />
+    <ProjectReference Include="../Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
   </ItemGroup>
 </Project>

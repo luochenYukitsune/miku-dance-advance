@@ -1,5 +1,5 @@
 using System.Numerics;
-using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.Plugins.Contracts;
 
 namespace Mmd.Modern.Tests;
 
@@ -34,10 +34,17 @@ internal static class GenshinMetallicSpecularOracle
         return selected * (1 + (attenuation - 1) * Math.Clamp(1 - lit, 0, 1));
     }
 
-    internal static Vector3 Local(float nh, float blue, D3D12GenshinMetallicSpecularBinding binding,
+    internal static Vector3 Local(float nh, float blue, StyleMaterialBindingData binding,
         float lit = 1, Func<float, Vector3>? ramp = null)
-        => Local(nh, blue, binding.Color, binding.SharpColor, binding.Shininess, binding.Scale,
-            binding.Attenuation, binding.SharpOffset, lit, binding.RampMix, ramp);
+    {
+        Vector3 Vec(string key) => binding.VectorValues is not null && binding.VectorValues.TryGetValue(key, out float[]? arr) && arr is { Length: >= 3 }
+            ? new(arr[0], arr[1], arr[2]) : Vector3.One;
+        float Num(string key, float fallback) => binding.NumberValues is not null && binding.NumberValues.TryGetValue(key, out double val)
+            ? (float)val : fallback;
+        return Local(nh, blue, Vec("specularColor"), Vec("specularSharpColor"),
+            Num("specularShininess", 16f), Num("specularScale", 1f), Num("specularAttenuation", .5f),
+            Num("specularSharpOffset", 1f), lit, Num("specularRampMix", 0f), ramp);
+    }
 
     internal static Vector3 Compose(Vector3 nonmetal, Vector3 metal, float raw)
         => raw <= 0 ? nonmetal : nonmetal * Math.Clamp(1 - raw, 0, 1) + metal * Math.Clamp(raw, 0, 1);

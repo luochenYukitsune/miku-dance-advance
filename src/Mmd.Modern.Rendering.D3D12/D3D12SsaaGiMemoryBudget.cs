@@ -188,7 +188,7 @@ internal static class D3D12SsaaGiMemoryBudget
     internal static Estimate WithAdditionalReservation(Estimate estimate,ulong bytes)
         =>estimate with {InFlightBytes=checked(estimate.InFlightBytes+bytes)};
 
-    internal static ulong MeasureEndfieldSeeds(D3D12GpuRuntime runtime,SceneSnapshot scene,bool active)
+    internal static ulong MeasureRadialSeeds(D3D12GpuRuntime runtime,SceneSnapshot scene,bool active)
     {
         if(!active || scene.VertexCount==0)return 0;
         ulong size=runtime.Device.GetResourceAllocationInfo(0,[ResourceDescription.Buffer(checked((ulong)scene.VertexCount*12))]).SizeInBytes;

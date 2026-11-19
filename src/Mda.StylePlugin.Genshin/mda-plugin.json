@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.style.genshin",
+  "name": "原神",
+  "localizedNames": {
+    "zh-CN": "原神",
+    "en": "Genshin Impact",
+    "ja": "原神"
+  },
+  "description": "《原神》渲染风格：包含普通 PMX 三渲二明暗、软面部 FaceSDF、非金属 RB 高光、Hair Shadow Atlas 与金属 MatCap/高光材质。",
+  "localizedDescriptions": {
+    "zh-CN": "《原神》渲染风格：包含普通 PMX 三渲二明暗、软面部 FaceSDF、非金属 RB 高光、Hair Shadow Atlas 与金属 MatCap/高光材质。",
+    "en": "Genshin Impact stylized rendering: ordinary PMX cel shading, soft FaceSDF, non-metallic RB specular, Hair Shadow Atlas, and metallic MatCap/specular.",
+    "ja": "原神スタイル描画：通常PMXトゥーンシェーディング、ソフトFaceSDF、非金属RBスペキュラ、Hair Shadow Atlas、金属MatCap・スペキュラに対応。"
+  },
+  "author": "MDA",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.StylePlugin.Genshin.dll",
+  "entryType": "Mda.StylePlugin.Genshin.GenshinStylePlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": [
+    "rendering.styles"
+  ],
+  "providesStyles": [
+    "genshin"
+  ]
+}

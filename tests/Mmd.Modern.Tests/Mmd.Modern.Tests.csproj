@@ -22,8 +22,58 @@
     <None Include="../Mmd.Modern.Application.Tests/Fixtures/pmm-v1-one-model.pmm" Link="fixtures/pmm-v1-one-model.pmm" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../src/Mmd.Modern.Smoke/SceneTextureLoader.cs" Link="Smoke/SceneTextureLoader.cs" />
   </ItemGroup>
-  <Target Name="CopyEditorPluginFixture" AfterTargets="Build">
+  <ItemGroup>
+    <_TestStylePlugin Include="../../src/Mda.StylePlugin.Genshin/Mda.StylePlugin.Genshin.csproj"
+                      PluginId="mda.style.genshin"
+                      ProjectName="Mda.StylePlugin.Genshin"
+                      StageDir="plugins" />
+    <_TestStylePlugin Include="../../src/Mda.StylePlugin.StarRail/Mda.StylePlugin.StarRail.csproj"
+                      PluginId="mda.style.star-rail"
+                      ProjectName="Mda.StylePlugin.StarRail"
+                      StageDir="plugins" />
+    <_TestStylePlugin Include="../../src/Mda.StylePlugin.WutheringWaves/Mda.StylePlugin.WutheringWaves.csproj"
+                      PluginId="mda.style.wuthering-waves"
+                      ProjectName="Mda.StylePlugin.WutheringWaves"
+                      StageDir="plugins" />
+    <_TestStylePlugin Include="../../src/Mda.StylePlugin.Endfield/Mda.StylePlugin.Endfield.csproj"
+                      PluginId="mda.style.endfield"
+                      ProjectName="Mda.StylePlugin.Endfield"
+                      StageDir="plugins" />
+    <_TestStylePlugin Include="../../examples/Mda.CustomStylePlugin/Mda.CustomStylePlugin.csproj"
+                      PluginId="mda.style.custom-ink-cel"
+                      ProjectName="Mda.CustomStylePlugin"
+                      StageDir="ExampleStylePlugins" />
+  </ItemGroup>
+  <Target Name="_BuildStylePluginsForTests"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_PluginPlatformSegment Condition="'$(Platform)' != '' and '$(Platform)' != 'AnyCPU' and '$(Platform)' != 'Any CPU'">$(Platform)/</_PluginPlatformSegment>
+    </PropertyGroup>
+    <ItemGroup>
+      <_TestStylePluginToRestore Include="@(_TestStylePlugin)"
+                                 Condition="!Exists('$(ModernCacheRoot)/obj/%(ProjectName)/project.assets.json')" />
+    </ItemGroup>
+    <MSBuild Condition="'@(_TestStylePluginToRestore)' != ''"
+             Projects="@(_TestStylePluginToRestore)"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(ModernCacheRoot);RestoreLockedMode=true"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+    <MSBuild Projects="@(_TestStylePlugin)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(ModernCacheRoot)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+  </Target>
+  <Target Name="CopyEditorPluginFixture" AfterTargets="Build" DependsOnTargets="_BuildStylePluginsForTests">
     <ItemGroup><EditorPluginFixtureFiles Include="$(ModernCacheRoot)/bin/Mmd.Modern.PluginFixture/$(Configuration)/$(TargetFramework)/*.dll;$(ModernCacheRoot)/bin/Mmd.Modern.PluginFixture/$(Configuration)/$(TargetFramework)/*.deps.json" /></ItemGroup>
     <Copy SourceFiles="@(EditorPluginFixtureFiles)" DestinationFolder="$(TargetDir)PluginFixtures" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(ModernCacheRoot)/bin/%(_TestStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_TestStylePlugin.ProjectName).dll;$(ModernCacheRoot)/bin/%(_TestStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_TestStylePlugin.ProjectName).deps.json;$(ModernCacheRoot)/bin/%(_TestStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
+          DestinationFolder="$(TargetDir)%(_TestStylePlugin.StageDir)/%(_TestStylePlugin.PluginId)"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_StrayTestPluginFiles Include="$(TargetDir)plugins/*/*.pdb;$(TargetDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll;$(TargetDir)ExampleStylePlugins/*/*.pdb;$(TargetDir)ExampleStylePlugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+    </ItemGroup>
+    <Delete Files="@(_StrayTestPluginFiles)" />
   </Target>
 </Project>

@@ -47,19 +47,23 @@ public sealed class D3D12GeneratedEndfieldMaterialPreparationTests
         Assert.Equal(1, row.LocalMaterialIndex);
         Assert.Equal(D3D12CharacterMaterialRole.Body, row.Role);
         Assert.Null(row.PmxMaterialTreatment);
-        Assert.NotNull(row.EndfieldMatcap);
-        Assert.Equal(1, row.EndfieldMatcap.Normal.SourceSceneTextureOrdinal);
-        Assert.Equal(2, row.EndfieldMatcap.P.SourceSceneTextureOrdinal);
-        Assert.Equal(3, row.EndfieldMatcap.Matcap.SourceSceneTextureOrdinal);
+        var matcap = Assert.Single(row.PluginBindings);
+        Assert.Equal("endfield", matcap.StyleId);
+        Assert.Equal("matcap", matcap.ModeId);
+        Assert.Equal(1, matcap.TextureSlots!["normal"]);
+        Assert.Equal(2, matcap.TextureSlots!["p"]);
+        Assert.Equal(3, matcap.TextureSlots!["matcap"]);
         var eg = OriginalStyleMath.ResolveHostColors(before.Materials[1], source.Surface.Profile).EgColor;
-        Assert.Equal(new Vector3(eg.X, eg.Y, eg.Z), row.EndfieldMatcap.BaseColor);
-        Assert.Equal(Vector3.Normalize(before.LightDirection), row.EndfieldMatcap.LightControlDirection);
+        Assert.Equal(new float[] { eg.X, eg.Y, eg.Z }, matcap.VectorValues!["baseColor"]);
+        var lightCtrl = Vector3.Normalize(before.LightDirection);
+        Assert.Equal(new float[] { lightCtrl.X, lightCtrl.Y, lightCtrl.Z }, matcap.VectorValues!["lightControlDirection"]);
+        var guards = row.TextureGuards.ToDictionary(static g => g.SourceSceneTextureOrdinal);
         var layout = D3D12MaterialBindingLayout.Capture(result.SourceRest);
-        layout.ValidateTexture(row.EndfieldMatcap.Normal);
-        layout.ValidateTexture(row.EndfieldMatcap.P);
-        layout.ValidateTexture(row.EndfieldMatcap.Matcap);
-        Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(result.Profile, result.SourceRest, Guid.NewGuid(), "endfield").EndfieldMatcapBindings);
-        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(result.Profile, result.SourceRest, Guid.NewGuid(), "mmd").EndfieldMatcapBindings);
+        layout.ValidateTexture(guards[1]);
+        layout.ValidateTexture(guards[2]);
+        layout.ValidateTexture(guards[3]);
+        Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(result.Profile, result.SourceRest, Guid.NewGuid(), "endfield", TestStylePlugins.AllViewCatalog).PluginBindings);
+        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(result.Profile, result.SourceRest, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog).PluginBindings);
     }
 
     [Fact]
@@ -93,14 +97,15 @@ public sealed class D3D12GeneratedEndfieldMaterialPreparationTests
     {
         var original = Frame();
         var prepared = Prepare(original, [Selection()]);
-        var oldGuard = prepared.Profile.Materials[0].EndfieldMatcap!.Normal;
+        int normalOrdinal = prepared.Profile.Materials[0].PluginBindings[0].TextureSlots!["normal"];
+        var oldGuard = prepared.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == normalOrdinal);
         var texture = prepared.SourceRest.Surface.Snapshot.Textures[oldGuard.SourceSceneTextureOrdinal];
         byte[] pixels = texture.Rgba.ToArray(); pixels[0] ^= 127;
         var edited = prepared.WithEditedMaps(0, normal: new("user-edited-normal", texture.Width, texture.Height, pixels));
-        var guard = edited.Profile.Materials[0].EndfieldMatcap!.Normal;
+        var guard = edited.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == normalOrdinal);
         Assert.NotEqual(oldGuard.RgbaSha256, guard.RgbaSha256);
         Assert.Equal(oldGuard.SourceSceneTextureOrdinal, guard.SourceSceneTextureOrdinal);
-        Assert.Equal(oldGuard, prepared.Profile.Materials[0].EndfieldMatcap!.Normal);
+        Assert.Equal(oldGuard, prepared.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == normalOrdinal));
         Assert.Single(original.Surface.Snapshot.Textures);
         D3D12MaterialBindingLayout.Capture(edited.SourceRest).ValidateTexture(guard);
         using var doc = JsonDocument.Parse(edited.ManifestBytes);

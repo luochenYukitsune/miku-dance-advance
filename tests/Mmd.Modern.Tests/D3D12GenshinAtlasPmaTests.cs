@@ -20,7 +20,7 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
     [Theory]
     [InlineData("genshin")]
     [InlineData("mmd")]
-    public void MovedSchemaThreeKeepsBothSourceImagesAndReferencesThroughDefaultResave(string pipeline)
+    public void MovedSchemaFourteenKeepsBothSourceImagesAndReferencesThroughDefaultResave(string pipeline)
     {
         using var project = Project(out var entries);
         project.SetDefaultRenderingStyle(new(pipeline), Token);
@@ -34,10 +34,11 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
             foreach (var entry in entries)
             {
                 var restored = loaded.Session.Objects.Single(obj => obj.Id == entry.ObjectId).Source;
-                Assert.Equal(3, profiles[entry.ObjectId].SchemaVersion);
+                Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profiles[entry.ObjectId].SchemaVersion);
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(entry.Profile), D3D12MaterialBindingProfileJson.Encode(profiles[entry.ObjectId]));
-                var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], restored, entry.ObjectId, pipeline);
-                Assert.Equal(pipeline == "genshin" ? 1 : 0, mapping.GenshinHairAtlasBindings.Count);
+                var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], restored, entry.ObjectId, pipeline, TestStylePlugins.AllViewCatalog);
+                Assert.Equal(pipeline == "genshin" ? 1 : 0, mapping.PluginBindings.Count(b => b.Binding.StyleId == "genshin" && b.Binding.ModeId == "hair-atlas"));
+                Assert.Equal(pipeline == "genshin" ? 2 : 0, mapping.PluginBindings.Count);
                 foreach (int slot in new[] { entry.SourceRest.Surface.Snapshot.Textures.Count - 2, entry.SourceRest.Surface.Snapshot.Textures.Count - 1 })
                     Assert.Equal(entry.SourceRest.Surface.Snapshot.Textures[slot].Rgba.ToArray(), restored.Surface.Snapshot.Textures[slot].Rgba.ToArray());
             }
@@ -45,7 +46,7 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
         }
         using var again = D3D12MaterialBindingPma.Load(saved, Path.Combine(directory, "cache2"), Load, new NoPhysics(), out var roundtrip, cancellationToken: Token);
         Assert.Equal(entries.Select(entry => entry.ObjectId).Order(), roundtrip.Keys.Order());
-        Assert.All(roundtrip.Values, profile => Assert.NotNull(profile.Materials[0].GenshinHairAtlas));
+        Assert.All(roundtrip.Values, profile => Assert.Contains(profile.Materials[0].PluginBindings, b => b.StyleId == "genshin" && b.ModeId == "hair-atlas"));
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -55,13 +56,13 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
         string path = Path.Combine(directory, "render.pma");
         PmaProjectStore.Save(path, project, D3D12MaterialBindingPma.CreateSaveOptions(project, entries), Token);
         using var loaded = D3D12MaterialBindingPma.Load(path, Path.Combine(directory, "cache"), Load, new NoPhysics(), out var profiles, cancellationToken: Token);
-        var before = entries.Select(entry => D3D12MaterialBindingProfileResolver.Resolve(entry.Profile, entry.SourceRest, entry.ObjectId, "genshin")).ToArray();
-        var after = loaded.Session.Objects.Select(obj => D3D12MaterialBindingProfileResolver.Resolve(profiles[obj.Id], obj.Source, obj.Id, "genshin")).ToArray();
+        var before = entries.Select(entry => D3D12MaterialBindingProfileResolver.Resolve(entry.Profile, entry.SourceRest, entry.ObjectId, "genshin", TestStylePlugins.AllViewCatalog)).ToArray();
+        var after = loaded.Session.Objects.Select(obj => D3D12MaterialBindingProfileResolver.Resolve(profiles[obj.Id], obj.Source, obj.Id, "genshin", TestStylePlugins.AllViewCatalog)).ToArray();
         var request = new ViewRenderRequest(97,65,new(Antialiasing:FrameAntialiasing.Smaa1X,SpatialSamples:2));
         await using var a = new D3D12ViewRenderer(request, characterMaterials:before.SelectMany(m=>m.CharacterMaterials),
-            hairDataBindings:before.SelectMany(m=>m.GenshinHairBindings),genshinHairAtlasDataBindings:before.SelectMany(m=>m.GenshinHairAtlasBindings));
+            pluginBindings:before.SelectMany(m=>m.PluginBindings), styleCatalog:TestStylePlugins.AllViewCatalog);
         await using var b = new D3D12ViewRenderer(request, characterMaterials:after.SelectMany(m=>m.CharacterMaterials),
-            hairDataBindings:after.SelectMany(m=>m.GenshinHairBindings),genshinHairAtlasDataBindings:after.SelectMany(m=>m.GenshinHairAtlasBindings));
+            pluginBindings:after.SelectMany(m=>m.PluginBindings), styleCatalog:TestStylePlugins.AllViewCatalog);
         var plan = new OfflineFramePlan(97,65,new(30),0,0);
         OfflineFrame Frame(SceneProjectSession owner,D3D12ViewRenderer renderer)
         {
@@ -73,7 +74,8 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
         Assert.Contains(first.Pixels.ToArray().Where((_,i)=>i%4==3),alpha=>alpha!=0);
         // Keep the original R/B lobe and geometry identical; the atlas alone must affect RGB.
         await using var rbOnly = new D3D12ViewRenderer(request, characterMaterials:before.SelectMany(m=>m.CharacterMaterials),
-            hairDataBindings:before.SelectMany(m=>m.GenshinHairBindings));
+            pluginBindings:before.SelectMany(m=>m.PluginBindings).Where(bind=>bind.Binding.ModeId=="hair"),
+            styleCatalog:TestStylePlugins.AllViewCatalog);
         using var baseline=await rbOnly.CaptureAsync(Frame(project,rbOnly),Token);
         int changedRgb=0;
         for(int pixel=0;pixel<first.Pixels.Length;pixel+=4)
@@ -89,7 +91,7 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
         try
         {
             await using var realtime=new D3D12RealtimeViewRenderer(window,request,characterMaterials:after.SelectMany(m=>m.CharacterMaterials),
-                hairDataBindings:after.SelectMany(m=>m.GenshinHairBindings),genshinHairAtlasDataBindings:after.SelectMany(m=>m.GenshinHairAtlasBindings));
+                pluginBindings:after.SelectMany(m=>m.PluginBindings), styleCatalog:TestStylePlugins.AllViewCatalog);
             var s=loaded.Session.CaptureRenderSnapshot(realtime.SceneInputRequests);
             var frame=new PreviewFrame(97,65,0,s.Scene,s.Camera,s.Light,s.SelfShadow){RenderingStyles=s.RenderingStyles,SceneInputs=s.SceneInputs};
             realtime.ValidateRenderingStyles(s.Scene,s.RenderingStyles); realtime.ValidateSceneInputs(frame);
@@ -128,10 +130,14 @@ public sealed class D3D12GenshinAtlasPmaTests : IDisposable
             var obj = composition.Add("explicit instance "+i,source,ModelRole.Character,frame);
             composition.SetTransform(obj.Id,new((i-.5f)*2,0,0),Quaternion.Identity,1);
             var layout=D3D12MaterialBindingLayout.Capture(frame);
+            int lm=appended.Textures.Count-2;
+            int at=appended.Textures.Count-1;
             list.Add(new(obj.Id,new("map-"+i,"mapping "+i,layout.Fingerprint,
-                [new(0,D3D12CharacterMaterialRole.Hair,GenshinHair:new(layout.CaptureTexture(appended.Textures.Count-2),Multiplier:.8f),
-                    GenshinHairAtlas:new(layout.CaptureTexture(appended.Textures.Count-2),layout.CaptureTexture(appended.Textures.Count-1),
-                        D3D12GenshinAtlasColorEncoding.LinearRgb, 2.5f, .3f, 1.1f, .5f, .7f, .8f, 1, .2f))]),frame));
+                [new(0,D3D12CharacterMaterialRole.Hair,
+                    pluginBindings:[
+                        TestStylePlugins.GenshinHair(lm,multiplier:.8f),
+                        TestStylePlugins.GenshinHairAtlas(lm,at,"LinearRgb",2.5f,.3f,1.1f,.5f,.7f,.8f,1f,.2f)],
+                    textureGuards:[layout.CaptureTexture(lm),layout.CaptureTexture(at)])]),frame));
         }
         entries=list.ToArray();
         return new(composition,new SceneLightingEditor(),[],new NoPhysics(),cancellationToken:Token);

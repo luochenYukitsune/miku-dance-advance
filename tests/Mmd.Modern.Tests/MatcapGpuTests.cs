@@ -11,8 +11,8 @@ public sealed class MatcapGpuTests
     private const int W = 97, H = 97;
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2.6f, .1f, 30);
     private static readonly Vector3 Ni = new(0, 0, 1.7f);
-    private static readonly D3D12EndfieldMatcapBinding Binding = new(0, 1, 2,
-        D3D12MatcapColorEncoding.LinearRgb, 0, new(.085f, .07f, .06f), new(.2f, .45f, .12f),
+    private static readonly EndfieldMatcapSpec Binding = new(0, 1, 2,
+        T8dTestHelpers.EncodingLinearRgb, 0, new(.085f, .07f, .06f), new(.2f, .45f, .12f),
         NormalStrength: 1.4f, HighlightCoefficient: .08f);
 
     [Fact, Trait("Category", "Gpu")]
@@ -58,7 +58,7 @@ public sealed class MatcapGpuTests
             new("sRGB nonendpoint colors", 2, 1, [32, 72, 128, 51, 224, 180, 192, 204])]);
         var brighter=source.Surface.Snapshot.WithMaterials([source.Surface.Snapshot.Materials[0] with { Diffuse=new(.8f,.7f,.6f,1) }]);
         var frame=new OriginalFrameScene(new(brighter,[source.Surface.Materials[0] with { ToonShadowColor=Vector3.One }],source.Surface.Profile),options:source.Options);
-        var binding = Binding with { MatcapEncoding = D3D12MatcapColorEncoding.SrgbRgb,
+        var binding = Binding with { MatcapEncoding = T8dTestHelpers.EncodingSrgbRgb,
             NormalStrength = 0, HighlightCoefficient = 1, BaseColor = new(.4f), HighlightColor = new(.1f) };
         var baseline = session.Capture(frame, W, H, surfaceStyles: Map(null));
         var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
@@ -69,12 +69,12 @@ public sealed class MatcapGpuTests
         // Non-endpoint texels detect BOTH a missing sRGB decode and decode-after-filter.
         var encodedMid=new Vector3(256,252,320)/510;
         var wrongImage = new Vector4(MatcapOracle.Srgb(encodedMid.X), MatcapOracle.Srgb(encodedMid.Y), MatcapOracle.Srgb(encodedMid.Z), .5f);
-        var wrongDelta = MatcapOracle.Delta(binding.BaseColor,
-            MatcapOracle.MaterialColor(binding.BaseColor, binding.HighlightColor, wrongImage, 1), 1);
+        var wrongDelta = MatcapOracle.Delta(binding.EffectiveBaseColor,
+            MatcapOracle.MaterialColor(binding.EffectiveBaseColor, binding.EffectiveHighlightColor, wrongImage, 1), 1);
         Assert.True(Vector3.Distance(expected, wrongDelta) * 255 > 6,
             "Fixture must reject decoding an already-filtered sRGB value.");
-        var missingDecode=MatcapOracle.Delta(binding.BaseColor,
-            MatcapOracle.MaterialColor(binding.BaseColor,binding.HighlightColor,new(encodedMid,.5f),1),1);
+        var missingDecode=MatcapOracle.Delta(binding.EffectiveBaseColor,
+            MatcapOracle.MaterialColor(binding.EffectiveBaseColor,binding.EffectiveHighlightColor,new(encodedMid,.5f),1),1);
         Assert.True(Vector3.Distance(expected,missingDecode)*255>4,
             "Fixture must also reject a numerical UNorm resource used in place of authored sRGB.");
         AssertCoverage(baseline, actual);
@@ -95,8 +95,8 @@ public sealed class MatcapGpuTests
             if (!Front(frame.Surface.Snapshot, 0)) control = -control;
             var binding = Binding with { UvChannel = mirroredUv1 ? 1 : 0, NormalStrength = 2,
                 RotationRadians = .71f, LightControlDirection = control, HighlightCoefficient = .1f };
-            var baseline = session.Capture(frame, W, H, surfaceStyles: Map(null));
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
+            var baseline = session.Capture(frame, W, H, surfaceStyles: Map(null, frame));
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding, frame));
             foreach (int y in new[] { 42, 54 }) foreach (int x in new[] { 42, 54 })
                 AssertPixel(baseline, actual, x, y, Expected(frame.Surface.Snapshot, binding, x, y));
             AssertCoverage(baseline, actual);
@@ -142,9 +142,8 @@ public sealed class MatcapGpuTests
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(split: true);
-        D3D12SurfaceStyleMap Styles(bool enabled) => new(
-            [D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.EndfieldPmx],
-            [new(), new(EndfieldMatcap: enabled ? Binding : null)]);
+        D3D12SurfaceStyleMap Styles(bool enabled) => T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,
+            ["endfield", "endfield"], [new(), new()], [null, enabled ? [Binding.ToBinding()] : null]);
         var baseline = session.Capture(frame, W, H, surfaceStyles: Styles(false));
         var actual = session.Capture(frame, W, H, surfaceStyles: Styles(true));
         Assert.Equal(6, frame.Surface.Snapshot.Materials[1].StartIndex);
@@ -159,8 +158,9 @@ public sealed class MatcapGpuTests
         AssertCoverage(baseline, actual);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldMatcapBinding? binding)
-        => new([D3D12SurfaceStyle.EndfieldPmx], [new(EndfieldMatcap: binding)]);
+    private static D3D12SurfaceStyleMap Map(EndfieldMatcapSpec? binding, OriginalFrameScene? frame = null)
+        => T8dTestHelpers.CreateDirectSurfaceStyleMap(frame ?? Frame(), ["endfield"], [new()],
+            [binding is null ? null : [binding.ToBinding()]]);
     private static SceneTexture NormalTexture() => new("numerical normal", 1, 1, [179, 153, 13, 0]);
     private static SceneTexture PTexture() => new("numerical gate", 1, 1, [40, 255, 255, 24]);
     private static SceneTexture ColorTexture() => new("authored color", 2, 2,
@@ -196,15 +196,15 @@ public sealed class MatcapGpuTests
     // Analytic planar frame: dP/du=+X. Clockwise source triangles have negative
     // Mikk UV orientation; UV1 reverses V and therefore reverses that corner sign.
     // Never read the product tangent buffer or binding-derived constants for the oracle.
-    private static Vector3 Expected(SceneSnapshot scene, D3D12EndfieldMatcapBinding b, int x, int y, int material = 0)
+    private static Vector3 Expected(SceneSnapshot scene, EndfieldMatcapSpec b, int x, int y, int material = 0)
     {
         Matrix4x4.Invert(scene.World, out var inverse); var normalWorld = Matrix4x4.Transpose(inverse);
         Vector3 ni = Vector3.TransformNormal(Ni, normalWorld);
         Vector3 tangent = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitX, normalWorld));
         Vector2 uv = UvAt(scene, x, y, material);
         if (b.UvChannel == 1) uv.Y = 1 - uv.Y;
-        var normal = scene.Textures[b.NormalCombinedTextureIndex]; var p = scene.Textures[b.PCombinedTextureIndex];
-        var color = scene.Textures[b.MatcapCombinedTextureIndex];
+        var normal = scene.Textures[b.NormalSlot]; var p = scene.Textures[b.PSlot];
+        var color = scene.Textures[b.MatcapSlot];
         Vector4 ns = MatcapOracle.BilinearRepeat(normal.Rgba, normal.Width, normal.Height, uv, false);
         Vector4 ps = MatcapOracle.BilinearRepeat(p.Rgba, p.Width, p.Height, uv, false);
         Vector3 mapped = MatcapOracle.PackedNormal(new(ns.X, ns.Y), ni,
@@ -214,10 +214,10 @@ public sealed class MatcapGpuTests
         Vector2 colorUv = MatcapOracle.Coordinates(mapped, new(view.M11, view.M21, view.M31),
             new(view.M12, view.M22, view.M32), new(view.M13, view.M23, view.M33), b.RotationRadians);
         Vector4 image = MatcapOracle.BilinearRepeat(color.Rgba, color.Width, color.Height, colorUv,
-            b.MatcapEncoding == D3D12MatcapColorEncoding.SrgbRgb);
+            b.MatcapEncoding == T8dTestHelpers.EncodingSrgbRgb);
         float gate = MatcapOracle.SourceGate(mapped, b.LightControlDirection ?? Vector3.UnitZ,
             b.ShadowHardness, ps.X, ps.W, b.HighlightCoefficient).Gate;
-        return MatcapOracle.Delta(b.BaseColor, MatcapOracle.MaterialColor(b.BaseColor, b.HighlightColor, image, gate), b.BaselineStrength);
+        return MatcapOracle.Delta(b.EffectiveBaseColor, MatcapOracle.MaterialColor(b.EffectiveBaseColor, b.EffectiveHighlightColor, image, gate), b.BaselineStrength);
     }
 
     private static Vector2 UvAt(SceneSnapshot scene, int x, int y, int material)

@@ -147,12 +147,11 @@ public sealed class D3D12FrameRenderer : IDisposable
             rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
         rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
         surfaceStyles?.Validate(frame,rayGiOptions);
-        surfaceStyles=surfaceStyles?.CaptureFaceTextures(frame);
+        surfaceStyles=surfaceStyles?.CaptureResolvedInputs(frame);
         var scene=frame.Surface.Snapshot;
-        ulong radialReservation=D3D12SsaaGiMemoryBudget.MeasureEndfieldSeeds(runtime,scene,surfaceStyles?.HasConsumedEndfieldHair==true);
-        ulong matcapReservation=MeasureEndfieldMatcapMemory(runtime,scene,surfaceStyles);
-        ulong metallicReservation=MeasureGenshinMetallicMemory(runtime,scene,surfaceStyles);
-        ulong baseImageReservation=MeasureEndfieldBaseImageMemory(runtime,scene,surfaceStyles);
+        ulong radialReservation=D3D12SsaaGiMemoryBudget.MeasureRadialSeeds(runtime,scene,
+            surfaceStyles?.HasGeometryRequirement(D3D12StyleGeometryRequirements.RawRadialSeeds)==true);
+        ulong pluginStyleReservation=MeasurePluginStyleMemory(runtime,scene,surfaceStyles);
         // These request-only resets must not become the next AA configuration comparison.
         // Commit the requested GI settings and actual families only after successful Submit.
         var historyRayGiOptions=rayGiOptions;
@@ -169,7 +168,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         ulong diffusionReservation=D3D12DiffusionMemoryBudget.Measure(runtime,width,height,diffusionActive,
             alphaCoverage:frame.Options?.AlphaOutput==FrameAlphaOutput.Straight);
-        ulong additionalReservation=checked(radialReservation+matcapReservation+metallicReservation+baseImageReservation+diffusionReservation
+        ulong additionalReservation=checked(radialReservation+pluginStyleReservation+diffusionReservation
             +D3D12ExposurePass.Measure(runtime,width,height,exposureEv!=0));
         bool additionalValidatedEarly=additionalReservation>0&&(!capture||captureMemory.Mode==D3D12CaptureMemoryMode.Default);
         if(additionalValidatedEarly)D3D12SsaaGiMemoryBudget.RequireFits(new(0,0,additionalReservation),D3D12SsaaGiMemoryBudget.Query(runtime),width,height,1);
@@ -364,20 +363,16 @@ public sealed class D3D12FrameRenderer : IDisposable
             debugQueue?.ClearStoredMessages();
             const int textureSlots = 0;
             int nativeDescriptors=D3D12OriginalStyleRenderer.HasNativeLights(frame)?2:0;
-            int matcapDescriptors=surfaceStyles?.HasConsumedSurfaceMatcap==true?surfaceStyles.Count:0;
-            int matcapSlotBase=checked(textureSlots+scene.Textures.Count+4+nativeDescriptors);
-            int metallicDescriptors=surfaceStyles?.HasConsumedGenshinMetallic==true?surfaceStyles.Count:0;
-            int metallicSlotBase=checked(matcapSlotBase+matcapDescriptors);
-            int baseImageDescriptors=surfaceStyles?.HasConsumedEndfieldBaseImage==true?surfaceStyles.Count:0;
-            int baseImageSlotBase=checked(metallicSlotBase+metallicDescriptors);
-            int giNextSlot=checked(baseImageSlotBase+baseImageDescriptors);
+            int pluginSlotBase=checked(textureSlots+scene.Textures.Count+4+nativeDescriptors);
+            int[]? pluginTableSlots=D3D12OriginalStyleRenderer.ComputePluginTextureTableSlots(surfaceStyles,pluginSlotBase,out int pluginDescriptors);
+            int giNextSlot=checked(pluginSlotBase+pluginDescriptors);
             // Each recorded GI receiver keeps its own SRV pair for the whole submission. Later
             // SSAA samples must not overwrite descriptors referenced by earlier queued work.
             int giRecordings=spatialSamples;
             int giDescriptors=rayGiOptions?.Enabled==true?checked(2*giRecordings):0;
             int descriptorCount=checked(giNextSlot+giDescriptors);
             var heaps=frameDescriptors.Get(descriptorCount);
-            heaps.UseLayout((scene.Textures.Count,nativeDescriptors,matcapDescriptors,metallicDescriptors,baseImageDescriptors));
+            heaps.UseLayout((scene.Textures.Count,nativeDescriptors,pluginDescriptors));
             var rtvHeap=heaps.Rtv;var dsvHeap=heaps.Dsv;var srvHeap=heaps.Srv;
             runtime.DescriptorHighWater=Math.Max(runtime.DescriptorHighWater,descriptorCount);
             int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
@@ -405,23 +400,54 @@ public sealed class D3D12FrameRenderer : IDisposable
             var stageTimer=System.Diagnostics.Stopwatch.StartNew();
             var geometry=emptyScene?null:GetGeometry(scene);var vb=geometry?.Vertex;var ib=geometry?.Index;
             geometryMilliseconds=stageTimer.Elapsed.TotalMilliseconds;stageTimer.Restart();
-            static Format ColorFormat(D3D12MatcapColorEncoding encoding)
-                =>encoding==D3D12MatcapColorEncoding.SrgbRgb?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm;
             bool[] mipmapTextures = ComputeMipmapTextures(frame, surfaceStyles);
             void UploadTexture(SceneTexture texture, int slot, bool generateMipmaps)
                 => Counted(heaps.WriteSrv(device, slot, cache.Texture(texture, generateMipmaps), srvStride, Format.R8G8B8A8_UNorm));
-            UploadTexture(WhiteTexture, textureSlots, false);
+            var whiteGpu = cache.Texture(WhiteTexture, false);
+            Counted(heaps.WriteSrv(device, textureSlots, whiteGpu, srvStride, Format.R8G8B8A8_UNorm));
             UploadTexture(WhiteSphereTexture, textureSlots + 1, false);
             for (int i = 0; i < scene.Textures.Count; i++) UploadTexture(scene.Textures[i], textureSlots + i + 2, mipmapTextures[i]);
-            for(int i=0;i<matcapDescriptors;i++)
-                if(surfaceStyles!.EffectiveSurfaceMatcap(i) is {} matcap)
-                    Counted(heaps.WriteSrv(device,matcapSlotBase+i,cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),srvStride,ColorFormat(matcap.MatcapEncoding)));
-            for(int i=0;i<metallicDescriptors;i++)
-                if(surfaceStyles!.EffectiveGenshinMetallic(i) is {} metal)
-                    Counted(heaps.WriteSrv(device,metallicSlotBase+i,cache.TextureColor(scene.Textures[metal.MatcapCombinedTextureIndex],metal.MatcapEncoding),srvStride,ColorFormat(metal.MatcapEncoding)));
-            for(int i=0;i<baseImageDescriptors;i++)
-                if(surfaceStyles!.EffectiveEndfieldMatcap(i)?.Palette?.BaseImage is {ConsumesBaseTexture:true} baseImage)
-                    Counted(heaps.WriteSrv(device,baseImageSlotBase+i,cache.TextureColor(scene.Textures[baseImage.BaseCombinedTextureIndex!.Value],baseImage.BaseEncoding),srvStride,ColorFormat(baseImage.BaseEncoding)));
+            if(pluginDescriptors>0)
+            {
+                for(int s=0;s<D3D12PluginResourceLimits.MaxTextureSlots;s++)
+                    Counted(heaps.WriteSrv(device,pluginSlotBase+s,whiteGpu,srvStride,Format.R8G8B8A8_UNorm));
+                for(int i=0;i<surfaceStyles!.Count;i++)
+                {
+                    int tableSlot=pluginTableSlots![i];
+                    if(tableSlot==pluginSlotBase)continue;
+                    var bindings=surfaceStyles.GetPluginDraw(i)?.TextureBindings;
+                    for(int s=0;s<D3D12PluginResourceLimits.MaxTextureSlots;s++)
+                    {
+                        D3D12PluginTextureBinding? found=null;
+                        if(bindings is not null)
+                            for(int j=0;j<bindings.Count;j++)
+                                if(bindings[j].SlotIndex==s){found=bindings[j];break;}
+                        if(found is null||(found.SceneTextureIndex<0&&found.InlineTexture is null))
+                        {
+                            Counted(heaps.WriteSrv(device,tableSlot+s,whiteGpu,srvStride,Format.R8G8B8A8_UNorm));
+                            continue;
+                        }
+                        if(found.InlineTexture is {} inlineTex)
+                        {
+                            var effectiveMip=found.MipRule!=D3D12PluginTextureMipRule.FromSource?found.MipRule:inlineTex.MipRule;
+                            var gpuTex=cache.PluginInlineTexture(inlineTex,found.Encoding,effectiveMip);
+                            int mipOverride=effectiveMip==D3D12PluginTextureMipRule.PointNoMip?1:-1;
+                            Counted(heaps.WriteSrv(device,tableSlot+s,gpuTex,srvStride,gpuTex.Description.Format,mipOverride));
+                        }
+                        else
+                        {
+                            var sceneTex=scene.Textures[found.SceneTextureIndex];
+                            bool genMips=found.MipRule==D3D12PluginTextureMipRule.GenerateMips&&sceneTex.Kind==SceneTextureKind.Image;
+                            if(found.MipRule==D3D12PluginTextureMipRule.FromSource)genMips=mipmapTextures[found.SceneTextureIndex];
+                            var gpuTex=cache.TextureColor(sceneTex,found.Encoding,genMips);
+                            int mipOverride=found.MipRule==D3D12PluginTextureMipRule.PointNoMip?1:-1;
+                            Format viewFormat=found.Encoding==D3D12PluginTextureEncoding.SrgbColor
+                                ?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm;
+                            Counted(heaps.WriteSrv(device,tableSlot+s,gpuTex,srvStride,viewFormat,mipOverride));
+                        }
+                    }
+                }
+            }
             textureMilliseconds=stageTimer.Elapsed.TotalMilliseconds;
             D3D12OriginalStyleRenderer.PreparedFrame? preparedFrame=null;
             D3D12RayGiWorkspace? sharedGiWorkspace=null;
@@ -703,61 +729,31 @@ public sealed class D3D12FrameRenderer : IDisposable
         }
         if (surfaceStyles is not null)
         {
-            void Disallow(int? index)
+            void Disallow(int index)
             {
-                if (index is >= 0 and int t && t < textureCount) disallow[t] = true;
+                if (index >= 0 && index < textureCount) disallow[index] = true;
             }
             int styleCount = Math.Min(surfaceStyles.Count, scene.Materials.Count);
             for (int i = 0; i < styleCount; i++)
             {
-                if (surfaceStyles.Materials[i] != D3D12SurfaceStyle.Mmd)
+                if (!surfaceStyles.IsDefaultStyle(i))
                     Disallow(scene.Materials[i].DiffuseTexture);
-                if (surfaceStyles.EffectiveFaceSdf(i) is { } sdf)
+                if (surfaceStyles.GetPluginDraw(i)?.TextureBindings is { } bindings)
                 {
-                    Disallow(sdf.CombinedTextureIndex);
-                    if (sdf.HasSecondaryImage) Disallow(sdf.SecondaryCombinedTextureIndex);
-                }
-                if (surfaceStyles.EffectiveGenshinNonMetallicSpecular(i) is { } gHair) Disallow(gHair.CombinedTextureIndex);
-                if (surfaceStyles.EffectiveGenshinHairShadowAtlas(i) is { } gAtlas)
-                {
-                    Disallow(gAtlas.LightmapCombinedTextureIndex);
-                    Disallow(gAtlas.AtlasCombinedTextureIndex);
-                }
-                if (surfaceStyles.EffectiveStarMcHair(i) is { } sHair)
-                {
-                    Disallow(sHair.HighlightCombinedTextureIndex);
-                    Disallow(sHair.ShadowCombinedTextureIndex);
-                }
-                if (surfaceStyles.EffectiveEndfieldHair(i) is { } eHair) Disallow(eHair.CombinedTextureIndex);
-                if (surfaceStyles.EffectiveSurfaceMatcap(i) is { } eMatcap)
-                {
-                    Disallow(eMatcap.NormalCombinedTextureIndex);
-                    Disallow(eMatcap.PCombinedTextureIndex);
-                    Disallow(eMatcap.MatcapCombinedTextureIndex);
-                    if (eMatcap.Palette is { } palette)
+                    foreach (var binding in bindings)
                     {
-                        if (palette.ConsumesEmissionTexture) Disallow(palette.EmissionCombinedTextureIndex);
-                        if (palette.ConsumesReceivedLightTexture) Disallow(palette.ReceivedLightCombinedTextureIndex);
-                        if (palette.BaseImage is { } baseImage)
+                        int idx = binding.SceneTextureIndex;
+                        if (idx < 0 || idx >= textureCount) continue;
+                        if (binding.MipRule == D3D12PluginTextureMipRule.GenerateMips)
                         {
-                            if (baseImage.ConsumesBaseTexture) Disallow(baseImage.BaseCombinedTextureIndex);
-                            if (baseImage.ConsumesDetailTexture) Disallow(baseImage.DetailCombinedTextureIndex);
-                            if (baseImage.ConsumesShadowTexture) Disallow(baseImage.ShadowCombinedTextureIndex);
+                            if (scene.Textures[idx].Kind == SceneTextureKind.Image)
+                                allow[idx] = true;
+                        }
+                        else
+                        {
+                            Disallow(idx);
                         }
                     }
-                }
-                if (surfaceStyles.EffectiveGenshinMetallic(i) is { } gMetal)
-                {
-                    Disallow(gMetal.LightmapCombinedTextureIndex);
-                    Disallow(gMetal.MatcapCombinedTextureIndex);
-                    if (gMetal.Specular is { ConsumesRamp: true } spec) Disallow(spec.RampCombinedTextureIndex);
-                }
-                if (surfaceStyles.EffectiveStarMcBody(i) is { } sBody)
-                {
-                    Disallow(sBody.NormalCombinedTextureIndex);
-                    Disallow(sBody.DetailCombinedTextureIndex);
-                    Disallow(sBody.MaskCombinedTextureIndex);
-                    Disallow(sBody.MatcapCombinedTextureIndex);
                 }
             }
         }
@@ -767,79 +763,84 @@ public sealed class D3D12FrameRenderer : IDisposable
     }
 
     private sealed record GeometryIdentity(ID3D12Resource Vertex,ID3D12Resource Index);
-    private static ulong MeasureEndfieldMatcapMemory(D3D12GpuRuntime runtime,SceneSnapshot scene,D3D12SurfaceStyleMap? surfaceStyles)
+    private static ulong MeasurePluginStyleMemory(D3D12GpuRuntime runtime,SceneSnapshot scene,D3D12SurfaceStyleMap? surfaceStyles)
     {
-        if(surfaceStyles?.HasConsumedSurfaceMatcap!=true)return 0;
+        if(surfaceStyles is null || surfaceStyles.IsDefault)return 0;
         ulong Allocation(ResourceDescription description)
         {
             ulong bytes=runtime.Device.GetResourceAllocationInfo(0,[description]).SizeInBytes;
-            if(bytes is 0 or ulong.MaxValue)throw new NotSupportedException("Device cannot estimate MatCap corner/color resources.");
+            if(bytes is 0 or ulong.MaxValue)throw new NotSupportedException("Device cannot estimate plugin style resources.");
             return bytes;
         }
         ulong reservation=0;
-        var colorImages=new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
-        for(int i=0;i<surfaceStyles.Count;i++)
+        var srgbSceneTextures=new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
+        var inlineAssets=new HashSet<string>(StringComparer.Ordinal);
+        var structuredKeys=new HashSet<string>(StringComparer.Ordinal);
+        int count=Math.Min(surfaceStyles.Count,scene.Materials.Count);
+        for(int i=0;i<count;i++)
         {
-            if(surfaceStyles.EffectiveSurfaceMatcap(i) is not {} matcap)continue;
-            var source=matcap.Geometry?.Source??scene;
-            int localMaterial=matcap.Geometry?.LocalMaterialIndex??i;
-            ulong cornerBytes=checked((ulong)source.Materials[localMaterial].IndexCount*64);
-            if(cornerBytes>0)
+            if(surfaceStyles.GetPluginDraw(i) is not {} draw)continue;
+            if(draw.BufferBindings is not null)
             {
-                ulong cornerAllocation=Allocation(ResourceDescription.Buffer(cornerBytes));
-                // One current replaceable owner, three fence-leased old owners and three
-                // upload allocations. SSAA samples reuse this same immutable pose payload.
-                reservation=checked(reservation+cornerAllocation*(D3D12SsaaGiMemoryBudget.MaximumInFlightFrames*2UL+1));
+                foreach(var buf in draw.BufferBindings)
+                {
+                    if(buf.Kind==D3D12PluginBufferKind.MikkTangentCorners)
+                    {
+                        ulong cornerBytes=buf.Data.IsEmpty
+                            ?checked((ulong)scene.Materials[i].IndexCount*64)
+                            :(ulong)buf.Data.Length;
+                        if(cornerBytes>0)
+                        {
+                            ulong cornerAllocation=Allocation(ResourceDescription.Buffer(cornerBytes));
+                            reservation=checked(reservation+cornerAllocation*(D3D12SsaaGiMemoryBudget.MaximumInFlightFrames*2UL+1));
+                        }
+                    }
+                    else if(buf.Kind==D3D12PluginBufferKind.CustomStructured)
+                    {
+                        string key=$"{buf.DataKey}:{buf.ElementStrideBytes}:{buf.ElementCount}";
+                        if(!structuredKeys.Add(key))continue;
+                        ulong byteCount=(ulong)(buf.Data.IsEmpty?checked(buf.ElementStrideBytes*buf.ElementCount):buf.Data.Length);
+                        if(byteCount>0)
+                        {
+                            ulong bufAllocation=Allocation(ResourceDescription.Buffer(byteCount));
+                            reservation=checked(reservation+bufAllocation*(D3D12SsaaGiMemoryBudget.MaximumInFlightFrames+1UL));
+                        }
+                    }
+                }
             }
-            if(matcap.MatcapEncoding!=D3D12MatcapColorEncoding.SrgbRgb)continue;
-            var texture=scene.Textures[matcap.MatcapCombinedTextureIndex];
-            if(!colorImages.Add(texture))continue;
-            var description=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm_SRgb,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
-            runtime.Device.GetCopyableFootprints(description,0,1,0,new PlacedSubresourceFootPrint[1],new int[1],new ulong[1],out ulong stagingBytes);
-            reservation=checked(reservation+Allocation(description)
-                +Allocation(ResourceDescription.Buffer(stagingBytes))*D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
-        }
-        return reservation;
-    }
-    private static ulong MeasureGenshinMetallicMemory(D3D12GpuRuntime runtime,SceneSnapshot scene,D3D12SurfaceStyleMap? styles)
-    {
-        if(styles?.HasConsumedGenshinMetallic!=true)return 0;
-        ulong Allocation(ResourceDescription desc)
-        {
-            ulong bytes=runtime.Device.GetResourceAllocationInfo(0,[desc]).SizeInBytes;
-            if(bytes is 0 or ulong.MaxValue)throw new NotSupportedException("Device cannot estimate metallic color resources.");
-            return bytes;
-        }
-        ulong reservation=0;var images=new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
-        for(int i=0;i<styles.Count;i++)
-        {
-            if(styles.EffectiveGenshinMetallic(i) is not {MatcapEncoding:D3D12MatcapColorEncoding.SrgbRgb} b)continue;
-            var texture=scene.Textures[b.MatcapCombinedTextureIndex];if(!images.Add(texture))continue;
-            var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm_SRgb,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
-            runtime.Device.GetCopyableFootprints(desc,0,1,0,new PlacedSubresourceFootPrint[1],new int[1],new ulong[1],out ulong upload);
-            reservation=checked(reservation+Allocation(desc)+Allocation(ResourceDescription.Buffer(upload))*D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
-        }
-        return reservation;
-    }
-    private static ulong MeasureEndfieldBaseImageMemory(D3D12GpuRuntime runtime,SceneSnapshot scene,D3D12SurfaceStyleMap? styles)
-    {
-        if(styles?.HasConsumedEndfieldBaseImage!=true)return 0;
-        ulong Allocation(ResourceDescription desc)
-        {
-            ulong bytes=runtime.Device.GetResourceAllocationInfo(0,[desc]).SizeInBytes;
-            if(bytes is 0 or ulong.MaxValue)throw new NotSupportedException("Device cannot estimate Endfield base-image resources.");
-            return bytes;
-        }
-        ulong reservation=checked(Allocation(ResourceDescription.Buffer((ulong)D3D12EndfieldShadowLut.Bytes.Length))
-            *(D3D12SsaaGiMemoryBudget.MaximumInFlightFrames+1UL));
-        var images=new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
-        for(int i=0;i<styles.Count;i++)
-        {
-            if(styles.EffectiveEndfieldMatcap(i)?.Palette?.BaseImage is not {ConsumesBaseTexture:true,BaseEncoding:D3D12MatcapColorEncoding.SrgbRgb} b)continue;
-            var texture=scene.Textures[b.BaseCombinedTextureIndex!.Value];if(!images.Add(texture))continue;
-            var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm_SRgb,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
-            runtime.Device.GetCopyableFootprints(desc,0,1,0,new PlacedSubresourceFootPrint[1],new int[1],new ulong[1],out ulong upload);
-            reservation=checked(reservation+Allocation(desc)+Allocation(ResourceDescription.Buffer(upload))*D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
+            if(draw.TextureBindings is not null)
+            {
+                foreach(var tex in draw.TextureBindings)
+                {
+                    if(tex.InlineTexture is {} inlineTex)
+                    {
+                        string assetKey=$"{inlineTex.AssetKey}:{inlineTex.Format}:{inlineTex.Width}:{inlineTex.Height}:{tex.Encoding}";
+                        if(!inlineAssets.Add(assetKey))continue;
+                        Format fmt=inlineTex.Format switch
+                        {
+                            D3D12PluginTexturePixelFormat.Rgba8Unorm=>tex.Encoding==D3D12PluginTextureEncoding.SrgbColor?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm,
+                            D3D12PluginTexturePixelFormat.Rgba8UnormSrgb=>Format.R8G8B8A8_UNorm_SRgb,
+                            D3D12PluginTexturePixelFormat.Rgba16Float=>Format.R16G16B16A16_Float,
+                            D3D12PluginTexturePixelFormat.Rgba32Float=>Format.R32G32B32A32_Float,
+                            D3D12PluginTexturePixelFormat.R8Unorm=>Format.R8_UNorm,
+                            _=>Format.R8G8B8A8_UNorm,
+                        };
+                        var desc=ResourceDescription.Texture2D(fmt,(uint)inlineTex.Width,(uint)inlineTex.Height,mipLevels:1);
+                        runtime.Device.GetCopyableFootprints(desc,0,1,0,new PlacedSubresourceFootPrint[1],new int[1],new ulong[1],out ulong stagingBytes);
+                        reservation=checked(reservation+Allocation(desc)
+                            +Allocation(ResourceDescription.Buffer(stagingBytes))*D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
+                    }
+                    else if(tex.SceneTextureIndex>=0&&tex.SceneTextureIndex<scene.Textures.Count&&tex.Encoding==D3D12PluginTextureEncoding.SrgbColor)
+                    {
+                        var sceneTex=scene.Textures[tex.SceneTextureIndex];
+                        if(!srgbSceneTextures.Add(sceneTex))continue;
+                        var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm_SRgb,(uint)sceneTex.Width,(uint)sceneTex.Height,mipLevels:1);
+                        runtime.Device.GetCopyableFootprints(desc,0,1,0,new PlacedSubresourceFootPrint[1],new int[1],new ulong[1],out ulong stagingBytes);
+                        reservation=checked(reservation+Allocation(desc)
+                            +Allocation(ResourceDescription.Buffer(stagingBytes))*D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
+                    }
+                }
+            }
         }
         return reservation;
     }

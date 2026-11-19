@@ -29,21 +29,27 @@ public sealed class StarMcBodyPortableGpuTests
     {
         var scene = StarMcBodyViewProfileTests.Modern(StarMcBodyViewProfileTests.Source()); var actor = Guid.NewGuid();
         var objects = new[] { new SceneRenderingStyleBinding(actor, new(pipeline), ModelRole.Character, 0, 1, true) };
-        D3D12ViewGenshinHairBinding[] genshin = dormant == "genshin" ? [new(actor, 0, 0)] : [];
-        D3D12ViewStarMcHairBinding[] starMc = dormant == "star-mc" ? [new(actor, 0, 0, 1)] : [];
-        D3D12ViewEndfieldHairBinding[] endfield = dormant == "endfield" ? [new(actor, 0, 999, new(.3f))] : [];
+        var bindings = new List<D3D12ViewPluginMaterialBinding>();
+        if (dormant == "genshin") bindings.Add(new(actor, 0, TestStylePlugins.GenshinHair(0)));
+        if (dormant == "star-mc") bindings.Add(new(actor, 0, T8cTestHelpers.StarMcHairBinding(T8cTestHelpers.StarRailStyleId, 0, 1)));
+        if (dormant == "endfield") bindings.Add(new(actor, 0, T8cTestHelpers.EndfieldHairBinding(999, new(.3f))));
+        D3D12ViewCharacterMaterial[]? charMats = dormant == "endfield"
+            ? [new(actor, 0, D3D12CharacterMaterialRole.Hair)]
+            : null;
         var request = new ViewRenderRequest(96, 72);
         var plan = new OfflineFramePlan(96, 72, new(30), 0, 0);
         var frame = new OfflineFrame(plan.GetSample(0), 96, 72, scene, null, null, null)
         { RenderingStyles = objects, ResolvedCamera = Camera };
         byte[] expected;
-        await using (var baseline = new D3D12ViewRenderer(request))
+        await using (var baseline = new D3D12ViewRenderer(request,
+            stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: charMats, styleCatalog: TestStylePlugins.AllViewCatalog))
         {
             using var pixels = await baseline.CaptureAsync(frame, Token); Assert.False(baseline.IsWarp);
             expected = pixels.Pixels.ToArray();
         }
-        await using (var configured = new D3D12ViewRenderer(request, hairDataBindings: genshin,
-            starMcHairDataBindings: starMc, endfieldHairDataBindings: endfield))
+        await using (var configured = new D3D12ViewRenderer(request,
+            stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: charMats,
+            pluginBindings: bindings, styleCatalog: TestStylePlugins.AllViewCatalog))
         {
             configured.ValidateRenderingStyles(scene, objects);
             configured.ValidateSceneInputs(new PreviewFrame(96, 72, 0, scene, null, null, null)
@@ -58,13 +64,15 @@ public sealed class StarMcBodyPortableGpuTests
             var previewFrame = new PreviewFrame(96, 72, 0, scene, null, null, null)
             { RenderingStyles = objects, ResolvedCamera = Camera };
             int expectedDraws;
-            await using (var baseline = new D3D12RealtimeViewRenderer(window, request))
+            await using (var baseline = new D3D12RealtimeViewRenderer(window, request,
+                stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: charMats, styleCatalog: TestStylePlugins.AllViewCatalog))
             {
                 await baseline.PresentAsync(previewFrame, Token); Assert.False(baseline.IsWarp);
                 expectedDraws = baseline.Statistics.Frame!.SceneDrawCalls;
             }
-            await using var preview = new D3D12RealtimeViewRenderer(window, request, hairDataBindings: genshin,
-                starMcHairDataBindings: starMc, endfieldHairDataBindings: endfield);
+            await using var preview = new D3D12RealtimeViewRenderer(window, request,
+                stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: charMats,
+                pluginBindings: bindings, styleCatalog: TestStylePlugins.AllViewCatalog);
             preview.ValidateRenderingStyles(scene, objects);
             preview.ValidateSceneInputs(previewFrame);
             await preview.PresentAsync(previewFrame, Token);
@@ -86,10 +94,12 @@ public sealed class StarMcBodyPortableGpuTests
         var item = editor.Add("Body history", Path.Combine(Path.GetTempPath(), "body-history.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new(), [], new StarMcBodyViewProfileTests.NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new(pipeline), Token);
-        var mapping = D3D12MaterialBindingProfileResolver.Resolve(StarMcBodyViewProfileTests.Profile(source, pipeline: pipeline), source, item.Id, pipeline);
+        var mapping = D3D12MaterialBindingProfileResolver.Resolve(
+            StarMcBodyViewProfileTests.Profile(source, pipeline: pipeline), source, item.Id, pipeline, TestStylePlugins.AllViewCatalog);
         var request = new ViewRenderRequest(96, 72, new(Gi: ViewGiTemporalAdapterTests.Options));
-        await using var renderer = new D3D12ViewRenderer(request, characterMaterials: mapping.CharacterMaterials,
-            starMcBodyDataBindings: mapping.StarMcBodyBindings);
+        await using var renderer = new D3D12ViewRenderer(request,
+            stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: mapping.PluginBindings, styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var capture = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var scene = StarMcBodyViewProfileTests.Modern(capture.Scene);
@@ -110,8 +120,9 @@ public sealed class StarMcBodyPortableGpuTests
         Assert.NotEqual(0, window);
         try
         {
-            await using var preview = new D3D12RealtimeViewRenderer(window, request, characterMaterials: mapping.CharacterMaterials,
-                starMcBodyDataBindings: mapping.StarMcBodyBindings);
+            await using var preview = new D3D12RealtimeViewRenderer(window, request,
+                stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: mapping.CharacterMaterials,
+                pluginBindings: mapping.PluginBindings, styleCatalog: TestStylePlugins.AllViewCatalog);
             var frame = new PreviewFrame(96, 72, 0, scene, null, null, null)
             { RenderingStyles = capture.RenderingStyles, SceneInputs = capture.SceneInputs, ResolvedCamera = Camera };
             await preview.PresentAsync(frame, Token);
@@ -151,7 +162,7 @@ public sealed class StarMcBodyPortableGpuTests
             using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new StarMcBodyViewProfileTests.NoPhysics(), cancellationToken: Token);
             project.SetDefaultRenderingStyle(new(pipeline), Token);
             var profile = pipeline == "endfield" ? Endfield(source, offset) : StarMcBodyViewProfileTests.Profile(source, offset, pipeline);
-            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, pipeline);
+            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, pipeline, TestStylePlugins.AllViewCatalog);
             byte[] expected = await Capture(project, mapping);
             byte[] baseline = await Capture(project, mapping, dedicated: false);
             int changed = 0;
@@ -174,13 +185,15 @@ public sealed class StarMcBodyPortableGpuTests
                 for (int i = 0; i < textures.Length; i++)
                     Assert.Equal(textures[i].Rgba.ToArray(), restored.Source.Surface.Snapshot.Textures[i].Rgba.ToArray());
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(profiles[item.Id]));
-                Assert.Equal(expected, await Capture(loaded.Session, D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored.Source, item.Id, pipeline)));
+                Assert.Equal(expected, await Capture(loaded.Session,
+                    D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored.Source, item.Id, pipeline, TestStylePlugins.AllViewCatalog)));
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
             using var reopened = D3D12MaterialBindingPma.Load(resaved, Path.Combine(directory, "cache2"), Load,
                 new StarMcBodyViewProfileTests.NoPhysics(), out var savedProfiles, cancellationToken: Token);
             var again = Assert.Single(reopened.Session.Objects);
-            Assert.Equal(expected, await Capture(reopened.Session, D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[item.Id], again.Source, item.Id, pipeline)));
+            Assert.Equal(expected, await Capture(reopened.Session,
+                D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[item.Id], again.Source, item.Id, pipeline, TestStylePlugins.AllViewCatalog)));
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -188,19 +201,23 @@ public sealed class StarMcBodyPortableGpuTests
     private static D3D12MaterialBindingProfile Endfield(OriginalFrameScene source, int offset)
     {
         var layout = D3D12MaterialBindingLayout.Capture(source);
+        D3D12MaterialBindingProfileTexture[] guards = [layout.CaptureTexture(offset), layout.CaptureTexture(offset + 2), layout.CaptureTexture(offset + 3)];
+        var matcap = T8cTestHelpers.EndfieldMatcapBinding(offset, offset + 2, offset + 3, "SrgbRgb", 0,
+            new(.2f), new(.4f, .2f, .3f), normalStrength: 1.1f, highlightCoefficient: .2f, coupleEndfieldPalette: true);
+        var palette = T8cTestHelpers.EndfieldPaletteBinding(new(.3f), lightInfluence: .6f, density: .3f, receivedLightInputMode: "RendererDiffuse");
+        var highlightRange = T8cTestHelpers.EndfieldHighlightRangeBinding(.7f, 1.2f, -Vector3.UnitZ, .4f, .8f);
         return new("endfield-live-portable", "Endfield live portable", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Body, EndfieldMatcap: new(layout.CaptureTexture(offset),
-                layout.CaptureTexture(offset + 2), layout.CaptureTexture(offset + 3), D3D12MatcapColorEncoding.SrgbRgb,
-                0, new(.2f), new(.4f, .2f, .3f), NormalStrength: 1.1f, HighlightCoefficient: .2f, CoupleEndfieldPalette: true,
-                Palette: new(new(.3f), LightInfluence: .6f, Density: .3f, ReceivedLightInputMode: D3D12EndfieldPaletteInputMode.RendererDiffuse),
-                HighlightRange: new(.7f, 1.2f, new(-Vector3.UnitZ, .4f, .8f))))]);
+            [new(0, D3D12CharacterMaterialRole.Body, pluginBindings: [matcap, palette, highlightRange], textureGuards: guards)],
+            pipelineId: "endfield");
     }
 
     private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool dedicated = true)
     {
-        await using var renderer = new D3D12ViewRenderer(new(97, 97), characterMaterials: mapping.CharacterMaterials,
-            starMcBodyDataBindings: dedicated ? mapping.StarMcBodyBindings : [],
-            endfieldMatcapDataBindings: dedicated ? mapping.EndfieldMatcapBindings : []);
+        await using var renderer = new D3D12ViewRenderer(new(97, 97),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: dedicated ? mapping.PluginBindings : [],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var capture = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var plan = new OfflineFramePlan(97, 97, new(30), 0, 0);

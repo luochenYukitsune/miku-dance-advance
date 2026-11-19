@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -13,14 +14,14 @@ public sealed class EndfieldSourceInputsGpuTests
     private const int W=97,H=97;
     private static readonly SceneCamera Camera=new(new(0,0,-5),Vector3.Zero,Vector3.UnitY,2.6f,.1f,30);
     private static readonly Vector3 OldPre=new(.22f,.16f,.1f);
-    private static readonly D3D12EndfieldMatcapBinding Matcap=new(0,1,2,D3D12MatcapColorEncoding.LinearRgb,
+    private static readonly EndfieldMatcapSpec Matcap=new(0,1,2,T8dTestHelpers.EncodingLinearRgb,
         0,OldPre,Vector3.One,NormalStrength:1.7f,HighlightCoefficient:1,BaselineStrength:.8f,CoupleEndfieldPalette:true);
-    private static readonly D3D12EndfieldRimBinding Rim=new(OldPre,new(.8f,.7f,.6f),EdgeSize:4,EdgeStrength:.16f,RangeStrength:.38f);
-    private static readonly D3D12EndfieldMatcapBinding CoupledMatcap=Matcap with {BaselineStrength=Rim.RangeStrength+Rim.RadialStrength};
-    private static readonly D3D12EndfieldHairBinding Hair=new(3,OldPre,-.15f);
-    private static readonly D3D12EndfieldPaletteBinding Palette=new(Vector3.Zero,
+    private static readonly EndfieldRimSpec Rim=new(OldPre,new(.8f,.7f,.6f),EdgeSize:4,EdgeStrength:.16f,RangeStrength:.38f);
+    private static readonly EndfieldMatcapSpec CoupledMatcap=Matcap with {BaselineStrength=Rim.RangeStrength+Rim.RadialStrength};
+    private static readonly EndfieldHairSpec Hair=new(3,OldPre,-.15f);
+    private static readonly EndfieldPaletteSpec Palette=new(Vector3.Zero,
         EmissionStrength:.4f,UniformEmissionBlue:.7f,LightInfluence:0,Density:0);
-    private static readonly D3D12EndfieldBaseImageBinding Base=new(new(.62f,.48f,.35f),new(.25f,.4f,.6f),
+    private static readonly EndfieldBaseImageSpec Base=new(new(.62f,.48f,.35f),new(.25f,.4f,.6f),
         Vector3.One,Vector3.One,ShadowFactor:.27f,WarmTint:0,DetailBlue:1,ShadowStrength:.85f);
 
     [Fact,Trait("Category","Gpu")]
@@ -95,8 +96,8 @@ public sealed class EndfieldSourceInputsGpuTests
         using var session=new D3D12FrameSession();
         var binding=Matcap with {UvChannel=1};
         var input=Base with {FacingBase=new(.7f),DirectionalShadow=new(Vector3.Normalize(new(.9f,.2f,-.2f)),.3f,2),
-            BaseInputMode=D3D12EndfieldPaletteInputMode.Texture,BaseCombinedTextureIndex=4,
-            BaseEncoding=D3D12MatcapColorEncoding.SrgbRgb};
+            BaseInputMode=T8dTestHelpers.ModeTexture,BaseSlot=4,
+            BaseEncoding=T8dTestHelpers.EncodingSrgbRgb};
         byte[]? previous=null;
         foreach(float shift in new[]{0f,.28f})
         {
@@ -106,7 +107,7 @@ public sealed class EndfieldSourceInputsGpuTests
             var frame=Replace(source,deformed);
             Assert.True(deformed.HasDynamicVertices);
             var plain=session.Capture(frame,W,H,surfaceStyles:Plain());
-            var actual=session.Capture(frame,W,H,surfaceStyles:Map(input,matcap:binding));
+            var actual=session.Capture(frame,W,H,surfaceStyles:Map(input,matcap:binding,frame:frame));
             foreach(int x in new[]{36,48,60}) AssertPixel(plain,actual,x,44,Delta(deformed,input,binding,x,44));
             AssertCoverage(plain,actual);
             if(previous is not null) Assert.NotEqual(previous,actual.Rgba);
@@ -136,9 +137,10 @@ public sealed class EndfieldSourceInputsGpuTests
         using var session=new D3D12FrameSession();
         var frame=Frame(split:true);
         var input=Base with {FacingBase=new(.7f),DirectionalShadow=new(Vector3.Normalize(new(.8f,.1f,-.3f))),
-            BaseInputMode=D3D12EndfieldPaletteInputMode.Texture,BaseCombinedTextureIndex=4,BaseEncoding=D3D12MatcapColorEncoding.SrgbRgb};
-        D3D12SurfaceStyleMap Styles(bool enabled)=>new([D3D12SurfaceStyle.Mmd,D3D12SurfaceStyle.EndfieldPmx],
-            [new(),new(EndfieldMatcap:enabled?Matcap with {Palette=Palette with {BaseImage=input}}:null)]);
+            BaseInputMode=T8dTestHelpers.ModeTexture,BaseSlot=4,BaseEncoding=T8dTestHelpers.EncodingSrgbRgb};
+        D3D12SurfaceStyleMap Styles(bool enabled)=>T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,
+            ["mmd","endfield"],[new(),new()],
+            [null,enabled?[(Matcap with {Palette=Palette,BaseImage=input}).ToBinding()]:null]);
         var plain=session.Capture(frame,W,H,surfaceStyles:Styles(false));
         var actual=session.Capture(frame,W,H,surfaceStyles:Styles(true));
         Assert.Equal(6,frame.Surface.Snapshot.Materials[1].StartIndex);
@@ -173,10 +175,15 @@ public sealed class EndfieldSourceInputsGpuTests
         {using var image=session.Render(frame,96,72,gi,temporalUpscaling:temporal,surfaceStyles:styles);Assert.Equal(count,session.RayGiStatistics!.TemporalHistoryFrames);Assert.Equal(giReason,session.RayGiStatistics.TemporalResetReason);Assert.Equal(aaReason,image.Statistics.TemporalUpscaling!.ResetReason);}
     }
 
-    private static D3D12SurfaceStyleMap Plain()=>new([D3D12SurfaceStyle.EndfieldPmx],[new()]);
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldBaseImageBinding input,bool coupled=false,D3D12EndfieldMatcapBinding? matcap=null)
-        =>new([D3D12SurfaceStyle.EndfieldPmx],[new(coupled?D3D12CharacterMaterialRole.Hair:D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap:(matcap??(coupled?CoupledMatcap:Matcap)) with {Palette=Palette with {BaseImage=input}},EndfieldRim:coupled?Rim:null,EndfieldHair:coupled?Hair:null)]);
+    private static D3D12SurfaceStyleMap Plain()=>new(["endfield"],registeredStyles:TestStylePlugins.AllPresetCatalog.Plugins.Values);
+    private static D3D12SurfaceStyleMap Map(EndfieldBaseImageSpec input,bool coupled=false,EndfieldMatcapSpec? matcap=null,OriginalFrameScene? frame=null)
+    {
+        var list=new List<StyleMaterialBindingData>(3);
+        if(coupled){list.Add(Hair.ToBinding());list.Add(Rim.ToBinding());}
+        list.Add(((matcap??(coupled?CoupledMatcap:Matcap)) with {Palette=Palette,BaseImage=input}).ToBinding());
+        return T8dTestHelpers.CreateDirectSurfaceStyleMap(frame??Frame(),["endfield"],
+            [new(coupled?D3D12CharacterMaterialRole.Hair:D3D12CharacterMaterialRole.Body)],[list]);
+    }
     private static SceneTexture[] Textures()=>[new("packed RG numerical",2,2,[150,110,0,0,205,145,255,255,165,165,0,255,215,100,255,0]),
         new("P numerical",1,1,[40,0,0,24]),new("constant MatCap",1,1,[40,180,70,180]),new("radial numerical Green",1,1,[0,64,0,0]),
         new("authored sRGB base",2,2,[45,100,210,0,210,160,80,255,90,180,70,120,170,65,130,24])];
@@ -198,7 +205,7 @@ public sealed class EndfieldSourceInputsGpuTests
     }
     private static OriginalFrameScene Replace(OriginalFrameScene f,SceneSnapshot s)=>new(new(s,f.Surface.Materials,f.Surface.Profile),options:f.Options,lighting:f.Lighting);
 
-    private static Vector3 Delta(SceneSnapshot s,D3D12EndfieldBaseImageBinding input,D3D12EndfieldMatcapBinding mat,int x,int y,bool coupled=false,int material=0)
+    private static Vector3 Delta(SceneSnapshot s,EndfieldBaseImageSpec input,EndfieldMatcapSpec mat,int x,int y,bool coupled=false,int material=0)
     {
         Vector3 p=Point(s,x,y);int first=(int)s.Indices[s.Materials[material].StartIndex];
         Vector3 a=s.Vertices[first].Position,b=s.Vertices[first+2].Position;
@@ -206,10 +213,10 @@ public sealed class EndfieldSourceInputsGpuTests
         Vector2 Uv(int i)=>mat.UvChannel==0?s.Vertices[i].Uv:new(s.AdditionalUvs!.Vertices[i].Uv1.X,s.AdditionalUvs.Vertices[i].Uv1.Y);
         Vector2 uv=Uv(first)+f*(Uv(first+2)-Uv(first));
         Vector4 Sample(int index,bool srgb=false){var t=s.Textures[index];return MatcapOracle.BilinearRepeat(t.Rgba,t.Width,t.Height,uv,srgb);}
-        var packed=Sample(mat.NormalCombinedTextureIndex);
+        var packed=Sample(mat.NormalSlot);
         Vector3 Normal(float strength)=>MatcapOracle.PackedNormal(new(packed.X,packed.Y),Vector3.UnitZ,new(Vector3.UnitX,mat.UvChannel==1?1:-1),1,true,strength);
         Vector3 baseRgb=input.BaseImageLinearRgb;
-        if(input.BaseInputMode==D3D12EndfieldPaletteInputMode.Texture){var sample=Sample(input.BaseCombinedTextureIndex!.Value,input.BaseEncoding==D3D12MatcapColorEncoding.SrgbRgb);baseRgb=new(sample.X,sample.Y,sample.Z);}
+        if(input.BaseInputMode==T8dTestHelpers.ModeTexture){var sample=Sample(input.BaseSlot!.Value,input.BaseEncoding==T8dTestHelpers.EncodingSrgbRgb);baseRgb=new(sample.X,sample.Y,sample.Z);}
         if(input.FacingBase is {} facing)
         {Vector3 view=s.Camera.VerticalFovDegrees is null?s.Camera.Eye-s.Camera.Target:s.Camera.Eye-p;float d=Math.Clamp(MathF.Abs(Vector3.Dot(Normal(1),Vector3.Normalize(view))),0,1);
             float blend=Math.Clamp(facing.Blend,0,.99999f),power=blend==.5f?1:blend<.5f?2*blend:.5f/(1-blend);

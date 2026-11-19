@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.ViewOutput.D3D12;
@@ -66,7 +67,20 @@ public static class D3D12GeneratedMaterialRestore
             var entry = data.Materials[index];
             if (entry is null || entry.LocalMaterialIndex <= previousMaterial
                 || (uint)entry.LocalMaterialIndex >= (uint)source.Materials.Count
-                || !rows.TryGetValue(entry.LocalMaterialIndex, out var row) || row.EndfieldMatcap is not { } maps)
+                || !rows.TryGetValue(entry.LocalMaterialIndex, out var row))
+                throw Invalid("Generated material indices must be unique, sorted and present in the prepared profile.");
+            var matcapBinding = row.PluginBindings.FirstOrDefault(static b =>
+                string.Equals(b.StyleId, "endfield", StringComparison.Ordinal)
+                && string.Equals(b.ModeId, "matcap", StringComparison.Ordinal));
+            if (matcapBinding?.TextureSlots is not { } matcapSlots
+                || !matcapSlots.TryGetValue("normal", out int normalOrdinal)
+                || !matcapSlots.TryGetValue("p", out int pOrdinal)
+                || !matcapSlots.TryGetValue("matcap", out int matcapOrdinal))
+                throw Invalid("Generated material indices must be unique, sorted and present in the prepared profile.");
+            var normalGuard = row.TextureGuards.FirstOrDefault(g => g.SourceSceneTextureOrdinal == normalOrdinal);
+            var pGuard = row.TextureGuards.FirstOrDefault(g => g.SourceSceneTextureOrdinal == pOrdinal);
+            var matcapGuard = row.TextureGuards.FirstOrDefault(g => g.SourceSceneTextureOrdinal == matcapOrdinal);
+            if (normalGuard is null || pGuard is null || matcapGuard is null)
                 throw Invalid("Generated material indices must be unique, sorted and present in the prepared profile.");
             previousMaterial = entry.LocalMaterialIndex;
             if (!entry.IsGenerated || !entry.OutputsAreGenerated
@@ -107,9 +121,9 @@ public static class D3D12GeneratedMaterialRestore
             int start = firstGenerated + 3 * index;
             if (entry.Outputs is null || entry.Outputs.Length != 3)
                 throw Invalid("Generated material requires exactly Normal, P and MatCap outputs.");
-            ValidateOutput(entry.Outputs[0], "normal", "Numerical linear packed RG tangent normal", start, maps.Normal);
-            ValidateOutput(entry.Outputs[1], "p", "Numerical linear Endfield P material gates", start + 1, maps.P);
-            ValidateOutput(entry.Outputs[2], "matcap", "Linear RGB generated MatCap shape; alpha is color coverage", start + 2, maps.Matcap);
+            ValidateOutput(entry.Outputs[0], "normal", "Numerical linear packed RG tangent normal", start, normalGuard);
+            ValidateOutput(entry.Outputs[1], "p", "Numerical linear Endfield P material gates", start + 1, pGuard);
+            ValidateOutput(entry.Outputs[2], "matcap", "Linear RGB generated MatCap shape; alpha is color coverage", start + 2, matcapGuard);
             if (entry.OutputsUserEdited != entry.Outputs.Any(output => output.UserEdited))
                 throw Invalid("Generated material aggregate edit flag is inconsistent.");
             provenance[index] = new(entry.LocalMaterialIndex, sourceOrdinal, sourceHash, entry.GeneratorRevision,

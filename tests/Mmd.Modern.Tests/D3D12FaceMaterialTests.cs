@@ -9,8 +9,8 @@ namespace Mmd.Modern.Tests;
 public sealed class D3D12FaceMaterialTests
 {
     private const int Width = 129, Height = 97;
-    private static readonly D3D12SurfaceStyle[] Families =
-        [D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd];
+    private static readonly string[] Families =
+        [T8cTestHelpers.GenshinStyleId, T8cTestHelpers.GenshinStyleId, T8cTestHelpers.MmdStyleId];
 
     [Fact]
     public void ExplicitMaterialRolesAreDetachedAndOnlyConsumedByTheSelectedFamily()
@@ -18,7 +18,7 @@ public sealed class D3D12FaceMaterialTests
         var settings = new[] { new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face),
             new D3D12CharacterMaterialStyle(FaceNormalShadeStrength: 0),
             new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face, 0) };
-        var map = new D3D12SurfaceStyleMap(Families, settings);
+        var map = T8cTestHelpers.CreateDirectMap(Families, settings);
         settings[0] = new(D3D12CharacterMaterialRole.Face, 0);
         map.Validate(Rows());
         Assert.Equal(.35f, map.EffectiveNormalShadeStrength(0));
@@ -26,7 +26,7 @@ public sealed class D3D12FaceMaterialTests
         Assert.Equal(1, map.EffectiveNormalShadeStrength(2));
         var mutable = Assert.IsAssignableFrom<IList<D3D12CharacterMaterialStyle>>(map.CharacterMaterials);
         Assert.Throws<NotSupportedException>(() => mutable[0] = new());
-        var defaults = new D3D12SurfaceStyleMap(Families);
+        var defaults = T8cTestHelpers.CreateDirectMap(Families);
         Assert.All(defaults.CharacterMaterials, item => Assert.Equal(D3D12CharacterMaterialRole.Body, item.Role));
         Assert.All(Enumerable.Range(0, defaults.Count), i => Assert.Equal(1, defaults.EffectiveNormalShadeStrength(i)));
         Assert.Throws<ArgumentOutOfRangeException>(() => map.EffectiveNormalShadeStrength(-1));
@@ -36,7 +36,7 @@ public sealed class D3D12FaceMaterialTests
     [Fact]
     public void EffectiveEqualityIgnoresUnusedRolesAndStrengthsButDetectsRealFaceChanges()
     {
-        var body = new D3D12SurfaceStyleMap(Families);
+        var body = T8cTestHelpers.CreateDirectMap(Families);
         var faceOne = Map(1, .8f);
         var face = Map(.35f, .8f);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(body, faceOne));
@@ -44,7 +44,7 @@ public sealed class D3D12FaceMaterialTests
         Assert.False(D3D12SurfaceStyleMap.Equivalent(face, Map(.36f)));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(body, face));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(Map(0), Map(-0f)));
-        var mmd = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd], [new(D3D12CharacterMaterialRole.Face, 0)]);
+        var mmd = T8cTestHelpers.CreateDirectMap([T8cTestHelpers.MmdStyleId], [new(D3D12CharacterMaterialRole.Face, 0)]);
         Assert.True(mmd.IsDefault);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(null, mmd));
     }
@@ -59,7 +59,7 @@ public sealed class D3D12FaceMaterialTests
     {
         var setting = new D3D12CharacterMaterialStyle(FaceNormalShadeStrength: strength);
         Assert.Throws<ArgumentOutOfRangeException>(setting.Validate);
-        Assert.Throws<ArgumentOutOfRangeException>(() => new D3D12SurfaceStyleMap(Families,
+        Assert.Throws<ArgumentOutOfRangeException>(() => T8cTestHelpers.CreateDirectMap(Families,
             [setting, new(), new()]).Validate(Rows()));
     }
 
@@ -68,12 +68,12 @@ public sealed class D3D12FaceMaterialTests
     {
         var frame = Rows();
         Assert.Throws<ArgumentOutOfRangeException>(() => new D3D12CharacterMaterialStyle((D3D12CharacterMaterialRole)42).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => new D3D12SurfaceStyleMap(Families,
+        Assert.Throws<ArgumentOutOfRangeException>(() => T8cTestHelpers.CreateDirectMap(Families,
             [new((D3D12CharacterMaterialRole)42), new(), new()]).Validate(frame));
-        Assert.Throws<ArgumentException>(() => new D3D12SurfaceStyleMap(Families, []).Validate(frame));
-        Assert.Throws<ArgumentException>(() => new D3D12SurfaceStyleMap(Families,
+        Assert.Throws<ArgumentException>(() => T8cTestHelpers.CreateDirectMap(Families, []).Validate(frame));
+        Assert.Throws<ArgumentException>(() => T8cTestHelpers.CreateDirectMap(Families,
             [new(), new(), new(), new()]).Validate(frame));
-        Assert.Throws<ArgumentException>(() => new D3D12SurfaceStyleMap(Families,
+        Assert.Throws<ArgumentException>(() => T8cTestHelpers.CreateDirectMap(Families,
             [null!, new(), new()]).Validate(frame));
     }
 
@@ -83,7 +83,7 @@ public sealed class D3D12FaceMaterialTests
     {
         using var session = new D3D12FrameSession();
         var frame = Rows(subTexture: subTexture);
-        var bodyMap = new D3D12SurfaceStyleMap(Families);
+        var bodyMap = T8cTestHelpers.CreateDirectMap(Families);
         var body = session.Capture(frame, Width, Height, surfaceStyles: bodyMap);
         var face = session.Capture(frame, Width, Height, surfaceStyles: Map(.35f));
         var sample = Project(frame, new(0, .9f, 0));
@@ -123,7 +123,7 @@ public sealed class D3D12FaceMaterialTests
     {
         using var session = new D3D12FrameSession();
         var plain = Rows(nDotL: .025f); var specular = Rows(nDotL: .025f, specular: new(.5f, .3f, .2f));
-        var map = new D3D12SurfaceStyleMap(Families);
+        var map = T8cTestHelpers.CreateDirectMap(Families);
         var bodyBase = session.Capture(plain, Width, Height, surfaceStyles: map);
         var bodySpec = session.Capture(specular, Width, Height, surfaceStyles: map);
         var faceBase = session.Capture(plain, Width, Height, surfaceStyles: Map(.35f));
@@ -174,14 +174,14 @@ public sealed class D3D12FaceMaterialTests
         var shadowed = new OriginalFrameScene(surface, options: source.Options, materials: source.Materials);
         var flags = source.Materials.ToArray(); flags[0] = flags[0] with { ReceiveSelfShadow = false };
         var unshadowed = new OriginalFrameScene(surface, options: source.Options, materials: flags);
-        var map = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd],
+        var map = T8cTestHelpers.CreateDirectMap([T8cTestHelpers.GenshinStyleId, T8cTestHelpers.MmdStyleId],
             [new(D3D12CharacterMaterialRole.Face, 0), new()]);
         var on = session.Capture(shadowed, Width, Height, surfaceStyles: map);
         var off = session.Capture(unshadowed, Width, Height, surfaceStyles: map);
         D3D12OriginalFrameTests.AssertPixel(on, Width / 2, Height / 2, new(.2f, .2f, .2f, 1));
         D3D12OriginalFrameTests.AssertPixel(off, Width / 2, Height / 2, Vector4.One);
         var body = session.Capture(shadowed, Width, Height,
-            surfaceStyles: new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd]));
+            surfaceStyles: T8cTestHelpers.CreateDirectMap([T8cTestHelpers.GenshinStyleId, T8cTestHelpers.MmdStyleId]));
         // The fully occluded interior retains its exact dark endpoint. Edge penumbra
         // pixels may brighten through their remaining unoccluded light by design.
         Assert.Equal(Pixel(on, Width / 2, Height / 2), Pixel(body, Width / 2, Height / 2));
@@ -205,7 +205,7 @@ public sealed class D3D12FaceMaterialTests
         };
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4,
             Composition: RayGiComposition.ToonPalette, Denoiser: RayGiDenoiser.TemporalSpatial);
-        Render(new(Families), 1, "FirstFrame", "FirstFrame");
+        Render(T8cTestHelpers.CreateDirectMap(Families), 1, "FirstFrame", "FirstFrame");
         Render(Map(1, .1f), 2, "None", "None");
         Render(Map(.35f), 1, "ExplicitReset", "ExplicitRequest");
         Render(Map(.35f, .8f), 2, "None", "None");
@@ -222,7 +222,7 @@ public sealed class D3D12FaceMaterialTests
             temporalUpscaling: temporal, surfaceStyles: Map(0)));
         Render(Map(.35f), 4, "None", "AbortedFrame");
         Render(Map(1), 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(Families), 2, "None", "None");
+        Render(T8cTestHelpers.CreateDirectMap(Families), 2, "None", "None");
 
         void Render(D3D12SurfaceStyleMap map, ulong frames, string giReason, string aaReason)
         {
@@ -238,7 +238,7 @@ public sealed class D3D12FaceMaterialTests
     }
 
     private static D3D12SurfaceStyleMap Map(float strength, float unusedBodyStrength = .35f)
-        => new(Families, [new(D3D12CharacterMaterialRole.Face, strength),
+        => T8cTestHelpers.CreateDirectMap(Families, [new(D3D12CharacterMaterialRole.Face, strength),
             new(FaceNormalShadeStrength: unusedBodyStrength), new(D3D12CharacterMaterialRole.Face, 0)]);
 
     private static OriginalFrameScene Rows(bool subTexture = false, float nDotL = -.175f, Vector3? specular = null)

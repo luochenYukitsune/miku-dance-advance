@@ -1,5 +1,7 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
@@ -21,7 +23,8 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
                 TestContext.Current.CancellationToken);
             var profile = Profile(prepared.Profile, CoupleEndfield(prepared.Profile.Materials[0]));
             var restored = D3D12GeneratedMaterialRestore.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
-            var p = profile.Materials[0].EndfieldMatcap!.P;
+            int pSlot = profile.Materials[0].PluginBindings[0].TextureSlots!["p"];
+            var p = profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == pSlot);
             var edited = restored.WithEditedMaps(0, p: Edited(restored.SourceRest, p));
             AssertCoupledEndfield(edited.SourceRest, edited.Profile, p);
             Assert.Equal(edited.ManifestBytes, D3D12GeneratedMaterialRestore.Restore(
@@ -32,7 +35,8 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
             var prepared = Prepare(source, "endfield", D3D12GeneratedPmxSurfaceKind.Hair);
             var profile = Profile(prepared.Profile, CoupleEndfield(prepared.Profile.Materials[0]));
             var restored = D3D12GeneratedStyleMaterialPreparation.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
-            var p = profile.Materials[0].EndfieldMatcap!.P;
+            int pSlot = profile.Materials[0].PluginBindings[0].TextureSlots!["p"];
+            var p = profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == pSlot);
             var edited = restored.WithEditedMap(0, "p", Edited(restored.SourceRest, p));
             AssertCoupledEndfield(edited.SourceRest, edited.Profile, p);
             Assert.Equal(edited.ManifestBytes, D3D12GeneratedStyleMaterialPreparation.Restore(
@@ -47,27 +51,42 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
     {
         var prepared = Prepare(Source(), "genshin", D3D12GeneratedPmxSurfaceKind.Hair);
         var row = prepared.Profile.Materials[0];
-        var atlas = row.GenshinHairAtlas!;
+        var atlas = row.PluginBindings[0];
+        int lightmapSlot = atlas.TextureSlots!["lightmap"];
+        int atlasSlot = atlas.TextureSlots!["atlas"];
+        var lightmapGuard = row.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == lightmapSlot);
+        var atlasGuard = row.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == atlasSlot);
+        var selected = mapName == "lightmap" ? lightmapGuard : atlasGuard;
+
         var profile = Profile(prepared.Profile, row with
         {
-            GenshinHair = new(atlas.Lightmap, Multiplier: .17f),
-            GenshinMetallic = new(atlas.Lightmap, atlas.Atlas, D3D12MatcapColorEncoding.LinearRgb,
-                new(.4f), Vector3.One, new(.8f), Specular: new(Vector3.One, new(.7f), Ramp: atlas.Atlas))
+            PluginBindings =
+            [
+                atlas,
+                TestStylePlugins.GenshinHair(lightmapSlot, multiplier: .17f),
+                TestStylePlugins.GenshinMetallic(lightmapSlot, atlasSlot, "LinearRgb",
+                    new(.4f), Vector3.One, new(.8f), hasSpecular: true,
+                    specularColor: Vector3.One, specularSharpColor: new(.7f), specularRampSlot: atlasSlot),
+            ]
         });
         var restored = D3D12GeneratedStyleMaterialPreparation.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
-        var selected = mapName == "lightmap" ? atlas.Lightmap : atlas.Atlas;
         var edited = restored.WithEditedMap(0, mapName, Edited(restored.SourceRest, selected));
         var actual = edited.Profile.Materials[0];
-        Assert.Equal(actual.GenshinHairAtlas!.Lightmap, actual.GenshinHair!.Texture);
-        Assert.Equal(actual.GenshinHairAtlas.Lightmap, actual.GenshinMetallic!.Lightmap);
-        Assert.Equal(actual.GenshinHairAtlas.Atlas, actual.GenshinMetallic.Matcap);
-        Assert.Equal(actual.GenshinHairAtlas.Atlas, actual.GenshinMetallic.Specular!.Ramp);
-        Assert.Equal(.17f, actual.GenshinHair.Multiplier);
-        Assert.NotEqual(selected, D3D12MaterialBindingLayout.Capture(edited.SourceRest).CaptureTexture(selected.SourceSceneTextureOrdinal));
+        var actualAtlas = actual.PluginBindings.Single(b => b.ModeId == "hair-atlas");
+        var actualHair = actual.PluginBindings.Single(b => b.ModeId == "hair");
+        var actualMetallic = actual.PluginBindings.Single(b => b.ModeId == "metallic");
+        Assert.Equal(lightmapSlot, actualHair.TextureSlots!["texture"]);
+        Assert.Equal(lightmapSlot, actualMetallic.TextureSlots!["lightmap"]);
+        Assert.Equal(atlasSlot, actualMetallic.TextureSlots!["matcap"]);
+        Assert.Equal(atlasSlot, actualMetallic.TextureSlots!["specularRamp"]);
+        Assert.Equal(.17, actualHair.NumberValues!["multiplier"], 6);
+        var updatedGuard = actual.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == selected.SourceSceneTextureOrdinal);
+        Assert.NotEqual(selected, updatedGuard);
+        Assert.Equal(updatedGuard, D3D12MaterialBindingLayout.Capture(edited.SourceRest).CaptureTexture(selected.SourceSceneTextureOrdinal));
         ResolveBoth(edited.SourceRest, edited.Profile, "genshin");
         Assert.Equal(edited.ManifestBytes, D3D12GeneratedStyleMaterialPreparation.Restore(
             edited.SourceRest, edited.Profile, edited.ManifestBytes).ManifestBytes);
-        Assert.Equal(atlas.Lightmap, row.GenshinHairAtlas!.Lightmap);
+        Assert.Equal(lightmapGuard, row.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == lightmapSlot));
     }
 
     [Fact]
@@ -75,15 +94,19 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
     {
         var prepared = Prepare(Source(), "genshin", D3D12GeneratedPmxSurfaceKind.Metal);
         var row = prepared.Profile.Materials[0];
-        var metallic = row.GenshinMetallic!;
-        var profile = Profile(prepared.Profile, row with
-        {
-            GenshinMetallic = metallic with { Specular = new(Vector3.One, Vector3.One, Ramp: metallic.Matcap) }
-        });
+        var metallic = row.PluginBindings[0];
+        int lightmapSlot = metallic.TextureSlots!["lightmap"];
+        int matcapSlot = metallic.TextureSlots!["matcap"];
+        var matcapGuard = row.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == matcapSlot);
+        var withSpec = TestStylePlugins.GenshinMetallic(lightmapSlot, matcapSlot, "LinearRgb",
+            new(.7f), Vector3.One, new(.85f), enableMetallics: .3f,
+            hasSpecular: true, specularColor: Vector3.One, specularSharpColor: Vector3.One, specularRampSlot: matcapSlot);
+        var profile = Profile(prepared.Profile, row with { PluginBindings = [withSpec] });
         var restored = D3D12GeneratedStyleMaterialPreparation.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
-        var edited = restored.WithEditedMap(0, "matcap", Edited(restored.SourceRest, metallic.Matcap));
-        Assert.Equal(edited.Profile.Materials[0].GenshinMetallic!.Matcap,
-            edited.Profile.Materials[0].GenshinMetallic!.Specular!.Ramp);
+        var edited = restored.WithEditedMap(0, "matcap", Edited(restored.SourceRest, matcapGuard));
+        var updatedGuard = edited.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == matcapSlot);
+        Assert.NotEqual(matcapGuard, updatedGuard);
+        Assert.Equal(matcapSlot, edited.Profile.Materials[0].PluginBindings[0].TextureSlots!["specularRamp"]);
         ResolveBoth(edited.SourceRest, edited.Profile, "genshin");
         _ = D3D12GeneratedStyleMaterialPreparation.Restore(edited.SourceRest, edited.Profile, edited.ManifestBytes);
     }
@@ -100,28 +123,31 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
         string pipeline = family == "face" ? secondary ? "genshin" : "star-rail" : family;
         var row = family == "face"
             ? new D3D12MaterialBindingProfileRow(0, D3D12CharacterMaterialRole.Face,
-                Face: new(pipeline, old, secondary ? old : null, Vector3.UnitZ, Vector3.UnitX,
-                    Encoding: secondary ? D3D12FaceSdfEncoding.GenshinSoftFace : D3D12FaceSdfEncoding.GrayRed))
+                pluginBindings: [TestStylePlugins.FaceSdf(pipeline, 0, secondary ? 0 : -1,
+                    encoding: secondary ? "GenshinSoftFace" : "GrayRed",
+                    worldForward: Vector3.UnitZ, worldRight: Vector3.UnitX)],
+                textureGuards: [old])
             : new D3D12MaterialBindingProfileRow(0, D3D12CharacterMaterialRole.Hair,
-                StarMcHair: new(family, old, old, Intensity: .23f));
+                pluginBindings: [TestStylePlugins.StarMcHair(family, 0, 0, intensity: .23f)],
+                textureGuards: [old]);
         row.Validate();
         var changed = D3D12GeneratedEndfieldMaterialPreparation.ReplaceTextures(source, [Edited(source, old)]);
         var layout = D3D12MaterialBindingLayout.Capture(changed);
         var refreshed = D3D12GeneratedStyleMaterialResult.RefreshGuards(row, layout);
         var expected = layout.CaptureTexture(0);
         Assert.NotEqual(old, expected);
+        Assert.Equal(expected, Assert.Single(refreshed.TextureGuards));
+        Assert.Equal(old, Assert.Single(row.TextureGuards));
         if (family == "face")
         {
-            Assert.Equal(expected, refreshed.Face!.Primary);
-            Assert.Equal(secondary ? expected : null, refreshed.Face.Secondary);
-            Assert.Equal(old, row.Face!.Primary);
+            Assert.Equal(0, refreshed.PluginBindings[0].TextureSlots!["primary"]);
+            Assert.Equal(secondary, refreshed.PluginBindings[0].TextureSlots!.ContainsKey("secondary"));
         }
         else
         {
-            Assert.Equal(expected, refreshed.StarMcHair!.Highlight);
-            Assert.Equal(expected, refreshed.StarMcHair.Shadow);
-            Assert.Equal(.23f, refreshed.StarMcHair.Intensity);
-            Assert.Equal(old, row.StarMcHair!.Highlight);
+            Assert.Equal(0, refreshed.PluginBindings[0].TextureSlots!["highlight"]);
+            Assert.Equal(0, refreshed.PluginBindings[0].TextureSlots!["shadow"]);
+            Assert.Equal(.23, refreshed.PluginBindings[0].NumberValues!["intensity"], 6);
         }
         var profile = new D3D12MaterialBindingProfile("standalone-guard-audit", "Guard audit", layout.Fingerprint, [refreshed]);
         ResolveBoth(changed, profile, pipeline);
@@ -129,21 +155,43 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
 
     private static D3D12MaterialBindingProfileRow CoupleEndfield(D3D12MaterialBindingProfileRow row)
     {
-        var maps = row.EndfieldMatcap!;
+        var maps = row.PluginBindings[0];
+        int normalSlot = maps.TextureSlots!["normal"];
+        int pSlot = maps.TextureSlots!["p"];
+        int matcapSlot = maps.TextureSlots!["matcap"];
+        var bc = maps.VectorValues!["baseColor"];
+        var baseColor = new Vector3(bc[0], bc[1], bc[2]);
+        var hc = maps.VectorValues!["highlightColor"];
+        var highlightColor = new Vector3(hc[0], hc[1], hc[2]);
+        var lcd = maps.VectorValues!["lightControlDirection"];
+        var lightCtrl = new Vector3(lcd[0], lcd[1], lcd[2]);
+        var spec = new EndfieldMatcapSpec(
+            normalSlot, pSlot, matcapSlot,
+            maps.StringValues!["matcapEncoding"],
+            (int)maps.NumberValues!["uvChannel"],
+            baseColor, highlightColor,
+            (float)maps.NumberValues!["normalStrength"],
+            (float)maps.NumberValues!["rotationRadians"],
+            (float)maps.NumberValues!["highlightCoefficient"],
+            (float)maps.NumberValues!["shadowHardness"],
+            lightCtrl,
+            (float)maps.NumberValues!["baselineStrength"],
+            CoupleEndfieldPalette: true,
+            GeneratorRevision: maps.StringValues!.GetValueOrDefault("generatorRevision"),
+            Palette: new EndfieldPaletteSpec(Vector3.Zero,
+                EmissionInputMode: T8dTestHelpers.ModeTexture, EmissionSlot: pSlot,
+                ReceivedLightInputMode: T8dTestHelpers.ModeTexture, ReceivedLightSlot: pSlot,
+                BaseImage: new EndfieldBaseImageSpec(Vector3.One, Vector3.One, new(.5f), Vector3.One,
+                    BaseInputMode: T8dTestHelpers.ModeTexture, BaseSlot: pSlot,
+                    DetailInputMode: T8dTestHelpers.ModeTexture, DetailSlot: pSlot,
+                    ShadowInputMode: T8dTestHelpers.ModeTexture, ShadowSlot: pSlot)));
         return row with
         {
-            EndfieldHair = new(maps.P, maps.BaseColor, Brightness: .15f),
-            EndfieldMatcap = maps with
-            {
-                CoupleEndfieldPalette = true,
-                Palette = new(Vector3.Zero,
-                    EmissionInputMode: D3D12EndfieldPaletteInputMode.Texture, EmissionTexture: maps.P,
-                    ReceivedLightInputMode: D3D12EndfieldPaletteInputMode.Texture, ReceivedLightTexture: maps.P,
-                    BaseImage: new(Vector3.One, Vector3.One, new(.5f), Vector3.One,
-                        BaseInputMode: D3D12EndfieldPaletteInputMode.Texture, BaseTexture: maps.P,
-                        DetailInputMode: D3D12EndfieldPaletteInputMode.Texture, DetailTexture: maps.P,
-                        ShadowInputMode: D3D12EndfieldPaletteInputMode.Texture, ShadowTexture: maps.P))
-            }
+            PluginBindings =
+            [
+                spec.ToBinding(),
+                T8dTestHelpers.EndfieldHair(pSlot, baseColor, brightness: .15f),
+            ]
         };
     }
 
@@ -151,29 +199,29 @@ public sealed class D3D12GeneratedMaterialGuardAuditTests
         D3D12MaterialBindingProfileTexture previous)
     {
         var row = profile.Materials[0];
-        var maps = row.EndfieldMatcap!;
+        var matcap = row.PluginBindings.Single(b => b.ModeId == "matcap");
+        var hair = row.PluginBindings.Single(b => b.ModeId == "hair");
         var current = D3D12MaterialBindingLayout.Capture(frame).CaptureTexture(previous.SourceSceneTextureOrdinal);
         Assert.NotEqual(previous, current);
-        Assert.Equal(current, maps.P);
-        Assert.Equal(current, row.EndfieldHair!.Texture);
-        Assert.Equal(current, maps.Palette!.EmissionTexture);
-        Assert.Equal(current, maps.Palette.ReceivedLightTexture);
-        Assert.Equal(current, maps.Palette.BaseImage!.BaseTexture);
-        Assert.Equal(current, maps.Palette.BaseImage.DetailTexture);
-        Assert.Equal(current, maps.Palette.BaseImage.ShadowTexture);
-        Assert.Equal(.15f, row.EndfieldHair.Brightness);
+        Assert.Equal(current, row.TextureGuards.Single(g => g.SourceSceneTextureOrdinal == previous.SourceSceneTextureOrdinal));
+        int pSlot = previous.SourceSceneTextureOrdinal;
+        Assert.Equal(pSlot, matcap.TextureSlots!["p"]);
+        Assert.Equal(pSlot, hair.TextureSlots!["texture"]);
+        Assert.Equal(pSlot, matcap.TextureSlots!["paletteEmission"]);
+        Assert.Equal(pSlot, matcap.TextureSlots!["paletteReceivedLight"]);
+        Assert.Equal(pSlot, matcap.TextureSlots!["baseImage"]);
+        Assert.Equal(pSlot, matcap.TextureSlots!["baseImageDetail"]);
+        Assert.Equal(pSlot, matcap.TextureSlots!["baseImageShadow"]);
+        Assert.Equal(.15, hair.NumberValues!["brightness"], 6);
         ResolveBoth(frame, profile, "endfield");
     }
 
     private static void ResolveBoth(OriginalFrameScene frame, D3D12MaterialBindingProfile profile, string pipeline)
     {
-        _ = D3D12MaterialBindingProfileResolver.Resolve(profile, frame, Guid.NewGuid(), pipeline);
-        var dormant = D3D12MaterialBindingProfileResolver.Resolve(profile, frame, Guid.NewGuid(), "mmd");
-        Assert.Empty(dormant.FaceBindings);
-        Assert.Empty(dormant.GenshinHairBindings);
-        Assert.Empty(dormant.StarMcHairBindings);
-        Assert.Empty(dormant.EndfieldHairBindings);
-        Assert.Empty(dormant.EndfieldMatcapBindings);
+        var active = D3D12MaterialBindingProfileResolver.Resolve(profile, frame, Guid.NewGuid(), pipeline, TestStylePlugins.AllViewCatalog);
+        Assert.NotEmpty(active.PluginBindings);
+        var dormant = D3D12MaterialBindingProfileResolver.Resolve(profile, frame, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog);
+        Assert.Empty(dormant.PluginBindings);
     }
 
     private static D3D12MaterialBindingProfile Profile(D3D12MaterialBindingProfile original, D3D12MaterialBindingProfileRow row)

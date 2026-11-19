@@ -1,5 +1,9 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
+using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -121,26 +125,78 @@ public sealed class GenshinMetallicSpecularOracleTests
     [Fact]
     public void BindingBoundsAndConsumedRampEquivalenceAreExplicit()
     {
-        var binding = new D3D12GenshinMetallicSpecularBinding(Vector3.One, Vector3.One);
-        binding.Validate();
-        (binding with { Color = new(-16, 0, 16), Shininess = 256, Scale = 32, Attenuation = 32,
-            SharpOffset = -32, RampMix = -32, RampCombinedTextureIndex = 5 }).Validate();
-        foreach (var invalid in new[] { binding with { Color = new(float.NaN) }, binding with { SharpColor = new(17) },
-            binding with { Shininess = -1 }, binding with { Shininess = 257 }, binding with { Scale = 33 },
-            binding with { Scale = -1 }, binding with { Attenuation = -1 }, binding with { Attenuation = 33 },
-            binding with { SharpOffset = float.PositiveInfinity }, binding with { SharpOffset = 33 },
-            binding with { RampMix = float.NaN }, binding with { RampMix = 33 }, binding with { RampCombinedTextureIndex = -1 } })
-            Assert.Throws<ArgumentOutOfRangeException>(() => invalid.Validate());
-        Assert.Throws<ArgumentException>(() => (binding with { RampMix = .5f }).Validate());
-        Assert.False(binding.ConsumesRamp);
-        Assert.True((binding with { RampMix = .5f, RampCombinedTextureIndex = 1 }).ConsumesRamp);
-        Assert.True(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(binding, binding with { RampCombinedTextureIndex = 3 }));
-        Assert.False(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(null, binding));
-        Assert.False(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(binding, binding with { Color = Vector3.Zero }));
-        Assert.False(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(binding, binding with { RampMix = -1 }));
-        var active = binding with { RampMix = .5f, RampCombinedTextureIndex = 1 };
-        Assert.False(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(active, active with { RampCombinedTextureIndex = 2 }));
-        Assert.True(D3D12GenshinMetallicSpecularBinding.ConsumedEquivalent(active, active with { RampCombinedTextureIndex = 2 }, false));
+        static StyleMaterialBindingData Make(
+            Vector3? color = null,
+            Vector3? sharpColor = null,
+            float shininess = 16f,
+            float scale = 1f,
+            float attenuation = .5f,
+            float sharpOffset = 1f,
+            float rampMix = 0f,
+            int rampSlot = -1)
+            => TestStylePlugins.GenshinMetallic(0, 1, "LinearRgb", Vector3.One, Vector3.One, Vector3.One,
+                hasSpecular: true,
+                specularColor: color ?? Vector3.One,
+                specularSharpColor: sharpColor ?? Vector3.One,
+                specularShininess: shininess,
+                specularScale: scale,
+                specularAttenuation: attenuation,
+                specularSharpOffset: sharpOffset,
+                specularRampSlot: rampSlot,
+                specularRampMix: rampMix);
+
+        var binding = Make();
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null, binding).IsValid);
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null,
+            Make(color: new(-16, 0, 16), shininess: 256, scale: 32, attenuation: 32,
+                sharpOffset: -32, rampMix: -32, rampSlot: 5)).IsValid);
+
+        foreach (var invalid in new[] {
+            Make(color: new(float.NaN)),
+            Make(sharpColor: new(17)),
+            Make(shininess: -1),
+            Make(shininess: 257),
+            Make(scale: 33),
+            Make(scale: -1),
+            Make(attenuation: -1),
+            Make(attenuation: 33),
+            Make(sharpOffset: float.PositiveInfinity),
+            Make(sharpOffset: 33),
+            Make(rampMix: float.NaN),
+            Make(rampMix: 33),
+            Make(rampMix: .5f) })
+        {
+            Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null, invalid).IsValid);
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([],
+                [TestStylePlugins.Bind(Guid.NewGuid(), 0, invalid)], TestStylePlugins.AllViewCatalog));
+        }
+
+        var negSlot = new StyleMaterialBindingData("genshin", "metallic",
+            new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal)
+                { ["lightmap"] = 0, ["matcap"] = 1, ["specularRamp"] = -2 }),
+            binding.NumberValues, binding.BoolValues, binding.VectorValues, binding.StringValues);
+        Assert.Throws<ArgumentOutOfRangeException>(() => D3D12ViewPluginMaterialBindings.Detach(
+            [TestStylePlugins.Bind(Guid.NewGuid(), 0, negSlot)]));
+
+        static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? b)
+            => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Body, b);
+
+        Assert.Equal(2, T8bTestHelpers.BuildGenshinDrawData(D3D12CharacterMaterialRole.Body, binding: binding)!.TextureBindings!.Count);
+        var active = Make(rampMix: .5f, rampSlot: 1);
+        Assert.Equal(3, T8bTestHelpers.BuildGenshinDrawData(D3D12CharacterMaterialRole.Body, binding: active)!.TextureBindings!.Count);
+
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(Make(rampSlot: 3))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(null), Map(binding)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(Make(color: Vector3.Zero))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(Make(rampMix: -1))));
+        var activeOtherSlot = Make(rampMix: .5f, rampSlot: 2);
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(active), Map(activeOtherSlot)));
+
+        var sameTex = new SceneTexture("same", 1, 1, [240, 70, 40, 230]);
+        var frame = T8bTestHelpers.CreateMetallicFrame([sameTex, sameTex, sameTex]);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(
+            Map(active).CaptureResolvedInputs(frame),
+            Map(activeOtherSlot).CaptureResolvedInputs(frame)));
     }
 
     private static void Near(Vector3 expected, Vector3 actual) => Assert.InRange(Vector3.Distance(expected, actual), 0, .000002f);

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +7,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
@@ -20,36 +22,53 @@ public sealed class GenshinMetallicViewPmaTests
     public void DetachedSelectorsRetainEveryConstantAndRejectInvalidHostConfiguration()
     {
         var value = View(Guid.NewGuid());
-        D3D12ViewGenshinMetallicBinding[] input = [value];
-        var frozen = D3D12ViewGenshinMetallicBindings.Detach(input);
-        input[0] = value with { LightmapLocalTextureIndex = 77 };
-        Assert.Equal(value, Assert.Single(frozen));
-        Assert.Same(frozen, D3D12ViewGenshinMetallicBindings.Detach(frozen));
-        foreach (var invalid in new[] { value with { ObjectId = Guid.Empty }, value with { LocalMaterialIndex = -1 },
-            value with { LightmapLocalTextureIndex = -1 }, value with { MatcapLocalTextureIndex = -1 },
-            value with { DarkColor = new(float.NaN) }, value with { LightColor = new(float.PositiveInfinity) },
-            value with { ShadowMultiplyColor = new(float.NaN) }, value with { EnableMetallics = float.NaN },
-            value with { TileScale = float.NaN }, value with { Brightness = float.NaN },
-            value with { UniformLitFactor = float.NaN }, value with { LitMode = (D3D12GenshinMetallicLitMode)99 },
-            value with { MatcapEncoding = (D3D12MatcapColorEncoding)99 } })
-            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.Detach([invalid]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.Detach([value, value]));
+        D3D12ViewPluginMaterialBinding[] input = [value];
+        var frozen = D3D12ViewPluginMaterialBindings.Detach(input);
+        input[0] = TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(lightmapSlot: 77));
+        Assert.True(D3D12StylePluginAdapter.BindingDataEquivalent(value.Binding, Assert.Single(frozen).Binding));
+        Assert.Equal(0, Assert.Single(frozen).Binding.TextureSlots!["lightmap"]);
+        Assert.Same(frozen, D3D12ViewPluginMaterialBindings.Detach(frozen));
+        foreach (var bad in new[] {
+            TestStylePlugins.Bind(Guid.Empty, 0, MakeBinding()),
+            TestStylePlugins.Bind(value.ObjectId, -1, MakeBinding()),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(darkColor: new(float.NaN))),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(lightColor: new(float.PositiveInfinity))),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(shadowMultiplyColor: new(float.NaN))),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(enableMetallics: float.NaN)),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(tileScale: float.NaN)),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(brightness: float.NaN)),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(uniformLitFactor: float.NaN)) })
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Detach([bad]));
+        foreach (var invalid in new[] {
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(lightmapSlot: -1)),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(matcapSlot: -1)),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(litMode: "Unknown")),
+            TestStylePlugins.Bind(value.ObjectId, 0, MakeBinding(matcapEncoding: "Unknown")) })
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([], [invalid], TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([], [value, value], TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
-    public void RequestUnionRetainsEndfieldGeometryAndAllExistingSelections()
+    public void RequestUnionRetainsMultipleMaterialsStylesAndSelectedBonesPerObject()
     {
         var id = Guid.NewGuid();
-        var existing = new SceneObjectRenderRequest(id, [4], [3], [8], includeSourceGeometry: true);
-        var request = Assert.Single(D3D12ViewGenshinMetallicBindings.CreateRequests([View(id)], [existing]));
-        Assert.True(request.IncludeSourceGeometry);
+        var metal = View(id);
+        var matcap = TestStylePlugins.Bind(id, 1, T8bTestHelpers.CreateEndfieldMatcapBinding(2, 3, 8));
+        var face = TestStylePlugins.Bind(id, 2, TestStylePlugins.FaceSdf("genshin", 0, 1,
+            trackingMode: StyleBoneTrackingMode.SelectedBone, boneName: "4"));
+        var boneNames = new Dictionary<Guid, IReadOnlyDictionary<string, int>>
+        {
+            [id] = new Dictionary<string, int>(StringComparer.Ordinal) { ["4"] = 4 }
+        };
+        var request = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests([metal, matcap, face],
+            TestStylePlugins.AllViewCatalog,
+            [new(id, 2, D3D12CharacterMaterialRole.Face)],
+            boneNames));
         Assert.Equal(new[] { 4 }, request.BoneIndices);
-        Assert.Equal(new[] { 3 }, request.LocalTextureIndices);
-        Assert.Equal(new[] { 0, 1, 8 }, request.OptionalLocalTextureIndices.Order());
-        Assert.False(Assert.Single(D3D12ViewGenshinMetallicBindings.CreateRequests([View(id)])).IncludeSourceGeometry);
-        var unchanged = Assert.Single(D3D12ViewGenshinMetallicBindings.CreateRequests([], [request]));
-        Assert.Equal(request.LocalTextureIndices, unchanged.LocalTextureIndices);
-        Assert.True(unchanged.IncludeSourceGeometry);
+        Assert.Equal(new[] { 0, 1, 2, 3, 8 }, request.OptionalLocalTextureIndices.Order());
+        var metalOnly = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests([metal], TestStylePlugins.AllViewCatalog));
+        Assert.Empty(metalOnly.BoneIndices);
+        Assert.Equal(new[] { 0, 1 }, metalOnly.OptionalLocalTextureIndices.Order());
     }
 
     [Fact]
@@ -60,53 +79,64 @@ public sealed class GenshinMetallicViewPmaTests
         var b = editor.Add("second explicit object", Path.Combine(Path.GetTempPath(), "metallic-b.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new("genshin"), Token);
-        D3D12ViewGenshinMetallicBinding[] maps = [View(a.Id), View(b.Id)];
-        D3D12ViewGenshinHairBinding[] hairs = [new(a.Id, 0, 0)];
-        D3D12ViewGenshinHairAtlasBinding[] atlas = [new(a.Id, 0, 0, 2, D3D12GenshinAtlasColorEncoding.LinearRgb,
-            1, 0, .5f, .2f, 1, 1, 0, 0)];
-        var requests = D3D12ViewGenshinMetallicBindings.CreateRequests(maps,
-            D3D12ViewGenshinHairAtlasBindings.CreateRequests(atlas, D3D12ViewGenshinHairBindings.CreateRequests(hairs)));
+        D3D12ViewPluginMaterialBinding[] maps = [View(a.Id), View(b.Id)];
+        D3D12ViewPluginMaterialBinding[] hairs = [TestStylePlugins.Bind(a.Id, 0, TestStylePlugins.GenshinHair(0))];
+        D3D12ViewPluginMaterialBinding[] atlas = [TestStylePlugins.Bind(a.Id, 0,
+            TestStylePlugins.GenshinHairAtlas(0, 2, "LinearRgb", 1f, 0f, .5f, .2f, 1f, 1f, 0f, 0f))];
+        D3D12ViewPluginMaterialBinding[] all = [.. maps, .. hairs, .. atlas];
+        var requests = D3D12ViewPluginMaterialBindings.CreateRequests(all, TestStylePlugins.AllViewCatalog);
         var capture = project.CaptureRenderSnapshot(requests);
         Assert.Equal(0, project.CurrentFrame);
         var scene = Modern(capture.Scene, source);
-        var resolved = D3D12ViewRenderingStyles.Resolve(scene, D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, sceneInputs: capture.SceneInputs, hairDataBindings: hairs,
-            genshinHairAtlasDataBindings: atlas, genshinMetallicDataBindings: maps);
+        var resolved = D3D12ViewRenderingStyles.Resolve(scene, TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, sceneInputs: capture.SceneInputs,
+            pluginBindings: all, styleCatalog: TestStylePlugins.AllViewCatalog);
         foreach (var obj in capture.RenderingStyles)
         {
             var style = resolved.SurfaceStyles.CharacterMaterials[obj.MaterialStart];
-            var metallic = Assert.IsType<D3D12GenshinMetallicBinding>(style.GenshinMetallic);
-            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[0], metallic.LightmapCombinedTextureIndex);
-            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[1], metallic.MatcapCombinedTextureIndex);
-            Assert.Equal(View(obj.ObjectId).DarkColor, metallic.DarkColor);
-            Assert.Equal(View(obj.ObjectId).ShadowMultiplyColor, metallic.ShadowMultiplyColor);
-            Assert.Equal(View(obj.ObjectId).UniformLitFactor, metallic.UniformLitFactor);
+            var draw = Assert.IsType<D3D12PluginDrawData>(style.PluginDraw);
+            Assert.Equal(obj.ObjectId == a.Id ? "metallic-atlas-rb" : "metallic", draw.ShaderModuleId);
+            var texBySlot = draw.TextureBindings!.ToDictionary(t => t.SlotIndex, t => t.SceneTextureIndex);
+            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[0], texBySlot[3]);
+            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[1], texBySlot[4]);
+            int cbOffset = obj.ObjectId == a.Id ? 64 : 0;
+            var cb = draw.ConstantBufferData.Span[cbOffset..];
+            var expected = View(obj.ObjectId).Binding;
+            var expectedDark = expected.VectorValues!["darkColor"];
+            var expectedShadow = expected.VectorValues["shadowMultiplyColor"];
+            Assert.Equal(expectedDark[0], BinaryPrimitives.ReadSingleLittleEndian(cb[16..20]));
+            Assert.Equal(expectedDark[1], BinaryPrimitives.ReadSingleLittleEndian(cb[20..24]));
+            Assert.Equal(expectedDark[2], BinaryPrimitives.ReadSingleLittleEndian(cb[24..28]));
+            Assert.Equal((float)expected.NumberValues!["uniformLitFactor"], BinaryPrimitives.ReadSingleLittleEndian(cb[28..32]));
+            Assert.Equal(expectedShadow[0], BinaryPrimitives.ReadSingleLittleEndian(cb[48..52]));
+            Assert.Equal(expectedShadow[1], BinaryPrimitives.ReadSingleLittleEndian(cb[52..56]));
+            Assert.Equal(expectedShadow[2], BinaryPrimitives.ReadSingleLittleEndian(cb[56..60]));
             Assert.Equal(obj.ObjectId == a.Id ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body, style.Role);
         }
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, genshinMetallicDataBindings: maps));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, hairDataBindings: [new(a.Id, 0, 2)], genshinMetallicDataBindings: maps));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, genshinHairAtlasDataBindings: [atlas[0] with { LightmapLocalTextureIndex = 2 }], genshinMetallicDataBindings: maps));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, pluginBindings: maps, styleCatalog: TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, pluginBindings: [.. maps, TestStylePlugins.Bind(a.Id, 0, TestStylePlugins.GenshinHair(2))],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, pluginBindings: [.. maps, TestStylePlugins.Bind(a.Id, 0,
+                TestStylePlugins.GenshinHairAtlas(2, 2, "LinearRgb", 1f, 0f, .5f, .2f, 1f, 1f, 0f, 0f))],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
-    public void ExplicitRoleOtherFamilyOrdinaryTreatmentAndComposedMetallicConflictsReject()
+    public void ExplicitRoleOtherFamilyOrdinaryModeAndDuplicateMetallicConflictsReject()
     {
         var id = Guid.NewGuid(); var mapping = View(id);
         foreach (var role in new[] { D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
-            Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials(
-                [new(id, 0, new(role))], [mapping]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials(
-            [new(id, 0, new(PmxMaterialTreatment: new(1, 1)))], [mapping]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials(
-            [new(id, 0, new(GenshinMetallic: new(0, 1, mapping.MatcapEncoding,
-                mapping.DarkColor, mapping.LightColor, mapping.ShadowMultiplyColor)))], [mapping]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials([], [mapping],
-            radial: [new(id, 0, 0, Vector3.One)]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.SelectCharacterMaterials([], [mapping],
-            starMc: [new(id, 0, 0, 1)]));
+            Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate(
+                [new(id, 0, role)], [mapping], TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate(
+            [], [mapping, TestStylePlugins.Bind(id, 0, new("genshin", "default"))], TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate(
+            [], [mapping, TestStylePlugins.Bind(id, 0, TestStylePlugins.FaceSdf("genshin", 0, 1))], TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate(
+            [], [mapping, mapping], TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
@@ -114,37 +144,65 @@ public sealed class GenshinMetallicViewPmaTests
     {
         var id = Guid.NewGuid(); var source = Source();
         var instances = new[] { new SceneRenderingStyleBinding(id, new("mmd"), ModelRole.Character, 0, 1, true) };
-        var dormant = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            instances, genshinMetallicDataBindings: [View(id)]);
-        Assert.Null(Assert.Single(dormant.SurfaceStyles.CharacterMaterials).GenshinMetallic);
-        var composed = new D3D12ViewCharacterMaterialBinding(id, 0, new(GenshinMetallic:
-            new(0, 1, D3D12MatcapColorEncoding.LinearRgb, Vector3.One, Vector3.One, Vector3.One)));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(source, D3D12StylePresetCatalog.BuiltIn,
-            instances, [composed]));
+        var dormant = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            instances, pluginBindings: [View(id)], styleCatalog: TestStylePlugins.AllViewCatalog);
+        Assert.Null(Assert.Single(dormant.SurfaceStyles.CharacterMaterials).PluginDraw);
         var active = new[] { instances[0] with { Preset = new("genshin") } };
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            active, genshinMetallicDataBindings: [View(id)]));
-        var editor = new SceneCompositionEditor();
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            active, pluginBindings: [View(id)], styleCatalog: TestStylePlugins.AllViewCatalog));
         var procedural = Source([new("numerical", 1, 1, [255, 0, 0, 255]), SceneTexture.ProceduralToon()]);
-        var item = editor.Add("explicit procedural rejection", Path.Combine(Path.GetTempPath(), "metallic-procedural.pmx"),
-            ModelRole.Character, procedural);
-        using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
-        project.SetDefaultRenderingStyle(new("genshin"), Token);
-        var capture = project.CaptureRenderSnapshot(D3D12ViewGenshinMetallicBindings.CreateRequests([View(item.Id)]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, procedural),
-            D3D12StylePresetCatalog.BuiltIn, capture.RenderingStyles, sceneInputs: capture.SceneInputs,
-            genshinMetallicDataBindings: [View(item.Id)]));
+        var procLayout = D3D12MaterialBindingLayout.Capture(procedural);
+        var procProfile = new D3D12MaterialBindingProfile("proc-metal", "Proc Metal", procLayout.Fingerprint,
+            [new(0, D3D12CharacterMaterialRole.Body, pluginBindings: [MakeBinding()],
+                textureGuards: [procLayout.CaptureTexture(0), new(1, 1, 1, SceneTextureKind.IndexedProceduralToon, procLayout.CaptureTexture(1).RgbaSha256)])]);
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+            procProfile, procedural, id, "genshin", TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
-    public void SchemaSixStrictlyRoundtripsAllFieldsAndRejectsUnknownMissingOrOlderSchemaFields()
+    public void SchemaFourteenAndLegacySchemaSixStrictlyRoundtripAndRejectUnknownMissingOrOlderSchemaFields()
     {
         var profile = Profile(Source()); var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(6, profile.SchemaVersion);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profile.SchemaVersion);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
+        foreach (string damage in new[] { "missing", "unknown", "schema" })
+        {
+            var doc = JsonNode.Parse(bytes)!;
+            var binding = doc["materials"]![0]!["pluginBindings"]![0]!.AsObject();
+            if (damage == "missing") binding.Remove("modeId");
+            if (damage == "unknown") binding["channelPacked"] = true;
+            if (damage == "schema") doc["schemaVersion"] = 13;
+            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
+        }
+
+        var layout = D3D12MaterialBindingLayout.Capture(Source());
+        var lm = layout.CaptureTexture(0); var mc = layout.CaptureTexture(1);
+        var legacy = new JsonObject
+        {
+            ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 6,
+            ["stableId"] = "legacy-six", ["name"] = "Legacy Six", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint,
+            ["materials"] = new JsonArray(new JsonObject
+            {
+                ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
+                ["faceGeometricShadowStrength"] = 1f, ["eyeGeometricShadowStrength"] = .2f,
+                ["pmxMaterialTreatment"] = null, ["face"] = null, ["genshinHair"] = null, ["starMcHair"] = null,
+                ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null, ["endfieldMatcap"] = null,
+                ["genshinMetallic"] = new JsonObject
+                {
+                    ["lightmap"] = Texture(lm), ["matcap"] = Texture(mc), ["matcapEncoding"] = "Srgb",
+                    ["darkColor"] = new JsonArray(.2f, .3f, .4f), ["lightColor"] = new JsonArray(1.2f, 1.3f, 1.4f),
+                    ["shadowMultiplyColor"] = new JsonArray(.8f, .7f, .6f), ["enableMetallics"] = .6f,
+                    ["tileScale"] = 1.7f, ["brightness"] = .8f, ["litMode"] = "Uniform", ["uniformLitFactor"] = .95f
+                }
+            })
+        };
+        var legacyDecoded = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacy.ToJsonString()));
+        Assert.Equal("metallic", Assert.Single(legacyDecoded.Materials[0].PluginBindings).ModeId);
         foreach (string damage in new[] { "missing", "unknown", "schema", "encoding", "mode", "uv" })
         {
-            var doc = JsonNode.Parse(bytes)!; var map = doc["materials"]![0]!["genshinMetallic"]!.AsObject();
+            var doc = JsonNode.Parse(legacy.ToJsonString())!;
+            var map = doc["materials"]![0]!["genshinMetallic"]!.AsObject();
             if (damage == "missing") map.Remove("shadowMultiplyColor");
             if (damage == "unknown") map["channelPacked"] = true;
             if (damage == "schema") doc["schemaVersion"] = 5;
@@ -163,15 +221,14 @@ public sealed class GenshinMetallicViewPmaTests
     public void DormantProfileGuardsBothImagesWithoutActivatingMetallic(string pipeline)
     {
         var source = Source(); var id = Guid.NewGuid(); var profile = Profile(source);
-        var resolved = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline);
-        Assert.Empty(resolved.GenshinMetallicBindings);
-        Assert.Null(Assert.Single(resolved.CharacterMaterials).Style.GenshinMetallic);
+        var resolved = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog);
+        Assert.Empty(resolved.PluginBindings);
         for (int index = 0; index < 2; index++)
         {
             var textures = source.Surface.Snapshot.Textures.ToArray();
             textures[index] = new("changed", 1, 1, [0, 0, 0, 0]);
             Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile,
-                Source(textures), id, pipeline));
+                Source(textures), id, pipeline, TestStylePlugins.AllViewCatalog));
         }
     }
 
@@ -179,26 +236,31 @@ public sealed class GenshinMetallicViewPmaTests
     public void ProfileRejectsMismatchedSharedMapAndConflictingFamilies()
     {
         var source = Source(); var layout = D3D12MaterialBindingLayout.Capture(source); var row = Profile(source).Materials[0];
-        var hair = row with { Role = D3D12CharacterMaterialRole.Hair, GenshinHair = new(layout.CaptureTexture(0)) };
-        hair.Validate();
-        Assert.Throws<ArgumentException>(() => (hair with { GenshinHair = new(layout.CaptureTexture(2)) }).Validate());
-        Assert.Throws<ArgumentException>(() => (row with { EndfieldRim = new(Vector3.One, Vector3.One) }).Validate());
-        Assert.Throws<ArgumentException>(() => (row with { PmxMaterialTreatment = new(1, 1) }).Validate());
-        Assert.Throws<ArgumentException>(() => (row with { Role = D3D12CharacterMaterialRole.Face }).Validate());
-        Assert.Throws<ArgumentException>(() => (row with { Role = D3D12CharacterMaterialRole.Eye }).Validate());
-        var mapped = D3D12MaterialBindingProfileResolver.Resolve(Profile(source), source, Guid.NewGuid(), "genshin");
-        var value = Assert.Single(mapped.GenshinMetallicBindings);
-        Assert.Equal(0, value.LightmapLocalTextureIndex); Assert.Equal(1, value.MatcapLocalTextureIndex);
-        Assert.Equal(D3D12GenshinMetallicLitMode.Uniform, value.LitMode);
+        var hair = row with { Role = D3D12CharacterMaterialRole.Hair, PluginBindings = [.. row.PluginBindings, TestStylePlugins.GenshinHair(0)] };
+        var id = Guid.NewGuid();
+        var hairMapped = D3D12MaterialBindingProfileResolver.Resolve(
+            new("ok-hair", "Ok Hair", layout.Fingerprint, [hair]), source, id, "genshin", TestStylePlugins.AllViewCatalog);
+        Assert.Equal(2, hairMapped.PluginBindings.Count);
+        var badHair = row with { Role = D3D12CharacterMaterialRole.Hair, PluginBindings = [.. row.PluginBindings, TestStylePlugins.GenshinHair(2)] };
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+            new("bad-hair", "Bad Hair", layout.Fingerprint, [badHair]), source, id, "genshin", TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+            new("bad-default", "Bad Default", layout.Fingerprint, [row with { PluginBindings = [.. row.PluginBindings, new StyleMaterialBindingData("genshin", "default")] }]),
+            source, id, "genshin", TestStylePlugins.AllViewCatalog));
+        foreach (var badRole in new[] { D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                new("bad-role", "Bad Role", layout.Fingerprint, [row with { Role = badRole }]),
+                source, id, "genshin", TestStylePlugins.AllViewCatalog));
+        var mapped = D3D12MaterialBindingProfileResolver.Resolve(Profile(source), source, id, "genshin", TestStylePlugins.AllViewCatalog);
+        var value = Assert.Single(mapped.PluginBindings).Binding;
+        Assert.Equal(0, value.TextureSlots!["lightmap"]); Assert.Equal(1, value.TextureSlots["matcap"]);
+        Assert.Equal("Uniform", value.StringValues!["litMode"]);
     }
 
     [Fact]
-    public void LegacySchemaFiveWireBytesHaveNoNewNullPlaceholder()
+    public void LegacySchemaFiveDecodesEndfieldMatcapAndSchemaFourteenRoundtrips()
     {
         var source = Source(); var layout = D3D12MaterialBindingLayout.Capture(source); var image = layout.CaptureTexture(0);
-        var profile = new D3D12MaterialBindingProfile("legacy-five", "Legacy Five", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Body, EndfieldMatcap: new(image, image, image,
-                D3D12MatcapColorEncoding.SrgbRgb, 0, Vector3.One, Vector3.Zero))]);
         var row = new JsonObject
         {
             ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
@@ -208,26 +270,31 @@ public sealed class GenshinMetallicViewPmaTests
             ["endfieldMatcap"] = new JsonObject
             {
                 ["normal"] = Texture(image), ["p"] = Texture(image), ["matcap"] = Texture(image),
-                ["matcapEncoding"] = "SrgbRgb", ["uvChannel"] = 0,
+                ["matcapEncoding"] = "Srgb", ["uvChannel"] = 0,
                 ["baseColor"] = new JsonArray(1f, 1f, 1f), ["highlightColor"] = new JsonArray(0f, 0f, 0f),
                 ["normalStrength"] = 2f, ["rotationRadians"] = 0f, ["highlightCoefficient"] = 0f,
                 ["shadowHardness"] = .5f, ["lightControlDirection"] = null, ["baselineStrength"] = 1f,
                 ["coupleEndfieldPalette"] = false, ["generatorRevision"] = "mikk-v1"
             }
         };
-        var expected = new JsonObject
+        var legacy = new JsonObject
         {
             ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 5,
-            ["stableId"] = profile.StableId, ["name"] = profile.Name, ["layoutVersion"] = 1,
-            ["layoutFingerprint"] = profile.LayoutFingerprint, ["materials"] = new JsonArray(row)
+            ["stableId"] = "legacy-five", ["name"] = "Legacy Five", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint, ["materials"] = new JsonArray(row)
         };
-        var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(Encoding.UTF8.GetBytes(expected.ToJsonString(new JsonSerializerOptions { WriteIndented = true })), bytes);
-        Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
+        var decoded = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacy.ToJsonString(new JsonSerializerOptions { WriteIndented = true })));
+        var binding = Assert.Single(decoded.Materials[0].PluginBindings);
+        Assert.Equal("endfield", binding.StyleId);
+        Assert.Equal("matcap", binding.ModeId);
+        Assert.Equal("Srgb", binding.StringValues!["matcapEncoding"]);
+        byte[] upgraded = D3D12MaterialBindingProfileJson.Encode(decoded);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, JsonNode.Parse(upgraded)!["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(upgraded, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(upgraded)));
     }
 
     [Fact]
-    public void PortableSchemaSixPreservesFullTextureTableAfterSourceRemovalAndDefaultResave()
+    public void PortableSchemaFourteenPreservesFullTextureTableAfterSourceRemovalAndDefaultResave()
     {
         string directory = Path.Combine(Path.GetTempPath(), "metallic-portable-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -266,23 +333,23 @@ public sealed class GenshinMetallicViewPmaTests
             {
                 var restored = loaded.Session.Objects.Single().Source;
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(profiles[item.Id]));
-                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "genshin");
-                var selection = Assert.Single(mapped.GenshinMetallicBindings);
-                Assert.Equal(offset, selection.LightmapLocalTextureIndex); Assert.Equal(offset + 1, selection.MatcapLocalTextureIndex);
-                Assert.Equal(D3D12MatcapColorEncoding.SrgbRgb, selection.MatcapEncoding);
+                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "genshin", TestStylePlugins.AllViewCatalog);
+                var selection = Assert.Single(mapped.PluginBindings).Binding;
+                Assert.Equal(offset, selection.TextureSlots!["lightmap"]); Assert.Equal(offset + 1, selection.TextureSlots["matcap"]);
+                Assert.Equal("SrgbRgb", selection.StringValues!["matcapEncoding"]);
                 Assert.Equal(extended.Textures.Count, restored.Surface.Snapshot.Textures.Count);
                 for (int i = 0; i < extended.Textures.Count; i++)
                     Assert.Equal(extended.Textures[i].Rgba.ToArray(), restored.Surface.Snapshot.Textures[i].Rgba.ToArray());
-                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewGenshinMetallicBindings.CreateRequests(mapped.GenshinMetallicBindings));
-                var resolved = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-                    capture.RenderingStyles, mapped.CharacterMaterials, sceneInputs: capture.SceneInputs,
-                    genshinMetallicDataBindings: mapped.GenshinMetallicBindings);
-                Assert.NotNull(Assert.Single(resolved.SurfaceStyles.CharacterMaterials).GenshinMetallic);
+                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(mapped.PluginBindings, TestStylePlugins.AllViewCatalog));
+                var resolved = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+                    capture.RenderingStyles, mapped.CharacterMaterials, mapped.PluginBindings, sceneInputs: capture.SceneInputs,
+                    styleCatalog: TestStylePlugins.AllViewCatalog);
+                Assert.Equal("metallic", Assert.Single(resolved.SurfaceStyles.CharacterMaterials).PluginDraw!.ShaderModuleId);
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
             using var reopened = D3D12MaterialBindingPma.Load(resaved, Path.Combine(directory, "cache2"), Load, new NoPhysics(),
                 out var again, cancellationToken: Token);
-            Assert.Equal(6, again[item.Id].SchemaVersion);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, again[item.Id].SchemaVersion);
             Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(again[item.Id]));
         }
         finally { Directory.Delete(directory, true); }
@@ -293,21 +360,36 @@ public sealed class GenshinMetallicViewPmaTests
         ["sourceSceneTextureOrdinal"] = image.SourceSceneTextureOrdinal, ["width"] = image.Width,
         ["height"] = image.Height, ["kind"] = image.Kind.ToString(), ["rgbaSha256"] = image.RgbaSha256
     };
-    private static D3D12ViewGenshinMetallicBinding View(Guid id) => new(id, 0, 0, 1,
-        D3D12MatcapColorEncoding.SrgbRgb, new(.2f, .3f, .4f), new(1.2f, 1.3f, 1.4f), new(.8f, .7f, .6f),
-        .6f, 1.7f, .8f, D3D12GenshinMetallicLitMode.Uniform, .95f);
+    private static StyleMaterialBindingData MakeBinding(
+        int lightmapSlot = 0,
+        int matcapSlot = 1,
+        string matcapEncoding = "SrgbRgb",
+        Vector3? darkColor = null,
+        Vector3? lightColor = null,
+        Vector3? shadowMultiplyColor = null,
+        float enableMetallics = .6f,
+        float tileScale = 1.7f,
+        float brightness = .8f,
+        string litMode = "Uniform",
+        float uniformLitFactor = .95f)
+        => TestStylePlugins.GenshinMetallic(
+            lightmapSlot, matcapSlot, matcapEncoding,
+            darkColor ?? new(.2f, .3f, .4f),
+            lightColor ?? new(1.2f, 1.3f, 1.4f),
+            shadowMultiplyColor ?? new(.8f, .7f, .6f),
+            enableMetallics, tileScale, brightness, litMode, uniformLitFactor);
+    private static D3D12ViewPluginMaterialBinding View(Guid id) => TestStylePlugins.Bind(id, 0, MakeBinding());
     private static D3D12MaterialBindingProfile Profile(OriginalFrameScene source, int offset = 0)
     {
-        var layout = D3D12MaterialBindingLayout.Capture(source); var value = View(Guid.NewGuid());
+        var layout = D3D12MaterialBindingLayout.Capture(source);
         return new("genshin-metallic", "Explicit metallic", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Body, GenshinMetallic:
-                new(layout.CaptureTexture(offset), layout.CaptureTexture(offset + 1), value.MatcapEncoding,
-                    value.DarkColor, value.LightColor, value.ShadowMultiplyColor, value.EnableMetallics,
-                    value.TileScale, value.Brightness, value.LitMode, value.UniformLitFactor))]);
+            [new(0, D3D12CharacterMaterialRole.Body,
+                pluginBindings: [MakeBinding(offset, offset + 1)],
+                textureGuards: [layout.CaptureTexture(offset), layout.CaptureTexture(offset + 1)])]);
     }
     private static OriginalFrameScene Source(SceneTexture[]? textures = null)
     {
-        var frame = D3D12EndfieldHairBindingTests.Frame(seeds: false, textures: textures ?? [new("R numerical", 1, 1, [240, 0, 0, 255]),
+        var frame = T8bTestHelpers.CreateMetallicFrame(seeds: false, textures: textures ?? [new("R numerical", 1, 1, [240, 0, 0, 255]),
             new("color ChannelPacked", 1, 1, [12, 200, 130, 170]), new("unreferenced resource", 1, 1, [3, 8, 19, 37])]);
         var outline = new OriginalOutlineData(frame.Surface.Snapshot.Vertices.ToArray().Select(v =>
             new OriginalOutlineVertex(v.Position, v.Normal, OriginalOutlineVertexMode.Expand, 0, 0)),

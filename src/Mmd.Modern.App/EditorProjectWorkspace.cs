@@ -4,6 +4,8 @@ using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
 using Mmd.Modern.Physics.Runtime;
+using Mmd.Modern.Plugins.Contracts;
+using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 
 namespace Mmd.Modern.App;
@@ -60,7 +62,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     private sealed record HistoryStep(SceneProjectSession? Before, SceneProjectSession? After, bool SessionEdit,
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
-        bool PreservePoseDrafts = false, bool PreserveRenderBinding = false);
+        bool PreservePoseDrafts = false, bool PreserveRenderBinding = false,
+        bool BeforeGuessMaterialRoles = true, bool AfterGuessMaterialRoles = true);
     private readonly Stack<HistoryStep> undo = [], redo = [];
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
@@ -70,6 +73,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     public bool IsDirty { get; private set; }
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
+    public bool GuessMaterialRoles { get; private set; } = true;
     public Dictionary<Guid, D3D12MaterialBindingProfile> MaterialBindings { get; private set; } = [];
     public EditorPreferences Preferences { get; set; } = new();
     public PmaLoadOptions PackageLimits => new()
@@ -79,6 +83,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         MaxEntryBytes = Preferences.PmaEntryMaxBytes
     };
     public IReadOnlyList<SceneActorMotion> Motions => Session?.CaptureAuthoredContent().Motions ?? [];
+    internal EditorPluginService? PluginService { get; private set; }
+    internal D3D12ViewStyleCatalog StyleCatalog => PluginService?.CurrentStyleCatalog ?? D3D12ViewStyleCatalog.Empty;
+    internal D3D12StylePresetCatalog PresetCatalog => PluginService?.CurrentPresetCatalog ?? D3D12StylePresetCatalog.BuiltIn;
+    public Dictionary<string, StyleMaterialBindingData> StyleGlobalParameters { get; } = new(StringComparer.Ordinal);
+    internal void AttachPluginService(EditorPluginService? service) => PluginService = service;
     public event EventHandler? Changed;
     public static IProjectPhysicsBackendProvider CreatePhysicsProvider() => ProjectPhysicsRuntime.CreateProjectProvider();
     internal Func<IProjectPhysicsBackendProvider> PhysicsProviderFactory { get; set; } = CreatePhysicsProvider;
@@ -200,7 +209,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             var beforeMetadata = ProjectMetadata;
             Session = candidate; ProjectMetadata = metadata;
             standaloneSessions.Add(Session);
-            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); redo.Clear();
+            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata,
+                BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles)); redo.Clear();
         }
         else { Edit(edit => Add(edit.Composition, edit.Lighting, edit.Motions)); return id; }
         MarkChanged();
@@ -385,7 +395,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts, preserveRenderBinding)); redo.Clear();
+        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata,
+            preservePoseDrafts, preserveRenderBinding, GuessMaterialRoles, GuessMaterialRoles)); redo.Clear();
         MarkChanged(preservePoseDrafts, preserveRenderBinding);
     }
 
@@ -429,10 +440,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         {
             if (profile.OutlineWidths.Count != 0 && !EditorRenderEngineOptions.UsesModernQualityPreferences(RenderEngine))
                 throw new NotSupportedException(EditorLocalization.Text("Mda.Text.OutlineScale.ModernOnly"));
-            var catalog = Mmd.Modern.Rendering.D3D12.D3D12StylePresetCatalog.BuiltIn;
+            var catalog = PresetCatalog;
             var selected = catalog.Find((draft.StyleOverride ?? session.RenderingStyles.DefaultStyle).StableId);
             if (!selected.IsAvailable || selected.Definition is null) throw new NotSupportedException(selected.Diagnostic);
-            _ = D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, selected.Definition.PipelineId);
+            _ = D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, selected.Definition.PipelineId, StyleCatalog);
         }
         Edit(edit =>
         {
@@ -443,6 +454,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             int index = edit.Motions.FindIndex(value => value.ObjectId == item.Id);
             edit.Motions[index] = edit.Motions[index] with { IkEnabled = draft.IkEnabled, MorphsEnabled = draft.MorphsEnabled, PhysicsEnabled = draft.PhysicsEnabled };
         }, () => { if (draft.MaterialProfile is { } mapping) MaterialBindings[item.Id] = mapping; else MaterialBindings.Remove(item.Id); });
+        if (oldStyle != draft.StyleOverride)
+            StartShaderPrewarm();
     }
 
     /// <summary>Global default style is reference-only project metadata. The candidate is validated against
@@ -455,7 +468,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
         var previous = session.RenderingStyles.DefaultStyle;
         if (previous == style) return false;
-        var catalog = Mmd.Modern.Rendering.D3D12.D3D12StylePresetCatalog.BuiltIn;
+        var catalog = PresetCatalog;
+        var styleCatalog = StyleCatalog;
         var selected = catalog.Find(style.StableId);
         if (!selected.IsAvailable || selected.Definition is null)
             throw new NotSupportedException(EditorLocalization.Format("画风预设“{0}”不可用。{1}", style.StableId, selected.Diagnostic));
@@ -464,16 +478,81 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             // Only models that inherit the new default change effective pipeline; explicit overrides are untouched.
             if (session.RenderingStyles.ModelOverrides.ContainsKey(item.Id)) continue;
             if (!MaterialBindings.TryGetValue(item.Id, out var profile)) continue;
-            try { _ = D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, selected.Definition.PipelineId); }
+            try { _ = D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, selected.Definition.PipelineId, styleCatalog); }
             catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or InvalidDataException)
             { throw new InvalidOperationException(EditorLocalization.Format("Mda.Text.Context.Inspector.Style.MappingConflict", item.Name, error.Message), error); }
         }
         var mappings = SnapshotMappings();
         session.SetDefaultRenderingStyle(style);
         // The metadata-only session transaction shares the owner's ordered history; bridge it like an ordinary edit.
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); redo.Clear();
+        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
+            BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles)); redo.Clear();
+        StartShaderPrewarm();
         MarkChanged();
         return true;
+    }
+
+    /// <summary>Updates automatic name-based material role guessing for character models as one undoable workspace edit.</summary>
+    public bool SetGuessMaterialRoles(bool enabled)
+    {
+        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
+        if (GuessMaterialRoles == enabled) return false;
+        var before = SnapshotMappings();
+        bool beforeGuess = GuessMaterialRoles;
+
+        foreach (var item in session.Objects)
+        {
+            if (MaterialBindings.TryGetValue(item.Id, out var existing))
+            {
+                if (enabled && existing.Materials.Count == 0 && existing.OutlineWidths.Count == 0 && existing.PipelineId is null)
+                    MaterialBindings.Remove(item.Id);
+                else
+                    MaterialBindings[item.Id] = new D3D12MaterialBindingProfile(
+                        existing.StableId, existing.Name, existing.LayoutFingerprint,
+                        existing.Materials, existing.LayoutVersion, existing.OutlineWidths,
+                        existing.PipelineId, guessMaterialRoles: enabled);
+            }
+            else if (!enabled && item.Role == ModelRole.Character)
+            {
+                var layout = D3D12MaterialBindingLayout.Capture(item.Source);
+                string profileName = string.IsNullOrWhiteSpace(item.Name) ? "character" : item.Name.Trim();
+                if (profileName.Length > 128) profileName = profileName[..128];
+                MaterialBindings[item.Id] = new D3D12MaterialBindingProfile(
+                    $"guess-roles-{item.Id:N}",
+                    profileName,
+                    layout.Fingerprint,
+                    [],
+                    layout.Version,
+                    outlineWidths: [],
+                    pipelineId: null,
+                    guessMaterialRoles: false);
+            }
+        }
+
+        GuessMaterialRoles = enabled;
+        undo.Push(new(session, session, false, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
+            PreservePoseDrafts: true, PreserveRenderBinding: false,
+            BeforeGuessMaterialRoles: beforeGuess, AfterGuessMaterialRoles: enabled));
+        redo.Clear();
+        MarkChanged(preservePoseDrafts: true, preserveRenderBinding: false);
+        return true;
+    }
+
+    /// <summary>Applies a validated style-replacement plan to the active session as one undoable edit.</summary>
+    public void ApplyRenderingStyleReplacements(D3D12ViewRenderingStyleReplacementPlan plan, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
+        if (!session.HasSupportedRenderingStyles)
+            throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
+        var before = SnapshotMappings();
+        plan.Confirm(session, cancellationToken);
+        undo.Push(new(session, session, true, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
+            PreservePoseDrafts: true, PreserveRenderBinding: false,
+            BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles));
+        redo.Clear();
+        StartShaderPrewarm();
+        MarkChanged(preservePoseDrafts: true);
     }
 
     public void RemoveModel(Guid id)
@@ -486,8 +565,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         }
         var before = SnapshotMappings();
         var beforeMetadata = ProjectMetadata;
-        Session = null; MaterialBindings.Clear(); ProjectMetadata = null;
-        undo.Push(new(session, null, false, before, [], beforeMetadata, null)); redo.Clear(); MarkChanged();
+        bool beforeGuess = GuessMaterialRoles;
+        Session = null; MaterialBindings.Clear(); ProjectMetadata = null; GuessMaterialRoles = true;
+        undo.Push(new(session, null, false, before, [], beforeMetadata, null,
+            BeforeGuessMaterialRoles: beforeGuess, AfterGuessMaterialRoles: true)); redo.Clear(); MarkChanged();
     }
 
     public void Save(string path, CancellationToken token = default)
@@ -595,6 +676,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             Session.DeferVertexSkinningToRenderer = true;
         ProjectPath = recovered ? null : fullPath;
         MaterialBindings = loaded.MaterialBindings; ProjectMetadata = loaded.Metadata;
+        GuessMaterialRoles = loaded.MaterialBindings.Count == 0 || loaded.MaterialBindings.Values.All(static p => p.GuessMaterialRoles);
         IsDirty = recovered;
         StartShaderPrewarm();
         if (notifyChanged) Changed?.Invoke(this, EventArgs.Empty);
@@ -626,6 +708,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (!undo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Undo() != true) return false;
         undo.Pop(); redo.Push(step); Session = step.Before; ProjectMetadata = step.BeforeMetadata;
+        GuessMaterialRoles = step.BeforeGuessMaterialRoles;
         RestoreMappings(step.BeforeMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     public bool Redo()
@@ -633,6 +716,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (!redo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Redo() != true) return false;
         redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
+        GuessMaterialRoles = step.AfterGuessMaterialRoles;
         RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
@@ -660,7 +744,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         CancelShaderPrewarm(wait: false);
         var cts = new CancellationTokenSource();
         shaderPrewarmCts = cts;
-        var snapshot = EditorModernRenderEngine.CapturePrewarmSnapshot(current, MaterialBindings);
+        var snapshot = EditorModernRenderEngine.CapturePrewarmSnapshot(current, MaterialBindings, StyleCatalog);
         shaderPrewarmTask = EditorModernRenderEngine.PrewarmProjectAsync(snapshot, cts.Token);
     }
 
@@ -692,7 +776,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         // (also retained by workspace Undo) is disposed exactly once.
         standaloneSessions.Clear();
         undo.Clear(); redo.Clear();
-        package = null; Session = null; MaterialBindings.Clear(); ProjectMetadata = null; importedMotionCodePages.Clear();
+        package = null; Session = null; MaterialBindings.Clear(); StyleGlobalParameters.Clear(); ProjectMetadata = null; importedMotionCodePages.Clear();
+        GuessMaterialRoles = true;
         DocumentId = Guid.NewGuid();
     }
     public static string CacheDirectory => EditorUserDataPaths.Current.ProjectCacheDirectory;

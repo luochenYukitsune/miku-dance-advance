@@ -1,6 +1,7 @@
 using System.Numerics;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput;
 using Mmd.Modern.ViewOutput.D3D12;
@@ -19,21 +20,64 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
 
     private EditorModernRenderEngine() => Persistence = new EditorModernProjectPersistence(this);
 
-    internal static IEditorRenderBinding CreatePreviewBinding(IEnumerable<D3D12ResolvedMaterialBindingProfile> bindings)
+    internal static IEditorRenderBinding CreatePreviewBinding(
+        IEnumerable<D3D12ResolvedMaterialBindingProfile> bindings,
+        D3D12ViewStyleCatalog? styleCatalog = null,
+        D3D12StylePresetCatalog? stylePresets = null,
+        IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters = null,
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null)
     {
         ArgumentNullException.ThrowIfNull(bindings);
         var detached = bindings.ToArray();
         if (detached.Any(value => value is null))
             throw new ArgumentException("Material mappings cannot contain null entries.", nameof(bindings));
-        return new ModernBinding(detached, false);
+        return new ModernBinding(detached, false, styleCatalog, stylePresets, styleGlobalParameters, boneIndicesByObject);
     }
 
     public IEditorRenderBinding Bind(EditorProjectWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        return workspace.Session is not { } source ? EmptyBinding
-            : new ModernBinding(ResolveBindings(source, workspace.MaterialBindings),
-                HasPaletteReceiver(source));
+        if (workspace.Session is not { } source)
+            return EmptyBinding;
+
+        var styleCatalog = workspace.StyleCatalog;
+        var stylePresets = workspace.PresetCatalog;
+        var resolvedBindings = ResolveBindings(source, workspace.MaterialBindings, styleCatalog, stylePresets);
+        var overrideCharacterMaterials = BuildEffectiveCharacterMaterials(
+            source, resolvedBindings, workspace.MaterialBindings, workspace.GuessMaterialRoles, styleCatalog, stylePresets);
+        return new ModernBinding(
+            resolvedBindings,
+            HasPaletteReceiver(source),
+            styleCatalog,
+            stylePresets,
+            workspace.StyleGlobalParameters,
+            BuildBoneIndicesByObject(source),
+            overrideCharacterMaterials);
+    }
+
+    internal static IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? BuildBoneIndicesByObject(SceneProjectSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var motions = session.CaptureAuthoredContent().Motions;
+        if (motions.Count == 0)
+            return null;
+
+        var result = new Dictionary<Guid, IReadOnlyDictionary<string, int>>(motions.Count);
+        foreach (var actor in motions)
+        {
+            var bones = actor.Model.Bones;
+            if (bones.Count == 0)
+                continue;
+            var map = new Dictionary<string, int>(bones.Count, StringComparer.Ordinal);
+            for (int i = 0; i < bones.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(bones[i].Name))
+                    map.TryAdd(bones[i].Name, i);
+            }
+            if (map.Count > 0)
+                result[actor.ObjectId] = map;
+        }
+        return result.Count == 0 ? null : result;
     }
 
     // Resolve against every potential object, not just the current visible frame: animation can reveal
@@ -79,26 +123,34 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         bool HasOutline,
         bool HasCharacterOutline,
         bool HasDynamicVertices,
-        bool HasPaletteReceiver,
-        int MaterialCount,
-        string PresetStableId,
-        D3D12MaterialBindingProfile? BindingProfile);
+        bool HasPaletteReceiver);
 
     internal sealed record ProjectPrewarmSnapshot(
         bool NativeLights,
         bool HasPaletteReceiver,
-        IReadOnlyList<ProjectPrewarmObjectSnapshot> Objects);
+        IReadOnlyList<ProjectPrewarmObjectSnapshot> Objects,
+        D3D12ViewStyleCatalog StyleCatalog,
+        IReadOnlyList<D3D12ViewCharacterMaterial> CharacterMaterials,
+        IReadOnlyList<D3D12ViewPluginMaterialBinding> PluginBindings);
 
     internal static ProjectPrewarmSnapshot CapturePrewarmSnapshot(
         SceneProjectSession session,
-        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings)
+        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings,
+        D3D12ViewStyleCatalog? styleCatalog = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(mappings);
+        var activeCatalog = styleCatalog ?? D3D12ViewStyleCatalog.Empty;
+        var presetCatalog = activeCatalog.ToD3D12PresetCatalog();
         bool nativeLights = session.Lighting.Settings.EnvironmentStrength > 0
             || session.Lighting.EffectiveLights.Any(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero);
         bool hasPaletteReceiver = false;
         var items = new List<ProjectPrewarmObjectSnapshot>(session.Objects.Count);
+        var usedStyleIds = new HashSet<string>(StringComparer.Ordinal);
+        var characterMaterials = new List<D3D12ViewCharacterMaterial>();
+        var pluginBindings = new List<D3D12ViewPluginMaterialBinding>();
+
+        AddReferencedStyle(session.RenderingStyles.DefaultStyle.StableId);
         foreach (var item in session.Objects)
         {
             var frame = SceneModelShadingPolicy.Apply(item.Source, session.GetModelPurpose(item.Id));
@@ -112,7 +164,6 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                 .Where((_, index) => frame.Surface.Snapshot.Materials[index].IndexCount > 0)
                 .Any(flags => flags.GiToonResponseOverride == RayGiToonResponse.PreservePaletteBands);
             hasPaletteReceiver |= paletteReceiver;
-            mappings.TryGetValue(item.Id, out var profile);
             items.Add(new ProjectPrewarmObjectSnapshot(
                 subTexture,
                 textureMorph,
@@ -121,12 +172,62 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                 outline,
                 charOutline,
                 frame.Surface.Snapshot.HasDynamicVertices,
-                paletteReceiver,
-                frame.Surface.Snapshot.Materials.Count,
-                session.GetRenderingStyle(item.Id).StableId,
-                profile));
+                paletteReceiver));
+
+            var objectStyleRef = session.GetRenderingStyle(item.Id);
+            AddReferencedStyle(objectStyleRef.StableId);
+            if (mappings.TryGetValue(item.Id, out var profile))
+            {
+                foreach (var row in profile.Materials)
+                {
+                    foreach (var binding in row.PluginBindings)
+                        AddReferencedStyle(binding.StyleId);
+                }
+
+                var resolvedPreset = presetCatalog.Find(objectStyleRef.StableId);
+                if (resolvedPreset.IsAvailable && resolvedPreset.Definition is not null)
+                {
+                    try
+                    {
+                        var resolved = D3D12MaterialBindingProfileResolver.Resolve(
+                            profile, item.Source, item.Id, resolvedPreset.Definition.PipelineId, activeCatalog);
+                        characterMaterials.AddRange(resolved.CharacterMaterials);
+                        pluginBindings.AddRange(resolved.PluginBindings);
+                    }
+                    catch (Exception error) when (error is ArgumentException or InvalidDataException or NotSupportedException)
+                    {
+                        // Prewarm best-effort skips invalid or partially unresolvable bindings.
+                    }
+                }
+            }
         }
-        return new ProjectPrewarmSnapshot(nativeLights, hasPaletteReceiver, items);
+
+        var usedStyles = usedStyleIds
+            .Select(activeCatalog.FindStyle)
+            .Where(static style => style is not null)
+            .Cast<IRenderingStyleDefinition>()
+            .ToArray();
+        var filteredCatalog = usedStyles.Length == 0
+            ? D3D12ViewStyleCatalog.Empty
+            : new D3D12ViewStyleCatalog(usedStyles);
+
+        return new ProjectPrewarmSnapshot(
+            nativeLights,
+            hasPaletteReceiver,
+            items,
+            filteredCatalog,
+            characterMaterials,
+            pluginBindings);
+
+        void AddReferencedStyle(string styleOrPresetId)
+        {
+            if (string.IsNullOrWhiteSpace(styleOrPresetId))
+                return;
+            usedStyleIds.Add(styleOrPresetId);
+            var resolved = presetCatalog.Find(styleOrPresetId);
+            if (resolved.IsAvailable && resolved.Definition is not null && !string.IsNullOrWhiteSpace(resolved.Definition.PipelineId))
+                usedStyleIds.Add(resolved.Definition.PipelineId);
+        }
     }
 
     internal static Task PrewarmProjectAsync(ProjectPrewarmSnapshot snapshot, CancellationToken cancellationToken)
@@ -145,9 +246,6 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
 
                 bool subTexture = false, textureMorph = false, characterToon = false, directPalette = false;
                 bool outline = false, charOutline = false, dynamicVerts = false;
-                var variants = new HashSet<D3D12ShaderStyleWarmupVariant>();
-                var catalog = D3D12StylePresetCatalog.BuiltIn;
-
                 foreach (var obj in snapshot.Objects)
                 {
                     subTexture |= obj.HasSubTexture;
@@ -157,79 +255,22 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                     outline |= obj.HasOutline;
                     charOutline |= obj.HasCharacterOutline;
                     dynamicVerts |= obj.HasDynamicVertices;
-
-                    var resolved = catalog.Find(obj.PresetStableId);
-                    string? pipelineId = resolved.IsAvailable ? resolved.Definition?.PipelineId : null;
-                    D3D12SurfaceStyle? family = pipelineId switch
-                    {
-                        "genshin" => D3D12SurfaceStyle.GenshinPmx,
-                        "star-rail" => D3D12SurfaceStyle.StarRailPmx,
-                        "wuthering-waves" => D3D12SurfaceStyle.WutheringPmx,
-                        "endfield" => D3D12SurfaceStyle.EndfieldPmx,
-                        _ => null,
-                    };
-                    if (family is { } fam)
-                    {
-                        int specializedCount = 0;
-                        if (obj.BindingProfile is { } profile)
-                        {
-                            foreach (var row in profile.Materials)
-                            {
-                                bool hasAny = row.Face is not null || row.GenshinHair is not null || row.StarMcHair is not null
-                                    || row.EndfieldHair is not null || row.EndfieldRim is not null || row.GenshinHairAtlas is not null
-                                    || row.EndfieldMatcap is not null || row.GenshinMetallic is not null || row.StarMcBody is not null;
-                                if (hasAny) specializedCount++;
-                                variants.Add(new D3D12ShaderStyleWarmupVariant(
-                                    Family: fam,
-                                    FaceSdf: row.Face is not null,
-                                    GenshinHair: row.GenshinHair is not null,
-                                    StarMcHair: row.StarMcHair is not null,
-                                    EndfieldHair: row.EndfieldHair is not null,
-                                    EndfieldRim: row.EndfieldRim is not null,
-                                    GenshinAtlas: row.GenshinHairAtlas is not null,
-                                    EndfieldMatcap: row.EndfieldMatcap is not null,
-                                    GenshinMetallic: row.GenshinMetallic is not null,
-                                    GenshinMetallicSpecular: row.GenshinMetallic?.Specular is not null,
-                                    EndfieldPalette: row.EndfieldMatcap?.Palette is not null,
-                                    EndfieldBaseImage: row.EndfieldMatcap?.Palette?.BaseImage is not null,
-                                    StarMcBody: row.StarMcBody is not null));
-                            }
-                        }
-                        if (specializedCount < obj.MaterialCount)
-                            variants.Add(new D3D12ShaderStyleWarmupVariant(fam));
-                    }
                 }
 
-                var giOpts = quality.EffectiveGi;
-                bool giEnabled = giOpts.Enabled && giOpts.Strength > 0;
-                bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
-                var spec = new D3D12ShaderWarmupSpec
-                {
-                    Gi = giEnabled,
-                    GiMode = giOpts.Mode,
-                    GiComposition = giOpts.Composition,
-                    IncludeGiDenoiser = giEnabled && giOpts.Denoiser != RayGiDenoiser.Off,
-                    IncludeGiTemporal = giEnabled && giOpts.Denoiser == RayGiDenoiser.TemporalSpatial,
-                    IncludeGiHalfRes = giEnabled && giOpts.PreviewAcceleration,
-                    IncludePositionGather = giEnabled && giOpts.Mode == LightingMode.HardwareRayTracing && dynamicVerts,
-                    NativeLights = snapshot.NativeLights,
-                    TextureMorph = textureMorph,
-                    SubTexture = subTexture,
-                    CharacterToon = characterToon,
-                    CharacterDirectPalette = directPalette,
-                    Outline = outline,
-                    CharacterOutline = charOutline,
-                    StylizedVariants = variants.ToArray(),
-                    SmaaQuality = quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
-                    IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
-                    IncludeTemporalInputs = temporal,
-                    IncludeTemporalCharacter = temporal && (charOutline || subTexture || textureMorph || variants.Count > 0),
-                    IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,
-                    IncludeTemporalColorTransfer = temporal,
-                    IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
-                    IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
-                    IncludeGpuSkinning = dynamicVerts,
-                };
+                var spec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
+                    quality,
+                    styleCatalog: snapshot.StyleCatalog,
+                    characterMaterials: snapshot.CharacterMaterials,
+                    pluginBindings: snapshot.PluginBindings,
+                    stylePresets: snapshot.StyleCatalog.ToD3D12PresetCatalog(),
+                    hasNativeLights: snapshot.NativeLights,
+                    hasTextureMorph: textureMorph,
+                    hasSubTexture: subTexture,
+                    hasCharacterToon: characterToon,
+                    hasCharacterDirectPalette: directPalette,
+                    hasOutline: outline,
+                    hasCharacterOutline: charOutline,
+                    hasDynamicVertices: dynamicVerts);
                 await D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { }
@@ -237,11 +278,18 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         }, CancellationToken.None);
     }
 
-    internal static IReadOnlyList<D3D12ResolvedMaterialBindingProfile> ResolveBindings(SceneProjectSession session,
-        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings)
+    internal static IReadOnlyList<D3D12ResolvedMaterialBindingProfile> ResolveBindings(
+        SceneProjectSession session,
+        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings,
+        D3D12ViewStyleCatalog? styleCatalog = null,
+        D3D12StylePresetCatalog? stylePresets = null)
     {
-        ArgumentNullException.ThrowIfNull(session); ArgumentNullException.ThrowIfNull(mappings);
-        var catalog = D3D12StylePresetCatalog.BuiltIn;
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(mappings);
+        var effectiveStyleCatalog = styleCatalog ?? D3D12ViewStyleCatalog.Empty;
+        var effectivePresets = D3D12ViewRenderingStyles.MergePresetCatalog(
+            stylePresets ?? effectiveStyleCatalog.ToD3D12PresetCatalog(),
+            effectiveStyleCatalog);
         _ = RequirePipeline(session.RenderingStyles.DefaultStyle);
         var objects = session.Objects.ToDictionary(value => value.Id);
         if (mappings.Keys.Any(id => !objects.ContainsKey(id)))
@@ -251,47 +299,143 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         {
             string pipeline = RequirePipeline(session.GetRenderingStyle(item.Id));
             if (mappings.TryGetValue(item.Id, out var profile))
-                result.Add(D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, pipeline));
+                result.Add(D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, pipeline, effectiveStyleCatalog));
         }
         return result.AsReadOnly();
 
         string RequirePipeline(RenderingPresetReference reference)
         {
-            var resolved = catalog.Find(reference.StableId);
+            var resolved = effectivePresets.Find(reference.StableId);
             if (!resolved.IsAvailable || resolved.Definition is null)
                 throw new NotSupportedException(EditorLocalization.Format("画风预设“{0}”不可用。{1}", reference.StableId, resolved.Diagnostic));
             return resolved.Definition.PipelineId;
         }
     }
 
+    private static D3D12ViewCharacterMaterial[]? BuildEffectiveCharacterMaterials(
+        SceneProjectSession session,
+        IReadOnlyList<D3D12ResolvedMaterialBindingProfile> resolvedBindings,
+        IReadOnlyDictionary<Guid, D3D12MaterialBindingProfile> mappings,
+        bool guessMaterialRoles,
+        D3D12ViewStyleCatalog styleCatalog,
+        D3D12StylePresetCatalog stylePresets)
+    {
+        if (guessMaterialRoles && mappings.Values.All(static profile => profile.GuessMaterialRoles))
+            return null;
+
+        var effectivePresets = D3D12ViewRenderingStyles.MergePresetCatalog(stylePresets, styleCatalog);
+        var map = new Dictionary<(Guid ObjectId, int LocalMaterialIndex), D3D12ViewCharacterMaterial>();
+        foreach (var profile in resolvedBindings)
+        {
+            foreach (var material in profile.CharacterMaterials)
+                map[(material.ObjectId, material.LocalMaterialIndex)] = material;
+        }
+
+        var activePluginBindings = new Dictionary<(Guid ObjectId, int LocalMaterialIndex), List<StyleMaterialBindingData>>();
+        foreach (var profile in resolvedBindings)
+        {
+            foreach (var binding in profile.PluginBindings)
+            {
+                var key = (binding.ObjectId, binding.LocalMaterialIndex);
+                if (!activePluginBindings.TryGetValue(key, out var list))
+                {
+                    list = [];
+                    activePluginBindings.Add(key, list);
+                }
+                list.Add(binding.Binding);
+            }
+        }
+
+        foreach (var item in session.Objects)
+        {
+            if (item.Role != ModelRole.Character)
+                continue;
+            bool modelGuess = guessMaterialRoles
+                && (!mappings.TryGetValue(item.Id, out var explicitProfile) || explicitProfile.GuessMaterialRoles);
+            if (modelGuess)
+                continue;
+
+            var styleRef = session.GetRenderingStyle(item.Id);
+            string pipelineId = effectivePresets.Find(styleRef.StableId).Definition?.PipelineId ?? D3D12SurfaceStyleMap.DefaultStyleId;
+            var style = styleCatalog.FindStyle(pipelineId);
+            var surfaceMaterials = item.Source.Surface.Snapshot.Materials;
+
+            for (int localIdx = 0; localIdx < surfaceMaterials.Count; localIdx++)
+            {
+                var key = (item.Id, localIdx);
+                if (map.TryGetValue(key, out var existing) && existing.ExplicitRole)
+                    continue;
+
+                D3D12CharacterMaterialRole nonGuessedRole;
+                if (style is not null)
+                {
+                    IReadOnlyList<StyleMaterialBindingData>? matBindings = activePluginBindings.TryGetValue(key, out var list)
+                        ? list.Where(b => string.Equals(b.StyleId, pipelineId, StringComparison.Ordinal)).ToArray()
+                        : null;
+                    var classification = style.ClassifyMaterial(new StyleMaterialInspectionContext(
+                        item.Id,
+                        localIdx,
+                        surfaceMaterials[localIdx].Name,
+                        ExplicitRole: null,
+                        GuessMaterialRoles: false,
+                        matBindings));
+                    nonGuessedRole = D3D12StylePluginAdapter.ToD3D12Role(classification.ResolvedRole);
+                }
+                else
+                {
+                    nonGuessedRole = D3D12CharacterMaterialRole.Body;
+                }
+
+                if (existing is not null)
+                {
+                    var treatment = nonGuessedRole is D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair
+                        ? (nonGuessedRole == D3D12CharacterMaterialRole.Body && existing.PmxTreatment is { HairHighlightStrength: > 0f } t
+                            ? t with { HairHighlightStrength = 0f }
+                            : existing.PmxTreatment)
+                        : null;
+                    map[key] = existing with { Role = nonGuessedRole, ExplicitRole = true, PmxTreatment = treatment };
+                }
+                else
+                {
+                    map[key] = new D3D12ViewCharacterMaterial(item.Id, localIdx, nonGuessedRole, ExplicitRole: true);
+                }
+            }
+        }
+
+        return [.. map.Values];
+    }
+
     private sealed class ModernBinding : IEditorRenderBinding
     {
-        private readonly D3D12ViewCharacterMaterialBinding[] characterMaterials;
-        private readonly D3D12ViewFaceSdfBinding[] faces;
-        private readonly D3D12ViewGenshinHairBinding[] genshinHair;
-        private readonly D3D12ViewStarMcHairBinding[] starMcHair;
-        private readonly D3D12ViewEndfieldHairBinding[] endfieldHair;
-        private readonly D3D12ViewGenshinHairAtlasBinding[] genshinHairAtlas;
-        private readonly D3D12ViewEndfieldMatcapBinding[] endfieldMatcap;
-        private readonly D3D12ViewGenshinMetallicBinding[] genshinMetallic;
-        private readonly D3D12ViewStarMcBodyBinding[] starMcBody;
+        private readonly D3D12ViewStyleCatalog styleCatalog;
+        private readonly D3D12StylePresetCatalog stylePresets;
+        private readonly D3D12ViewCharacterMaterial[] characterMaterials;
+        private readonly D3D12ViewPluginMaterialBinding[] pluginBindings;
         private readonly D3D12ViewOutlineWidthBinding[] outlineWidths;
+        private readonly IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters;
+        private readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject;
         private readonly bool hasPaletteReceiver;
         private readonly EditorOptionalRuntimePaths paths;
         public IEditorRenderEngine Engine => Instance;
 
-        internal ModernBinding(IReadOnlyList<D3D12ResolvedMaterialBindingProfile> bindings, bool hasPaletteReceiver)
+        internal ModernBinding(
+            IReadOnlyList<D3D12ResolvedMaterialBindingProfile> bindings,
+            bool hasPaletteReceiver,
+            D3D12ViewStyleCatalog? styleCatalog = null,
+            D3D12StylePresetCatalog? stylePresets = null,
+            IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters = null,
+            IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null,
+            D3D12ViewCharacterMaterial[]? overrideCharacterMaterials = null)
         {
-            characterMaterials = bindings.SelectMany(value => value.CharacterMaterials).ToArray();
-            faces = bindings.SelectMany(value => value.FaceBindings).ToArray();
-            genshinHair = bindings.SelectMany(value => value.GenshinHairBindings).ToArray();
-            starMcHair = bindings.SelectMany(value => value.StarMcHairBindings).ToArray();
-            endfieldHair = bindings.SelectMany(value => value.EndfieldHairBindings).ToArray();
-            genshinHairAtlas = bindings.SelectMany(value => value.GenshinHairAtlasBindings).ToArray();
-            endfieldMatcap = bindings.SelectMany(value => value.EndfieldMatcapBindings).ToArray();
-            genshinMetallic = bindings.SelectMany(value => value.GenshinMetallicBindings).ToArray();
-            starMcBody = bindings.SelectMany(value => value.StarMcBodyBindings).ToArray();
+            this.styleCatalog = styleCatalog ?? D3D12ViewStyleCatalog.Empty;
+            this.stylePresets = D3D12ViewRenderingStyles.MergePresetCatalog(
+                stylePresets ?? this.styleCatalog.ToD3D12PresetCatalog(),
+                this.styleCatalog);
+            characterMaterials = overrideCharacterMaterials ?? bindings.SelectMany(value => value.CharacterMaterials).ToArray();
+            pluginBindings = bindings.SelectMany(value => value.PluginBindings).ToArray();
             outlineWidths = bindings.SelectMany(value => value.OutlineWidths).ToArray();
+            this.styleGlobalParameters = styleGlobalParameters;
+            this.boneIndicesByObject = boneIndicesByObject;
             this.hasPaletteReceiver = hasPaletteReceiver;
             paths = EditorOptionalRuntimePaths.Resolve();
         }
@@ -303,19 +447,19 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
             => new EditorViewportRenderer(new D3D12RealtimeViewRenderer(window, request,
                 fsrLoaderPath: paths.FsrLoaderPath, xessLibraryPath: paths.XessLibraryPath,
                 dlssBridgePath: paths.DlssBridgePath, dlssSdkDirectory: paths.DlssSdkDirectory,
-                characterMaterials: characterMaterials, faceDataBindings: faces, hairDataBindings: genshinHair,
-                starMcHairDataBindings: starMcHair, endfieldHairDataBindings: endfieldHair,
-                genshinHairAtlasDataBindings: genshinHairAtlas, endfieldMatcapDataBindings: endfieldMatcap,
-                genshinMetallicDataBindings: genshinMetallic, starMcBodyDataBindings: starMcBody, outlineWidths: outlineWidths));
+                stylePresets: stylePresets, characterMaterials: characterMaterials,
+                pluginBindings: pluginBindings, outlineWidths: outlineWidths,
+                styleCatalog: styleCatalog, styleGlobalParameters: styleGlobalParameters,
+                boneIndicesByObject: boneIndicesByObject));
 
         public IViewRenderer CreateCapture(ViewRenderRequest request, Vector4 background)
             => new OutputRenderer(new D3D12ViewRenderer(request,
                 fsrLoaderPath: paths.FsrLoaderPath, xessLibraryPath: paths.XessLibraryPath,
                 dlssBridgePath: paths.DlssBridgePath, dlssSdkDirectory: paths.DlssSdkDirectory,
-                characterMaterials: characterMaterials, faceDataBindings: faces, hairDataBindings: genshinHair,
-                starMcHairDataBindings: starMcHair, endfieldHairDataBindings: endfieldHair,
-                genshinHairAtlasDataBindings: genshinHairAtlas, endfieldMatcapDataBindings: endfieldMatcap,
-                genshinMetallicDataBindings: genshinMetallic, starMcBodyDataBindings: starMcBody, outlineWidths: outlineWidths), background);
+                stylePresets: stylePresets, characterMaterials: characterMaterials,
+                pluginBindings: pluginBindings, outlineWidths: outlineWidths,
+                styleCatalog: styleCatalog, styleGlobalParameters: styleGlobalParameters,
+                boneIndicesByObject: boneIndicesByObject), background);
     }
 
     private sealed class OutputRenderer(D3D12ViewRenderer renderer, Vector4 background) : IViewRenderer,

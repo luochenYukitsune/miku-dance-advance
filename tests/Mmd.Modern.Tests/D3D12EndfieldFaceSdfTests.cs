@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -18,28 +19,43 @@ public sealed class D3D12EndfieldFaceSdfTests
     [Fact]
     public void EncodingIsExplicitAndExistingGrayDefaultsRemainCompatible()
     {
-        var old = new D3D12FaceSdfBinding(0, -Vector3.UnitZ, Vector3.UnitX);
-        Assert.Equal(D3D12FaceSdfEncoding.GrayRed, old.Encoding);
-        Assert.Equal(-1, old.SecondaryCombinedTextureIndex);
-        old.Validate(); Binding().Validate(); Map(Binding()).Validate(Frame());
-        Assert.True(Map(Binding()).HasConsumedPackedFaceSdf);
-        Assert.Throws<ArgumentException>(() => (old with { SecondaryCombinedTextureIndex = 0 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (Binding() with { SecondaryCombinedTextureIndex = -1 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (Binding() with { Encoding = (D3D12FaceSdfEncoding)42 }).Validate());
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(FaceSdf: Binding()).Validate());
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Eye, FaceSdf: Binding()).Validate());
+        var old = TestStylePlugins.FaceSdf("star-rail", 0);
+        Assert.Equal("GrayRed", old.StringValues!["encoding"]);
+        Assert.False(old.TextureSlots!.ContainsKey("secondary"));
+        Assert.True(TestStylePlugins.StarRail.ValidateMaterial(new(Guid.Empty, 0, null, StyleMaterialRole.Face, [old], 1)).IsValid);
+        Assert.True(T8dTestHelpers.ValidateEndfield(Binding(), StyleMaterialRole.Face, 2).IsValid);
+        var map = Map(Binding());
+        map.Validate(Frame());
+        Assert.Equal("face-sdf", map.CharacterMaterials[0].PluginDraw?.ShaderModuleId);
+        Assert.False(T8dTestHelpers.ValidateEndfield(T8dTestHelpers.EndfieldFaceSdf(0, -1), StyleMaterialRole.Face, 2).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield(T8dTestHelpers.EndfieldFaceSdf(0, 1, encoding: "Invalid"), StyleMaterialRole.Face, 2).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield(Binding(), StyleMaterialRole.Body, 2).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield(Binding(), StyleMaterialRole.Eye, 2).IsValid);
         // Both numerical inputs may deliberately share one compatible image.
-        Map(Binding() with { SecondaryCombinedTextureIndex = 0 }).Validate(Frame());
+        Map(T8dTestHelpers.EndfieldFaceSdf(0, 0, .1f, 1)).Validate(Frame());
     }
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    public void PackedEncodingCannotBeMisinterpretedByAnotherFamily(D3D12SurfaceStyle family)
-        => Assert.Throws<NotSupportedException>(() => new D3D12SurfaceStyleMap([family, family],
-            [new(D3D12CharacterMaterialRole.Face, 1, 1, Binding()), new()]).Validate(Frame()));
+    [InlineData("mmd")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    public void PackedEncodingCannotBeMisinterpretedByAnotherFamily(string family)
+    {
+        if (family == "mmd")
+        {
+            var faceMap = Map(Binding());
+            Assert.Throws<NotSupportedException>(() => new D3D12SurfaceStyleMap(["mmd", "mmd"],
+                [faceMap.CharacterMaterials[0], new()], TestStylePlugins.AllPresetCatalog).Validate(Frame()));
+        }
+        else
+        {
+            var otherStyle = TestStylePlugins.GetStyle(family);
+            var endfieldRgb = TestStylePlugins.FaceSdf(family, 0, 1, "EndfieldRgbCmM", .1f, 1);
+            Assert.False(otherStyle.ValidateMaterial(new(Guid.Empty, 0, null, StyleMaterialRole.Face, [endfieldRgb], 2)).IsValid);
+            Assert.False(T8dTestHelpers.ValidateEndfield(TestStylePlugins.FaceSdf("endfield", 0, -1, "GrayRed", .1f, 1), StyleMaterialRole.Face, 2).IsValid);
+        }
+    }
 
     [Theory]
     [InlineData(-1, 1)]
@@ -47,8 +63,8 @@ public sealed class D3D12EndfieldFaceSdfTests
     [InlineData(0, -1)]
     [InlineData(0, 2)]
     public void BothCombinedIndicesMustExistBeforeRecording(int primary, int secondary)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => Map(Binding() with
-            { CombinedTextureIndex = primary, SecondaryCombinedTextureIndex = secondary }).Validate(Frame()));
+        => Assert.False(T8dTestHelpers.ValidateEndfield(
+            T8dTestHelpers.EndfieldFaceSdf(primary, secondary, .1f, 1), StyleMaterialRole.Face, 2).IsValid);
 
     [Theory]
     [InlineData(0, 0)]
@@ -59,76 +75,74 @@ public sealed class D3D12EndfieldFaceSdfTests
     public void EveryConsumedPackedChannelParticipatesInDetachedHistory(int texture, int channel)
     {
         var map = Map(Binding());
-        var first = map.CaptureFaceTextures(Frame());
+        var first = map.CaptureResolvedInputs(Frame());
         byte[] sdf = [.. Primary], cm = [.. Secondary];
         (texture == 0 ? sdf : cm)[channel]++;
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame(sdf, cm))));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame())));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame(sdf, cm))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame())));
     }
 
     [Theory]
     [InlineData(0, 3)]
     [InlineData(1, 2)]
     [InlineData(1, 3)]
-    public void UnusedPackedChannelsDoNotChangeTheConsumedHistoryKey(int texture, int channel)
+    public void UnusedPackedChannelsDoNotChangeGpuOutputAndZeroStrengthIgnoresHistory(int texture, int channel)
     {
         var map = Map(Binding());
+        var disabled = Map(Binding(), 0);
         byte[] sdf = [.. Primary], cm = [.. Secondary];
         (texture == 0 ? sdf : cm)[channel]++;
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(Frame()),
-            map.CaptureFaceTextures(Frame(sdf, cm))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(disabled.CaptureResolvedInputs(Frame()),
+            disabled.CaptureResolvedInputs(Frame(sdf, cm))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(Frame()),
+            map.CaptureResolvedInputs(new(new(TestStylePlugins.WithTextures(Frame().Surface.Snapshot,
+                [new("renamed sdf", 4, 1, Frame().Surface.Snapshot.Textures[0].Rgba),
+                 new("renamed cm", 4, 1, Frame().Surface.Snapshot.Textures[1].Rgba)]),
+                Frame().Surface.Materials, Frame().Surface.Profile), options: Frame().Options))));
     }
 
     [Fact]
     public void CapturedEqualityUsesDataRatherThanRebasedIndicesAndZeroStrengthIgnoresData()
     {
         var frame = Frame(); var map = Map(Binding());
-        var first = map.CaptureFaceTextures(frame);
+        var first = map.CaptureResolvedInputs(frame);
         var snapshot = frame.Surface.Snapshot;
         var reversed = new SceneSnapshot(snapshot.Vertices, snapshot.Indices, snapshot.Materials,
             snapshot.Textures.Reverse(), world: snapshot.World, camera: snapshot.Camera, lightDirection: snapshot.LightDirection);
         var rebased = new OriginalFrameScene(new(reversed, frame.Surface.Materials, frame.Surface.Profile), options: frame.Options);
-        var other = Map(Binding() with { CombinedTextureIndex = 1, SecondaryCombinedTextureIndex = 0 });
+        var other = Map(T8dTestHelpers.EndfieldFaceSdf(1, 0, .1f, 1), frame: rebased);
         other.Validate(rebased);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, other));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, other.CaptureFaceTextures(rebased)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, other.CaptureResolvedInputs(rebased)));
         var disabled = Map(Binding(), 0);
-        Assert.False(disabled.HasConsumedFaceSdf); Assert.False(disabled.HasConsumedPackedFaceSdf);
+        Assert.Equal("default", disabled.CharacterMaterials[0].PluginDraw?.ShaderModuleId);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(disabled, Map(null, 0)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(disabled, Map(Binding() with { Offset = -1 }, 0)));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, Map(Binding() with { Transition = .2f }).CaptureFaceTextures(frame)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(disabled, Map(T8dTestHelpers.EndfieldFaceSdf(0, 1, .1f, -1), 0)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, Map(T8dTestHelpers.EndfieldFaceSdf(0, 1, .2f, 1)).CaptureResolvedInputs(frame)));
     }
 
-    public static IEnumerable<object[]> Variants()
-    {
-        foreach (bool native in new[] { false, true })
-        foreach (bool gi in new[] { false, true })
-        foreach (var variant in new[] { (Morph: false, Sub: false), (Morph: true, Sub: false), (Morph: true, Sub: true) })
-            yield return [native, gi, variant.Morph, variant.Sub];
-    }
+    public static IEnumerable<object[]> Variants() => T8dTestHelpers.SurfaceVariants().Select(v => v[1..]);
 
     [Theory, MemberData(nameof(Variants))]
     public void EveryPackedShaderVariantCompilesWithSharedLightConsumersAndUnchangedCoverage(bool native, bool gi, bool morph, bool sub)
     {
         string entry = native ? gi ? "PSSurfaceGiNative" : "PSSurfaceNative" : gi ? "PSSurfaceGi" : "PSSurface";
-        var shader = OriginalFrameShaders.CompileFaceSdfSurface(D3D12SurfaceStyle.EndfieldPmx, entry, native, gi, morph, sub);
+        var shader = T8dTestHelpers.CompileEndfieldPixel("face-sdf", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
-        string source = OriginalFrameShaders.FaceSdfSurfaceSource(D3D12SurfaceStyle.EndfieldPmx, native, gi, morph, sub);
-        Assert.Contains("FaceSdfConstants:register(b4)", source);
-        Assert.Contains("FaceSdfMap:register(t7)", source);
-        Assert.Contains("FaceCombinedMap:register(t8)", source);
-        Assert.Contains("FaceSdfSampler:register(s2)", source);
-        Assert.Contains("if(r<=0) faceUv.x=1-faceUv.x;", source);
-        Assert.Contains("FaceCombinedMap.Sample(FaceSdfSampler,v.Uv).rg", source);
-        Assert.Contains("saturate(saturate(sdf.r+sdf.b)*sdf.g-combined.g)", source);
-        Assert.Contains("upper==lower?0:saturate((value-lower)/(upper-lower))", source);
-        Assert.DoesNotContain(".15/FaceSdfParameters.x", source);
-        Assert.DoesNotContain("EndfieldLightResponse(dot(n,l)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,1)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,visibility)", source);
-        Assert.Contains("+highlight*originalC;", source);
-        if (gi || native) Assert.Contains("FaceSdfLightResponse(v,IncomingLight.xyz,visibility)", source);
-        if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
+        string source = T8dTestHelpers.AssembleEndfieldPixelSource("face-sdf", entry, native, gi, morph, sub);
+        Assert.Contains("cbuffer PluginStyleConstants : register(b0, space2)", source);
+        Assert.Contains("Texture2D<float4> FaceSdfMap : register(t0, space2);", source);
+        Assert.Contains("Texture2D<float4> FaceCombinedMap : register(t1, space2);", source);
+        Assert.Contains("SamplerState MdaLinearWrapSampler : register(s0, space2);", source);
+        Assert.Contains("if (r <= 0) faceUv.x = 1 - faceUv.x;", source);
+        Assert.Contains("FaceCombinedMap.SampleLevel(MdaLinearWrapSampler, v.Uv, 0).rg;", source);
+        Assert.Contains("saturate(saturate(sdf.r + sdf.b) * sdf.g - combined.g);", source);
+        Assert.Contains("upper == lower ? 0 : saturate((value - lower) / (upper - lower));", source);
+        Assert.DoesNotContain(".15 / FaceSdfParameters.x", source);
+        Assert.Contains("MdaStyleLightResponse(v, n, l, visibility);", source);
+        Assert.Contains("+ highlight * originalC;", source);
+        if (native) Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v, n, l) MdaStyleLightResponse(v, n, l, 1)", source);
+        if (sub) Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC);", source);
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -150,12 +164,12 @@ public sealed class D3D12EndfieldFaceSdfTests
         }
         byte[] saturatedSum = [200, 180, 128, 0];
         AssertFace(session.Capture(Frame(saturatedSum), Width, Height,
-            surfaceStyles: Map(binding with { Offset = 1.25f })), Expected(saturatedSum, Secondary, .75f, .1f));
+            surfaceStyles: Map(Binding(offset: 1.25f))), Expected(saturatedSum, Secondary, .75f, .1f));
         foreach (var direction in new[] { -Vector3.UnitX, -Vector3.UnitZ, Vector3.UnitZ })
         {
             float f = Vector3.Dot(-Vector3.UnitZ, direction);
             // Keep center=.5 while checking both exact r=0 ties select mirrored SDF.
-            var selected = binding with { Offset = 1 + f * .5f };
+            var selected = Binding(offset: 1 + f * .5f);
             var image = session.Capture(Frame(light: direction), Width, Height, surfaceStyles: Map(selected));
             AssertFace(image, Expected(Mirrored, Secondary, .5f, .1f));
         }
@@ -167,13 +181,13 @@ public sealed class D3D12EndfieldFaceSdfTests
             (Offset: MathF.BitIncrement(.375f), Expected: 1f), (Offset: .25f, Expected: 0f) })
         {
             var image = session.Capture(Frame([1, 1, 0, 0], [0, 0, 0, 0]), Width, Height,
-                surfaceStyles: Map(binding with { Offset = range.Offset, Transition = .125f }));
+                surfaceStyles: Map(Binding(offset: range.Offset, transition: .125f)));
             AssertFace(image, range.Expected);
         }
         var verticalFrame = Frame(light: Vector3.UnitY);
         Assert.Equal(session.Capture(verticalFrame, Width, Height, surfaceStyles: Map(null)).Rgba,
             session.Capture(verticalFrame, Width, Height, surfaceStyles: Map(binding)).Rgba);
-        var tilted = binding with { HeadWorldForward = Vector3.Normalize(new(0, 1, -1)), Offset = 1.5f };
+        var tilted = Binding(worldForward: Vector3.Normalize(new(0, 1, -1)), offset: 1.5f);
         // World-Y is not vertical to this tilted head plane; f=1 and r=0 after projection.
         AssertFace(session.Capture(verticalFrame, Width, Height, surfaceStyles: Map(tilted)), Expected(Mirrored, Secondary, .5f, .1f));
         int covered = 0;
@@ -188,12 +202,14 @@ public sealed class D3D12EndfieldFaceSdfTests
         Assert.Equal(session.Capture(original, Width, Height, surfaceStyles: Map(null, 0)).Rgba,
             session.Capture(original, Width, Height, surfaceStyles: Map(binding, 0)).Rgba);
         // Endfield plus an actual GrayRed second draw share the packed root; the
-        // second material must still use its own old t7-only shader and constants.
-        var mixed = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.StarRailPmx],
-            [new(D3D12CharacterMaterialRole.Face, 1, 1, binding), new(D3D12CharacterMaterialRole.Face, 1, 1,
-                new D3D12FaceSdfBinding(0, -Vector3.UnitZ, Vector3.UnitX))]);
-        var oldOnly = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.StarRailPmx],
-            [new(D3D12CharacterMaterialRole.Face, 1, 1), mixed.CharacterMaterials[1]]);
+        // second material must still use its own old t0-only shader and constants.
+        var starFace = TestStylePlugins.FaceSdf("star-rail", 0);
+        var mixed = T8dTestHelpers.CreateDirectSurfaceStyleMap(original, ["endfield", "star-rail"],
+            [new(D3D12CharacterMaterialRole.Face, 1, 1), new(D3D12CharacterMaterialRole.Face, 1, 1)],
+            [[binding], [starFace]]);
+        var oldOnly = T8dTestHelpers.CreateDirectSurfaceStyleMap(original, ["endfield", "star-rail"],
+            [new(D3D12CharacterMaterialRole.Face, 1, 1), new(D3D12CharacterMaterialRole.Face, 1, 1)],
+            [null, [starFace]]);
         var beforeMixed = session.Capture(original, Width, Height, surfaceStyles: oldOnly);
         var packedMixed = session.Capture(original, Width, Height, surfaceStyles: mixed);
         for (int y = Height / 2; y < Height; y++) for (int x = 0; x < Width; x++)
@@ -230,12 +246,12 @@ public sealed class D3D12EndfieldFaceSdfTests
         foreach (bool sub in new[] { false, true })
         {
             var covered = Frame(light: sub ? -Vector3.UnitX : Vector3.UnitX, subTexture: sub, highlight: true);
-            var data = Binding() with { CombinedTextureIndex = sub ? 2 : 0, SecondaryCombinedTextureIndex = sub ? 3 : 1 };
-            var noData = session.Capture(covered, Width, Height, surfaceStyles: Map(null));
-            var packed = session.Capture(covered, Width, Height, surfaceStyles: Map(data));
+            var data = Binding(primary: sub ? 2 : 0, secondary: sub ? 3 : 1);
+            var noData = session.Capture(covered, Width, Height, surfaceStyles: Map(null, frame: covered));
+            var packed = session.Capture(covered, Width, Height, surfaceStyles: Map(data, frame: covered));
             for (int offset = 3; offset < packed.Rgba.Length; offset += 4) Assert.Equal(noData.Rgba[offset], packed.Rgba[offset]);
-            Assert.Equal(session.Capture(covered, Width, Height, surfaceStyles: Map(null, 0)).Rgba,
-                session.Capture(covered, Width, Height, surfaceStyles: Map(data, 0)).Rgba);
+            Assert.Equal(session.Capture(covered, Width, Height, surfaceStyles: Map(null, 0, frame: covered)).Rgba,
+                session.Capture(covered, Width, Height, surfaceStyles: Map(data, 0, frame: covered)).Rgba);
             Assert.Equal(noData.Rgba, session.Capture(covered, Width, Height, surfaceStyles: Map(null)).Rgba);
             if (!sub)
             {
@@ -291,12 +307,13 @@ public sealed class D3D12EndfieldFaceSdfTests
         }
     }
 
-    private static D3D12FaceSdfBinding Binding() => new(0, -Vector3.UnitZ, Vector3.UnitX, .1f, 1,
-        Encoding: D3D12FaceSdfEncoding.EndfieldRgbCmM, SecondaryCombinedTextureIndex: 1);
+    private static StyleMaterialBindingData Binding(int primary = 0, int secondary = 1, float transition = .1f, float offset = 1, Vector3? worldForward = null)
+        => T8dTestHelpers.EndfieldFaceSdf(primary, secondary, transition, offset, worldForward: worldForward ?? -Vector3.UnitZ, worldRight: Vector3.UnitX);
 
-    private static D3D12SurfaceStyleMap Map(D3D12FaceSdfBinding? binding, float strength = 1)
-        => new([D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.EndfieldPmx],
-            [new(D3D12CharacterMaterialRole.Face, strength, 1, binding), new()]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding, float strength = 1, OriginalFrameScene? frame = null)
+        => T8dTestHelpers.CreateDirectSurfaceStyleMap(frame ?? Frame(), ["endfield", "endfield"],
+            [new(D3D12CharacterMaterialRole.Face, strength, 1), new()],
+            [binding is null ? null : [binding], null]);
 
     private static OriginalFrameScene TemporalFrame(byte[]? cm = null)
     {

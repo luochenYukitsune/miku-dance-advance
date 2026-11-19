@@ -21,12 +21,19 @@ public sealed class D3D12EyeMaterialTests
         Assert.Equal(.2f, eye.EyeGeometricShadowStrength);
         Assert.Equal(D3D12CharacterMaterialRole.Body, new D3D12CharacterMaterialStyle().Role);
         Assert.Equal(1f, new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face).FaceGeometricShadowStrength);
-        var styles = Enum.GetValues<D3D12SurfaceStyle>();
-        var map = new D3D12SurfaceStyleMap(styles, styles.Select(_ => eye));
+        var styles = new[]
+        {
+            T8cTestHelpers.MmdStyleId,
+            T8cTestHelpers.GenshinStyleId,
+            T8cTestHelpers.StarRailStyleId,
+            T8cTestHelpers.WutheringStyleId,
+            T8cTestHelpers.EndfieldStyleId,
+        };
+        var map = T8cTestHelpers.CreateDirectMap(styles, styles.Select(_ => eye));
         for (int i = 0; i < styles.Length; i++)
         {
             Assert.Equal(1f, map.EffectiveNormalShadeStrength(i));
-            Assert.Equal(styles[i] == D3D12SurfaceStyle.Mmd ? 1f : .2f,
+            Assert.Equal(styles[i] == T8cTestHelpers.MmdStyleId ? 1f : .2f,
                 map.EffectiveGeometricShadowStrength(i));
         }
     }
@@ -44,26 +51,33 @@ public sealed class D3D12EyeMaterialTests
             var style = new D3D12CharacterMaterialStyle(role, EyeGeometricShadowStrength: strength);
             Assert.Throws<ArgumentOutOfRangeException>(style.Validate);
         }
-        Assert.Throws<ArgumentOutOfRangeException>(() => Map(D3D12SurfaceStyle.StarRailPmx,
+        Assert.Throws<ArgumentOutOfRangeException>(() => Map(T8cTestHelpers.StarRailStyleId,
             new(EyeGeometricShadowStrength: strength)).Validate(Fixture()));
     }
 
     [Fact]
     public void FaceSdfCannotBeAccidentallyAssignedToTheEye()
     {
-        var faceSdf = new D3D12FaceSdfBinding(0, -Vector3.UnitZ, Vector3.UnitX);
-        var eye = new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Eye, FaceSdf: faceSdf);
-        var error = Assert.Throws<ArgumentException>(eye.Validate);
-        Assert.Equal("FaceSdf", error.ParamName);
-        Assert.Throws<ArgumentException>(() => Map(D3D12SurfaceStyle.StarRailPmx, eye).Validate(Fixture()));
+        var id = Guid.NewGuid();
+        foreach (string styleId in T8cTestHelpers.ModernStyleIds)
+        {
+            var faceSdf = T8cTestHelpers.FaceSdfBinding(styleId, 0, secondaryTextureSlot: styleId is T8cTestHelpers.GenshinStyleId or T8cTestHelpers.EndfieldStyleId ? 0 : -1,
+                forward: -Vector3.UnitZ, right: Vector3.UnitX);
+            var validation = T8cTestHelpers.ValidateMaterialBinding(styleId, faceSdf, D3D12CharacterMaterialRole.Eye);
+            Assert.False(validation.IsValid);
+            Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate(
+                [new(id, 0, D3D12CharacterMaterialRole.Eye)],
+                [TestStylePlugins.Bind(id, 0, faceSdf)],
+                TestStylePlugins.AllViewCatalog));
+        }
     }
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void EqualityTracksOnlyConsumedEyeContrastAndUsesTheExistingHistoryContract(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.GenshinStyleId)]
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    [InlineData(T8cTestHelpers.EndfieldStyleId)]
+    public void EqualityTracksOnlyConsumedEyeContrastAndUsesTheExistingHistoryContract(string family)
     {
         var eye = Map(family, new(D3D12CharacterMaterialRole.Eye));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(eye,
@@ -79,7 +93,7 @@ public sealed class D3D12EyeMaterialTests
         Assert.True(D3D12SurfaceStyleMap.Equivalent(
             Map(family, new(D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: 0)),
             Map(family, new(D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: -0f))));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(null, Map(D3D12SurfaceStyle.Mmd,
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(null, Map(T8cTestHelpers.MmdStyleId,
             new(D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: 0))));
     }
 
@@ -89,27 +103,25 @@ public sealed class D3D12EyeMaterialTests
         var scene = Fixture();
         var instance = new SceneRenderingStyleBinding(Guid.NewGuid(), new("star-rail"),
             ModelRole.Character, 0, 3, true);
-        var source = new[] { new D3D12ViewCharacterMaterialBinding(instance.ObjectId, 0,
-            new(D3D12CharacterMaterialRole.Eye)) };
-        var resolved = D3D12ViewRenderingStyles.Resolve(scene, D3D12StylePresetCatalog.BuiltIn,
-            [instance], source);
-        source[0] = source[0] with { MaterialIndex = 1, Style = new() };
+        var source = new[] { new D3D12ViewCharacterMaterial(instance.ObjectId, 0, D3D12CharacterMaterialRole.Eye) };
+        var resolved = D3D12ViewRenderingStyles.Resolve(scene, TestStylePlugins.AllPresetCatalog,
+            [instance], source, styleCatalog: TestStylePlugins.AllViewCatalog);
+        source[0] = source[0] with { LocalMaterialIndex = 1, Role = D3D12CharacterMaterialRole.Body };
         Assert.Equal(D3D12CharacterMaterialRole.Eye, resolved.SurfaceStyles.CharacterMaterials[0].Role);
         Assert.Equal(.2f, resolved.SurfaceStyles.EffectiveGeometricShadowStrength(0));
         Assert.Equal(1f, resolved.SurfaceStyles.EffectiveNormalShadeStrength(0));
         Assert.Equal(D3D12CharacterMaterialRole.Body, resolved.SurfaceStyles.CharacterMaterials[1].Role);
         Assert.Equal(1f, resolved.SurfaceStyles.EffectiveGeometricShadowStrength(1));
-        Assert.Contains(resolved.Diagnostics, diagnostic => diagnostic.Contains("explicit Eye")
-            && diagnostic.Contains("normal") && diagnostic.Contains("MMD"));
+        Assert.Contains(resolved.Diagnostics, diagnostic => diagnostic.Contains(instance.ObjectId.ToString("D")));
         Assert.Throws<ArgumentOutOfRangeException>(() => D3D12ViewRenderingStyles.Resolve(scene,
-            D3D12StylePresetCatalog.BuiltIn, [instance], [new(instance.ObjectId, 0,
-                new(D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: float.NaN))]));
+            TestStylePlugins.AllPresetCatalog, [instance], [new(instance.ObjectId, 0,
+                D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: float.NaN)],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
     public static IEnumerable<object[]> RenderVariants()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx })
+        foreach (string family in T8cTestHelpers.ModernStyleIds)
         foreach (bool subTexture in new[] { false, true })
             yield return [family, subTexture];
     }
@@ -117,7 +129,7 @@ public sealed class D3D12EyeMaterialTests
     [Theory, MemberData(nameof(RenderVariants))]
     [Trait("Category", "Gpu")]
     public void EyeMatchesTheAcceptedCandidateAndRetainsRealShadowShapeCoverageBodyAndSpecular(
-        D3D12SurfaceStyle family, bool subTexture)
+        string family, bool subTexture)
     {
         using var session = new D3D12FrameSession();
         var frame = Fixture(subTexture);
@@ -195,8 +207,8 @@ public sealed class D3D12EyeMaterialTests
         Assert.False(session.Runtime.IsRecording);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12CharacterMaterialStyle eye)
-        => new([family, family, D3D12SurfaceStyle.Mmd], [eye, new(), new()]);
+    private static D3D12SurfaceStyleMap Map(string family, D3D12CharacterMaterialStyle eye)
+        => T8cTestHelpers.CreateDirectMap([family, family, T8cTestHelpers.MmdStyleId], [eye, new(), new()]);
 
     private static OriginalFrameScene Fixture(bool subTexture = false, Vector3? specular = null)
     {

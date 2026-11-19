@@ -10,7 +10,7 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
 {
     internal sealed class Set : IDisposable
     {
-        private readonly record struct SrvSlot(ID3D12Resource? Resource, Format ViewFormat, int HeapGeneration);
+        private readonly record struct SrvSlot(ID3D12Resource? Resource, Format ViewFormat, int MipLevels, int HeapGeneration);
         internal ID3D12DescriptorHeap Rtv { get; }
         internal ID3D12DescriptorHeap Dsv { get; }
         internal ID3D12DescriptorHeap Srv { get; private set; }
@@ -47,14 +47,15 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
         }
         /// <summary>Writes a default SRV for <paramref name="resource"/> unless this slot already holds the same
         /// texture resource, view format and heap generation. Returns whether it wrote.</summary>
-        internal bool WriteSrv(ID3D12Device device, int slot, ID3D12Resource resource, int stride, Format viewFormat = Format.Unknown)
+        internal bool WriteSrv(ID3D12Device device, int slot, ID3D12Resource resource, int stride, Format viewFormat = Format.Unknown, int mipLevelsOverride = -1)
         {
             if (srvViews.Length < SrvCapacity) Array.Resize(ref srvViews, SrvCapacity);
-            Format effectiveFormat = viewFormat != Format.Unknown ? viewFormat : resource.Description.Format;
-            var current = srvViews[slot];
-            if (ReferenceEquals(current.Resource, resource) && current.ViewFormat == effectiveFormat && current.HeapGeneration == SrvGeneration)
-                return false;
             var resourceDesc = resource.Description;
+            Format effectiveFormat = viewFormat != Format.Unknown ? viewFormat : resourceDesc.Format;
+            int effectiveMips = mipLevelsOverride > 0 ? Math.Min(mipLevelsOverride, resourceDesc.MipLevels) : resourceDesc.MipLevels;
+            var current = srvViews[slot];
+            if (ReferenceEquals(current.Resource, resource) && current.ViewFormat == effectiveFormat && current.MipLevels == effectiveMips && current.HeapGeneration == SrvGeneration)
+                return false;
             ShaderResourceViewDescription? srv = resourceDesc.Dimension == ResourceDimension.Texture2D
                 ? new ShaderResourceViewDescription
                 {
@@ -64,12 +65,12 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
                     Texture2D = new Texture2DShaderResourceView
                     {
                         MostDetailedMip = 0,
-                        MipLevels = resourceDesc.MipLevels,
+                        MipLevels = effectiveMips,
                     },
                 }
                 : null;
             device.CreateShaderResourceView(resource, srv, Srv.GetCPUDescriptorHandleForHeapStart().Offset(slot, stride));
-            srvViews[slot] = new(resource, effectiveFormat, SrvGeneration);
+            srvViews[slot] = new(resource, effectiveFormat, effectiveMips, SrvGeneration);
             return true;
         }
         internal bool WriteTarget(ID3D12Device device, ID3D12Resource resource, bool depth)

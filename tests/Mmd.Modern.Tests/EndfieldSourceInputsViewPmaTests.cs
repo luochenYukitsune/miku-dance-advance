@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -6,6 +7,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.Smoke;
 using Mmd.Modern.ViewOutput;
@@ -23,51 +25,71 @@ public sealed class EndfieldSourceInputsViewPmaTests
         BackgroundColor: Vector4.Zero);
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-
     [Theory]
     [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
-    public void StrictSchemaTenRoundtripKeepsEachOptionalProvider(bool facing, bool directional)
+    public void StrictSchemaFourteenRoundtripKeepsEachOptionalProviderAndLegacySchemaTenDecodes(bool facing, bool directional)
     {
-        var source = Source(); var initial = Profile(source); var row = initial.Materials[0];
-        var matcap = row.EndfieldMatcap!; var palette = matcap.Palette!; var basis = palette.BaseImage!;
-        var selected = basis with { FacingBase = facing ? basis.FacingBase : null,
-            DirectionalShadow = directional ? basis.DirectionalShadow : null };
-        var profile = ReplaceBasis(initial, selected);
+        var source = Source();
+        var spec = ViewSpec();
+        var basis = spec.Palette!.BaseImage!;
+        var selected = basis with
+        {
+            FacingBase = facing ? basis.FacingBase : null,
+            DirectionalShadow = directional ? basis.DirectionalShadow : null
+        };
+        var layout = D3D12MaterialBindingLayout.Capture(source);
+        var profile = ProfileWithBasis(layout, selected);
         byte[] bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(10, profile.SchemaVersion);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profile.SchemaVersion);
         var decoded = D3D12MaterialBindingProfileJson.Decode(bytes);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(decoded));
-        Assert.Equal(selected, decoded.Materials[0].EndfieldMatcap!.Palette!.BaseImage);
+
+        var binding = decoded.Materials[0].PluginBindings[0];
+        Assert.Equal(facing, binding.BoolValues?.GetValueOrDefault("hasFacingBase", false) ?? false);
+        Assert.Equal(directional, binding.BoolValues?.GetValueOrDefault("hasBaseDirectionalShadow", false) ?? false);
+
+        // Legacy schema 10 JSON requires facingBase & directionalShadow fields strictly.
+        var legacyDoc = LegacySchemaTenDoc(layout, facing, directional);
+        var legacyDecoded = D3D12MaterialBindingProfileJson.Decode(Encode(legacyDoc));
+        Assert.Equal(facing, legacyDecoded.Materials[0].PluginBindings[0].BoolValues?.GetValueOrDefault("hasFacingBase", false) ?? false);
+        Assert.Equal(directional, legacyDecoded.Materials[0].PluginBindings[0].BoolValues?.GetValueOrDefault("hasBaseDirectionalShadow", false) ?? false);
+
         foreach (string field in new[] { "facingBase", "directionalShadow" })
         {
-            var document = JsonNode.Parse(bytes)!; Basis(document).Remove(field);
-            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encode(document)));
+            var broken = JsonNode.Parse(legacyDoc.ToJsonString())!;
+            Basis(broken).Remove(field);
+            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encode(broken)));
         }
-        var old = JsonNode.Parse(bytes)!; old["schemaVersion"] = 9;
+        var old = JsonNode.Parse(legacyDoc.ToJsonString())!; old["schemaVersion"] = 9;
         Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encode(old)));
     }
 
     [Fact]
-    public void SchemaNineWireStaysExactAndMixedTenWritesExplicitNullChildren()
+    public void SchemaNineWireDecodesWithoutProvidersAndMixedFourteenRoundtrips()
     {
-        var initial = Profile(Source()); var basis = initial.Materials[0].EndfieldMatcap!.Palette!.BaseImage!;
-        var legacy = ReplaceBasis(initial, basis with { FacingBase = null, DirectionalShadow = null });
-        byte[] oldBytes = D3D12MaterialBindingProfileJson.Encode(legacy);
-        Assert.Equal(9, legacy.SchemaVersion);
-        Assert.DoesNotContain("facingBase", Encoding.UTF8.GetString(oldBytes));
-        Assert.DoesNotContain("directionalShadow", Encoding.UTF8.GetString(oldBytes));
-        Assert.Equal(oldBytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(oldBytes)));
-        var mixed = new D3D12MaterialBindingProfile(initial.StableId, initial.Name, initial.LayoutFingerprint,
-            [initial.Materials[0], legacy.Materials[0] with { LocalMaterialIndex = 1 }]);
+        var source = Source(); var layout = D3D12MaterialBindingLayout.Capture(source);
+        var spec = ViewSpec();
+        var withoutProviders = spec.Palette!.BaseImage! with { FacingBase = null, DirectionalShadow = null };
+        var legacyNineDoc = LegacySchemaTenDoc(layout, facing: false, directional: false);
+        legacyNineDoc["schemaVersion"] = 9;
+        var legacyNineBasis = Basis(legacyNineDoc);
+        legacyNineBasis.Remove("facingBase");
+        legacyNineBasis.Remove("directionalShadow");
+        var decodedNine = D3D12MaterialBindingProfileJson.Decode(Encode(legacyNineDoc));
+        Assert.False(decodedNine.Materials[0].PluginBindings[0].BoolValues!.ContainsKey("hasFacingBase"));
+        Assert.False(decodedNine.Materials[0].PluginBindings[0].BoolValues!.ContainsKey("hasBaseDirectionalShadow"));
+
+        var mixed = new D3D12MaterialBindingProfile("endfield-palette", "Mixed providers", layout.Fingerprint,
+            [
+                ProfileWithBasis(layout, spec.Palette.BaseImage!).Materials[0],
+                ProfileWithBasis(layout, withoutProviders, localMaterialIndex: 1).Materials[0],
+            ]);
         byte[] mixedBytes = D3D12MaterialBindingProfileJson.Encode(mixed);
-        var document = JsonNode.Parse(mixedBytes)!;
-        var oldBasis = document["materials"]![1]!["endfieldMatcap"]!["palette"]!["baseImage"]!.AsObject();
-        Assert.True(oldBasis.ContainsKey("facingBase")); Assert.Null(oldBasis["facingBase"]);
-        Assert.True(oldBasis.ContainsKey("directionalShadow")); Assert.Null(oldBasis["directionalShadow"]);
-        oldBasis.Remove("facingBase"); oldBasis.Remove("directionalShadow");
-        var oldDocument = JsonNode.Parse(oldBytes)!;
-        Assert.Equal(Basis(oldDocument).ToJsonString(), oldBasis.ToJsonString());
-        Assert.Equal(mixedBytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(mixedBytes)));
+        var restored = D3D12MaterialBindingProfileJson.Decode(mixedBytes);
+        Assert.True(restored.Materials[0].PluginBindings[0].BoolValues!["hasFacingBase"]);
+        Assert.True(restored.Materials[0].PluginBindings[0].BoolValues!["hasBaseDirectionalShadow"]);
+        Assert.False(restored.Materials[1].PluginBindings[0].BoolValues!.ContainsKey("hasFacingBase"));
+        Assert.Equal(mixedBytes, D3D12MaterialBindingProfileJson.Encode(restored));
     }
 
     [Theory]
@@ -76,8 +98,14 @@ public sealed class EndfieldSourceInputsViewPmaTests
     [InlineData("zero-direction")] [InlineData("nonnormalized-direction")] [InlineData("shadow-texture-conflict")]
     public void InvalidProviderPayloadCannotBypassGuards(string damage)
     {
-        var source = Source(); var profile = Profile(source); var document = JsonNode.Parse(D3D12MaterialBindingProfileJson.Encode(profile))!;
-        var basis = Basis(document); var facing = basis["facingBase"]!.AsObject(); var directional = basis["directionalShadow"]!.AsObject();
+        var source = Source();
+        var layout = D3D12MaterialBindingLayout.Capture(source);
+        var spec = ViewSpec();
+        var basis = spec.Palette!.BaseImage!;
+
+        // 1. Legacy schema 10 strictness.
+        var document = LegacySchemaTenDoc(layout, facing: true, directional: true);
+        var bNode = Basis(document); var facing = bNode["facingBase"]!.AsObject(); var directional = bNode["directionalShadow"]!.AsObject();
         switch (damage)
         {
             case "unknown": facing["guessBone"] = "head"; break;
@@ -89,10 +117,33 @@ public sealed class EndfieldSourceInputsViewPmaTests
             case "zero-direction": directional["worldDirection"] = new JsonArray(0, 0, 0); break;
             case "nonnormalized-direction": directional["worldDirection"] = new JsonArray(0, 0, 2); break;
             case "shadow-texture-conflict":
-                basis["shadowInputMode"] = "Texture";
-                basis["shadowTexture"] = Texture(D3D12MaterialBindingLayout.Capture(source).CaptureTexture(8)); break;
+                bNode["shadowInputMode"] = "Texture";
+                bNode["shadowTexture"] = Texture(layout.CaptureTexture(8)); break;
         }
-        Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encode(document)));
+        if (damage is "nonnormalized-direction" or "shadow-texture-conflict" or "width-range")
+        {
+            var decodedLegacy = D3D12MaterialBindingProfileJson.Decode(Encode(document));
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                decodedLegacy, source, Guid.NewGuid(), "endfield", TestStylePlugins.AllViewCatalog));
+        }
+        else
+            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encode(document)));
+
+        // 2. Direct plugin validation mirrors all bounds/semantic checks.
+        if (damage is "blend-range" or "width-range" or "normal-range" or "zero-direction" or "nonnormalized-direction" or "shadow-texture-conflict")
+        {
+            EndfieldBaseImageSpec badBasis = damage switch
+            {
+                "blend-range" => basis with { FacingBase = new(1.1f) },
+                "width-range" => basis with { DirectionalShadow = basis.DirectionalShadow! with { Width = 4.1f } },
+                "normal-range" => basis with { DirectionalShadow = basis.DirectionalShadow! with { NormalStrength = -1f } },
+                "zero-direction" => basis with { DirectionalShadow = basis.DirectionalShadow! with { WorldDirection = Vector3.Zero } },
+                "nonnormalized-direction" => basis with { DirectionalShadow = basis.DirectionalShadow! with { WorldDirection = new(0, 0, 2) } },
+                _ => basis with { ShadowInputMode = T8dTestHelpers.ModeTexture, ShadowSlot = 8 }
+            };
+            var badBinding = (spec with { Palette = spec.Palette with { BaseImage = badBasis } }).ToBinding();
+            Assert.False(T8dTestHelpers.ValidateEndfield(badBinding, StyleMaterialRole.Body, source.Surface.Snapshot.Textures.Count).IsValid);
+        }
     }
 
     [Theory]
@@ -100,15 +151,18 @@ public sealed class EndfieldSourceInputsViewPmaTests
     public void DormantProviderMappingStillGuardsItsSelectedSourceImages(string family)
     {
         var source = Source(); var profile = Profile(source); var id = Guid.NewGuid();
-        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, family).EndfieldMatcapBindings);
+        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, family, TestStylePlugins.AllViewCatalog).PluginBindings);
         foreach (int selected in new[] { 0, 1, 4 })
         {
             var images = source.Surface.Snapshot.Textures.ToArray(); images[selected] = new("modified", 1, 1, [0, 0, 0, 0]);
-            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(images), id, family));
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(images), id, family, TestStylePlugins.AllViewCatalog));
         }
-        var basis = profile.Materials[0].EndfieldMatcap!.Palette!.BaseImage!;
-        Assert.ThrowsAny<ArgumentException>(() => ReplaceBasis(profile, basis with { FacingBase = new(float.NaN) }));
-        Assert.ThrowsAny<ArgumentException>(() => ReplaceBasis(profile, basis with { DirectionalShadow = new(Vector3.Zero) }));
+        var basis = ViewSpec().Palette!.BaseImage!;
+        Assert.ThrowsAny<ArgumentException>(() => D3D12StylePluginAdapter.DetachBindingData(
+            (ViewSpec() with { Palette = ViewSpec().Palette! with { BaseImage = basis with { FacingBase = new(float.NaN) } } }).ToBinding()));
+        Assert.False(T8dTestHelpers.ValidateEndfield(
+            (ViewSpec() with { Palette = ViewSpec().Palette! with { BaseImage = basis with { DirectionalShadow = new(Vector3.Zero) } } }).ToBinding(),
+            StyleMaterialRole.Body, 16).IsValid);
     }
 
     [Fact]
@@ -118,28 +172,101 @@ public sealed class EndfieldSourceInputsViewPmaTests
         editor.Add("preceding", Path.Combine(Path.GetTempPath(), "providers-pre.pmx"), ModelRole.Character, source);
         var item = editor.Add("selected", Path.Combine(Path.GetTempPath(), "providers-pmx.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new(), [], new NoPhysics(), cancellationToken: Token);
-        project.SetDefaultRenderingStyle(new("endfield"), Token); var view = View(item.Id);
-        var snapshot = project.CaptureRenderSnapshot(D3D12ViewEndfieldMatcapBindings.CreateRequests([view]));
-        var result = D3D12ViewRenderingStyles.Resolve(Modern(snapshot.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-            snapshot.RenderingStyles, sceneInputs: snapshot.SceneInputs, endfieldMatcapDataBindings: [view]);
+        project.SetDefaultRenderingStyle(new("endfield"), Token);
+        var viewBinding = TestStylePlugins.Bind(item.Id, 0, ViewSpec().ToBinding());
+        var snapshot = project.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests([viewBinding], TestStylePlugins.AllViewCatalog));
+        var result = D3D12ViewRenderingStyles.Resolve(Modern(snapshot.Scene, source), TestStylePlugins.AllPresetCatalog,
+            snapshot.RenderingStyles, pluginBindings: [viewBinding], sceneInputs: snapshot.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog);
         var obj = Assert.Single(snapshot.RenderingStyles, v => v.ObjectId == item.Id);
-        var active = result.SurfaceStyles.CharacterMaterials[obj.MaterialStart].EndfieldMatcap!.Palette!.BaseImage!;
-        Assert.Equal(view.Palette!.BaseImage!.FacingBase, active.FacingBase);
-        Assert.Equal(view.Palette.BaseImage.DirectionalShadow, active.DirectionalShadow);
-        Assert.Equal(snapshot.SceneInputs[item.Id].TextureIndices[1], active.BaseCombinedTextureIndex);
-        Assert.Equal(snapshot.SceneInputs[item.Id].TextureIndices[4], active.DetailCombinedTextureIndex);
-        Assert.Null(active.ShadowCombinedTextureIndex);
-        Assert.Same(snapshot.SceneInputs[item.Id].SourceGeometry,
-            result.SurfaceStyles.CharacterMaterials[obj.MaterialStart].EndfieldMatcap!.Geometry!.Source);
+        var draw = result.SurfaceStyles.CharacterMaterials[obj.MaterialStart].PluginDraw!;
+        Assert.Equal("matcap-palette-base", draw.ShaderModuleId);
+        var cb = MemoryMarshal.Cast<byte, Vector4>(draw.ConstantBufferData.Span);
+        Assert.Equal(new Vector4(Vector3.Normalize(new(1, 0, 1)), .3f), cb[16]);
+        Assert.Equal(new Vector4(1f, .7f, 1f, 2f), cb[17]);
+
+        var texBySlot = draw.TextureBindings!.ToDictionary(static t => t.SlotIndex, static t => t.SceneTextureIndex);
+        Assert.Equal(snapshot.SceneInputs[item.Id].TextureIndices[1], texBySlot[6]);
+        Assert.Equal(snapshot.SceneInputs[item.Id].TextureIndices[4], texBySlot[7]);
+        Assert.False(texBySlot.ContainsKey(8));
     }
 
     private static JsonObject Basis(JsonNode node) => node["materials"]![0]!["endfieldMatcap"]!["palette"]!["baseImage"]!.AsObject();
     private static byte[] Encode(JsonNode document) => Encoding.UTF8.GetBytes(document.ToJsonString());
-    private static D3D12MaterialBindingProfile ReplaceBasis(D3D12MaterialBindingProfile initial, D3D12MaterialBindingProfileEndfieldBaseImage basis)
+
+    private static D3D12MaterialBindingProfile ProfileWithBasis(
+        D3D12MaterialBindingLayout layout,
+        EndfieldBaseImageSpec basis,
+        int offset = 0,
+        int localMaterialIndex = 0)
     {
-        var row = initial.Materials[0]; var matcap = row.EndfieldMatcap!;
-        return new(initial.StableId, initial.Name, initial.LayoutFingerprint,
-            [row with { EndfieldMatcap = matcap with { Palette = matcap.Palette! with { BaseImage = basis } } }]);
+        var spec = ViewSpec(offset);
+        spec = spec with { Palette = spec.Palette! with { BaseImage = basis } };
+        var guards = new List<D3D12MaterialBindingProfileTexture>
+        {
+            layout.CaptureTexture(offset),
+            layout.CaptureTexture(offset + 2),
+            layout.CaptureTexture(offset + 3),
+            layout.CaptureTexture(offset + 5),
+            layout.CaptureTexture(offset + 7),
+            layout.CaptureTexture(offset + 1),
+            layout.CaptureTexture(offset + 4),
+        };
+        if (basis.ShadowInputMode == T8dTestHelpers.ModeTexture && basis.ShadowSlot is { } sSlot)
+            guards.Add(layout.CaptureTexture(sSlot));
+        return new("endfield-palette", "Explicit palette", layout.Fingerprint,
+            [new(localMaterialIndex, D3D12CharacterMaterialRole.Body, pluginBindings: [spec.ToBinding()], textureGuards: guards)]);
+    }
+
+    private static JsonObject LegacySchemaTenDoc(D3D12MaterialBindingLayout layout, bool facing, bool directional)
+    {
+        JsonObject Tex(int ordinal) => Texture(layout.CaptureTexture(ordinal));
+        return new()
+        {
+            ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 10,
+            ["stableId"] = "endfield-palette", ["name"] = "Explicit palette", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint,
+            ["materials"] = new JsonArray(new JsonObject
+            {
+                ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
+                ["faceGeometricShadowStrength"] = 1f, ["eyeGeometricShadowStrength"] = .2f,
+                ["pmxMaterialTreatment"] = null, ["face"] = null, ["genshinHair"] = null, ["starMcHair"] = null,
+                ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null,
+                ["endfieldMatcap"] = new JsonObject
+                {
+                    ["normal"] = Tex(0), ["p"] = Tex(2), ["matcap"] = Tex(3),
+                    ["matcapEncoding"] = "SrgbRgb", ["uvChannel"] = 0,
+                    ["baseColor"] = Vector(new(.2f, .3f, .4f)), ["highlightColor"] = Vector(new(.1f, .4f, .2f)),
+                    ["normalStrength"] = 2f, ["rotationRadians"] = 0f, ["highlightCoefficient"] = 0f,
+                    ["shadowHardness"] = .5f, ["lightControlDirection"] = null,
+                    ["baselineStrength"] = 1f, ["coupleEndfieldPalette"] = true, ["generatorRevision"] = "mikk-v1",
+                    ["palette"] = new JsonObject
+                    {
+                        ["receivedLightLinearRgb"] = new JsonArray(.2f, .3f, 1.1f), ["emissionStrength"] = 0f,
+                        ["uniformEmissionBlue"] = 0f, ["lightInfluence"] = 0f, ["density"] = .7f,
+                        ["emissionInputMode"] = "Texture", ["emissionTexture"] = Tex(5),
+                        ["receivedLightInputMode"] = "Texture", ["receivedLightTexture"] = Tex(7),
+                        ["baseImage"] = new JsonObject
+                        {
+                            ["baseImageLinearRgb"] = Vector(new(.4f)), ["modelColor"] = Vector(new(.5f)),
+                            ["shadowColor"] = Vector(new(.7f, .8f, .9f)), ["colorMultiplier"] = Vector(new(.9f)),
+                            ["shadowFactor"] = 1f, ["warmTint"] = .4f, ["contrast"] = .1f,
+                            ["saturation"] = 1.2f, ["detailBlue"] = 1f, ["shadowStrength"] = 0f,
+                            ["baseInputMode"] = "Texture", ["baseTexture"] = Tex(1), ["baseEncoding"] = "SrgbRgb",
+                            ["detailInputMode"] = "Texture", ["detailTexture"] = Tex(4),
+                            ["shadowInputMode"] = "Uniform", ["shadowTexture"] = null,
+                            ["facingBase"] = facing ? new JsonObject { ["blend"] = .7f } : null,
+                            ["directionalShadow"] = directional ? new JsonObject
+                            {
+                                ["worldDirection"] = Vector(Vector3.Normalize(new(1, 0, 1))),
+                                ["width"] = .3f,
+                                ["normalStrength"] = 2f
+                            } : null
+                        }
+                    }
+                },
+                ["genshinMetallic"] = null
+            })
+        };
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -169,17 +296,35 @@ public sealed class EndfieldSourceInputsViewPmaTests
             var editor = new SceneCompositionEditor(); var item = editor.Add("portable MatCap", originalPath, ModelRole.Character, source);
             using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
             project.SetDefaultRenderingStyle(new("endfield"), Token);
-            var inactiveProfile = Profile(source, offset);
-            var row = inactiveProfile.Materials[0];
-            var matcap = row.EndfieldMatcap!;
-            var profile = new D3D12MaterialBindingProfile(inactiveProfile.StableId, inactiveProfile.Name,
-                inactiveProfile.LayoutFingerprint, [row with { EndfieldMatcap = matcap with
-                { Palette = matcap.Palette! with { EmissionStrength = .45f, LightInfluence = .35f, Density = .013f,
-                    BaseImage = matcap.Palette.BaseImage! with { ShadowStrength = .66f } } } }]);
-            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield");
+
+            var baseSpec = ViewSpec(offset);
+            var activeSpec = baseSpec with
+            {
+                Palette = baseSpec.Palette! with
+                {
+                    EmissionStrength = .45f, LightInfluence = .35f, Density = .013f,
+                    BaseImage = baseSpec.Palette.BaseImage! with { ShadowStrength = .66f }
+                }
+            };
+            var layout = D3D12MaterialBindingLayout.Capture(source);
+            var profile = new D3D12MaterialBindingProfile("endfield-palette", "Explicit palette", layout.Fingerprint,
+                [new(0, D3D12CharacterMaterialRole.Body,
+                    pluginBindings: [activeSpec.ToBinding()],
+                    textureGuards:
+                    [
+                        layout.CaptureTexture(offset),
+                        layout.CaptureTexture(offset + 2),
+                        layout.CaptureTexture(offset + 3),
+                        layout.CaptureTexture(offset + 5),
+                        layout.CaptureTexture(offset + 7),
+                        layout.CaptureTexture(offset + 1),
+                        layout.CaptureTexture(offset + 4),
+                    ])]);
+            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
             byte[] expected = await Capture(project, mapping);
             byte[] old = await Capture(project, mapping, basis: false);
             AssertVisibleChange(old, expected);
+
             string first = Path.Combine(directory, "first.pma");
             PmaProjectStore.Save(first, project, D3D12MaterialBindingPma.CreateSaveOptions(project,
                 [new(item.Id, profile, source)]), Token);
@@ -192,53 +337,78 @@ public sealed class EndfieldSourceInputsViewPmaTests
             {
                 var restored = loaded.Session.Objects.Single().Source;
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(profiles[item.Id]));
-                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "endfield");
-                var selection = Assert.Single(mapped.EndfieldMatcapBindings);
-                Assert.Equal(offset, selection.NormalLocalTextureIndex);
-                Assert.Equal(offset + 2, selection.PLocalTextureIndex); Assert.Equal(offset + 3, selection.MatcapLocalTextureIndex);
-                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewEndfieldMatcapBindings.CreateRequests(mapped.EndfieldMatcapBindings));
-                Assert.NotNull(capture.SceneInputs[item.Id].SourceGeometry);
+                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
+                var selection = Assert.Single(mapped.PluginBindings);
+                var slots = selection.Binding.TextureSlots!;
+                Assert.Equal(offset, slots["normal"]);
+                Assert.Equal(offset + 2, slots["p"]);
+                Assert.Equal(offset + 3, slots["matcap"]);
+                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(mapped.PluginBindings, TestStylePlugins.AllViewCatalog));
                 Assert.Equal(extended.Textures.Count, restored.Surface.Snapshot.Textures.Count);
                 for (int i = 0; i < extended.Textures.Count; i++)
                     Assert.Equal(extended.Textures[i].Rgba.ToArray(), restored.Surface.Snapshot.Textures[i].Rgba.ToArray());
-                Assert.Equal(offset + 5, selection.Palette!.EmissionCombinedTextureIndex);
-                Assert.Equal(offset + 7, selection.Palette.ReceivedLightCombinedTextureIndex);
-                Assert.Equal(offset + 1, selection.Palette.BaseImage!.BaseCombinedTextureIndex);
-                Assert.Equal(offset + 4, selection.Palette.BaseImage.DetailCombinedTextureIndex);
-                Assert.Null(selection.Palette.BaseImage.ShadowCombinedTextureIndex);
-                Assert.Equal(new D3D12EndfieldFacingBaseBinding(.7f), selection.Palette.BaseImage.FacingBase);
-                Assert.Equal(new D3D12EndfieldDirectionalShadowBinding(Vector3.Normalize(new(1, 0, 1)), .3f, 2), selection.Palette.BaseImage.DirectionalShadow);
-                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-                    capture.RenderingStyles, mapped.CharacterMaterials, sceneInputs: capture.SceneInputs, endfieldMatcapDataBindings: mapped.EndfieldMatcapBindings);
-                var active = Assert.Single(result.SurfaceStyles.CharacterMaterials).EndfieldMatcap!.Palette!;
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 5], active.EmissionCombinedTextureIndex);
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 7], active.ReceivedLightCombinedTextureIndex);
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 1], active.BaseImage!.BaseCombinedTextureIndex);
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 4], active.BaseImage.DetailCombinedTextureIndex);
-                Assert.Null(active.BaseImage.ShadowCombinedTextureIndex);
-                Assert.Equal(selection.Palette.BaseImage.FacingBase, active.BaseImage.FacingBase);
-                Assert.Equal(selection.Palette.BaseImage.DirectionalShadow, active.BaseImage.DirectionalShadow);
+                Assert.Equal(offset + 5, slots["paletteEmission"]);
+                Assert.Equal(offset + 7, slots["paletteReceivedLight"]);
+                Assert.Equal(offset + 1, slots["baseImage"]);
+                Assert.Equal(offset + 4, slots["baseImageDetail"]);
+                Assert.False(slots.ContainsKey("baseImageShadow"));
+                var nums = selection.Binding.NumberValues!;
+                var vecs = selection.Binding.VectorValues!;
+                Assert.Equal(.7, nums["facingBaseBlend"], 5);
+                Assert.Equal(Vector3.Normalize(new(1, 0, 1)), new Vector3(vecs["baseDirectionalShadowWorldDirection"][0], vecs["baseDirectionalShadowWorldDirection"][1], vecs["baseDirectionalShadowWorldDirection"][2]));
+                Assert.Equal(.3, nums["baseDirectionalShadowWidth"], 5);
+                Assert.Equal(2.0, nums["baseDirectionalShadowNormalStrength"], 5);
+
+                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+                    capture.RenderingStyles, mapped.CharacterMaterials, mapped.PluginBindings,
+                    sceneInputs: capture.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog);
+                var draw = Assert.Single(result.SurfaceStyles.CharacterMaterials).PluginDraw!;
+                var texBySlot = draw.TextureBindings!.ToDictionary(static t => t.SlotIndex, static t => t.SceneTextureIndex);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 5], texBySlot[4]);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 7], texBySlot[5]);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 1], texBySlot[6]);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 4], texBySlot[7]);
+                Assert.False(texBySlot.ContainsKey(8));
+                var cb = MemoryMarshal.Cast<byte, Vector4>(draw.ConstantBufferData.Span);
+                Assert.Equal(new Vector4(Vector3.Normalize(new(1, 0, 1)), .3f), cb[16]);
+                Assert.Equal(new Vector4(1f, .7f, 1f, 2f), cb[17]);
                 Assert.Equal(expected, await Capture(loaded.Session, mapped));
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
             using var reopened = D3D12MaterialBindingPma.Load(resaved, Path.Combine(directory, "cache2"), Load, new NoPhysics(),
                 out var again, cancellationToken: Token);
-            Assert.Equal(10, again[item.Id].SchemaVersion);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, again[item.Id].SchemaVersion);
             Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(again[item.Id]));
             Assert.DoesNotContain(reopened.ResourcePaths, p => p.Contains("tangent", StringComparison.OrdinalIgnoreCase));
             var reopenedObject = Assert.Single(reopened.Session.Objects);
-            var reopenedMapping = D3D12MaterialBindingProfileResolver.Resolve(again[item.Id], reopenedObject.Source, item.Id, "endfield");
+            var reopenedMapping = D3D12MaterialBindingProfileResolver.Resolve(again[item.Id], reopenedObject.Source, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
             Assert.Equal(expected, await Capture(reopened.Session, reopenedMapping));
         }
         finally { Directory.Delete(directory, true); }
     }
 
-
     private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool basis = true)
     {
-        await using var renderer = new D3D12ViewRenderer(new(W, H), characterMaterials: mapping.CharacterMaterials,
-            endfieldMatcapDataBindings: basis ? mapping.EndfieldMatcapBindings
-                : mapping.EndfieldMatcapBindings.Select(v => v with { Palette = v.Palette! with { BaseImage = v.Palette.BaseImage! with { FacingBase = null, DirectionalShadow = null } } }));
+        var bindings = basis
+            ? mapping.PluginBindings
+            : mapping.PluginBindings.Select(v =>
+            {
+                int offset = v.Binding.TextureSlots!["normal"];
+                var noProviders = ViewSpec(offset) with
+                {
+                    Palette = ViewSpec(offset).Palette! with
+                    {
+                        EmissionStrength = .45f, LightInfluence = .35f, Density = .013f,
+                        BaseImage = ViewSpec(offset).Palette!.BaseImage! with { ShadowStrength = .66f, FacingBase = null, DirectionalShadow = null }
+                    }
+                };
+                return v with { Binding = noProviders.ToBinding() };
+            });
+        await using var renderer = new D3D12ViewRenderer(new(W, H),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: bindings,
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var modern = new OriginalFrameScene(snapshot.Scene.Surface, snapshot.Scene.Outline, snapshot.Scene.OutlineOptions,
@@ -298,32 +468,20 @@ public sealed class EndfieldSourceInputsViewPmaTests
         ["sourceSceneTextureOrdinal"] = image.SourceSceneTextureOrdinal, ["width"] = image.Width,
         ["height"] = image.Height, ["kind"] = image.Kind.ToString(), ["rgbaSha256"] = image.RgbaSha256
     };
-    private static D3D12ViewEndfieldMatcapBinding View(Guid id) => new(id, 0, 0, 2, 3,
-        D3D12MatcapColorEncoding.SrgbRgb, 0, new(.2f, .3f, .4f), new(.1f, .4f, .2f),
-        CoupleEndfieldPalette: true, Palette: new(new(.2f, -.3f, 1.1f), Density: .7f,
-            EmissionInputMode: D3D12EndfieldPaletteInputMode.Texture, EmissionCombinedTextureIndex: 5,
-            ReceivedLightInputMode: D3D12EndfieldPaletteInputMode.Texture, ReceivedLightCombinedTextureIndex: 7,
+    private static EndfieldMatcapSpec ViewSpec(int offset = 0) => new(
+        offset, offset + 2, offset + 3, T8dTestHelpers.EncodingSrgbRgb, 0,
+        new(.2f, .3f, .4f), new(.1f, .4f, .2f), CoupleEndfieldPalette: true,
+        Palette: new(new(.2f, -.3f, 1.1f), Density: .7f,
+            EmissionInputMode: T8dTestHelpers.ModeTexture, EmissionSlot: offset + 5,
+            ReceivedLightInputMode: T8dTestHelpers.ModeTexture, ReceivedLightSlot: offset + 7,
             BaseImage: new(new(.4f), new(.5f), new(.7f, .8f, .9f), new(.9f), WarmTint: .4f, Contrast: .1f,
-                Saturation: 1.2f, ShadowStrength: 0f, BaseInputMode: D3D12EndfieldPaletteInputMode.Texture, BaseCombinedTextureIndex: 1,
-                BaseEncoding: D3D12MatcapColorEncoding.SrgbRgb, DetailInputMode: D3D12EndfieldPaletteInputMode.Texture,
-                DetailCombinedTextureIndex: 4, FacingBase: new(.7f),
+                Saturation: 1.2f, ShadowStrength: 0f, BaseInputMode: T8dTestHelpers.ModeTexture, BaseSlot: offset + 1,
+                BaseEncoding: T8dTestHelpers.EncodingSrgbRgb, DetailInputMode: T8dTestHelpers.ModeTexture,
+                DetailSlot: offset + 4,
+                FacingBase: new(.7f),
                 DirectionalShadow: new(Vector3.Normalize(new(1, 0, 1)), .3f, 2))));
     private static D3D12MaterialBindingProfile Profile(OriginalFrameScene source, int offset = 0)
-    {
-        var layout = D3D12MaterialBindingLayout.Capture(source); var value = View(Guid.NewGuid()); var palette = value.Palette!;
-        return new("endfield-palette", "Explicit palette", layout.Fingerprint, [new(0, D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap: new(layout.CaptureTexture(offset), layout.CaptureTexture(offset + 2), layout.CaptureTexture(offset + 3),
-                value.MatcapEncoding, value.UvChannel, value.BaseColor, value.HighlightColor, CoupleEndfieldPalette: true,
-                Palette: new(palette.ReceivedLightLinearRgb, palette.EmissionStrength, palette.UniformEmissionBlue,
-                    palette.LightInfluence, palette.Density, palette.EmissionInputMode, layout.CaptureTexture(offset + 5),
-                    palette.ReceivedLightInputMode, layout.CaptureTexture(offset + 7),
-                    new(palette.BaseImage!.BaseImageLinearRgb, palette.BaseImage.ModelColor, palette.BaseImage.ShadowColor,
-                        palette.BaseImage.ColorMultiplier, palette.BaseImage.ShadowFactor, palette.BaseImage.WarmTint,
-                        palette.BaseImage.Contrast, palette.BaseImage.Saturation, palette.BaseImage.DetailBlue, palette.BaseImage.ShadowStrength,
-                        palette.BaseImage.BaseInputMode, layout.CaptureTexture(offset + 1), palette.BaseImage.BaseEncoding,
-                        palette.BaseImage.DetailInputMode, layout.CaptureTexture(offset + 4),
-                        palette.BaseImage.ShadowInputMode, null, palette.BaseImage.FacingBase, palette.BaseImage.DirectionalShadow))))]);
-    }
+        => ProfileWithBasis(D3D12MaterialBindingLayout.Capture(source), ViewSpec(offset).Palette!.BaseImage!, offset);
     private static OriginalFrameScene Source(SceneTexture[]? textures = null)
     {
         var frame = D3D12EndfieldHairBindingTests.Frame(seeds: false, textures: textures ??

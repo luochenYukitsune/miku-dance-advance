@@ -79,13 +79,15 @@ public sealed class GeneratedStyleMaterialGpuTests : IDisposable
         D3D12MaterialBindingProfile profile, string pipeline)
     {
         project.SetDefaultRenderingStyle(new(pipeline), Token);
-        var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline);
-        var materials = mapping.CharacterMaterials.Concat(new[] {
-            new D3D12ViewCharacterMaterialBinding(id,1,new(D3D12CharacterMaterialRole.Face)),
-            new D3D12ViewCharacterMaterialBinding(id,2,new(D3D12CharacterMaterialRole.Eye)) });
-        await using var renderer = new D3D12ViewRenderer(new(W,H), characterMaterials: materials,
-            starMcBodyDataBindings: mapping.StarMcBodyBindings, endfieldMatcapDataBindings: mapping.EndfieldMatcapBindings,
-            genshinHairAtlasDataBindings: mapping.GenshinHairAtlasBindings, genshinMetallicDataBindings: mapping.GenshinMetallicBindings);
+        var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog);
+        var materials = mapping.CharacterMaterials.Concat(new D3D12ViewCharacterMaterial[] {
+            new(id, 1, D3D12CharacterMaterialRole.Face),
+            new(id, 2, D3D12CharacterMaterialRole.Eye) });
+        await using var renderer = new D3D12ViewRenderer(new(W,H),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: materials,
+            pluginBindings: mapping.PluginBindings,
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var capture = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var scene = new OriginalFrameScene(capture.Scene.Surface,capture.Scene.Outline,capture.Scene.OutlineOptions,

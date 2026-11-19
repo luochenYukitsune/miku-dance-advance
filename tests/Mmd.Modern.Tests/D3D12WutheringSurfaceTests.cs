@@ -23,23 +23,23 @@ public sealed class D3D12WutheringSurfaceTests
     [Theory,MemberData(nameof(SurfaceVariants))]
     public void EveryActualSurfaceVariantCompilesAndDiffersFromTheMmdShader(string entry,bool native,bool gi,bool morph,bool sub)
     {
-        var shader=OriginalFrameShaders.CompileWutheringSurface(entry,native,gi,morph,sub);
+        var shader=T8cTestHelpers.CompilePluginSurface(T8cTestHelpers.WutheringStyleId,"default",entry,native,gi,morph,sub);
         var mmd=OriginalFrameShaders.CompileCharacterToon(entry,native,gi,morph,sub);
         Assert.Equal(new byte[]{(byte)'D',(byte)'X',(byte)'B',(byte)'C'},shader[..4]);
         Assert.NotEqual(Convert.ToHexString(SHA256.HashData(mmd)),Convert.ToHexString(SHA256.HashData(shader)));
-        var source=OriginalFrameShaders.WutheringSurfaceSource(native,gi,morph,sub);
-        Assert.Contains("WutheringLightResponse(dot(n,l),visibility)",source);
-        Assert.Contains("float threshold=ShadowOptions.w*2-1",source);
-        Assert.DoesNotContain("halfLambert=",source);
-        Assert.Contains("+highlight*originalC;",source);
+        var source=T8cTestHelpers.AssemblePluginSurfaceSource(T8cTestHelpers.WutheringStyleId,"default",entry,native,gi,morph,sub);
+        Assert.Contains("WutheringRawLightResponse(dot(n, l), visibility)",source);
+        Assert.Contains("float threshold = ShadowOptions.w * 2 - 1",source);
+        Assert.DoesNotContain("halfLambert =",source);
+        Assert.Contains("+ highlight * originalC;",source);
         Assert.DoesNotContain("CharacterMainToon(",source);
-        Assert.Contains("threshold-IncomingLight.w*.5",source);
-        Assert.Contains("authoredLobe*smoothstep(.10,.30,authoredLobe*authoredLobe)",source);
-        Assert.Contains("saturate(authoredLobe*SpecularPower.rgb)*highlightBand",source);
+        Assert.Contains("threshold - IncomingLight.w * .5",source);
+        Assert.Contains("authoredLobe * smoothstep(.10, .30, authoredLobe * authoredLobe)",source);
+        Assert.Contains("saturate(authoredLobe * SpecularPower.rgb) * highlightBand",source);
         Assert.DoesNotContain("GenshinLightResponse",source);
-        if(gi||native)Assert.Contains("WutheringLightResponse(dot(normalize(v.Normal),IncomingLight.xyz),visibility)",source);
-        if(native) { Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) WutheringLightResponse(dot(n,l),1)",source); Assert.DoesNotContain("remainingPalette",source); }
-        if(sub)Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)",source);
+        if(gi||native)Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)",source);
+        if(native) { Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v, n, l) StylizedNativeResponse(v, n, l)",source); Assert.DoesNotContain("remainingPalette",source); }
+        if(sub)Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)",source);
     }
 
     [Fact,Trait("Category","Gpu")]
@@ -47,8 +47,8 @@ public sealed class D3D12WutheringSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var frame=Rows();
-        var previous=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.StarRailPmx,D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd]);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.StarRailPmx,D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd]);
+        var previous=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.GenshinStyleId,T8cTestHelpers.StarRailStyleId,T8cTestHelpers.GenshinStyleId,T8cTestHelpers.MmdStyleId]);
+        var map=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId,T8cTestHelpers.StarRailStyleId,T8cTestHelpers.GenshinStyleId,T8cTestHelpers.MmdStyleId]);
         var baseline=session.Capture(frame,Width,Height);
         var existing=session.Capture(frame,Width,Height,surfaceStyles:previous);
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
@@ -96,8 +96,8 @@ public sealed class D3D12WutheringSurfaceTests
     public void NumericFrontRampUsesRawNormalSignalAndFaceAttenuationInsideAndOutsideTheShadowProjection(bool outside)
     {
         using var session=new D3D12FrameSession();
-        var body=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx]);
-        var face=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx],[new(D3D12CharacterMaterialRole.Face,.35f,.35f)]);
+        var body=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId]);
+        var face=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId],[new(D3D12CharacterMaterialRole.Face,.35f,.35f)]);
         // Independent samples cover raw NdotL plateaus, exact threshold, endpoints and
         // both shoulders of the front transition. Specular is zero to isolate diffuse.
         foreach(var sample in new[]{(Dot:-1f,Blend:0f),(Dot:-.4f,Blend:0f),(Dot:-.05f,Blend:0f),
@@ -142,9 +142,9 @@ public sealed class D3D12WutheringSurfaceTests
                 new(Vector3.One,Vector3.Zero,Matrix4x4.Identity,OriginalTextureSampling.PointClamp)),
             options:Options() with {SelfShadow=new(projection,64,64,true,false,OriginalTextureSampling.PointClamp,OriginalDepthComparison.LessEqual)},
             materials:[new(false,true,false),new(false,true,false),new(true,false,false,SurfaceEnabled:false,ShadowDoubleSided:true)]);
-        D3D12SurfaceStyle[] families=[D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.Mmd];
-        var plain=new D3D12SurfaceStyleMap(families);
-        var selected=new D3D12SurfaceStyleMap(families,[new(D3D12CharacterMaterialRole.Face,.35f,.35f),new(),new()]);
+        string[] families=[T8cTestHelpers.WutheringStyleId,T8cTestHelpers.WutheringStyleId,T8cTestHelpers.MmdStyleId];
+        var plain=T8cTestHelpers.CreateDirectMap(families);
+        var selected=T8cTestHelpers.CreateDirectMap(families,[new(D3D12CharacterMaterialRole.Face,.35f,.35f),new(),new()]);
         var before=session.Capture(frame,Width,Height,surfaceStyles:plain);
         var after=session.Capture(frame,Width,Height,surfaceStyles:selected);
         var face=Project(frame,new(-.9f,0,0));var body=Project(frame,new(.9f,0,0));
@@ -170,8 +170,8 @@ public sealed class D3D12WutheringSurfaceTests
         var frame=new OriginalFrameScene(new(scene,[new(new(.2f))],new(Vector3.One,Vector3.Zero,Matrix4x4.Identity,OriginalTextureSampling.PointClamp)),
             options:Options() with {SelfShadow=new(projection,32,32,false,false,OriginalTextureSampling.PointClamp,OriginalDepthComparison.LessEqual)},
             materials:[new(false,true,false)]);
-        var body=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx]);
-        var face=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx],[new(D3D12CharacterMaterialRole.Face,.35f,.35f)]);
+        var body=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId]);
+        var face=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId],[new(D3D12CharacterMaterialRole.Face,.35f,.35f)]);
         var baseline=session.Capture(frame,Width,Height,surfaceStyles:body);
         var lifted=session.Capture(frame,Width,Height,surfaceStyles:face);
         float visibility=OriginalFrameMath.Visibility(depth,1,.5f,false);
@@ -201,7 +201,7 @@ public sealed class D3D12WutheringSurfaceTests
         using var session=new D3D12FrameSession();
         var frame=Layers(straight,sphere,sub);
         var baseline=session.Capture(frame,Width,Height);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.Mmd]);
+        var map=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId,T8cTestHelpers.MmdStyleId]);
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
         for(int offset=3;offset<baseline.Rgba.Length;offset+=4)Assert.Equal(baseline.Rgba[offset],mixed.Rgba[offset]);
         // The green second draw is drawn over the selected red draw. Reordering the
@@ -228,7 +228,7 @@ public sealed class D3D12WutheringSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var frame=GiReceiver(native);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.Mmd]);
+        var map=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId,T8cTestHelpers.MmdStyleId]);
         var options=new RayGiOptions(LightingMode.SoftwareRayTracing,Strength:20,SamplesPerPixel:32,Seed:17,
             MaxRayDistance:50,RayEpsilon:.001f,DirectionalLightDirection:Vector3.UnitZ,DirectionalIrradiance:new(3),
             Composition:RayGiComposition.ToonPalette);
@@ -275,7 +275,7 @@ public sealed class D3D12WutheringSurfaceTests
                 materials:[new(false,true,false)]);
         }
         var withoutSpecular=Fixture(Vector3.Zero);var withSpecular=Fixture(authoredSpecular);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.WutheringPmx]);
+        var map=T8cTestHelpers.CreateDirectMap([T8cTestHelpers.WutheringStyleId]);
         var mmdBase=session.Capture(withoutSpecular,Width,Height);
         var mmdLit=session.Capture(withSpecular,Width,Height);
         var wutheringBase=session.Capture(withoutSpecular,Width,Height,surfaceStyles:map);

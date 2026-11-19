@@ -35,8 +35,10 @@ public sealed class D3D12GeneratedMaterialRestoreTests
         Assert.True(newEntry.GetProperty("outputs")[1].GetProperty("userEdited").GetBoolean());
         Assert.False(newEntry.GetProperty("outputs")[2].GetProperty("userEdited").GetBoolean());
         Assert.Equal(savedManifest, first.ManifestBytes);
-        Assert.NotEqual(reopened.Profile.Materials[0].EndfieldMatcap!.P.RgbaSha256,
-            edited.Profile.Materials[0].EndfieldMatcap!.P.RgbaSha256);
+        int pSlot = reopened.Profile.Materials[0].PluginBindings[0].TextureSlots!["p"];
+        Assert.NotEqual(
+            reopened.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == pSlot).RgbaSha256,
+            edited.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == pSlot).RgbaSha256);
         Assert.Equal(new byte[] { 80, 120, 160, 255 }, original.Surface.Snapshot.Textures[0].Rgba.ToArray());
         Assert.Single(original.Surface.Snapshot.Textures);
         var restoredAgain = D3D12GeneratedMaterialRestore.Restore(edited.SourceRest, edited.Profile, edited.ManifestBytes);
@@ -106,13 +108,17 @@ public sealed class D3D12GeneratedMaterialRestoreTests
     {
         var prepared = Prepare(Frame());
         var row = prepared.Profile.Materials[0];
-        var maps = row.EndfieldMatcap!;
+        var matcap = row.PluginBindings[0];
+        var sameSlot = new Dictionary<string, int>(matcap.TextureSlots!) { ["p"] = matcap.TextureSlots!["normal"] };
         var changed = new D3D12MaterialBindingProfile(prepared.Profile.StableId, prepared.Profile.Name,
-            prepared.Profile.LayoutFingerprint, [row with { EndfieldMatcap = maps with { P = maps.Normal } }]);
+            prepared.Profile.LayoutFingerprint, [row with { PluginBindings = [matcap with { TextureSlots = sameSlot }] }]);
         Assert.Throws<InvalidDataException>(() => D3D12GeneratedMaterialRestore.Restore(prepared.SourceRest, changed, prepared.ManifestBytes));
         var originalSlot = D3D12MaterialBindingLayout.Capture(prepared.SourceRest).CaptureTexture(0);
+        int generatedNormal = matcap.TextureSlots["normal"];
+        var origSlots = new Dictionary<string, int>(matcap.TextureSlots) { ["normal"] = 0 };
+        var origGuards = row.TextureGuards.Where(g => g.SourceSceneTextureOrdinal != generatedNormal).Append(originalSlot).ToArray();
         var originalProfile = new D3D12MaterialBindingProfile(prepared.Profile.StableId, prepared.Profile.Name,
-            prepared.Profile.LayoutFingerprint, [row with { EndfieldMatcap = maps with { Normal = originalSlot } }]);
+            prepared.Profile.LayoutFingerprint, [row with { PluginBindings = [matcap with { TextureSlots = origSlots }], TextureGuards = origGuards }]);
         var json = JsonNode.Parse(prepared.ManifestBytes)!;
         var output = json["materials"]![0]!["outputs"]![0]!;
         output["sourceSceneTextureOrdinal"] = 0; output["width"] = 1; output["height"] = 1;
@@ -164,8 +170,8 @@ public sealed class D3D12GeneratedMaterialRestoreTests
                 var obj = Assert.Single(loaded.Session.Objects);
                 var restored = D3D12GeneratedMaterialRestore.Restore(obj.Source, profiles[id],
                     loaded.ReadResource(D3D12GeneratedMaterialPma.ManifestPath(id)));
-                var map = profiles[id].Materials[0].EndfieldMatcap!.P;
-                var edited = restored.WithEditedMaps(0, p: Edited(restored, map.SourceSceneTextureOrdinal));
+                int pSlot = profiles[id].Materials[0].PluginBindings[0].TextureSlots!["p"];
+                var edited = restored.WithEditedMaps(0, p: Edited(restored, pSlot));
                 // Replace this owned resource while keeping all other PMA resources and mapping state.
                 PmaProjectStore.Save(final, loaded.Session,
                     D3D12GeneratedMaterialPma.CreateSaveOptions(loaded.Session, [new(id, edited)]), TestContext.Current.CancellationToken);
@@ -176,7 +182,10 @@ public sealed class D3D12GeneratedMaterialRestoreTests
             var result = D3D12GeneratedMaterialRestore.Restore(Assert.Single(reopened.Session.Objects).Source,
                 again[id], reopened.ReadResource(D3D12GeneratedMaterialPma.ManifestPath(id)));
             Assert.Equal(prepared.ManifestBytes, result.ManifestBytes);
-            Assert.Equal(prepared.Profile.Materials[0].EndfieldMatcap!.P, again[id].Materials[0].EndfieldMatcap!.P);
+            int savedPSlot = prepared.Profile.Materials[0].PluginBindings[0].TextureSlots!["p"];
+            Assert.Equal(
+                prepared.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == savedPSlot),
+                again[id].Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == savedPSlot));
             Assert.False(File.Exists(sourcePath));
         }
         finally { Directory.Delete(directory, recursive: true); }
@@ -218,17 +227,19 @@ public sealed class D3D12GeneratedMaterialRestoreTests
     [Fact]
     public void EditingReopenedMapsRefreshesNestedPaletteGuards()
     {
-        var prepared=Prepare(Frame()); var row=prepared.Profile.Materials[0]; var maps=row.EndfieldMatcap!;
-        var profile=new D3D12MaterialBindingProfile(prepared.Profile.StableId,prepared.Profile.Name,
-            prepared.Profile.LayoutFingerprint,[row with {EndfieldMatcap=maps with {CoupleEndfieldPalette=true,
-                Palette=new(Vector3.Zero,EmissionInputMode:D3D12EndfieldPaletteInputMode.Texture,
-                    EmissionTexture:maps.P)}}]);
-        var restored=D3D12GeneratedMaterialRestore.Restore(prepared.SourceRest,profile,prepared.ManifestBytes);
-        var edited=restored.WithEditedMaps(0,p:Edited(restored,maps.P.SourceSceneTextureOrdinal));
-        Assert.Equal(edited.Profile.Materials[0].EndfieldMatcap!.P,
-            edited.Profile.Materials[0].EndfieldMatcap!.Palette!.EmissionTexture);
-        var again=D3D12GeneratedMaterialRestore.Restore(edited.SourceRest,edited.Profile,edited.ManifestBytes);
-        Assert.Equal(edited.ManifestBytes,again.ManifestBytes);
+        var prepared = Prepare(Frame()); var row = prepared.Profile.Materials[0];
+        var maps = row.PluginBindings[0];
+        int pSlot = maps.TextureSlots!["p"];
+        var coupled = WithPaletteEmission(maps, pSlot);
+        var profile = new D3D12MaterialBindingProfile(prepared.Profile.StableId, prepared.Profile.Name,
+            prepared.Profile.LayoutFingerprint, [row with { PluginBindings = [coupled] }]);
+        var restored = D3D12GeneratedMaterialRestore.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
+        var edited = restored.WithEditedMaps(0, p: Edited(restored, pSlot));
+        var expectedGuard = D3D12MaterialBindingLayout.Capture(edited.SourceRest).CaptureTexture(pSlot);
+        Assert.Equal(expectedGuard, edited.Profile.Materials[0].TextureGuards.Single(g => g.SourceSceneTextureOrdinal == pSlot));
+        Assert.Equal(pSlot, edited.Profile.Materials[0].PluginBindings[0].TextureSlots!["paletteEmission"]);
+        var again = D3D12GeneratedMaterialRestore.Restore(edited.SourceRest, edited.Profile, edited.ManifestBytes);
+        Assert.Equal(edited.ManifestBytes, again.ManifestBytes);
     }
 
     [Fact]
@@ -237,12 +248,15 @@ public sealed class D3D12GeneratedMaterialRestoreTests
         var frame = Frame(); var scene = frame.Surface.Snapshot;
         var prepared = Prepare(new(new(new SceneSnapshot(scene.Vertices, scene.Indices, scene.Materials,
             [..scene.Textures, new SceneTexture("artist palette", 1, 1, [20, 40, 60, 255])]), frame.Surface.Materials)));
-        var row = prepared.Profile.Materials[0]; var maps = row.EndfieldMatcap!;
+        var row = prepared.Profile.Materials[0];
+        var maps = row.PluginBindings[0];
         var paletteImage = D3D12MaterialBindingLayout.Capture(prepared.SourceRest).CaptureTexture(1);
         var profile = new D3D12MaterialBindingProfile(prepared.Profile.StableId, prepared.Profile.Name,
-            prepared.Profile.LayoutFingerprint, [row with { EndfieldMatcap = maps with { CoupleEndfieldPalette = true,
-                Palette = new(Vector3.Zero, EmissionInputMode: D3D12EndfieldPaletteInputMode.Texture,
-                    EmissionTexture: paletteImage) } }]);
+            prepared.Profile.LayoutFingerprint, [row with
+            {
+                PluginBindings = [WithPaletteEmission(maps, 1)],
+                TextureGuards = [..row.TextureGuards, paletteImage]
+            }]);
         _ = D3D12GeneratedMaterialRestore.Restore(prepared.SourceRest, profile, prepared.ManifestBytes);
         var source = prepared.SourceRest.Surface.Snapshot;
         var changed = new OriginalFrameScene(new(new SceneSnapshot(source.Vertices, source.Indices, source.Materials,
@@ -250,6 +264,41 @@ public sealed class D3D12GeneratedMaterialRestoreTests
                 ? new SceneTexture("changed artist palette", 1, 1, [21, 40, 60, 255]) : texture)),
             prepared.SourceRest.Surface.Materials));
         Assert.Throws<InvalidDataException>(() => D3D12GeneratedMaterialRestore.Restore(changed, profile, prepared.ManifestBytes));
+    }
+
+    private static Mmd.Modern.Plugins.Contracts.StyleMaterialBindingData WithPaletteEmission(
+        Mmd.Modern.Plugins.Contracts.StyleMaterialBindingData maps, int emissionSlot)
+    {
+        var slots = new Dictionary<string, int>(maps.TextureSlots!, StringComparer.Ordinal) { ["paletteEmission"] = emissionSlot };
+        var bools = new Dictionary<string, bool>(maps.BoolValues!, StringComparer.Ordinal)
+        {
+            ["coupleEndfieldPalette"] = true,
+            ["hasPalette"] = true,
+        };
+        var numbers = new Dictionary<string, double>(maps.NumberValues!, StringComparer.Ordinal)
+        {
+            ["paletteEmissionStrength"] = 0.0,
+            ["paletteUniformEmissionBlue"] = 0.0,
+            ["paletteLightInfluence"] = 0.0,
+            ["paletteDensity"] = 0.0,
+        };
+        var vectors = new Dictionary<string, float[]>(maps.VectorValues!, StringComparer.Ordinal)
+        {
+            ["paletteReceivedLightLinearRgb"] = [0f, 0f, 0f],
+        };
+        var strings = new Dictionary<string, string>(maps.StringValues!, StringComparer.Ordinal)
+        {
+            ["paletteEmissionInputMode"] = "Texture",
+            ["paletteReceivedLightInputMode"] = "Uniform",
+        };
+        return maps with
+        {
+            TextureSlots = slots,
+            BoolValues = bools,
+            NumberValues = numbers,
+            VectorValues = vectors,
+            StringValues = strings,
+        };
     }
 
     private static SceneTexture Edited(D3D12GeneratedEndfieldMaterialPreparationResult prepared, int ordinal)

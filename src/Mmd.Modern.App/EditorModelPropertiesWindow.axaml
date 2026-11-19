@@ -314,24 +314,212 @@
                   </StackPanel>
                   <TextBlock Text="{DynamicResource Mda.Text.OutlineScale.ModernOnly}" Classes="caption" IsVisible="{Binding OutlineScalingUnavailable}" />
                   <StackPanel Spacing="6"><TextBlock Text="{DynamicResource Mda.Text.cef43d2017e8}" Classes="label" /><ComboBox ItemsSource="{Binding RoleChoices}" SelectedIndex="{Binding RoleIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.b23e968e4359}" /></StackPanel>
+                  <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="6" Padding="10"
+                          IsVisible="{Binding HasStyleValidationMessage}">
+                    <TextBlock Text="{Binding StyleValidationMessage}" TextWrapping="Wrap" />
+                  </Border>
+                  <TextBlock Text="{DynamicResource Mda.Text.ModelProps.MapRoleToConfigureModes}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding ShowMapRoleHint}" />
                   <StackPanel Spacing="16" IsEnabled="{Binding IsMapped}">
-                    <StackPanel Spacing="6"><TextBlock Text="{DynamicResource Mda.Text.e84c438316c8}" Classes="label" /><ComboBox ItemsSource="{Binding ModeChoices}" SelectedIndex="{Binding ModeIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.38b4dfd6cca3}" /></StackPanel>
-                    <StackPanel Spacing="6" IsVisible="{Binding NeedsPipeline}"><TextBlock Text="{DynamicResource Mda.Text.dea7ae6cf29c}" Classes="label" /><ComboBox ItemsSource="{Binding PipelineChoices}" SelectedIndex="{Binding PipelineIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.180308d07b4e}" /></StackPanel>
-                    <StackPanel Spacing="6" IsVisible="{Binding NeedsPrimary}"><TextBlock Text="{Binding PrimaryLabel}" Classes="label" /><ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding PrimaryTexture, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.681543cd68a9}" ><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
-                    <StackPanel Spacing="6" IsVisible="{Binding NeedsSecondary}"><TextBlock Text="{Binding SecondaryLabel}" Classes="label" /><ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SecondaryTexture, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.252fbb0359d4}" ><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
-                    <StackPanel Spacing="8" IsVisible="{Binding IsFace}">
-                      <TextBlock Text="{DynamicResource Mda.Text.cd0ad8884561}" Classes="section" />
-                      <TextBlock Text="{Binding FixedBasisSummary}" Classes="caption" />
-                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" AutomationProperties.Name="{DynamicResource Mda.Text.36a5d65530a6}" ><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
-                      <Button Content="{DynamicResource Mda.Text.61a814e51173}" Click="SampleBoneBasis" HorizontalAlignment="Left" Classes="action" />
-                      <TextBlock Text="{DynamicResource Mda.Text.df7052f91b93}" Classes="caption" />
+                    <StackPanel Spacing="8">
+                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.DynamicModesHeader}" Classes="section" />
+                      <TextBlock Text="{Binding DynamicModesHeaderHint}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDynamicModes}" />
+                      <TextBlock Text="{Binding NoDynamicModesNotice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasNoDynamicModes}" />
+                      <ItemsControl ItemsSource="{Binding DynamicModes}" IsVisible="{Binding HasDynamicModes}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="local:EditorStyleModeItem">
+                            <Border Background="{DynamicResource OutputSurface}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                  <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                  </CheckBox>
+                                  <Button Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetModeDefaults}"
+                                          IsEnabled="{Binding IsEnabled}" Click="ResetStyleMode" />
+                                </Grid>
+                                <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="8,6"
+                                        IsVisible="{Binding ShowRoleRequirementNote}">
+                                  <TextBlock Text="{Binding RoleRequirementNote}" Classes="caption" TextWrapping="Wrap" />
+                                </Border>
+                                <StackPanel Spacing="12" IsVisible="{Binding IsEnabled}">
+                                  <ItemsControl ItemsSource="{Binding TextureSlots}" IsVisible="{Binding HasTextureSlots}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="local:EditorStyleTextureSlotItem">
+                                        <StackPanel Spacing="6" Margin="0,0,0,8">
+                                          <TextBlock Text="{Binding PrimaryDisplayName}" Classes="label" TextWrapping="Wrap" ToolTip.Tip="{Binding Description}" />
+                                          <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                          <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedPrimary, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <StackPanel Spacing="6" IsVisible="{Binding SupportsSecondaryTexture}">
+                                            <TextBlock Text="{Binding SecondaryDisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedSecondary, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                          </StackPanel>
+                                        </StackPanel>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <StackPanel Spacing="8" IsVisible="{Binding SupportsBoneTracking}">
+                                    <TextBlock Text="{DynamicResource Mda.Text.ModelProps.BoneTrackingMode}" Classes="label" />
+                                    <ComboBox ItemsSource="{Binding BoneTrackingModes}" SelectedIndex="{Binding BoneTrackingModeIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+                                    <StackPanel Spacing="8" IsVisible="{Binding IsFixedWorldTracking}">
+                                      <TextBlock Text="{Binding FixedBasisSummary}" Classes="caption" TextWrapping="Wrap" />
+                                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                      <Button Content="{DynamicResource Mda.Text.ModelProps.SampleBoneButton}" Click="SampleModeBoneBasis" HorizontalAlignment="Left" Classes="action" />
+                                      <TextBlock Text="{DynamicResource Mda.Text.df7052f91b93}" Classes="caption" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="6" IsVisible="{Binding IsSelectedBoneTracking}">
+                                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.TargetBoneLabel}" Classes="label" />
+                                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                      <TextBlock Text="{Binding LocalAxisSummary}" Classes="caption" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                  </StackPanel>
+                                  <ItemsControl ItemsSource="{Binding Parameters}" IsVisible="{Binding HasParameters}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="local:EditorStyleParameterItem">
+                                        <StackPanel Spacing="6" Margin="0,4,0,6">
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsFloat}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <Grid ColumnDefinitions="*,10,96">
+                                              <validated:EditorValueSlider Minimum="{Binding MinValue}" Maximum="{Binding MaxValue}" Step="{Binding StepSize}"
+                                                                           DefaultValue="{Binding DefaultDouble}" Number="{Binding DecimalValue, Mode=TwoWay}"
+                                                                           ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                                              <validated:EditorNumericUpDown Grid.Column="2" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
+                                                                             Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0.###" />
+                                            </Grid>
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsInt}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <validated:EditorNumericUpDown Width="136" HorizontalAlignment="Left" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
+                                                                           Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0" />
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsBool}">
+                                            <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}" ToolTip.Tip="{Binding Description}">
+                                              <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                                            </CheckBox>
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsEnum}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <ComboBox ItemsSource="{Binding EnumChoices}" SelectedItem="{Binding SelectedEnumChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorStyleEnumChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsColor}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <Grid ColumnDefinitions="Auto,*,6,*,6,*,6,*">
+                                              <Border Width="26" Height="26" CornerRadius="4" Margin="0,16,8,0" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1"
+                                                      Background="{Binding ColorPreviewBrush}" ToolTip.Tip="{DynamicResource Mda.Text.ModelProps.ColorPreviewTooltip}" />
+                                              <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Text="R" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="3" Spacing="2">
+                                                <TextBlock Text="G" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="5" Spacing="2">
+                                                <TextBlock Text="B" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="7" Spacing="2" IsVisible="{Binding IsColor4}">
+                                                <TextBlock Text="A" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="0" Maximum="1" Increment="0.02" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                            </Grid>
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsVector}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <Grid ColumnDefinitions="*,6,*,6,*,6,*">
+                                              <StackPanel Spacing="2">
+                                                <TextBlock Text="X" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="2" Spacing="2">
+                                                <TextBlock Text="Y" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="4" Spacing="2" IsVisible="{Binding ShowVectorZ}">
+                                                <TextBlock Text="Z" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                              <StackPanel Grid.Column="6" Spacing="2" IsVisible="{Binding ShowVectorW}">
+                                                <TextBlock Text="W" Classes="caption" />
+                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
+                                              </StackPanel>
+                                            </Grid>
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsTextureSlot}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedTextureChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                          </StackPanel>
+                                          <StackPanel Spacing="4" IsVisible="{Binding IsBoneName}">
+                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                                            <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBoneChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                          </StackPanel>
+                                        </StackPanel>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                    <Separator />
+                    <StackPanel Spacing="10">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHeader}" Classes="section" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetPmxTreatment}" Click="ResetPmxTreatment" IsEnabled="{Binding IsBodyOrHair}" />
+                      </Grid>
+                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentBodyHairOnlyNote}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsNotBodyOrHair}" />
+                      <Grid ColumnDefinitions="Auto,*,12,84" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsEnabled="{Binding IsBodyOrHair}">
+                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentSaturation}" Classes="label" />
+                        <validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxSaturation, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxSaturation, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentTransition}" Classes="label" />
+                        <validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxTransitionWidthScale, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" Value="{Binding PmxTransitionWidthScale, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentContrast}" Classes="label" />
+                        <validated:EditorValueSlider Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="-0.5" Maximum="0.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0" Number="{Binding PmxValueContrast, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Minimum="-0.5" Maximum="0.5" Increment="0.02" FormatString="0.##" Value="{Binding PmxValueContrast, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="6" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentGamma}" Classes="label" />
+                        <validated:EditorValueSlider Grid.Row="6" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxShadeGamma, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Row="6" Grid.Column="3" Minimum="0.5" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxShadeGamma, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="8" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairStrength}" Classes="label" IsEnabled="{Binding IsHairRole}" />
+                        <validated:EditorValueSlider Grid.Row="8" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="0" Number="{Binding PmxHairHighlightStrength, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Row="8" Grid.Column="3" Minimum="0" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightStrength, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" />
+                        <TextBlock Grid.Row="10" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairWidth}" Classes="label" IsEnabled="{Binding IsHairRole}" />
+                        <validated:EditorValueSlider Grid.Row="10" Grid.Column="1" Margin="16,0,0,0" Minimum="0.02" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="0.12" Number="{Binding PmxHairHighlightWidth, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Row="10" Grid.Column="3" Minimum="0.02" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightWidth, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" />
+                      </Grid>
+                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairOnlyNote}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsMappedAndNotHair}" />
                     </StackPanel>
                     <Separator />
                     <TextBlock Text="{DynamicResource Mda.Text.bc6ec863ba1f}" Classes="section" />
                     <Grid ColumnDefinitions="Auto,*,12,80" RowDefinitions="Auto,8,Auto,8,Auto">
-                      <TextBlock Text="{DynamicResource Mda.Text.f86b04271b8b}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Value="{Binding FaceNormal, Mode=TwoWay}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.35" Number="{Binding FaceNormal, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" />
-                      <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.a561f39d9414}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Value="{Binding FaceShadow, Mode=TwoWay}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" /><validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding FaceShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" />
-                      <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.4ffd43c901b5}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Value="{Binding EyeShadow, Mode=TwoWay}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" /><validated:EditorValueSlider Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.2" Number="{Binding EyeShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" />
+                      <TextBlock Text="{DynamicResource Mda.Text.f86b04271b8b}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceNormal, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.35" Number="{Binding FaceNormal, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" />
+                      <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.a561f39d9414}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" /><validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding FaceShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" />
+                      <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.4ffd43c901b5}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding EyeShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" /><validated:EditorValueSlider Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.2" Number="{Binding EyeShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" />
                     </Grid>
                   </StackPanel>
                   <TextBlock Text="{DynamicResource Mda.Text.0f2f1c84628a}" Classes="caption" />

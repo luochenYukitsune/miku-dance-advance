@@ -25,4 +25,67 @@
     <None Update="Assets/Fonts/LICENSE_Fonts" TargetPath="licenses/HarmonyOS-Sans/LICENSE_Fonts" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="Assets/Fonts/provenance.json" TargetPath="licenses/HarmonyOS-Sans/provenance.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <_BundledStylePlugin Include="../Mda.StylePlugin.Genshin/Mda.StylePlugin.Genshin.csproj"
+                         PluginId="mda.style.genshin"
+                         ProjectName="Mda.StylePlugin.Genshin" />
+    <_BundledStylePlugin Include="../Mda.StylePlugin.StarRail/Mda.StylePlugin.StarRail.csproj"
+                         PluginId="mda.style.star-rail"
+                         ProjectName="Mda.StylePlugin.StarRail" />
+    <_BundledStylePlugin Include="../Mda.StylePlugin.WutheringWaves/Mda.StylePlugin.WutheringWaves.csproj"
+                         PluginId="mda.style.wuthering-waves"
+                         ProjectName="Mda.StylePlugin.WutheringWaves" />
+    <_BundledStylePlugin Include="../Mda.StylePlugin.Endfield/Mda.StylePlugin.Endfield.csproj"
+                         PluginId="mda.style.endfield"
+                         ProjectName="Mda.StylePlugin.Endfield" />
+  </ItemGroup>
+  <Target Name="_BuildBundledStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_PluginPlatformSegment Condition="'$(Platform)' != '' and '$(Platform)' != 'AnyCPU' and '$(Platform)' != 'Any CPU'">$(Platform)/</_PluginPlatformSegment>
+      <_PluginCacheRoot Condition="'$(RuntimeIdentifier)' == ''">$(ModernCacheRoot)</_PluginCacheRoot>
+      <_PluginCacheRoot Condition="'$(RuntimeIdentifier)' != ''">$(ModernCacheRoot)/style-plugins</_PluginCacheRoot>
+      <_PluginRestoreLockedMode Condition="'$(RuntimeIdentifier)' == ''">true</_PluginRestoreLockedMode>
+      <_PluginRestoreLockedMode Condition="'$(RuntimeIdentifier)' != ''">false</_PluginRestoreLockedMode>
+    </PropertyGroup>
+    <ItemGroup>
+      <_BundledStylePluginToRestore Include="@(_BundledStylePlugin)"
+                                    Condition="!Exists('$(_PluginCacheRoot)/obj/%(ProjectName)/project.assets.json')" />
+    </ItemGroup>
+    <MSBuild Condition="'@(_BundledStylePluginToRestore)' != ''"
+             Projects="@(_BundledStylePluginToRestore)"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot);RestoreLockedMode=$(_PluginRestoreLockedMode)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+    <MSBuild Projects="@(_BundledStylePlugin)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+  </Target>
+  <Target Name="StageBundledStylePlugins"
+          AfterTargets="Build"
+          DependsOnTargets="_BuildBundledStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
+          DestinationFolder="$(TargetDir)plugins/%(_BundledStylePlugin.PluginId)"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_StrayBuiltPluginFiles Include="$(TargetDir)plugins/*/*.pdb;$(TargetDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+    </ItemGroup>
+    <Delete Files="@(_StrayBuiltPluginFiles)" />
+  </Target>
+  <Target Name="StageBundledStylePluginsForPublish"
+          AfterTargets="Publish"
+          DependsOnTargets="_BuildBundledStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != ''">
+    <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
+          DestinationFolder="$(PublishDir)plugins/%(_BundledStylePlugin.PluginId)"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_StrayPublishedPluginFiles Include="$(PublishDir)plugins/*/*.pdb;$(PublishDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+    </ItemGroup>
+    <Delete Files="@(_StrayPublishedPluginFiles)" />
+  </Target>
 </Project>

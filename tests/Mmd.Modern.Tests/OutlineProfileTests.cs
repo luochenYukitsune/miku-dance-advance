@@ -20,7 +20,7 @@ public sealed class OutlineProfileTests
         byte[] encoded = D3D12MaterialBindingProfileJson.Encode(profile);
         outlines.Clear();
         var restored = D3D12MaterialBindingProfileJson.Decode(encoded);
-        Assert.Equal(13, restored.SchemaVersion);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, restored.SchemaVersion);
         Assert.Empty(restored.Materials);
         Assert.Equal(new D3D12MaterialBindingProfileOutline[] { new(0, .25f), new(1, 1f) }, restored.OutlineWidths);
         Assert.Equal(encoded, D3D12MaterialBindingProfileJson.Encode(restored));
@@ -43,22 +43,64 @@ public sealed class OutlineProfileTests
     [Fact]
     public void LegacySchemasDefaultToNoOverridesAndKeepTheirMinimumSchema()
     {
-        var legacy = new D3D12MaterialBindingProfile("outline", "Outline", Fingerprint, []);
-        byte[] original = D3D12MaterialBindingProfileJson.Encode(legacy);
-        Assert.DoesNotContain("outlineWidths", Encoding.UTF8.GetString(original), StringComparison.Ordinal);
         for (int schema = 1; schema <= 12; schema++)
         {
-            var document = JsonNode.Parse(original)!.AsObject();
-            document["schemaVersion"] = schema;
+            var document = new JsonObject
+            {
+                ["format"] = "mda-d3d12-material-binding-profile",
+                ["schemaVersion"] = schema,
+                ["stableId"] = "outline",
+                ["name"] = "Outline",
+                ["layoutVersion"] = 1,
+                ["layoutFingerprint"] = Fingerprint,
+                ["materials"] = new JsonArray()
+            };
             var restored = Decode(document);
             Assert.Empty(restored.OutlineWidths);
-            Assert.Equal(1, restored.SchemaVersion);
-            Assert.Equal(original, D3D12MaterialBindingProfileJson.Encode(restored));
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, restored.SchemaVersion);
+            Assert.Equal("outline", restored.StableId);
         }
-        var treatment = new D3D12MaterialBindingProfile("tone", "Tone", Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Body, PmxMaterialTreatment: new(ValueContrast: .1f))]);
-        Assert.Equal(11, treatment.SchemaVersion);
-        Assert.Equal(11, D3D12MaterialBindingProfileJson.Decode(D3D12MaterialBindingProfileJson.Encode(treatment)).SchemaVersion);
+
+        var v11Row = new JsonObject
+        {
+            ["localMaterialIndex"] = 0,
+            ["role"] = "Body",
+            ["faceNormalShadeStrength"] = 0.35,
+            ["faceGeometricShadowStrength"] = 1.0,
+            ["eyeGeometricShadowStrength"] = 0.2,
+            ["pmxMaterialTreatment"] = new JsonObject
+            {
+                ["saturation"] = 1.0,
+                ["transitionWidthScale"] = 1.0,
+                ["valueContrast"] = 0.1,
+                ["shadeGamma"] = 1.0,
+                ["hairHighlightStrength"] = 0.0,
+                ["hairHighlightWidth"] = 0.12
+            },
+            ["face"] = null,
+            ["genshinHair"] = null,
+            ["starMcHair"] = null,
+            ["endfieldRim"] = null,
+            ["genshinHairAtlas"] = null,
+            ["endfieldHair"] = null,
+            ["endfieldMatcap"] = null,
+            ["genshinMetallic"] = null
+        };
+        var v11Doc = new JsonObject
+        {
+            ["format"] = "mda-d3d12-material-binding-profile",
+            ["schemaVersion"] = 11,
+            ["stableId"] = "tone",
+            ["name"] = "Tone",
+            ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = Fingerprint,
+            ["materials"] = new JsonArray(v11Row)
+        };
+        var decodedV11 = Decode(v11Doc);
+        Assert.Equal(.1f, decodedV11.Materials[0].PmxMaterialTreatment!.ValueContrast);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, decodedV11.SchemaVersion);
+        var upgraded = D3D12MaterialBindingProfileJson.Decode(D3D12MaterialBindingProfileJson.Encode(decodedV11));
+        Assert.Equal(decodedV11.Materials, upgraded.Materials);
     }
 
     [Theory]
@@ -137,10 +179,10 @@ public sealed class OutlineProfileTests
         Assert.Equal(new D3D12ViewOutlineWidthBinding(actor, 0, .25f), Assert.Single(resolved.OutlineWidths));
         Assert.Equal(layout.Fingerprint, D3D12MaterialBindingLayout.Capture(source).Fingerprint);
         var classified = new D3D12MaterialBindingProfile("outline", "Outline", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: .15f)], outlineWidths: profile.OutlineWidths);
+            [new(0, D3D12CharacterMaterialRole.Eye, eyeGeometricShadowStrength: .15f)], outlineWidths: profile.OutlineWidths);
         var combined = D3D12MaterialBindingProfileResolver.Resolve(classified, source, actor, pipeline);
-        Assert.Equal(D3D12CharacterMaterialRole.Eye, Assert.Single(combined.CharacterMaterials).Style.Role);
-        Assert.Equal(.15f, combined.CharacterMaterials[0].Style.EyeGeometricShadowStrength);
+        Assert.Equal(D3D12CharacterMaterialRole.Eye, Assert.Single(combined.CharacterMaterials).Role);
+        Assert.Equal(.15f, combined.CharacterMaterials[0].EyeGeometricShadowStrength);
         Assert.Equal(resolved.OutlineWidths, combined.OutlineWidths);
         var outside = new D3D12MaterialBindingProfile("outline", "Outline", layout.Fingerprint, [], outlineWidths: [new(1, .25f)]);
         Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(outside, source, actor, pipeline));

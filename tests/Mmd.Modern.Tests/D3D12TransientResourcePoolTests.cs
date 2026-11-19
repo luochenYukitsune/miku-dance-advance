@@ -241,10 +241,12 @@ public sealed class D3D12TransientResourcePoolTests
             options: bounce.Options! with { SpatialSamples = 4 }, materials: bounce.Materials);
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: .5f, SamplesPerPixel: 2, Seed: 17,
             MaxRayDistance: 30, RayEpsilon: .001f, Composition: RayGiComposition.ToonPalette, Denoiser: RayGiDenoiser.Spatial);
-        var styles = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd],
-            [new D3D12CharacterMaterialStyle(GenshinMetallic: new D3D12GenshinMetallicBinding(0, 1, D3D12MatcapColorEncoding.SrgbRgb,
-                new(.3f, .4f, .5f), new(.9f, .8f, .7f), new(.6f, .5f, .4f))),
-             new D3D12CharacterMaterialStyle()]);
+        var styles = T8bTestHelpers.CreateDirectMap(["genshin", "mmd"],
+            (D3D12CharacterMaterialRole.Body,
+                [TestStylePlugins.GenshinMetallic(0, 1, matcapEncoding: "SrgbRgb",
+                    darkColor: new(.3f, .4f, .5f), lightColor: new(.9f, .8f, .7f), shadowMultiplyColor: new(.6f, .5f, .4f))],
+                .35f, 1f, .2f),
+            (D3D12CharacterMaterialRole.Body, null, .35f, 1f, .2f));
 
         byte[] expected;
         using (var reference = new D3D12FrameSession())

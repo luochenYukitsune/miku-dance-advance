@@ -28,12 +28,12 @@ public sealed partial class D3D12OriginalStyleRenderer
 
     /// <summary>Modern-only textured hull; borrows the active shared descriptors and target.
     /// No submission, wait, readback, source material changes or per-frame permanent resources.</summary>
-    // 自动描边颜色：原有为“底色×0.55＋0.025”（zw 为 0 时保持不变）。四个画风家族的普通材质改为
-    // 按画风压暗并提饱和，描边贴着底色走，避免灰黑硬线。z 为压暗系数，w 为饱和倍数。
+    // Automatic outline color: baseline uses base * 0.55 + 0.025 (when zw are 0).
+    // Stylized materials with outline scaling darken and saturate the base color instead.
     private static Vector4 OutlineOptions(CharacterOutlineStyle style, float scale, D3D12SurfaceStyleMap? surfaceStyles, int material)
     {
         if (style.Color is not null) return new(0, scale, 0, 0);
-        var shading = surfaceStyles is not null && material < surfaceStyles.Count ? surfaceStyles.EffectiveStylizedShading(material) : null;
+        var shading = surfaceStyles is not null && material < surfaceStyles.Count ? surfaceStyles.EffectiveOutlineStylizedShading(material) : null;
         return shading is null ? new(1, scale, 0, 0) : new(1, scale, shading.OutlineValue, shading.OutlineSaturation);
     }
 

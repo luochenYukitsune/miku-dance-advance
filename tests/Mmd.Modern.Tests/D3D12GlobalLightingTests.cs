@@ -13,17 +13,17 @@ public sealed class D3D12GlobalLightingTests
         frame.OutlineOptions,frame.Options,frame.Materials,(frame.Lighting??SceneLightingSnapshot.Empty).WithSettings(settings),frame.EditorOverlay);
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void EnvironmentWorksWithoutAnyLampAndNeutralSettingsRestoreExactPixels(D3D12SurfaceStyle style)
+    [InlineData("mmd")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void EnvironmentWorksWithoutAnyLampAndNeutralSettingsRestoreExactPixels(string styleId)
     {
         using var session=new D3D12FrameSession();var original=D3D12NativeLightTests.Fixture();
         var source=new OriginalFrameScene(new(original.Surface.Snapshot.WithLighting(Vector3.UnitZ),original.Surface.Materials,original.Surface.Profile),
             options:original.Options,materials:original.Materials);
-        var map=new D3D12SurfaceStyleMap([style,D3D12SurfaceStyle.Mmd]);
+        var map=new D3D12SurfaceStyleMap([styleId,"mmd"],null,TestStylePlugins.AllPresetCatalog);
         var baseline=session.Capture(source,129,97,surfaceStyles:map);
         Assert.Equal(baseline.Rgba,session.Capture(WithSettings(source,new()),129,97,surfaceStyles:map).Rgba);
         var fill=session.Capture(WithSettings(source,new(.2f)),129,97,surfaceStyles:map);

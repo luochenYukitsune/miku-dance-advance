@@ -1,8 +1,11 @@
+using System.Buffers.Binary;
+using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput;
 using Mmd.Modern.ViewOutput.D3D12;
@@ -13,27 +16,37 @@ namespace Mmd.Modern.Tests;
 [Collection(RayGiTimingEnvironmentCollection.Name)]
 public sealed class D3D12GenshinHairViewTests
 {
-    private static readonly D3D12StylePresetCatalog Catalog = D3D12StylePresetCatalog.BuiltIn;
+    private static readonly D3D12StylePresetCatalog Catalog = TestStylePlugins.AllPresetCatalog;
+    private static readonly D3D12ViewStyleCatalog ViewCatalog = TestStylePlugins.AllViewCatalog;
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
     public void LocalDefinitionsDetachAndUnionFaceTexturesAndSelectedBonesPerObject()
     {
         var id = Guid.NewGuid(); var other = Guid.NewGuid();
-        D3D12ViewGenshinHairBinding[] source = [new(id, 0, 2), new(id, 1, 2), new(other, 0, 0)];
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal) { ["texture"] = 2 };
+        D3D12ViewPluginMaterialBinding[] source =
+        [
+            new(id, 0, new("genshin", "hair", slots, new ReadOnlyDictionary<string, double>(new Dictionary<string, double>(StringComparer.Ordinal)
+                { ["globalSpecularScale"] = 1, ["shininess"] = 10, ["multiplier"] = 0.1, ["intensity"] = 1 }))),
+            TestStylePlugins.Bind(id, 1, TestStylePlugins.GenshinHair(2)),
+            TestStylePlugins.Bind(other, 0, TestStylePlugins.GenshinHair(0)),
+        ];
         int enumerations = 0;
-        IEnumerable<D3D12ViewGenshinHairBinding> Once()
+        IEnumerable<D3D12ViewPluginMaterialBinding> Once()
         { enumerations++; foreach (var value in source) yield return value; }
-        var detached = D3D12ViewGenshinHairBindings.Detach(Once());
-        source[0] = source[0] with { LocalTextureIndex = 99 };
-        Assert.Same(detached, D3D12ViewGenshinHairBindings.Detach(detached));
-        Assert.Equal(1, enumerations); Assert.Equal(2, detached[0].LocalTextureIndex);
-        D3D12ViewFaceSdfBinding[] faces = [D3D12ViewFaceSdfBinding.GenshinSoft(id, 3, 1, 2,
-            new D3D12ViewFaceHeadBasis.SelectedBone(4, -Vector3.UnitZ, Vector3.UnitX))];
-        var requests = D3D12ViewGenshinHairBindings.CreateRequests(detached, faces);
+        var detached = D3D12ViewPluginMaterialBindings.Detach(Once());
+        slots["texture"] = 99;
+        Assert.Same(detached, D3D12ViewPluginMaterialBindings.Detach(detached));
+        Assert.Equal(1, enumerations); Assert.Equal(2, detached[0].Binding.TextureSlots!["texture"]);
+        var face = TestStylePlugins.Bind(id, 3, TestStylePlugins.FaceSdf("genshin", 1, 2,
+            trackingMode: StyleBoneTrackingMode.SelectedBone, boneName: "4",
+            localForward: -Vector3.UnitZ, localUp: Vector3.UnitY,
+            worldForward: -Vector3.UnitZ, worldRight: Vector3.UnitX));
+        var requests = D3D12ViewPluginMaterialBindings.CreateRequests([.. detached, face], ViewCatalog);
         var selected = Assert.Single(requests, request => request.ObjectId == id);
         Assert.Equal(new[] { 4 }, selected.BoneIndices);
-        Assert.Equal(new[] { 1, 2 }, selected.LocalTextureIndices);
+        Assert.Equal(new[] { 1, 2 }, selected.LocalTextureIndices.Order());
         Assert.Equal(new[] { 0 }, Assert.Single(requests, request => request.ObjectId == other).LocalTextureIndices);
     }
 
@@ -45,24 +58,33 @@ public sealed class D3D12GenshinHairViewTests
         var a = layout.Add("first", SourcePath, ModelRole.Character, Source(first));
         var b = layout.Add("second", SourcePath, ModelRole.Character, Source(second));
         using var project = Project(layout); project.SetDefaultRenderingStyle(new("genshin"), Token);
-        D3D12ViewGenshinHairBinding[] hair = [new(a.Id, 0, 0, .75f, 5, .4f, 2), new(b.Id, 0, 0)];
-        var snapshot = project.CaptureRenderSnapshot(D3D12ViewGenshinHairBindings.CreateRequests(hair));
+        D3D12ViewPluginMaterialBinding[] hair =
+        [
+            TestStylePlugins.Bind(a.Id, 0, TestStylePlugins.GenshinHair(0, .75f, 5, .4f, 2)),
+            TestStylePlugins.Bind(b.Id, 0, TestStylePlugins.GenshinHair(0)),
+        ];
+        var snapshot = project.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(hair, ViewCatalog));
         var result = Resolve(snapshot, hair);
         Assert.Equal(2, snapshot.Scene.Surface.Snapshot.Textures.Count);
         foreach (var instance in snapshot.RenderingStyles)
         {
             var material = result.SurfaceStyles.CharacterMaterials[instance.MaterialStart];
             Assert.Equal(D3D12CharacterMaterialRole.Hair, material.Role);
-            var binding = Assert.IsType<D3D12GenshinNonMetallicSpecularBinding>(material.GenshinNonMetallicSpecular);
-            Assert.Equal(snapshot.SceneInputs[instance.ObjectId].TextureIndices[0], binding.CombinedTextureIndex);
+            var draw = Assert.IsType<D3D12PluginDrawData>(material.PluginDraw);
+            Assert.Equal("hair", draw.ShaderModuleId);
+            int combined = Assert.Single(draw.TextureBindings!).SceneTextureIndex;
+            Assert.Equal(snapshot.SceneInputs[instance.ObjectId].TextureIndices[0], combined);
             Assert.Same(instance.ObjectId == a.Id ? first : second,
-                snapshot.Scene.Surface.Snapshot.Textures[binding.CombinedTextureIndex]);
+                snapshot.Scene.Surface.Snapshot.Textures[combined]);
         }
-        var firstBinding = result.SurfaceStyles.CharacterMaterials[0].GenshinNonMetallicSpecular!;
-        Assert.Equal((.75f, 5f, .4f, 2f),
-            (firstBinding.GlobalSpecularScale, firstBinding.Shininess, firstBinding.Multiplier, firstBinding.Intensity));
+        var cb = result.SurfaceStyles.CharacterMaterials[0].PluginDraw!.ConstantBufferData.Span;
+        Assert.Equal((.75f, 5f, .4f, 2f), (
+            BinaryPrimitives.ReadSingleLittleEndian(cb[..4]),
+            BinaryPrimitives.ReadSingleLittleEndian(cb[4..8]),
+            BinaryPrimitives.ReadSingleLittleEndian(cb[8..12]),
+            BinaryPrimitives.ReadSingleLittleEndian(cb[12..16])));
         Assert.Throws<ArgumentException>(() => Resolve(project.CaptureRenderSnapshot(), hair));
-        var partial = project.CaptureRenderSnapshot([new(a.Id, localTextureIndices: [0])]);
+        var partial = project.CaptureRenderSnapshot([new(a.Id, optionalLocalTextureIndices: [0])]);
         Assert.Throws<ArgumentException>(() => Resolve(partial, hair));
         Assert.Equal(0, project.CurrentFrame); // Resolving inputs never evaluates another animation sample.
     }
@@ -79,18 +101,18 @@ public sealed class D3D12GenshinHairViewTests
         using var project = Project(layout); project.SetDefaultRenderingStyle(new(preset), Token);
         var snapshot = project.CaptureRenderSnapshot();
         var plain = Resolve(snapshot, []);
-        var local = new D3D12ViewGenshinHairBinding(item.Id, 0, 0);
+        var local = TestStylePlugins.Bind(item.Id, 0, TestStylePlugins.GenshinHair(0));
         Assert.True(D3D12ViewRenderingStyles.Preflight(snapshot.Scene, Catalog, snapshot.RenderingStyles,
-            hairDataBindings: [local]).IsAvailable);
+            pluginBindings: [local], styleCatalog: ViewCatalog).IsAvailable);
         var retained = Resolve(snapshot, [local]);
-        Assert.Null(retained.SurfaceStyles.CharacterMaterials[0].GenshinNonMetallicSpecular);
+        Assert.Null(retained.SurfaceStyles.CharacterMaterials[0].PluginDraw?.TextureBindings);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(plain.SurfaceStyles, retained.SurfaceStyles));
         Assert.Equal(plain.Scene.Materials, retained.Scene.Materials);
         Assert.Equal(preset, project.GetRenderingStyle(item.Id).StableId);
-        // A composed-frame payload is an active low-level request, unlike stored local configuration.
+        // Active role conflicts reject in Preflight even when the style is dormant.
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(snapshot.Scene, Catalog,
-            snapshot.RenderingStyles, [new(item.Id, 0, new(D3D12CharacterMaterialRole.Hair,
-                GenshinNonMetallicSpecular: new(0)))]));
+            snapshot.RenderingStyles, [new(item.Id, 0, D3D12CharacterMaterialRole.Face)],
+            pluginBindings: [local], styleCatalog: ViewCatalog));
     }
 
     [Fact]
@@ -99,13 +121,13 @@ public sealed class D3D12GenshinHairViewTests
         var visible = new SceneRenderingStyleBinding(Guid.NewGuid(), new("genshin"), ModelRole.Character, 0, 1, true);
         var hidden = new SceneRenderingStyleBinding(Guid.NewGuid(), new("genshin"), ModelRole.Character, 1, 0, false);
         var scene = Source(Texture("mask", 128));
-        D3D12ViewGenshinHairBinding[] hair = [new(hidden.ObjectId, 99, 99)];
-        Assert.True(D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, hidden], hairDataBindings: hair).IsAvailable);
-        var retained = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, hidden], hairDataBindings: hair);
-        Assert.Null(Assert.Single(retained.SurfaceStyles.CharacterMaterials).GenshinNonMetallicSpecular);
+        D3D12ViewPluginMaterialBinding[] hair = [TestStylePlugins.Bind(hidden.ObjectId, 99, TestStylePlugins.GenshinHair(99))];
+        Assert.True(D3D12ViewRenderingStyles.Preflight(scene, Catalog, [visible, hidden], pluginBindings: hair, styleCatalog: ViewCatalog).IsAvailable);
+        var retained = D3D12ViewRenderingStyles.Resolve(scene, Catalog, [visible, hidden], pluginBindings: hair, styleCatalog: ViewCatalog);
+        Assert.Null(Assert.Single(retained.SurfaceStyles.CharacterMaterials).PluginDraw?.TextureBindings);
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog,
             [visible with { MaterialCount = 0 }, hidden with { MaterialStart = 0, MaterialCount = 1, Visible = true }],
-            hairDataBindings: hair));
+            pluginBindings: hair, styleCatalog: ViewCatalog));
     }
 
     [Fact]
@@ -113,37 +135,48 @@ public sealed class D3D12GenshinHairViewTests
     {
         var scene = Source(Texture("mask", 128)); var id = Guid.NewGuid();
         var instance = new SceneRenderingStyleBinding(id, new("genshin"), ModelRole.Character, 0, 1, true);
+        var hair = TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0));
         foreach (var candidate in new[] { instance with { ObjectId = Guid.NewGuid() },
             instance with { Role = ModelRole.Environment }, instance with { Role = ModelRole.Prop },
             instance with { Role = ModelRole.Unspecified } })
         {
             Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(scene, Catalog,
-                [candidate], hairDataBindings: [new(id, 0, 0)]));
+                [candidate], pluginBindings: [hair], styleCatalog: ViewCatalog));
             Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(scene, Catalog,
-                [candidate], hairDataBindings: [new(id, 0, 0)]));
+                [candidate], pluginBindings: [hair], styleCatalog: ViewCatalog));
         }
     }
 
     [Fact]
     public void InvalidAndConflictingLocalSelectionsRejectBeforeEitherNativeRendererIsCreated()
     {
-        var id = Guid.NewGuid(); var valid = new D3D12ViewGenshinHairBinding(id, 0, 0);
-        D3D12ViewGenshinHairBinding[][] invalid = [[null!], [valid, valid],
-            [valid with { ObjectId = Guid.Empty }], [valid with { LocalMaterialIndex = -1 }],
-            [valid with { LocalTextureIndex = -1 }], [valid with { GlobalSpecularScale = float.NaN }],
-            [valid with { Shininess = 65 }], [valid with { Multiplier = -1 }], [valid with { Intensity = float.PositiveInfinity }]];
+        var id = Guid.NewGuid(); var valid = TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0));
+        D3D12ViewPluginMaterialBinding[][] invalid =
+        [
+            [null!],
+            [valid, valid],
+            [valid with { ObjectId = Guid.Empty }],
+            [valid with { LocalMaterialIndex = -1 }],
+            [TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(-1))],
+            [TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0, globalSpecularScale: float.NaN))],
+            [TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0, shininess: 65))],
+            [TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0, multiplier: -1))],
+            [TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHair(0, intensity: float.PositiveInfinity))],
+        ];
         foreach (var bindings in invalid)
         {
-            Assert.ThrowsAny<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), hairDataBindings: bindings));
-            Assert.ThrowsAny<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), hairDataBindings: bindings));
+            Assert.ThrowsAny<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), pluginBindings: bindings, styleCatalog: ViewCatalog));
+            Assert.ThrowsAny<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), pluginBindings: bindings, styleCatalog: ViewCatalog));
         }
-        foreach (var style in new[] { new D3D12CharacterMaterialStyle(), new(D3D12CharacterMaterialRole.Face),
-            new(D3D12CharacterMaterialRole.Eye), new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: new(0)) })
+        foreach (var role in new[] { D3D12CharacterMaterialRole.Body, D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
         {
-            D3D12ViewCharacterMaterialBinding[] materials = [new(id, 0, style)];
-            Assert.Throws<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), characterMaterials: materials, hairDataBindings: [valid]));
-            Assert.Throws<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), characterMaterials: materials, hairDataBindings: [valid]));
+            D3D12ViewCharacterMaterial[] materials = [new(id, 0, role)];
+            Assert.Throws<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), characterMaterials: materials, pluginBindings: [valid], styleCatalog: ViewCatalog));
+            Assert.Throws<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), characterMaterials: materials, pluginBindings: [valid], styleCatalog: ViewCatalog));
         }
+        D3D12ViewPluginMaterialBinding[] faceAndHair = [valid, TestStylePlugins.Bind(id, 0, TestStylePlugins.FaceSdf("genshin", 0, 1))];
+        Assert.Throws<ArgumentException>(() => new D3D12ViewRenderer(new(97, 73), pluginBindings: faceAndHair, styleCatalog: ViewCatalog));
+        Assert.Throws<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(97, 73), pluginBindings: faceAndHair, styleCatalog: ViewCatalog));
     }
 
     [Fact]
@@ -152,18 +185,15 @@ public sealed class D3D12GenshinHairViewTests
         var layout = new SceneCompositionEditor();
         var item = layout.Add("mixed", SourcePath, ModelRole.Character, Source(Texture("shared", 255), 2));
         using var project = Project(layout); project.SetDefaultRenderingStyle(new("genshin"), Token);
-        D3D12ViewGenshinHairBinding[] hair = [new(item.Id, 0, 0)];
-        D3D12ViewFaceSdfBinding[] faces = [D3D12ViewFaceSdfBinding.GenshinSoft(item.Id, 1, 0, 0,
-            new D3D12ViewFaceHeadBasis.FixedWorld(-Vector3.UnitZ, Vector3.UnitX))];
-        var requests = D3D12ViewGenshinHairBindings.CreateRequests(hair, faces);
+        var hair = TestStylePlugins.Bind(item.Id, 0, TestStylePlugins.GenshinHair(0));
+        var face = TestStylePlugins.Bind(item.Id, 1, TestStylePlugins.FaceSdf("genshin", 0, 0, "GenshinSoftFace", .001f, .55f));
+        var requests = D3D12ViewPluginMaterialBindings.CreateRequests([hair, face], ViewCatalog);
         Assert.Equal(new[] { 0 }, Assert.Single(requests).LocalTextureIndices);
         var snapshot = project.CaptureRenderSnapshot(requests);
         var result = D3D12ViewRenderingStyles.Resolve(Ready(snapshot.Scene), Catalog, snapshot.RenderingStyles,
-            [new(item.Id, 1, new(D3D12CharacterMaterialRole.Face, .72f, .24f))], faces, snapshot.SceneInputs, hair);
-        Assert.NotNull(result.SurfaceStyles.CharacterMaterials[0].GenshinNonMetallicSpecular);
-        Assert.Null(result.SurfaceStyles.CharacterMaterials[0].FaceSdf);
-        Assert.NotNull(result.SurfaceStyles.CharacterMaterials[1].FaceSdf);
-        Assert.Null(result.SurfaceStyles.CharacterMaterials[1].GenshinNonMetallicSpecular);
+            [new(item.Id, 1, D3D12CharacterMaterialRole.Face, true, .72f, .24f)], [hair, face], snapshot.SceneInputs, styleCatalog: ViewCatalog);
+        Assert.Equal("hair", result.SurfaceStyles.CharacterMaterials[0].PluginDraw!.ShaderModuleId);
+        Assert.Equal("face-sdf", result.SurfaceStyles.CharacterMaterials[1].PluginDraw!.ShaderModuleId);
         Assert.Equal(.72f, result.SurfaceStyles.CharacterMaterials[1].FaceNormalShadeStrength);
     }
 
@@ -173,23 +203,25 @@ public sealed class D3D12GenshinHairViewTests
         var layout = new SceneCompositionEditor();
         var item = layout.Add("selected", SourcePath, ModelRole.Character, Source(Texture("mask", 128)));
         using var project = Project(layout); project.SetDefaultRenderingStyle(new("genshin"), Token);
-        D3D12ViewGenshinHairBinding[] host = [new(item.Id, 0, 0, 1, 1, .4f, 1)];
+        var hairData = TestStylePlugins.GenshinHair(0, 1, 1, .4f, 1);
+        D3D12ViewPluginMaterialBinding[] host = [TestStylePlugins.Bind(item.Id, 0, hairData)];
         var request = new ViewRenderRequest(97, 73);
-        await using var capture = new D3D12ViewRenderer(request, hairDataBindings: host);
+        await using var capture = new D3D12ViewRenderer(request, pluginBindings: host, styleCatalog: ViewCatalog);
         var snapshot = project.CaptureRenderSnapshot(capture.SceneInputRequests);
-        host[0] = host[0] with { Intensity = 0 }; // Construction already detached the selected values.
+        host[0] = TestStylePlugins.Bind(item.Id, 0, TestStylePlugins.GenshinHair(0, 1, 1, .4f, 0)); // Construction already detached the selected values.
         var plan = new OfflineFramePlan(97, 73, new(30), 0, 2);
         // Project composition uses its default camera; retain the fixture framing in both view paths.
         var camera = item.Source.Surface.Snapshot.Camera;
         var frame = new OfflineFrame(plan.GetSample(0), 97, 73, snapshot.Scene, null, null, null)
         { RenderingStyles = snapshot.RenderingStyles, SceneInputs = snapshot.SceneInputs, ResolvedCamera = camera };
         using var image = await capture.CaptureAsync(frame, Token);
-        await using var composed = new D3D12ViewRenderer(request, characterMaterials:
-            [new(item.Id, 0, new(D3D12CharacterMaterialRole.Hair,
-                GenshinNonMetallicSpecular: new(snapshot.SceneInputs[item.Id].TextureIndices[0], 1, 1, .4f, 1)))]);
-        using var expected = await composed.CaptureAsync(frame with { SceneInputs = SceneObjectRenderInputs.Empty }, Token);
-        Assert.Equal(expected.Pixels.ToArray(), image.Pixels.ToArray());
-        await using var ordinary = new D3D12ViewRenderer(request);
+        var viewScene = D3D12ViewScene.Resolve(snapshot.Scene, null, null, null,
+            new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality, camera);
+        var resolved = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, snapshot.RenderingStyles,
+            pluginBindings: [TestStylePlugins.Bind(item.Id, 0, hairData)], sceneInputs: snapshot.SceneInputs, styleCatalog: ViewCatalog);
+        using (var direct = new D3D12FrameSession())
+            Assert.Equal(direct.Capture(resolved.Scene, 97, 73, surfaceStyles: resolved.SurfaceStyles).Rgba, image.Pixels.ToArray());
+        await using var ordinary = new D3D12ViewRenderer(request, styleCatalog: ViewCatalog);
         using var baseline = await ordinary.CaptureAsync(frame with { SceneInputs = SceneObjectRenderInputs.Empty }, Token);
         int changed = 0;
         for (int offset = 0; offset < image.Pixels.Length; offset += 4)
@@ -208,9 +240,9 @@ public sealed class D3D12GenshinHairViewTests
         Assert.NotEqual(0, window);
         try
         {
-            await using var present = new D3D12RealtimeViewRenderer(window, request, hairDataBindings:
-                [new(item.Id, 0, 0, 1, 1, .4f, 1)]);
-            Assert.Equal(capture.SceneInputRequests[0].LocalTextureIndices, present.SceneInputRequests[0].LocalTextureIndices);
+            await using var present = new D3D12RealtimeViewRenderer(window, request,
+                pluginBindings: [TestStylePlugins.Bind(item.Id, 0, hairData)], styleCatalog: ViewCatalog);
+            Assert.Equal(capture.SceneInputRequests[0].OptionalLocalTextureIndices, present.SceneInputRequests[0].OptionalLocalTextureIndices);
             var preview = new PreviewFrame(97, 73, 0, snapshot.Scene, null, null, null)
             { RenderingStyles = snapshot.RenderingStyles, SceneInputs = snapshot.SceneInputs, ResolvedCamera = camera };
             present.ValidateRenderingStyles(snapshot.Scene, snapshot.RenderingStyles);
@@ -229,9 +261,9 @@ public sealed class D3D12GenshinHairViewTests
     }
 
     private static D3D12ViewRenderingStylesResult Resolve(SceneProjectRenderSnapshot snapshot,
-        IReadOnlyList<D3D12ViewGenshinHairBinding> hair)
+        IReadOnlyList<D3D12ViewPluginMaterialBinding> hair)
         => D3D12ViewRenderingStyles.Resolve(Ready(snapshot.Scene), Catalog, snapshot.RenderingStyles,
-            sceneInputs: snapshot.SceneInputs, hairDataBindings: hair);
+            pluginBindings: hair, sceneInputs: snapshot.SceneInputs, styleCatalog: ViewCatalog);
     private static OriginalFrameScene Ready(OriginalFrameScene scene)
         => D3D12ViewScene.Resolve(scene, null, null, null, new Dictionary<Guid, CharacterMorphChannels>(), new());
     private static string SourcePath => Path.Combine(Path.GetTempPath(), "mda-synthetic-hair.pmx");

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -11,51 +12,54 @@ public sealed class D3D12StarMcHairHistoryTests
     private const int Width = 96, Height = 72;
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Alpha)]
+    [InlineData(T8cTestHelpers.StarRailStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Alpha")]
     public void SubmittedParametersAndRemovalResetBothHistoriesWhileAbortRetainsTheSubmittedKey(
-        D3D12SurfaceStyle family, D3D12HairHighlightChannel channel)
+        string family, string channel)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
         var temporal = NativeAa(session); var gi = Gi();
         var frame = Frame(Texture(), Texture("independent shadow data"));
-        var binding = new D3D12StarMcHairBinding(0, 1, channel);
+        var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel);
         var baseline = Map(binding, family);
         long readbacks = session.Runtime.Readbacks;
         Render(baseline, 1, "FirstFrame", "FirstFrame");
         Render(Map(binding with { }, family), 2, "None", "None");
-        foreach (var changed in new[] { binding with { HighlightCoefficient = .3f }, binding with { HighlightBrightness = -1 },
-            binding with { ShadowCoefficient = .25f }, binding with { ShadowSoftness = .7f }, binding with { Intensity = .2f } })
+        foreach (var changed in new[] {
+            T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, highlightCoefficient: .3f),
+            T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, highlightBrightness: -1),
+            T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, shadowCoefficient: .25f),
+            T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, shadowSoftness: .7f),
+            T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, intensity: .2f) })
         {
             Render(Map(changed, family), 1, "ExplicitReset", "ExplicitRequest");
             Render(Map(changed with { }, family), 2, "None", "None");
         }
-        if (family == D3D12SurfaceStyle.WutheringPmx)
+        if (family == T8cTestHelpers.WutheringStyleId)
         {
-            var changed = binding with { HighlightChannel = channel == D3D12HairHighlightChannel.Blue
-                ? D3D12HairHighlightChannel.Alpha : D3D12HairHighlightChannel.Blue };
+            var changed = T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel == "Blue" ? "Alpha" : "Blue");
             Render(Map(changed, family), 1, "ExplicitReset", "ExplicitRequest");
             Render(Map(changed with { }, family), 2, "None", "None");
         }
         Render(Map(null, family), 1, "ExplicitReset", "ExplicitRequest");
-        Render(new([family, D3D12SurfaceStyle.Mmd],
+        Render(T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId],
             [new(D3D12CharacterMaterialRole.Hair, .99f, .01f, EyeGeometricShadowStrength: .8f), new()]), 2, "None", "None");
         Render(baseline, 1, "ExplicitReset", "ExplicitRequest");
         Render(baseline, 2, "None", "None");
 
         long submissions = session.Runtime.Submissions;
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Render(frame, Width, Height, gi,
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { HighlightCombinedTextureIndex = 2 }, family)));
+            temporalUpscaling: temporal, surfaceStyles: Map(T8cTestHelpers.StarMcHairBinding(family, 2, 1, channel), family)));
         Assert.Throws<ArgumentOutOfRangeException>(() => session.Render(frame, Width, Height, gi,
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { ShadowCombinedTextureIndex = 2 }, family)));
+            temporalUpscaling: temporal, surfaceStyles: Map(T8cTestHelpers.StarMcHairBinding(family, 0, 2, channel), family)));
         Assert.Equal(submissions, session.Runtime.Submissions);
         Assert.False(session.Runtime.IsRecording);
         Render(baseline, 3, "None", "None");
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(frame, Width, Height, gi,
             (_, _) => throw new OperationCanceledException("Abort unsubmitted Star/Wuthering hair parameters."),
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { HighlightBrightness = 5 }, family)));
+            temporalUpscaling: temporal, surfaceStyles: Map(T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, highlightBrightness: 5), family)));
         Assert.Equal(submissions + 1, session.Runtime.Submissions);
         Assert.False(session.Runtime.IsRecording);
         Render(baseline, 4, "None", "AbortedFrame");
@@ -63,7 +67,7 @@ public sealed class D3D12StarMcHairHistoryTests
         var warm = session.Statistics!;
         for (int i = 0; i < 4; i++)
         {
-            var map = Map(binding with { Intensity = .1f + i * .1f }, family);
+            var map = Map(T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, intensity: .1f + i * .1f), family);
             Render(map, i == 0 ? 6UL : 1UL, i == 0 ? "None" : "ExplicitReset", i == 0 ? "None" : "ExplicitRequest");
             Assert.Equal(warm.ShaderCompilations, session.Statistics!.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, session.Statistics.PipelineCreations);
@@ -76,54 +80,54 @@ public sealed class D3D12StarMcHairHistoryTests
     }
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Alpha)]
+    [InlineData(T8cTestHelpers.StarRailStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Alpha")]
     public void EqualSelectedMasksAndUnusedChannelsStillConservativelyResetActualWholeSceneHistories(
-        D3D12SurfaceStyle family, D3D12HairHighlightChannel channel)
+        string family, string channel)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
         var temporal = NativeAa(session); var gi = Gi();
-        var binding = new D3D12StarMcHairBinding(0, 1, channel);
+        var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel);
         var map = Map(binding, family);
         var initial = Frame(Texture(), Texture("shadow owner"));
         var newOwner = Frame(Texture("new highlight owner"), Texture("new shadow owner"));
-        var unusedHighlight = channel == D3D12HairHighlightChannel.Blue
+        var unusedHighlight = channel == "Blue"
             ? Texture(r: 0, g: 240, a: 0) : Texture(r: 0, g: 240, b: 0);
         var unusedChannels = Frame(unusedHighlight, Texture(g: 240, b: 0, a: 0));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(newOwner)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(unusedChannels)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(newOwner)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(unusedChannels)));
         AssertHistories(session, initial, map, temporal, gi, 1, "FirstFrame", "FirstFrame");
         AssertHistories(session, initial, Map(binding with { }, family), temporal, gi, 2, "None", "None");
-        // Detached surface equality consumes selected B/A and R only. The established
-        // full SceneTexture identity contract remains conservative for actual AA/GI.
+        // Same RGBA with a new SceneTexture owner keeps plugin resolved bytes equal while resetting whole-scene AA/GI.
         AssertHistories(session, newOwner, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
         AssertHistories(session, newOwner, Map(binding with { }, family), temporal, gi, 2, "None", "None");
-        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
+        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         AssertHistories(session, unusedChannels, map, temporal, gi, 2, "None", "None");
-        var changedHighlight = Frame(channel == D3D12HairHighlightChannel.Blue ? Texture(b: 0) : Texture(a: 0), Texture());
+        var changedHighlight = Frame(channel == "Blue" ? Texture(b: 0) : Texture(a: 0), Texture());
         AssertHistories(session, changedHighlight, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         AssertHistories(session, changedHighlight, map, temporal, gi, 2, "None", "None");
-        var changedShadow = Frame(channel == D3D12HairHighlightChannel.Blue ? Texture(b: 0) : Texture(a: 0), Texture(r: 32));
+        var changedShadow = Frame(channel == "Blue" ? Texture(b: 0) : Texture(a: 0), Texture(r: 32));
         AssertHistories(session, changedShadow, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         AssertHistories(session, changedShadow, map, temporal, gi, 2, "None", "None");
     }
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Blue)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, D3D12HairHighlightChannel.Alpha)]
+    [InlineData(T8cTestHelpers.StarRailStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Blue")]
+    [InlineData(T8cTestHelpers.WutheringStyleId, "Alpha")]
     public void AbortedMaskAndScalarEditsRetainTheSuccessfulKeyAndRetryMatchesFreshOutput(
-        D3D12SurfaceStyle family, D3D12HairHighlightChannel channel)
+        string family, string channel)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
         var temporal = NativeAa(session); var gi = Gi();
         var frame = Frame(Texture(), Texture());
-        var changedFrame = Frame(channel == D3D12HairHighlightChannel.Blue ? Texture(b: 0) : Texture(a: 0), Texture(r: 32));
-        var binding = new D3D12StarMcHairBinding(0, 1, channel);
-        var map = Map(binding, family); var changed = Map(binding with { HighlightBrightness = -1 }, family);
+        var changedFrame = Frame(channel == "Blue" ? Texture(b: 0) : Texture(a: 0), Texture(r: 32));
+        var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel);
+        var map = Map(binding, family);
+        var changed = Map(T8cTestHelpers.StarMcHairBinding(family, 0, 1, channel, highlightBrightness: -1), family);
         AssertHistories(session, frame, map, temporal, gi, 1, "FirstFrame", "FirstFrame");
         AssertHistories(session, frame, map, temporal, gi, 2, "None", "None");
         long submissions = session.Runtime.Submissions;
@@ -181,8 +185,9 @@ public sealed class D3D12StarMcHairHistoryTests
         return new() { Mode = D3D12TemporalUpscalingMode.Fsr, QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12StarMcHairBinding? binding, D3D12SurfaceStyle family)
-        => new([family, D3D12SurfaceStyle.Mmd], [new(D3D12CharacterMaterialRole.Hair, StarMcHair: binding), new()]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding, string family)
+        => T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId],
+            [T8cTestHelpers.MaterialWithBinding(family, binding, D3D12CharacterMaterialRole.Hair), new()]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 31, MaxRayDistance: 30, RayEpsilon: .001f,

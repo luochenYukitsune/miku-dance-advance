@@ -175,6 +175,106 @@ public partial class EditorWindow
         }
     }
 
+    private async void EnableMissingStylePlugin(object? sender, RoutedEventArgs args)
+    {
+        if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell) return;
+        if (shell.StyleInspector.MissingStyleId is not { } missingId) return;
+        _committingStyle = true;
+        try
+        {
+            shell.StopPlayback();
+            shell.SynchronizePendingScrub();
+            if (!CommitPendingInlineLighting()) return;
+            if (!await CheckPoseDraftsAsync()) return;
+            var outcome = await shell.StyleInspector.EnableMissingStylePluginAsync();
+            if (!outcome.Succeeded)
+            {
+                string diag = outcome.Diagnostic ?? Text("Mda.Text.Plugins.Failed");
+                shell.StyleInspector.ReportStatus(diag);
+                shell.OperationStatus = diag;
+                return;
+            }
+
+            string applied = Format("Mda.Text.Context.Inspector.Style.PluginEnabledApplied", missingId);
+            shell.OnPluginsChanged();
+            shell.StyleInspector.ReportStatus(applied);
+            shell.OperationStatus = applied;
+        }
+        catch (Exception error)
+        {
+            shell.StyleInspector.ReportStatus(error.Message);
+            await ShowErrorAsync(error);
+        }
+        finally
+        {
+            _committingStyle = false;
+        }
+    }
+
+    private async void OpenStyleReplacementDialog(object? sender, RoutedEventArgs args)
+    {
+        if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell) return;
+        _committingStyle = true;
+        try
+        {
+            shell.StopPlayback();
+            shell.SynchronizePendingScrub();
+            if (!CommitPendingInlineLighting()) return;
+            if (!await CheckPoseDraftsAsync()) return;
+            bool applied = await EditorStyleReplacementDialog.ShowAsync(this, shell.Workspace, shell.PluginService);
+            shell.OnPluginsChanged();
+            if (applied)
+            {
+                string message = Text("Mda.Text.StyleReplacement.AppliedStatus");
+                shell.StyleInspector.ReportStatus(message);
+                shell.OperationStatus = message;
+            }
+        }
+        catch (Exception error)
+        {
+            shell.StyleInspector.ReportStatus(error.Message);
+            await ShowErrorAsync(error);
+        }
+        finally
+        {
+            _committingStyle = false;
+        }
+    }
+
+    private async void ToggleGuessMaterialRoles(object? sender, RoutedEventArgs args)
+    {
+        if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell) return;
+        bool nextValue = (sender as CheckBox)?.IsChecked ?? !shell.Workspace.GuessMaterialRoles;
+        if (nextValue == shell.Workspace.GuessMaterialRoles) return;
+        _committingStyle = true;
+        try
+        {
+            shell.StopPlayback();
+            shell.SynchronizePendingScrub();
+            if (!CommitPendingInlineLighting()) return;
+            if (!await CheckPoseDraftsAsync()) return;
+            if (shell.Workspace.SetGuessMaterialRoles(nextValue))
+            {
+                string message = Text("Mda.Text.Context.Inspector.Style.GuessRolesUpdated");
+                shell.RefreshInspectorPages();
+                shell.StyleInspector.ReportStatus(message);
+                shell.OperationStatus = message;
+            }
+        }
+        catch (Exception error)
+        {
+            shell.StyleInspector.ReportStatus(error.Message);
+            await ShowErrorAsync(error);
+        }
+        finally
+        {
+            _committingStyle = false;
+            shell.RefreshInspectorPages();
+            if (sender is CheckBox box)
+                box.IsChecked = shell.Workspace.GuessMaterialRoles;
+        }
+    }
+
     /// <summary>Opens the existing model-properties window on its material tab, focused on the page's row.</summary>
     private async void EditSelectedMaterial(object? sender, RoutedEventArgs args)
     {

@@ -14,20 +14,22 @@ public sealed class D3D12StarRailViewTests : IDisposable
     private readonly string directory = Path.Combine(
         Environment.GetEnvironmentVariable("MMD_STYLE_PRESET_TEST_ROOT")
             ?? Path.Combine(AppContext.BaseDirectory, "style-preset-tests"), Guid.NewGuid().ToString("N"));
-    private static D3D12StylePresetCatalog Catalog => D3D12StylePresetCatalog.BuiltIn;
+    private static D3D12StylePresetCatalog Catalog => TestStylePlugins.AllPresetCatalog;
+    private static D3D12ViewStyleCatalog ViewCatalog => TestStylePlugins.AllViewCatalog;
 
     [Fact]
-    public void CatalogExposesBoundedStarRailSurfaceWithoutClaimingSpecializedMapsOrAdjustableSpecular()
+    public void CatalogExposesStarRailStylePluginAndSupportedSiblingStyles()
     {
         var style = Catalog.Find("star-rail");
         Assert.True(style.IsAvailable);
         Assert.Equal("star-rail", style.Definition!.PipelineId);
         Assert.Equal(1, style.Definition.SchemaVersion);
-        Assert.Contains("ordinary PMX basic body", style.Diagnostic);
-        Assert.Contains("character-only", style.Diagnostic);
-        Assert.Contains("fixed 0.45-0.55 band", style.Diagnostic);
-        foreach (string input in new[] { "FaceSDF", "LightMap", "MatCap", "ramp-texture", "not implemented" })
-            Assert.Contains(input, style.Diagnostic);
+        var plugin = ViewCatalog.FindStyle("star-rail");
+        Assert.NotNull(plugin);
+        var description = plugin!.Description!.Resolve("en");
+        Assert.Contains("ordinary PMX", description);
+        Assert.Contains("FaceSDF", description);
+        Assert.Contains("StarMcBody", description);
         Assert.True(Catalog.Find("wuthering-waves").IsAvailable);
         Assert.True(Catalog.Find("endfield").IsAvailable);
     }
@@ -38,9 +40,9 @@ public sealed class D3D12StarRailViewTests : IDisposable
         var source = Frame();
         SceneRenderingStyleBinding[] bindings = [Binding(2, 1, "star-rail"), Binding(0, 1, "mmd"), Binding(1, 1, "genshin")];
         var original = source.Materials.ToArray();
-        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, bindings);
-        Assert.Equal(new[] { D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx },
-            result.SurfaceStyles.Materials);
+        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, bindings, styleCatalog: ViewCatalog);
+        Assert.Equal(new[] { T8cTestHelpers.MmdStyleId, T8cTestHelpers.GenshinStyleId, T8cTestHelpers.StarRailStyleId },
+            result.SurfaceStyles.StyleIds);
         Assert.Same(source.Surface, result.Scene.Surface);
         Assert.Same(source.Options, result.Scene.Options);
         Assert.Equal(original, source.Materials);
@@ -49,8 +51,8 @@ public sealed class D3D12StarRailViewTests : IDisposable
         Assert.All(result.Scene.Materials.Skip(1), material => Assert.Equal(new CharacterToonResponse(), material.CharacterToonResponse));
         Assert.Equal(2, result.Diagnostics.Count);
         bindings[0] = bindings[0] with { Preset = new("mmd") };
-        Assert.Equal(D3D12SurfaceStyle.StarRailPmx, result.SurfaceStyles.Materials[2]);
-        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, bindings).IsAvailable);
+        Assert.Equal(T8cTestHelpers.StarRailStyleId, result.SurfaceStyles.StyleIds[2]);
+        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, bindings, styleCatalog: ViewCatalog).IsAvailable);
     }
 
     [Fact]
@@ -58,26 +60,27 @@ public sealed class D3D12StarRailViewTests : IDisposable
     {
         var source = Frame();
         SceneRenderingStyleBinding[] objects = [Binding(0, 1, "mmd"), Binding(1, 1, "genshin"), Binding(2, 1, "star-rail")];
-        var inputs = objects.Select((item, index) => new D3D12ViewCharacterMaterialBinding(item.ObjectId, 0,
-            new(D3D12CharacterMaterialRole.Face, .2f + index * .1f, .3f + index * .1f))).ToArray();
-        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs);
+        var inputs = objects.Select((item, index) => new D3D12ViewCharacterMaterial(
+            item.ObjectId, 0, D3D12CharacterMaterialRole.Face,
+            FaceNormalShadeStrength: .2f + index * .1f, FaceGeometricShadowStrength: .3f + index * .1f)).ToArray();
+        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs, styleCatalog: ViewCatalog);
         Assert.Equal(1f, result.SurfaceStyles.EffectiveNormalShadeStrength(0));
         Assert.Equal(1f, result.SurfaceStyles.EffectiveGeometricShadowStrength(0));
-        Assert.Equal(inputs[1].Style.FaceNormalShadeStrength, result.SurfaceStyles.EffectiveNormalShadeStrength(1));
-        Assert.Equal(inputs[1].Style.FaceGeometricShadowStrength, result.SurfaceStyles.EffectiveGeometricShadowStrength(1));
-        Assert.Equal(inputs[2].Style.FaceNormalShadeStrength, result.SurfaceStyles.EffectiveNormalShadeStrength(2));
-        Assert.Equal(inputs[2].Style.FaceGeometricShadowStrength, result.SurfaceStyles.EffectiveGeometricShadowStrength(2));
+        Assert.Equal(inputs[1].FaceNormalShadeStrength, result.SurfaceStyles.EffectiveNormalShadeStrength(1));
+        Assert.Equal(inputs[1].FaceGeometricShadowStrength, result.SurfaceStyles.EffectiveGeometricShadowStrength(1));
+        Assert.Equal(inputs[2].FaceNormalShadeStrength, result.SurfaceStyles.EffectiveNormalShadeStrength(2));
+        Assert.Equal(inputs[2].FaceGeometricShadowStrength, result.SurfaceStyles.EffectiveGeometricShadowStrength(2));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles,
-            new(result.SurfaceStyles.Materials, result.SurfaceStyles.CharacterMaterials)
+            new(result.SurfaceStyles.StyleIds, result.SurfaceStyles.CharacterMaterials, Catalog)
             { StylizedRoles = result.SurfaceStyles.StylizedRoles }));
-        inputs[2] = inputs[2] with { Style = inputs[2].Style with { FaceGeometricShadowStrength = .75f } };
-        var changed = D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs);
+        inputs[2] = inputs[2] with { FaceGeometricShadowStrength = .75f };
+        var changed = D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs, styleCatalog: ViewCatalog);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles, changed.SurfaceStyles));
-        inputs[2] = inputs[2] with { Style = inputs[2].Style with { FaceGeometricShadowStrength = .5f, FaceNormalShadeStrength = .8f } };
+        inputs[2] = inputs[2] with { FaceGeometricShadowStrength = .5f, FaceNormalShadeStrength = .8f };
         Assert.False(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles,
-            D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs).SurfaceStyles));
+            D3D12ViewRenderingStyles.Resolve(source, Catalog, objects, inputs, styleCatalog: ViewCatalog).SurfaceStyles));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(result.SurfaceStyles,
-            new([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx],
+            T8cTestHelpers.CreateDirectMap([T8cTestHelpers.MmdStyleId, T8cTestHelpers.GenshinStyleId, T8cTestHelpers.GenshinStyleId],
                 result.SurfaceStyles.CharacterMaterials)));
     }
 
@@ -89,14 +92,13 @@ public sealed class D3D12StarRailViewTests : IDisposable
     {
         var source = Frame();
         var binding = Binding(0, 3, "star-rail") with { Role = role };
-        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, [binding]);
+        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, [binding], styleCatalog: ViewCatalog);
         Assert.Same(source, result.Scene);
         Assert.True(result.SurfaceStyles.IsDefault);
         string diagnostic = Assert.Single(result.Diagnostics);
         Assert.Contains(binding.ObjectId.ToString("D"), diagnostic);
         Assert.Contains("keeps the MMD surface", diagnostic);
-        Assert.Contains("character-only", diagnostic);
-        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, [binding]).IsAvailable);
+        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, [binding], styleCatalog: ViewCatalog).IsAvailable);
     }
 
     [Fact]
@@ -105,15 +107,15 @@ public sealed class D3D12StarRailViewTests : IDisposable
         var source = Frame();
         var visible = Binding(0, 3, "mmd");
         var hidden = Binding(3, 0, "star-rail") with { Visible = false };
-        D3D12ViewCharacterMaterialBinding[] materials = [new(hidden.ObjectId, 100, new(D3D12CharacterMaterialRole.Face))];
-        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, [visible, hidden], materials).IsAvailable);
-        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, [visible, hidden], materials);
+        D3D12ViewCharacterMaterial[] materials = [new(hidden.ObjectId, 100, D3D12CharacterMaterialRole.Face)];
+        Assert.True(D3D12ViewRenderingStyles.Preflight(source, Catalog, [visible, hidden], materials, styleCatalog: ViewCatalog).IsAvailable);
+        var result = D3D12ViewRenderingStyles.Resolve(source, Catalog, [visible, hidden], materials, styleCatalog: ViewCatalog);
         Assert.True(result.SurfaceStyles.IsDefault);
         Assert.Contains(result.Diagnostics, text => text.Contains("Hidden") && text.Contains(hidden.ObjectId.ToString("D")));
         Assert.All(result.SurfaceStyles.CharacterMaterials, material => Assert.Equal(D3D12CharacterMaterialRole.Body, material.Role));
         var nowVisible = hidden with { MaterialStart = 2, MaterialCount = 1, Visible = true };
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(source, Catalog,
-            [visible with { MaterialCount = 2 }, nowVisible], materials));
+            [visible with { MaterialCount = 2 }, nowVisible], materials, styleCatalog: ViewCatalog));
     }
 
     [Fact]
@@ -123,7 +125,7 @@ public sealed class D3D12StarRailViewTests : IDisposable
         var first = store.SaveAsNew(Catalog.Find("star-rail").Definition!, "Star Rail ordinary PMX");
         byte[] before = File.ReadAllBytes(Path.Combine(directory, first.StableId + ".json"));
         var second = store.SaveAsNew("Different diffuse response", "star-rail", new(.22f), new(.7f, .18f));
-        var reloaded = new D3D12StylePresetStore(directory).Load();
+        var reloaded = new D3D12StylePresetStore(directory).Load(ViewCatalog.Registrations);
         var actual = reloaded.Find(second.StableId);
         Assert.True(actual.IsAvailable);
         Assert.Equal("star-rail", actual.Definition!.PipelineId);
@@ -131,8 +133,8 @@ public sealed class D3D12StarRailViewTests : IDisposable
         Assert.Equal(1, actual.Definition.SchemaVersion);
         Assert.NotEqual(first.StableId, second.StableId);
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(directory, first.StableId + ".json")));
-        var result = D3D12ViewRenderingStyles.Resolve(Frame(), reloaded, [Binding(0, 3, second.StableId)]);
-        Assert.All(result.SurfaceStyles.Materials, material => Assert.Equal(D3D12SurfaceStyle.StarRailPmx, material));
+        var result = D3D12ViewRenderingStyles.Resolve(Frame(), reloaded, [Binding(0, 3, second.StableId)], styleCatalog: ViewCatalog);
+        Assert.All(result.SurfaceStyles.StyleIds, material => Assert.Equal(T8cTestHelpers.StarRailStyleId, material));
         Assert.All(result.Scene.Materials, material => Assert.Equal(second.CharacterToonResponse, material.CharacterToonResponse));
     }
 
@@ -144,7 +146,7 @@ public sealed class D3D12StarRailViewTests : IDisposable
         var store = new D3D12StylePresetStore(directory);
         var style = store.SaveAsNew("Original material parameters", "star-rail", null, null);
         Assert.Throws<NotSupportedException>(() => D3D12ViewRenderingStyles.Resolve(legacy,
-            store.Load(), [Binding(0, 3, style.StableId)]));
+            store.Load(ViewCatalog.Registrations), [Binding(0, 3, style.StableId)], styleCatalog: ViewCatalog));
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -159,13 +161,13 @@ public sealed class D3D12StarRailViewTests : IDisposable
         { RenderingStyles = bindings };
         var defaults = Array.AsReadOnly(objects.Select(item => item with { Preset = new("mmd") }).ToArray());
         var token = TestContext.Current.CancellationToken;
-        await using var renderer = new D3D12ViewRenderer(request);
+        await using var renderer = new D3D12ViewRenderer(request, stylePresets: Catalog, styleCatalog: ViewCatalog);
         Assert.False(renderer.IsWarp);
         using var baseline = await renderer.CaptureAsync(At(0, defaults), token);
         using var mixed = await renderer.CaptureAsync(At(1, Array.AsReadOnly(objects)), token);
         var viewScene = D3D12ViewScene.Resolve(source, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality);
-        var expected = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, objects);
+        var expected = D3D12ViewRenderingStyles.Resolve(viewScene, Catalog, objects, styleCatalog: ViewCatalog);
         using (var direct = new D3D12FrameSession())
             Assert.Equal(direct.Capture(expected.Scene, width, height, surfaceStyles: expected.SurfaceStyles).Rgba, mixed.Pixels.ToArray());
         // Derive the unchanged object's screen range from its actual vertices. This
@@ -204,13 +206,14 @@ public sealed class D3D12StarRailViewTests : IDisposable
         var binding = Binding(0, 3, "star-rail");
         var store = new D3D12StylePresetStore(directory);
         var darker = store.SaveAsNew("Later one-sided ramp", "star-rail", new(), new(.7f, .1f));
+        var presets = store.Load(ViewCatalog.Registrations);
         var request = new ViewRenderRequest(width, height);
         var plan = new OfflineFramePlan(width, height, new(30), 0, 3);
         OfflineFrame At(int index, string id) => new(plan.GetSample(index), width, height, source, null, null, null)
         { RenderingStyles = Array.AsReadOnly(new[] { binding with { Preset = new(id) } }) };
-        D3D12ViewCharacterMaterialBinding[] face = [new(binding.ObjectId, 1, new(D3D12CharacterMaterialRole.Face, .35f, .35f))];
+        D3D12ViewCharacterMaterial[] face = [new(binding.ObjectId, 1, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .35f, FaceGeometricShadowStrength: .35f)];
         var token = TestContext.Current.CancellationToken;
-        await using var renderer = new D3D12ViewRenderer(request, stylePresets: store.Load(), characterMaterials: face);
+        await using var renderer = new D3D12ViewRenderer(request, stylePresets: presets, characterMaterials: face, styleCatalog: ViewCatalog);
         using var original = await renderer.CaptureAsync(At(0, "star-rail"), token);
         using var dark = await renderer.CaptureAsync(At(1, darker.StableId), token);
         int center = (height / 2 * width + width / 2) * 4;
@@ -219,10 +222,10 @@ public sealed class D3D12StarRailViewTests : IDisposable
         Assert.True(original.Pixels.Span[bodyPixel] > dark.Pixels.Span[bodyPixel] + 20);
         var viewScene = D3D12ViewScene.Resolve(source, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality);
-        var resolved = D3D12ViewRenderingStyles.Resolve(viewScene, store.Load(), [binding], face);
+        var resolved = D3D12ViewRenderingStyles.Resolve(viewScene, presets, [binding], face, styleCatalog: ViewCatalog);
         using var direct = new D3D12FrameSession();
         Assert.Equal(direct.Capture(resolved.Scene, width, height, surfaceStyles: resolved.SurfaceStyles).Rgba, original.Pixels.ToArray());
-        var body = D3D12ViewRenderingStyles.Resolve(viewScene, store.Load(), [binding]);
+        var body = D3D12ViewRenderingStyles.Resolve(viewScene, presets, [binding], styleCatalog: ViewCatalog);
         byte[] bodyPixels = direct.Capture(body.Scene, width, height, surfaceStyles: body.SurfaceStyles).Rgba;
         Assert.True(original.Pixels.Span[center] > bodyPixels[center] + 10);
         var before = renderer.Statistics;
@@ -244,7 +247,9 @@ public sealed class D3D12StarRailViewTests : IDisposable
             { RenderingStyles = Array.AsReadOnly(objects) };
             var token = TestContext.Current.CancellationToken;
             await using var renderer = new D3D12RealtimeViewRenderer(window, new(96, 72),
-                characterMaterials: [new(objects[2].ObjectId, 0, new(D3D12CharacterMaterialRole.Face, .35f, .35f))]);
+                stylePresets: Catalog,
+                characterMaterials: [new(objects[2].ObjectId, 0, D3D12CharacterMaterialRole.Face, FaceNormalShadeStrength: .35f, FaceGeometricShadowStrength: .35f)],
+                styleCatalog: ViewCatalog);
             await renderer.PresentAsync(frame, token);
             var before = renderer.Statistics;
             var invalid = frame with { RenderingStyles = Array.AsReadOnly(objects.Append(

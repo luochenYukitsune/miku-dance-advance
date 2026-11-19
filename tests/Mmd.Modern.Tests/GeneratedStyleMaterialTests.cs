@@ -38,9 +38,10 @@ public sealed class GeneratedStyleMaterialTests
             Assert.NotEqual(first.ManifestBytes, edited.ManifestBytes);
             Assert.Equal(first.ManifestBytes, restored.ManifestBytes);
             Assert.Equal(edited.ManifestBytes, D3D12GeneratedStyleMaterialPreparation.Restore(edited.SourceRest, edited.Profile, edited.ManifestBytes).ManifestBytes);
-            var mmd = D3D12MaterialBindingProfileResolver.Resolve(edited.Profile, edited.SourceRest, Guid.NewGuid(), "mmd");
-            Assert.Empty(mmd.StarMcBodyBindings); Assert.Empty(mmd.EndfieldMatcapBindings);
-            Assert.Empty(mmd.GenshinHairAtlasBindings); Assert.Empty(mmd.GenshinMetallicBindings);
+            var mmd = D3D12MaterialBindingProfileResolver.Resolve(edited.Profile, edited.SourceRest, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog);
+            Assert.Empty(mmd.PluginBindings);
+            var active = D3D12MaterialBindingProfileResolver.Resolve(edited.Profile, edited.SourceRest, Guid.NewGuid(), pipeline, TestStylePlugins.AllViewCatalog);
+            Assert.Single(active.PluginBindings);
             Assert.Equal(new byte[] { 80, 120, 160, 255 }, source.Surface.Snapshot.Textures[0].Rgba.ToArray());
         }
     }

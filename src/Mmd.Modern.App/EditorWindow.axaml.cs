@@ -75,6 +75,7 @@ public partial class EditorWindow : Window
             _shell.SceneInspector.CameraPoseChanged -= PreviewCamera;
             _shell.SceneInspector.LightPoseChanged -= PreviewLight;
             DetachLoadingState(_shell);
+            _shell.AttachPluginService(null);
         }
         if (lightController is not null) lightController.Changed -= LightToolsChanged;
         _shell = shell;
@@ -124,6 +125,7 @@ public partial class EditorWindow : Window
             }
         }
         else if (_recoveryEnabled) ApplyPreferences(_preferences);
+        if (Plugins is not null) _shell.AttachPluginService(Plugins);
         ApplyTheme(_shell);
         RefreshViewport(this, EventArgs.Empty);
     }
@@ -201,11 +203,19 @@ public partial class EditorWindow : Window
         viewport.EmptyCamera = shell.Camera;
         viewport.ShowWorldGuides = shell.ShowWorldGuides;
         viewport.SetLightPose(shell.SceneInspector.HasLightDraft ? shell.SceneInspector.LightPose : null);
-        if (_mappedRevision != shell.ContentRevision || !ReferenceEquals(_mappedSession, shell.Workspace.Session))
+        if (_mappedRevision != shell.ContentRevision || _mappedBindingRevision != shell.RenderBindingRevision || !ReferenceEquals(_mappedSession, shell.Workspace.Session))
         {
             if (_mappedBindingRevision != shell.RenderBindingRevision || !ReferenceEquals(_mappedSession, shell.Workspace.Session))
             {
-                viewport.SetRenderBinding(shell.Workspace.CaptureRenderBinding());
+                try
+                {
+                    viewport.SetRenderBinding(shell.Workspace.CaptureRenderBinding());
+                }
+                catch (NotSupportedException error)
+                {
+                    viewport.SetRenderBinding(shell.Workspace.RenderEngine.EmptyBinding);
+                    shell.ReportActivityFailure(error, previewUnavailable: true);
+                }
                 _mappedBindingRevision = shell.RenderBindingRevision;
             }
             _mappedRevision = shell.ContentRevision; _mappedSession = shell.Workspace.Session;

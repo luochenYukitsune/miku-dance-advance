@@ -57,7 +57,7 @@ public partial class EditorModelPropertiesWindow : Window
     private void ApplyProperties(object? sender, RoutedEventArgs args)
     {
         if (browsing) return;
-        if (this.GetVisualDescendants().OfType<Control>().Any(control => control.IsEffectivelyEnabled && DataValidationErrors.GetHasErrors(control)))
+        if (this.GetVisualDescendants().OfType<Control>().Any(control => control.IsEffectivelyEnabled && control.IsEffectivelyVisible && DataValidationErrors.GetHasErrors(control)))
         { SetValidationMessage("请先修正标出的输入值，再应用属性。"); return; }
         if (HasUnloadedJson)
         { SetValidationMessage("JSON 有尚未载入的修改，请先点“载入 JSON 草稿”，或“刷新为当前草稿”放弃这些文本修改。"); return; }
@@ -76,6 +76,27 @@ public partial class EditorModelPropertiesWindow : Window
     {
         try { ViewModel.CaptureBoneBasis(workspace?.Session ?? throw Error("当前工程已关闭。")); }
         catch (Exception error) when (IsExpected(error)) { SetValidationError(error); }
+    }
+
+    private void SampleModeBoneBasis(object? sender, RoutedEventArgs args)
+    {
+        try
+        {
+            var modeItem = (sender as Control)?.DataContext as EditorStyleModeItem;
+            ViewModel.CaptureBoneBasis(workspace?.Session ?? throw Error("当前工程已关闭。"), modeItem);
+        }
+        catch (Exception error) when (IsExpected(error)) { SetValidationError(error); }
+    }
+
+    private void ResetStyleMode(object? sender, RoutedEventArgs args)
+    {
+        if ((sender as Control)?.DataContext is EditorStyleModeItem modeItem)
+            modeItem.ResetToDefaults();
+    }
+
+    private void ResetPmxTreatment(object? sender, RoutedEventArgs args)
+    {
+        ViewModel.SelectedMaterial?.ResetPmxTreatment();
     }
 
     private void RefreshJson(object? sender, RoutedEventArgs args)

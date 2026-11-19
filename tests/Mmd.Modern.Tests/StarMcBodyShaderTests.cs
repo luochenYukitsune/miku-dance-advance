@@ -9,19 +9,18 @@ public sealed class StarMcBodyShaderTests
 {
     public static IEnumerable<object[]> Variants()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx })
-        foreach (var variant in D3D12GenshinSurfaceTests.SurfaceVariants())
+        foreach (var family in new[] { T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId })
+        foreach (var variant in T8cTestHelpers.SurfaceVariants())
             yield return [family, .. variant];
     }
 
     [Theory, MemberData(nameof(Variants))]
     public void MappedBodyAndSharedHairCompileForNativeGiMorphAndSubTexture(
-        D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub)
+        string family, string entry, bool native, bool gi, bool morph, bool sub)
     {
-        var code = OriginalFrameShaders.CompileStarMcBodySurface(family, entry, native, gi, morph, sub);
+        var code = T8cTestHelpers.CompilePluginSurface(family, "body", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, code[..4]);
-        var vertexCode = sub ? OriginalFrameShaders.CompileSubTexture("VSSurface", true, native, gi)
-            : OriginalFrameShaders.Compile("VSSurface", true);
+        var vertexCode = T8cTestHelpers.CompilePluginVertex(family, "body", native, gi, sub);
         using var vertex = Compiler.Reflect<ID3D12ShaderReflection>(vertexCode);
         using var pixel = Compiler.Reflect<ID3D12ShaderReflection>(code);
         foreach (var input in pixel.InputParameters)
@@ -36,7 +35,10 @@ public sealed class StarMcBodyShaderTests
         }
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.Mmd), InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    public void UnsupportedFamilyFailsBeforeCompilation(D3D12SurfaceStyle family)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => OriginalFrameShaders.StarMcBodySurfaceSource(family, "PSSurface", false, false, false, false));
+    [Fact]
+    public void UnsupportedFamilyFailsBeforeCompilation()
+    {
+        Assert.Throws<KeyNotFoundException>(() => T8cTestHelpers.GetD3D12ShaderModule(T8cTestHelpers.MmdStyleId, "body"));
+        Assert.Throws<InvalidOperationException>(() => T8cTestHelpers.CompilePluginSurface(T8cTestHelpers.GenshinStyleId, "body", "PSSurface", false, false, false, false));
+    }
 }

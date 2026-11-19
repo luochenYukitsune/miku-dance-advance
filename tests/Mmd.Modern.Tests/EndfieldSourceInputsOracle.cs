@@ -1,5 +1,4 @@
 using System.Numerics;
-using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.Tests;
 
@@ -24,7 +23,7 @@ internal static class EndfieldSourceInputsOracle
         return 1-(power==0?1:MathF.Pow(d,power));
     }
 
-    internal static float DirectionalQ(Vector3 normal,D3D12EndfieldDirectionalShadowBinding b)
+    internal static float DirectionalQ(Vector3 normal,EndfieldDirectionalShadowSpec b)
     {
         float input=Vector3.Dot(normal,b.WorldDirection)*.5f+.5f;
         float subtract=b.Width-.5f;
@@ -40,7 +39,7 @@ internal static class EndfieldSourceInputsOracle
         return m*(1-f)+m*m*f;
     }
 
-    internal static Vector3 Evaluate(D3D12EndfieldBaseImageBinding binding,bool front,
+    internal static Vector3 Evaluate(EndfieldBaseImageSpec binding,bool front,
         Vector3 geometric,Vector3 perturbed,Vector3 incoming,Vector3? sampledBase=null,float? sampledDetail=null,float? sampledQ=null)
     {
         Vector3 x=sampledBase??binding.BaseImageLinearRgb;

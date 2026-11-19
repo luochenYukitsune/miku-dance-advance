@@ -9,13 +9,13 @@ namespace Mmd.Modern.Tests;
 public sealed class D3D12FaceGeometricShadeTests
 {
     private const int Width = 129, Height = 97;
-    private static readonly D3D12SurfaceStyle[] Families =
-        [D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd];
+    private static readonly string[] Families =
+        [T8cTestHelpers.GenshinStyleId, T8cTestHelpers.GenshinStyleId, T8cTestHelpers.MmdStyleId];
 
     [Fact]
     public void OnlyExplicitGenshinFaceConsumesGeometricStrengthAndEqualityUsesConsumedValues()
     {
-        var body = new D3D12SurfaceStyleMap(Families);
+        var body = T8cTestHelpers.CreateDirectMap(Families);
         var faceOne = Map(1);
         var face = Map(.35f);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(body, faceOne));
@@ -28,7 +28,7 @@ public sealed class D3D12FaceGeometricShadeTests
         Assert.Equal(1, face.EffectiveGeometricShadowStrength(2));
         Assert.Throws<ArgumentOutOfRangeException>(() => face.EffectiveGeometricShadowStrength(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => face.EffectiveGeometricShadowStrength(face.Count));
-        var mmd = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd],
+        var mmd = T8cTestHelpers.CreateDirectMap([T8cTestHelpers.MmdStyleId],
             [new(D3D12CharacterMaterialRole.Face, FaceGeometricShadowStrength: 0)]);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(mmd, null));
         Assert.Equal(1, new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face).FaceGeometricShadowStrength);
@@ -52,7 +52,7 @@ public sealed class D3D12FaceGeometricShadeTests
     {
         using var session = new D3D12FrameSession();
         var frame = Fixture();
-        var plainMap = new D3D12SurfaceStyleMap(Families);
+        var plainMap = T8cTestHelpers.CreateDirectMap(Families);
         var original = session.Capture(frame, Width, Height, surfaceStyles: plainMap);
         var selected = session.Capture(frame, Width, Height, surfaceStyles: Map(.35f));
         var face = Project(frame, new(-.9f, 0, 0));
@@ -142,11 +142,11 @@ public sealed class D3D12FaceGeometricShadeTests
     }
 
     private static D3D12SurfaceStyleMap Map(float geometry, float unusedBody = 1)
-        => new(Families, [new(D3D12CharacterMaterialRole.Face, 1, geometry),
+        => T8cTestHelpers.CreateDirectMap(Families, [new(D3D12CharacterMaterialRole.Face, 1, geometry),
             new(FaceGeometricShadowStrength: unusedBody), new(D3D12CharacterMaterialRole.Face, 0, 0)]);
 
     private static D3D12SurfaceStyleMap FaceMap(float normal, float geometry)
-        => new(Families, [new(D3D12CharacterMaterialRole.Face, normal, geometry), new(), new()]);
+        => T8cTestHelpers.CreateDirectMap(Families, [new(D3D12CharacterMaterialRole.Face, normal, geometry), new(), new()]);
 
     private static OriginalFrameScene Fixture(bool partial = false, bool subTexture = false, Vector3? specular = null)
     {

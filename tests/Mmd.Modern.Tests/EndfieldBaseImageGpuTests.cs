@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -13,18 +14,18 @@ public sealed class EndfieldBaseImageGpuTests
     private const int W = 97, H = 97;
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2.6f, .1f, 30);
     private static readonly Vector3 Cpre = new(.22f, .16f, .10f);
-    private static readonly D3D12EndfieldMatcapBinding Matcap = new(0, 1, 2,
-        D3D12MatcapColorEncoding.LinearRgb, 0, Cpre, new(.2f, .45f, .12f),
+    private static readonly EndfieldMatcapSpec Matcap = new(0, 1, 2,
+        T8dTestHelpers.EncodingLinearRgb, 0, Cpre, new(.2f, .45f, .12f),
         NormalStrength: 1.7f, HighlightCoefficient: 1, BaselineStrength: .38f, CoupleEndfieldPalette: true);
     // Planar normal incidence and EdgeSize=4 saturate the rim mask to EdgeStrength.
-    private static readonly D3D12EndfieldRimBinding Rim = new(Cpre, new(.8f, .7f, .6f),
+    private static readonly EndfieldRimSpec Rim = new(Cpre, new(.8f, .7f, .6f),
         EdgeSize: 4, EdgeStrength: .16f, RangeStrength: .38f);
     // N=+Z, incoming=-Z, raw seed=+Y => q=1 and clamped radial q=.75.
-    private static readonly D3D12EndfieldHairBinding Hair = new(3, Cpre, -.15f);
-    private static readonly D3D12EndfieldPaletteBinding Palette = new(new(.09f, .07f, .04f),
+    private static readonly EndfieldHairSpec Hair = new(3, Cpre, -.15f);
+    private static readonly EndfieldPaletteSpec Palette = new(new(.09f, .07f, .04f),
         EmissionStrength: 1.5f, UniformEmissionBlue: .65f, LightInfluence: 1, Density: .013f);
 
-    private static readonly D3D12EndfieldBaseImageBinding Base = new(
+    private static readonly EndfieldBaseImageSpec Base = new(
         new(.48f, .39f, .28f), new(.35f, .5f, .7f), new(.52f, .63f, .8f),
         new(.85f, .95f, .9f), ShadowFactor: .27f, WarmTint: .7f, Contrast: .15f,
         Saturation: 1.1f, DetailBlue: .72f, ShadowStrength: .66f);
@@ -38,9 +39,9 @@ public sealed class EndfieldBaseImageGpuTests
         Assert.Equal(.7998046875f, EndfieldBaseImageOracle.SampleLut(0, .5f).X);
         foreach (float q in new[] { -2f, 0f, .25f, .499f, .5f, .751f, 1f, 2f })
         {
-            var palette = Palette with { BaseImage = Base with { ShadowFactor = q, WarmTint = 0 } };
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette));
-            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, palette, 48, 48));
+            var baseImg = Base with { ShadowFactor = q, WarmTint = 0 };
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(Palette, baseImg));
+            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, Palette, baseImg, 48, 48));
             AssertCoverage(plain, actual);
         }
     }
@@ -55,14 +56,14 @@ public sealed class EndfieldBaseImageGpuTests
         var input = Base with { BaseImageLinearRgb = Vector3.One, ColorMultiplier = Vector3.One,
             DetailBlue = 1, Saturation = 1, Contrast = 0, ShadowStrength = 1,
             ShadowFactor = .25f, WarmTint = 0, ShadowColor = new(tint) };
-        var palette = Palette with { BaseImage = input, EmissionStrength = 0, LightInfluence = 0, Density = 0 };
+        var palette = Palette with { EmissionStrength = 0, LightInfluence = 0, Density = 0 };
         var binding = Matcap with { HighlightColor = Vector3.Zero, BaselineStrength = 16 };
         var textures = Textures();
         textures[2] = new("black MatCap RGB with opaque sample", 1, 1, [0, 0, 0, 255]);
         var frame = Frame(textures: textures);
         var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-        var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding));
-        Vector3 correct = Delta(frame.Surface.Snapshot, binding, palette, 48, 48);
+        var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, input, matcap: binding, frame: frame));
+        Vector3 correct = Delta(frame.Surface.Snapshot, binding, palette, input, 48, 48);
         AssertPixel(plain, actual, 48, 48, correct);
         // Direct stops give .65 instead of the sampled half/texel-coordinate result.
         // A signed overlay input near zero and B=16 magnify this into an observable
@@ -92,9 +93,9 @@ public sealed class EndfieldBaseImageGpuTests
         byte[]? below = null, at = null;
         for (int i = 0; i < inputs.Length; i++)
         {
-            var palette = Palette with { BaseImage = inputs[i], EmissionStrength = .3f };
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, true, true));
-            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, palette, 48, 48, true, true));
+            var palette = Palette with { EmissionStrength = .3f };
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, inputs[i], true, true));
+            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, palette, inputs[i], 48, 48, true, true));
             if (i == 1) below = Pixel(actual, 48, 48);
             if (i == 2) at = Pixel(actual, 48, 48);
         }
@@ -109,13 +110,13 @@ public sealed class EndfieldBaseImageGpuTests
         foreach (bool front in new[] { true, false })
         {
             var frame = Frame(front: front);
-            var palette = Palette with { BaseImage = Base with { Contrast = -.7f, ShadowStrength = 0, Saturation = .8f } };
+            var baseImg = Base with { Contrast = -.7f, ShadowStrength = 0, Saturation = .8f };
             // White highlight makes Cmat=Cpre regardless of the front-dependent normal gate;
             // this isolates actual SV_IsFrontFace base squaring from mapped-normal lighting.
             var binding = Matcap with { HighlightColor = Vector3.One };
             var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding));
-            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, binding, palette, 48, 48, front: front));
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(Palette, baseImg, matcap: binding, frame: frame));
+            AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, binding, Palette, baseImg, 48, 48, front: front));
             if (front) frontPixel = Pixel(actual, 48, 48);
             else Assert.NotEqual(frontPixel, Pixel(actual, 48, 48));
             AssertCoverage(plain, actual);
@@ -127,7 +128,8 @@ public sealed class EndfieldBaseImageGpuTests
     {
         using var session = new D3D12FrameSession();
         var binding = Matcap with { UvChannel = 1 };
-        var palette = Palette with { BaseImage = TexturedBase(), EmissionStrength = .5f, Density = .023f };
+        var palette = Palette with { EmissionStrength = .5f, Density = .023f };
+        var baseImg = TexturedBase();
         byte[]? previous = null;
         foreach (float shift in new[] { 0f, .29f })
         {
@@ -138,12 +140,12 @@ public sealed class EndfieldBaseImageGpuTests
             var frame = Replace(source, snapshot);
             Assert.True(snapshot.HasDynamicVertices);
             var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding));
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, baseImg, matcap: binding, frame: frame));
             foreach (int x in new[] { 36, 48, 60 })
-                AssertPixel(plain, actual, x, 44, Delta(snapshot, binding, palette, x, 44));
+                AssertPixel(plain, actual, x, 44, Delta(snapshot, binding, palette, baseImg, x, 44));
             AssertCoverage(plain, actual);
-            Assert.True(Vector3.Distance(Delta(snapshot, binding, palette, 48, 44),
-                Delta(snapshot, binding with { UvChannel = 0 }, palette, 48, 44)) * 255 > 2);
+            Assert.True(Vector3.Distance(Delta(snapshot, binding, palette, baseImg, 48, 44),
+                Delta(snapshot, binding with { UvChannel = 0 }, palette, baseImg, 48, 44)) * 255 > 2);
             if (previous is not null) Assert.NotEqual(previous, Pixel(actual, 48, 44));
             previous = Pixel(actual, 48, 44);
         }
@@ -153,21 +155,20 @@ public sealed class EndfieldBaseImageGpuTests
     public void SameImageColorSrgbAndNumericBlueRedHaveIndependentViewsAndIgnoreAlpha()
     {
         using var session = new D3D12FrameSession();
-        var input = TexturedBase() with { DetailCombinedTextureIndex = 6, ShadowCombinedTextureIndex = 6 };
-        var palette = Palette with { BaseImage = input };
+        var input = TexturedBase() with { DetailSlot = 6, ShadowSlot = 6 };
         var textures = Textures();
         var frame = Frame(textures: textures);
         var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-        var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette));
+        var actual = session.Capture(frame, W, H, surfaceStyles: Map(Palette, input, frame: frame));
         foreach (int x in new[] { 36, 48, 60 })
-            AssertPixel(plain, actual, x, 48, Delta(frame.Surface.Snapshot, Matcap, palette, x, 48));
+            AssertPixel(plain, actual, x, 48, Delta(frame.Surface.Snapshot, Matcap, Palette, input, x, 48));
         byte[] changed = textures[6].Rgba.ToArray();
         for (int i = 3; i < changed.Length; i += 4) changed[i] = (byte)(255 - changed[i]);
         textures[6] = new("same RGB different ignored alpha", 2, 2, changed);
-        Assert.Equal(actual.Rgba, session.Capture(Frame(textures: textures), W, H, surfaceStyles: Map(palette)).Rgba);
-        var incorrect = palette with { BaseImage = input with { BaseEncoding = D3D12MatcapColorEncoding.LinearRgb } };
-        Assert.True(Vector3.Distance(Delta(frame.Surface.Snapshot, Matcap, palette, 48, 48),
-            Delta(frame.Surface.Snapshot, Matcap, incorrect, 48, 48)) * 255 > 3);
+        Assert.Equal(actual.Rgba, session.Capture(Frame(textures: textures), W, H, surfaceStyles: Map(Palette, input)).Rgba);
+        var incorrect = input with { BaseEncoding = T8dTestHelpers.EncodingLinearRgb };
+        Assert.True(Vector3.Distance(Delta(frame.Surface.Snapshot, Matcap, Palette, input, 48, 48),
+            Delta(frame.Surface.Snapshot, Matcap, Palette, incorrect, 48, 48)) * 255 > 3);
     }
 
     [Theory, InlineData(false, false), InlineData(false, true), InlineData(true, false), InlineData(true, true)]
@@ -176,13 +177,14 @@ public sealed class EndfieldBaseImageGpuTests
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(native: native, alpha: .61f);
-        var palette = Palette with { BaseImage = TexturedBase(), EmissionStrength = .6f };
+        var palette = Palette with { EmissionStrength = .6f };
+        var baseImg = TexturedBase();
         var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4,
             Seed: 13, Composition: RayGiComposition.ToonPalette) : null;
         var plain = session.Capture(frame, W, H, options, surfaceStyles: Plain());
-        var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(palette, true, true));
+        var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(palette, baseImg, true, true, frame: frame));
         foreach (int x in new[] { 40, 48, 56 })
-            AssertPixel(plain, actual, x, 48, Delta(frame.Surface.Snapshot, Matcap, palette, x, 48, true, true), 2.1);
+            AssertPixel(plain, actual, x, 48, Delta(frame.Surface.Snapshot, Matcap, palette, baseImg, x, 48, true, true), 2.1);
         AssertCoverage(plain, actual);
         Assert.Equal(plain.Rgba, session.Capture(frame, W, H, options, surfaceStyles: Plain()).Rgba);
     }
@@ -192,13 +194,13 @@ public sealed class EndfieldBaseImageGpuTests
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(split: true);
-        var palette = Palette with { BaseImage = TexturedBase() };
-        D3D12SurfaceStyleMap Styles(D3D12EndfieldPaletteBinding? value) => new(
-            [D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.EndfieldPmx],
-            [new(), new(EndfieldMatcap: value is null ? null : Matcap with { Palette = value })]);
+        var baseImg = TexturedBase();
+        D3D12SurfaceStyleMap Styles(EndfieldPaletteSpec? pal, EndfieldBaseImageSpec? b = null) =>
+            T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["mmd", "endfield"], [new(), new()],
+                [null, pal is null ? null : [(Matcap with { Palette = pal, BaseImage = b }).ToBinding()]]);
         var plain = session.Capture(frame, W, H, surfaceStyles: Styles(null));
         var old = session.Capture(frame, W, H, surfaceStyles: Styles(Palette));
-        var actual = session.Capture(frame, W, H, surfaceStyles: Styles(palette));
+        var actual = session.Capture(frame, W, H, surfaceStyles: Styles(Palette, baseImg));
         Assert.Equal(6, frame.Surface.Snapshot.Materials[1].StartIndex);
         foreach (int dy in new[] { -4, 4 }) foreach (int dx in new[] { -4, 4 })
         {
@@ -206,7 +208,7 @@ public sealed class EndfieldBaseImageGpuTests
             var second = Project(frame.Surface.Snapshot, new(.45f, 0, 0));
             AssertPixel(plain, actual, first.X + dx, first.Y + dy, Vector3.Zero, 0);
             AssertPixel(plain, actual, second.X + dx, second.Y + dy,
-                Delta(frame.Surface.Snapshot, Matcap, palette, second.X + dx, second.Y + dy, material: 1));
+                Delta(frame.Surface.Snapshot, Matcap, Palette, baseImg, second.X + dx, second.Y + dy, material: 1));
         }
         AssertCoverage(plain, actual);
         Assert.Equal(old.Rgba, session.Capture(frame, W, H, surfaceStyles: Styles(Palette)).Rgba);
@@ -221,15 +223,15 @@ public sealed class EndfieldBaseImageGpuTests
             new("metal encoded color", 2, 2, [35, 180, 70, 0, 210, 65, 130, 255,
                 95, 140, 220, 40, 160, 45, 85, 190]) }).ToArray();
         var frame = Frame(textures: textures, split: true, native: true);
-        var metal = new D3D12GenshinMetallicBinding(9, 10, D3D12MatcapColorEncoding.SrgbRgb,
+        var metal = TestStylePlugins.GenshinMetallic(9, 10, T8dTestHelpers.EncodingSrgbRgb,
             new(.25f, .45f, .35f), new(.85f, .7f, .95f), new(.7f, .5f, .8f),
-            LitMode: D3D12GenshinMetallicLitMode.Uniform, UniformLitFactor: 1.15f);
-        var matcap = Matcap with { MatcapEncoding = D3D12MatcapColorEncoding.SrgbRgb };
-        var palette = Palette with { BaseImage = TexturedBase(), EmissionStrength = .45f };
-        D3D12SurfaceStyleMap Styles(bool hasMetal, bool hasBase) => new(
-            [D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.EndfieldPmx],
-            [new(GenshinMetallic: hasMetal ? metal : null),
-                new(EndfieldMatcap: matcap with { Palette = hasBase ? palette : Palette })]);
+            litMode: "Uniform", uniformLitFactor: 1.15f);
+        var matcap = Matcap with { MatcapEncoding = T8dTestHelpers.EncodingSrgbRgb };
+        var palette = Palette with { EmissionStrength = .45f };
+        var baseImg = TexturedBase();
+        D3D12SurfaceStyleMap Styles(bool hasMetal, bool hasBase) => T8dTestHelpers.CreateDirectSurfaceStyleMap(
+            frame, ["genshin", "endfield"], [new(), new()],
+            [hasMetal ? [metal] : null, [(matcap with { Palette = palette, BaseImage = hasBase ? baseImg : null }).ToBinding()]]);
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4,
             Seed: 39, Composition: RayGiComposition.ToonPalette);
         var baseline = session.Capture(frame, W, H, gi, surfaceStyles: Styles(false, false));
@@ -260,12 +262,12 @@ public sealed class EndfieldBaseImageGpuTests
         var source = Frame(alpha: .43f);
         var frame = new OriginalFrameScene(source.Surface, options: source.Options! with
             { SpatialSamples = 2, Antialiasing = FrameAntialiasing.Smaa1X, SmaaQuality = SmaaQuality.High });
-        var palette = Palette with { BaseImage = TexturedBase() };
-        var styles = Map(palette, true, true);
+        var baseImg = TexturedBase();
+        var styles = Map(Palette, baseImg, true, true, frame: frame);
         var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
         var actual = session.Capture(frame, W, H, surfaceStyles: styles);
         AssertCoverage(plain, actual);
-        AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, palette, 48, 48, true, true), 2.1);
+        AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, Matcap, Palette, baseImg, 48, 48, true, true), 2.1);
         var original = session.Capture(frame, 1440, 900, surfaceStyles: styles);
         var filtered = session.Capture(frame, 1440, 900, surfaceStyles: styles, diffusion: new(true, .7f, .002f));
         AssertCoverage(original, filtered);
@@ -293,11 +295,11 @@ public sealed class EndfieldBaseImageGpuTests
             QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 31,
             Composition: RayGiComposition.ToonPalette, Denoiser: RayGiDenoiser.TemporalSpatial);
-        var original = Map(Palette with { BaseImage = Base }, true, true);
-        var edited = Map(Palette with { BaseImage = Base with { Contrast = -.3f, WarmTint = 0, ShadowColor = new(.2f, .3f, .4f) } }, true, true);
+        var original = Map(Palette, Base, true, true, frame: frame);
+        var edited = Map(Palette, Base with { Contrast = -.3f, WarmTint = 0, ShadowColor = new(.2f, .3f, .4f) }, true, true, frame: frame);
         long reads = session.Runtime.Readbacks;
         Render(original, 1, "FirstFrame", "FirstFrame");
-        Render(Map(Palette with { BaseImage = Base with { } }, true, true), 2, "None", "None");
+        Render(Map(Palette, Base with { }, true, true, frame: frame), 2, "None", "None");
         var warm = session.Statistics!;
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(frame, 96, 72, gi,
             (_, _) => throw new OperationCanceledException("Abort unsubmitted upstream Cpre edit."),
@@ -320,17 +322,24 @@ public sealed class EndfieldBaseImageGpuTests
         }
     }
 
-    private static D3D12EndfieldBaseImageBinding TexturedBase() => Base with {
-        BaseInputMode = D3D12EndfieldPaletteInputMode.Texture, BaseCombinedTextureIndex = 6,
-        BaseEncoding = D3D12MatcapColorEncoding.SrgbRgb,
-        DetailInputMode = D3D12EndfieldPaletteInputMode.Texture, DetailCombinedTextureIndex = 7,
-        ShadowInputMode = D3D12EndfieldPaletteInputMode.Texture, ShadowCombinedTextureIndex = 8 };
+    private static EndfieldBaseImageSpec TexturedBase() => Base with {
+        BaseInputMode = T8dTestHelpers.ModeTexture, BaseSlot = 6,
+        BaseEncoding = T8dTestHelpers.EncodingSrgbRgb,
+        DetailInputMode = T8dTestHelpers.ModeTexture, DetailSlot = 7,
+        ShadowInputMode = T8dTestHelpers.ModeTexture, ShadowSlot = 8 };
 
-    private static D3D12SurfaceStyleMap Plain() => new([D3D12SurfaceStyle.EndfieldPmx], [new()]);
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldPaletteBinding? palette, bool rim = false, bool hair = false,
-        D3D12EndfieldMatcapBinding? matcap = null) => new([D3D12SurfaceStyle.EndfieldPmx],
-        [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap: (matcap ?? Matcap) with { Palette = palette }, EndfieldRim: rim ? Rim : null, EndfieldHair: hair ? Hair : null)]);
+    private static D3D12SurfaceStyleMap Plain() => new(["endfield"], registeredStyles: TestStylePlugins.AllPresetCatalog.Plugins.Values);
+    private static D3D12SurfaceStyleMap Map(EndfieldPaletteSpec? palette, EndfieldBaseImageSpec? baseImg, bool rim = false, bool hair = false,
+        EndfieldMatcapSpec? matcap = null, OriginalFrameScene? frame = null)
+    {
+        var list = new List<StyleMaterialBindingData>(3);
+        if (hair) list.Add(Hair.ToBinding());
+        if (rim) list.Add(Rim.ToBinding());
+        list.Add(((matcap ?? Matcap) with { Palette = palette, BaseImage = baseImg }).ToBinding());
+        return T8dTestHelpers.CreateDirectSurfaceStyleMap(frame ?? Frame(), ["endfield"],
+            [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body)],
+            [list]);
+    }
 
     private static SceneTexture[] Textures() => [new("packed RG", 1, 1, [179, 153, 0, 0]),
         new("P gate", 1, 1, [40, 0, 0, 24]), new("nonwhite MatCap", 1, 1, [40, 180, 70, 180]),
@@ -371,36 +380,35 @@ public sealed class EndfieldBaseImageGpuTests
         => new(new(snapshot, frame.Surface.Materials, frame.Surface.Profile), options: frame.Options, lighting: frame.Lighting);
 
     private static float Radial() => .75f * (64f / 255) * (Hair.Brightness + 1.5001001358032227f);
-    private static Vector3 MatColor(SceneSnapshot scene, D3D12EndfieldMatcapBinding binding, Vector3 pre)
+    private static Vector3 MatColor(SceneSnapshot scene, EndfieldMatcapSpec binding, Vector3 pre)
     {
-        var color = scene.Textures[binding.MatcapCombinedTextureIndex];
+        var color = scene.Textures[binding.MatcapSlot];
         var image = MatcapOracle.BilinearRepeat(color.Rgba, color.Width, color.Height, new(.5f),
-            binding.MatcapEncoding == D3D12MatcapColorEncoding.SrgbRgb);
+            binding.MatcapEncoding == T8dTestHelpers.EncodingSrgbRgb);
         // All MatCap color fixtures are constant; the source gate saturates to1 for the fixed N/P/coefficient.
-        return MatcapOracle.MaterialColor(pre, binding.HighlightColor, image, 1);
+        return MatcapOracle.MaterialColor(pre, binding.EffectiveHighlightColor, image, 1);
     }
 
     // Expected total relative to genuinely plain G; old uniform hair/rim wrappers
     // must cancel before the new per-pixel Cpre baseline is subtracted exactly once.
-    private static Vector3 Delta(SceneSnapshot scene, D3D12EndfieldMatcapBinding binding,
-        D3D12EndfieldPaletteBinding palette, int x, int y, bool rim = false, bool hair = false,
+    private static Vector3 Delta(SceneSnapshot scene, EndfieldMatcapSpec binding,
+        EndfieldPaletteSpec palette, EndfieldBaseImageSpec input, int x, int y, bool rim = false, bool hair = false,
         int material = 0, bool front = true)
     {
         Vector2 uv = UvAt(scene, binding.UvChannel, x, y, material);
-        var input = palette.BaseImage ?? throw new InvalidOperationException("Explicit upstream fixture required.");
         Vector3? baseRgb = null; float? detail = null, q = null;
         Vector4 Sample(int index, bool srgb = false)
         {
             var image = scene.Textures[index];
             return MatcapOracle.BilinearRepeat(image.Rgba, image.Width, image.Height, uv, srgb);
         }
-        if (input.BaseInputMode == D3D12EndfieldPaletteInputMode.Texture)
+        if (input.BaseInputMode == T8dTestHelpers.ModeTexture)
         {
-            Vector4 sampled = Sample(input.BaseCombinedTextureIndex!.Value, input.BaseEncoding == D3D12MatcapColorEncoding.SrgbRgb);
+            Vector4 sampled = Sample(input.BaseSlot!.Value, input.BaseEncoding == T8dTestHelpers.EncodingSrgbRgb);
             baseRgb = new(sampled.X, sampled.Y, sampled.Z);
         }
-        if (input.DetailInputMode == D3D12EndfieldPaletteInputMode.Texture) detail = Sample(input.DetailCombinedTextureIndex!.Value).Z;
-        if (input.ShadowInputMode == D3D12EndfieldPaletteInputMode.Texture) q = Sample(input.ShadowCombinedTextureIndex!.Value).X;
+        if (input.DetailInputMode == T8dTestHelpers.ModeTexture) detail = Sample(input.DetailSlot!.Value).Z;
+        if (input.ShadowInputMode == T8dTestHelpers.ModeTexture) q = Sample(input.ShadowSlot!.Value).X;
         Vector3 pre = EndfieldBaseImageOracle.Evaluate(input, front, baseRgb, detail, q);
         var result = EndfieldPaletteOracle.Evaluate(pre, MatColor(scene, binding, pre), Rim.RimColor,
             binding.BaselineStrength, rim ? Rim.EdgeStrength : 0, hair ? Radial() : 0,

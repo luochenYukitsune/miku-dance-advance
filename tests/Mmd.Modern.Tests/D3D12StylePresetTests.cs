@@ -16,28 +16,33 @@ public sealed class D3D12StylePresetTests : IDisposable
     [Fact]
     public void BuiltInMmdRetainsParametersAndAllOrdinaryStylesStateTheirFiniteScope()
     {
-        var catalog = D3D12StylePresetCatalog.BuiltIn;
-        Assert.Equal(5, catalog.List().Count);
-        var mmd = catalog.Find("mmd");
+        var builtIn = D3D12StylePresetCatalog.BuiltIn;
+        Assert.Single(builtIn.List());
+        var mmd = builtIn.Find("mmd");
         Assert.True(mmd.IsAvailable);
         Assert.Equal(D3D12StylePresetStatus.Available, mmd.Status);
         Assert.Equal("mmd", mmd.Definition!.PipelineId);
         Assert.Null(mmd.Definition.CharacterOutlineStyle);
         Assert.Null(mmd.Definition.CharacterToonResponse);
+        foreach (string id in new[] { "genshin", "star-rail", "wuthering-waves", "endfield" })
+            Assert.Equal(D3D12StylePresetStatus.Missing, builtIn.Find(id).Status);
+
+        var catalog = TestStylePlugins.AllPresetCatalog;
+        Assert.Equal(5, catalog.List().Count);
         var genshin = catalog.Find("genshin");
         Assert.True(genshin.IsAvailable);
         Assert.Equal("genshin", genshin.Definition!.PipelineId);
-        Assert.Contains("ordinary PMX basic body", genshin.Diagnostic);
-        Assert.Contains("character-only", genshin.Diagnostic);
-        Assert.Contains("Dedicated face/hair", genshin.Diagnostic);
-        Assert.Contains("not implemented", genshin.Diagnostic);
-        foreach (string id in new[] { "wuthering-waves", "endfield" })
+        Assert.NotNull(genshin.PluginRegistration);
+        Assert.Equal("genshin", genshin.PluginRegistration!.StyleId);
+        Assert.NotNull(genshin.DefaultStylizedShading);
+        foreach (string id in new[] { "star-rail", "wuthering-waves", "endfield" })
         {
             var result = catalog.Find(id);
             Assert.Equal(D3D12StylePresetStatus.Available, result.Status);
             Assert.Equal(id, result.Definition!.PipelineId);
             Assert.True(result.IsAvailable);
-            Assert.NotEmpty(result.Diagnostic);
+            Assert.NotNull(result.PluginRegistration);
+            Assert.NotNull(result.DefaultStylizedShading);
         }
         Assert.Equal(D3D12StylePresetStatus.Missing, catalog.Find("custom-not-installed").Status);
         Assert.Equal(D3D12StylePresetStatus.Missing, catalog.Find("MMD").Status);
@@ -64,7 +69,8 @@ public sealed class D3D12StylePresetTests : IDisposable
         Assert.Equal(2, Directory.GetFiles(directory, "*.json").Length);
         Assert.Empty(Directory.GetFiles(directory, "*.tmp"));
         var loaded = new D3D12StylePresetStore(directory).Load();
-        Assert.Equal(7, loaded.List().Count);
+        Assert.Equal(3, loaded.List().Count);
+        Assert.Equal(7, new D3D12StylePresetStore(directory).Load(TestStylePlugins.AllViewCatalog.Registrations).List().Count);
         var restored = loaded.Find(second.StableId);
         Assert.True(restored.IsAvailable);
         Assert.Equal(second.Name, restored.Definition!.Name);
@@ -163,12 +169,12 @@ public sealed class D3D12StylePresetTests : IDisposable
     public void MissingDirectoryIsReadOnlyAndDirectoryBudgetIsBounded()
     {
         var store = new D3D12StylePresetStore(directory);
-        Assert.Equal(5, store.Load().List().Count);
+        Assert.Single(store.Load().List());
         Assert.False(Directory.Exists(directory));
         Directory.CreateDirectory(directory);
         for (int i = 0; i <= D3D12StylePresetStore.MaxLocalPresets; i++) Write("custom-" + i, "{}");
         var loaded = store.Load();
-        Assert.Equal(6, loaded.List().Count);
+        Assert.Equal(2, loaded.List().Count);
         Assert.Equal(D3D12StylePresetStatus.CapacityExceeded, loaded.List()[^1].Status);
         Assert.Equal(D3D12StylePresetStatus.CapacityExceeded, loaded.Find("custom-0").Status);
         Assert.Throws<InvalidOperationException>(() => store.SaveAsNew("Extra", "mmd", null, null));
@@ -183,7 +189,7 @@ public sealed class D3D12StylePresetTests : IDisposable
         Directory.CreateDirectory(Path.Combine(directory, "nested"));
         File.WriteAllText(Path.Combine(directory, "nested", "custom-hidden.json"), Json("custom-hidden"));
         var loaded = new D3D12StylePresetStore(directory).Load();
-        Assert.Equal(5, loaded.List().Count);
+        Assert.Single(loaded.List());
         Assert.Equal(D3D12StylePresetStatus.Missing, loaded.Find("custom-hidden").Status);
     }
 
