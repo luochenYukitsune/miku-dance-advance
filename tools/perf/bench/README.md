@@ -2,14 +2,14 @@
 
 对应设计文档第 5.0 节的可重复无头性能测量与 ABBA 对照工具。仅引用公开产品 API，内部统计字段通过反射按名读取并在缺失时跳过，可在未改基线（`c6f86ad`）与合并 `t01`–`t09` 后的集成分支上不改代码直接编译运行。
 
-- **模型与资产**：通过命令行参数传入本地路径（如 `WS\06_验证模型\角色\...`、`WS\06_验证模型\场景\...`、`*.vmd`），绝不拷入仓库。
+- **模型与资产**：通过命令行参数传入本地路径（如 `<local-assets>\characters\...`、`<local-assets>\stages\...`、`*.vmd`），绝不拷入仓库。
 - **缓存隔离**：每个场景配置独立进程运行；冷打开测试在输出目录下的独立目录设置 `MMD_DXC_CACHE`、`LOCALAPPDATA`、`MMD_SHADER_CACHE`、`MMD_FXC_CACHE`、`MMD_PSO_CACHE`，绝不删除或改写共享 `.dev-cache\dxc-shader-cache`。
 
 ## 环境与编译
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-. D:\Users\LyaQanYi\Documents\Code\0Yuki\tools\env.ps1
+. <workspace>\tools\env.ps1
 $env:ModernCacheRoot = "$env:MDA_WORKSPACE\.dev-cache\perf-bench"
 $env:TEMP = "$env:ModernCacheRoot\tmp"; $env:TMP = $env:TEMP
 $env:MDA_WORK_ROOT = "$env:MDA_WORKSPACE\work\mda-work\perf\20261119\bench"
@@ -32,7 +32,7 @@ $bench = "$env:ModernCacheRoot\bin\PerfBench\Release\net10.0\PerfBench.dll"
 
 # 2. 单场景播放（含打开到首帧、流水线播放、串行 submit-to-fence、跳帧与 GC）
 & $env:MDA_DOTNET_EXE $bench play `
-  --model "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—绯英_by_崩坏：星穹铁道_e8b57a26d8fe8e0e8b5b9f684b3d84\星穹铁道—绯英2.pmx" `
+  --model "<local-assets>\characters\char1.pmx" `
   --characters 1 --gi off --size 960x544 --warmup 60 --frames 300 --serial-frames 60 --seeks 3 `
   --out "$env:MDA_WORK_ROOT\play.json"
 
@@ -55,7 +55,7 @@ $bench = "$env:ModernCacheRoot\bin\PerfBench\Release\net10.0\PerfBench.dll"
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\perf\bench\Run-Matrix.ps1 `
-  -Models @("$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—绯英_by_崩坏：星穹铁道_e8b57a26d8fe8e0e8b5b9f684b3d84\星穹铁道—绯英2.pmx") `
+  -Models @("<local-assets>\characters\char1.pmx") `
   -OutDir "$env:MDA_WORK_ROOT\smoke" -Smoke
 ```
 
@@ -65,23 +65,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\perf\bench\Run-Matrix.
 
 ```powershell
 $models = @(
-  "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—绯英_by_崩坏：星穹铁道_e8b57a26d8fe8e0e8b5b9f684b3d84\星穹铁道—绯英2.pmx",
-  "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—藿藿\藿藿4.0.pmx",
-  "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—昔涟_by_崩坏：星穹铁道_e41390284d15805b4e4af62d7d4dc2a7\星穹铁道—昔涟5.pmx",
-  "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—长夜月_by_崩坏：星穹铁道_b2f53bd03831e138dd0c72f0782bc894\星穹铁道—长夜月2.pmx",
-  "$env:MDA_WORKSPACE\06_验证模型\角色\星穹铁道—青雀_by_Ronin良人_c0a9f2fb7ae2ce37902bf9798004592a\青雀（分桦）.pmx"
+  "<local-assets>\characters\char1.pmx",
+  "<local-assets>\characters\char2.pmx",
+  "<local-assets>\characters\char3.pmx",
+  "<local-assets>\characters\char4.pmx",
+  "<local-assets>\characters\char5.pmx"
 )
-$stage = "$env:MDA_WORKSPACE\06_验证模型\场景\新艾利都地铁-雅努斯区-六分街站.pmx"
+$stage = "<local-assets>\stages\stage.pmx"
 
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\perf\bench\Run-Matrix.ps1 `
   -BaselineRepo "$env:MDA_WORKSPACE\wt-perf-baseline" -BaselineName "baseline-c6f86ad" `
   -CandidateRepo "$env:MDA_WORKSPACE\wt-perf-integration" -CandidateName "candidate-integrated" `
   -Models $models -Stage $stage `
   -Characters @(1, 3, 5) -Gi @('off', 'on') -Sizes @('960x544', '1920x1080') `
-  -Rounds 2 -OutDir "$env:MDA_WORKSPACE\work\mda-work\perf\20261119\compare-c6f86ad-vs-integrated"
+  -Rounds 2 -OutDir "$env:MDA_WORK_ROOT\compare-c6f86ad-vs-integrated"
 ```
 
-也可直接传入预先编好的 `-BaselineDll` 与 `-CandidateDll`，或加 `-Vmd @("...\尾巴火焰动作.vmd")` 指定外部动作文件。
+也可直接传入预先编好的 `-BaselineDll` 与 `-CandidateDll`，或加 `-Vmd @("<motion.vmd>")` 指定外部动作文件。
 
 ## 指标说明
 

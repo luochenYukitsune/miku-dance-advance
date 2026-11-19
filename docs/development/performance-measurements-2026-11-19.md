@@ -6,7 +6,7 @@
 
 - 产品源码 `2abe9a9`（`v0.2.2`），本地性能分支。机器为 Core Ultra 7 251HX、18 个逻辑处理器、RTX 5060 Laptop，驱动 32.0.16.1088。工具为工作区内 .NET SDK 10.0.102 / Runtime 10.0.2、项目 Bullet 2.75 原生库和 FFmpeg n9.0.2-57-gd838f9f9ae。
 - 只读加载绯英 PMX 及贴图。单角色有 37,757 个顶点、49 个材质、324 个刚体、405 个关节，软体数为 0。用固定的 90 帧头骨旋转轨道，每次推进 1/30 秒。三角色使用同一资产、不同实例和互相错开的位置，物理开启时共享 Bullet 世界，每个源帧走四个 120 Hz 固定步。首次试用模型的第一个根节点没有造成可见运动，被姿态与像素检查拦下，未纳入结果。
-- 图形与物理串行测试；无窗口，GPU 会话显式排空。本文的帧耗时不含编辑器输入、交换链 Present 或显示扫描。未覆盖 PR01、耦合软体及长片编码。原始逐帧数据、日志和视频都在本地 `0Yuki/work/2026-11-19/perf-followup/`。
+- 图形与物理串行测试；无窗口，GPU 会话显式排空。本文的帧耗时不含编辑器输入、交换链 Present 或显示扫描。未覆盖 PR01、耦合软体及长片编码。原始逐帧数据、日志和视频都在本地 `<workspace>/work/2026-11-19/perf-followup/`。
 
 ## 图形：围栏等待的收益集中在同步读回
 
@@ -56,14 +56,14 @@ GI 另用仓库现有 4,096 三角形、96×72 变形夹具，做 16 对真实 G
 
 ## 复现
 
-从 `0Yuki` 外层工作区启动 PowerShell，加载已有便携环境。在分支独立构建，所有运行目录使用新的工作区内路径。下面是单次基线及实验构建示例；重复测量按上文顺序更换输出目录。脚本用 MSBuild 替换实验构建的两个源文件，产品工作树保持原版实现。[测量入口](../../tools/perf/frame-study/Program.cs) · [实验源码生成脚本](../../tools/perf/frame-study/New-ProbeOverlay.ps1)
+从外层工作区启动 PowerShell，加载已有便携环境。在分支独立构建，所有运行目录使用新的工作区内路径。下面是单次基线及实验构建示例；重复测量按上文顺序更换输出目录。脚本用 MSBuild 替换实验构建的两个源文件，产品工作树保持原版实现。[测量入口](../../tools/perf/frame-study/Program.cs) · [实验源码生成脚本](../../tools/perf/frame-study/New-ProbeOverlay.ps1)
 
 ```powershell
 . ./tools/env.ps1
 $root = $env:MDA_WORKSPACE
 $evidence = Join-Path $root ('work/2026-11-19/perf-rerun-' + (Get-Date -Format yyyyMMdd-HHmmss))
 Set-Location (Join-Path $root 'wt-perf-plan')
-$model = (Get-ChildItem (Join-Path $root '06_验证模型') -Recurse -Filter '星穹铁道—绯英2.pmx').FullName
+$model = (Get-ChildItem (Join-Path $root '<local-models-dir>') -Recurse -Filter '<character.pmx>').FullName
 $toolsDir = Join-Path $root '.dev-cache/ffmpeg-i18n/bin'
 $env:ModernCacheRoot = Join-Path $root '.dev-cache/perf-rerun-A'
 $env:DOTNET_TieredCompilation = '0'
