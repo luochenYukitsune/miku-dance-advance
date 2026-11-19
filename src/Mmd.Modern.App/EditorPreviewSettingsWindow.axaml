@@ -276,6 +276,8 @@
               <TextBlock Text="{Binding GiLabel}" Classes="section" />
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" AutomationProperties.Name="{Binding GiLabel}" /></Grid>
               <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiStrengthBox" Grid.Column="1" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="10" SmallChange="0.1" LargeChange="1" Step="0.05" DefaultValue="4" Number="{Binding GiStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
+              <CheckBox Name="PreviewGiAccelerationBox" Content="{Binding PreviewGiAccelerationLabel}" IsChecked="{Binding PreviewGiAcceleration}" IsEnabled="{Binding IsGiEnabled}" Margin="188,0,0,0" />
+              <TextBlock Text="{Binding PreviewGiAccelerationHint}" Classes="caption" Margin="188,0,0,0" />
               <TextBlock Text="{Binding GiHint}" Classes="caption" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedLighting" Header="{Binding AdvancedLightingLabel}" IsExpanded="False">

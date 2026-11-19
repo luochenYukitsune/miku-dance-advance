@@ -101,6 +101,9 @@ internal static class D3D12SsaaGiMemoryBudget
         var display = Texture(Format.R8G8B8A8_UNorm, ResourceFlags.AllowRenderTarget, displayWidth, displayHeight);
         ulong indirectBytes = checked((ulong)width * (ulong)height * 16);
         bool denoise = D3D12RayGiDenoiser.IsEnabled(options);
+        bool halfRes = options.PreviewAcceleration && width >= 2 && height >= 2;
+        int traceWidth = halfRes ? (width + 1) / 2 : width;
+        int traceHeight = halfRes ? (height + 1) / 2 : height;
         ulong diagnosticBytes=0;
         ulong ReceiverBytes(int drawWidth,int drawHeight)
         {
@@ -108,8 +111,16 @@ internal static class D3D12SsaaGiMemoryBudget
             var receiverDepth=Texture(Format.D32_Float,ResourceFlags.AllowDepthStencil,drawWidth,drawHeight);
             ulong drawIndirectBytes=checked((ulong)drawWidth*(ulong)drawHeight*16);
             ulong bytes=checked(2*Allocation(receiverImage)+Allocation(receiverDepth)
-                +(denoise?2UL:1UL)*Buffer(drawIndirectBytes,ResourceFlags.AllowUnorderedAccess)
+                +Buffer(drawIndirectBytes,ResourceFlags.AllowUnorderedAccess)
                 +2*Buffer(16)); // GPU diagnostic counter and its zero upload allocation.
+            if(halfRes)
+            {
+                var halfImage=Texture(Format.R32G32B32A32_Float,ResourceFlags.AllowUnorderedAccess,traceWidth,traceHeight);
+                ulong halfIndirectBytes=checked((ulong)traceWidth*(ulong)traceHeight*16);
+                bytes=checked(bytes+2*Allocation(halfImage)+(denoise?2UL:1UL)*Buffer(halfIndirectBytes,ResourceFlags.AllowUnorderedAccess));
+            }
+            else if(denoise)
+                bytes=checked(bytes+Buffer(drawIndirectBytes,ResourceFlags.AllowUnorderedAccess));
             if(capture&&Environment.GetEnvironmentVariable("MMD_RAYGI_DIAGNOSTICS") is not null)
                 diagnosticBytes=checked(diagnosticBytes+2*Readback(receiverImage)+(denoise?2UL:1UL)*Buffer(drawIndirectBytes)+Buffer(16));
             if(capture&&!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("MMD_RAYGI_TIMING")))

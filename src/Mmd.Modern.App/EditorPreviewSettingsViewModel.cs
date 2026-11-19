@@ -196,7 +196,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     private int giIndex, antialiasingIndex, smaaIndex, spatialIndex, upscalingIndex, fsr1QualityIndex, surfaceOrderIndex;
     private int temporalIndex, temporalQualityIndex, giCompositionIndex, giDenoiserIndex;
     private decimal? giStrength, giSamples, diffusionStrength, diffusionExtent, rcasSharpness;
-    private bool diffusionEnabled, rcasEnabled, refreshingLocalization;
+    private bool previewGiAcceleration, diffusionEnabled, rcasEnabled, refreshingLocalization;
     private Exception? validationError;
     private string validationMessage = "";
 
@@ -227,6 +227,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         rcasEnabled = source.EffectiveUpscaling.EnableRcas; rcasSharpness = (decimal)source.EffectiveUpscaling.RcasSharpness;
         giStrength = (decimal)source.EffectiveGi.Strength; giSamples = source.EffectiveGi.SamplesPerPixel;
         giCompositionIndex = (int)source.EffectiveGi.Composition; giDenoiserIndex = (int)source.EffectiveGi.Denoiser;
+        previewGiAcceleration = source.EffectiveGi.PreviewAcceleration;
         diffusionEnabled = source.EffectiveDiffusion.Enabled;
         diffusionStrength = (decimal)source.EffectiveDiffusion.Strength; diffusionExtent = (decimal)source.EffectiveDiffusion.Extent;
         Observe(this, static model => model.RefreshLocalization());
@@ -253,6 +254,8 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string GiSamplesLabel => Text("每像素采样");
     public string CompositionLabel => Text("受光方式");
     public string DenoiserLabel => Text("GI 降噪");
+    public string PreviewGiAccelerationLabel => Text("Mda.Text.Preview.GiAccelerationLabel");
+    public string PreviewGiAccelerationHint => Text("Mda.Text.Preview.GiAccelerationHint");
     public string GiHint => Text("降噪用于卡通色阶受光；角色保持中性补光。");
     public string UpscalingLabel => Text("超分与时域重建");
     public string TemporalLabel => Text("性能与清晰度");
@@ -320,6 +323,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public decimal? DiffusionStrength { get => diffusionStrength; set => Set(ref diffusionStrength, value); }
     public decimal? DiffusionExtent { get => diffusionExtent; set => Set(ref diffusionExtent, value); }
     public decimal? RcasSharpness { get => rcasSharpness; set => Set(ref rcasSharpness, value); }
+    public bool PreviewGiAcceleration { get => previewGiAcceleration; set => Set(ref previewGiAcceleration, value); }
     public bool DiffusionEnabled { get => diffusionEnabled; set => Set(ref diffusionEnabled, value); }
     public bool RcasEnabled { get => rcasEnabled; set => Set(ref rcasEnabled, value); }
     public bool IsGiEnabled => giIndex >= 0 && giIndex < giValues.Length && giValues[giIndex] != LightingMode.Legacy;
@@ -389,7 +393,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             if (giIndex < 0 || giIndex >= giValues.Length || !GiAvailable(giValues[giIndex])) throw Error("请选择当前设备可用的 GI 模式。");
             if (temporalIndex < 0 || temporalIndex >= temporalValues.Length || !TemporalAvailable(CurrentTemporalMode)) throw Error("请选择当前设备可用的时域重建模式。");
             if (!IsTemporal && (UpscalingIndex < 0 || UpscalingIndex > 1 || UpscalingIndex == 1 && !capabilities.SpatialUpscalingAvailable)) throw Error("请选择当前设备可用的空间超分模式。");
-            var gi = source.EffectiveGi with { Mode = giValues[giIndex] };
+            var gi = source.EffectiveGi with { Mode = giValues[giIndex], PreviewAcceleration = PreviewGiAcceleration };
             if (IsGiEnabled)
             {
                 decimal samples = Number(GiSamples, 1, 1024, "每像素采样");

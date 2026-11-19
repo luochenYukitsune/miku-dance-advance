@@ -1471,5 +1471,7 @@
   "Mda.Text.Context.Lighting.AreaHint": "前面から発光します。大きくすると光と影が柔らかくなります。親モデルの拡大縮小はサイズに影響しません。",
   "Mda.Text.Context.Lighting.AreaSizeInvalid": "{0}：ソフトボックスの幅と高さはどちらも 0 より大きい値にしてください。",
   "Mda.Text.Context.Lighting.HelpersVisible": "ライト補助",
+  "Mda.Text.Preview.GiAccelerationLabel": "GI プレビュー高速化",
+  "Mda.Text.Preview.GiAccelerationHint": "リアルタイムプレビューにのみ適用され、半解像度レイトレーシングと短履歴リプロジェクションで高速化します。既定ではオフで、オフライン書き出しでは常にフル解像度の精度を維持します。",
   "Mda.Text.Context.Lighting.HelpersHelp": "すべてのライトのアイコン、方向、範囲、ハンドルを表示・非表示にします。シーンの照明は変わりません。"
 }

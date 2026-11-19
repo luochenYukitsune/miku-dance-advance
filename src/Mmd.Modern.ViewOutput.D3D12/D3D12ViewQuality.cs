@@ -22,17 +22,24 @@ internal static class D3D12ViewQuality
         return new(options.Enabled, options.Strength, options.Extent);
     }
 
-    /// <summary>GI owns separate history resources, but follows the same host seek and camera-cut markers as AA.</summary>
-    internal static RayGiOptions Gi(ViewQualityOptions quality, ViewTemporalFrameState? state = null)
+    /// <summary>GI owns separate history resources, but follows the same host seek and camera-cut markers as AA.
+    /// Preview acceleration is strictly isolated to realtime view rendering and always stripped on offline capture/export.</summary>
+    internal static RayGiOptions Gi(ViewQualityOptions quality, ViewTemporalFrameState? state = null,
+        bool allowPreviewAcceleration = false)
     {
         quality.Validate(); state ??= new(); state.Validate();
         var options = quality.EffectiveGi;
-        if (options.Denoiser != RayGiDenoiser.TemporalSpatial) return options;
+        bool previewAcceleration = allowPreviewAcceleration && options.PreviewAcceleration;
+        if (options.Denoiser != RayGiDenoiser.TemporalSpatial)
+            return previewAcceleration == options.PreviewAcceleration
+                ? options
+                : options with { PreviewAcceleration = previewAcceleration };
         return options with
         {
             TemporalHistoryGeneration = state.HistoryGeneration,
             TemporalCameraCutKey = state.CameraCutKey,
-            ResetTemporalHistory = state.ResetHistory
+            ResetTemporalHistory = state.ResetHistory,
+            PreviewAcceleration = previewAcceleration
         };
     }
 

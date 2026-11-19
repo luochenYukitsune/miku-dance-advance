@@ -24,6 +24,7 @@ public sealed record D3D12ShaderWarmupSpec
     public RayGiComposition GiComposition { get; init; } = RayGiComposition.Additive;
     public bool IncludeGiDenoiser { get; init; }
     public bool IncludeGiTemporal { get; init; }
+    public bool IncludeGiHalfRes { get; init; }
     public bool IncludePositionGather { get; init; }
     public bool NativeLights { get; init; }
     public bool TextureMorph { get; init; }
@@ -213,6 +214,7 @@ public static class D3D12ShaderPrewarmer
             GiComposition = rayGi?.Composition ?? RayGiComposition.Additive,
             IncludeGiDenoiser = gi && D3D12RayGiDenoiser.IsEnabled(rayGi!),
             IncludeGiTemporal = gi && D3D12RayGiRenderer.IsTemporalEnabled(rayGi),
+            IncludeGiHalfRes = gi && rayGi!.PreviewAcceleration,
             IncludePositionGather = gi && (rayGi?.Mode ?? LightingMode.HardwareRayTracing) == LightingMode.HardwareRayTracing && frame.Surface.Snapshot.HasDynamicVertices,
             NativeLights = nativeLights,
             TextureMorph = textureMorph,
@@ -396,6 +398,8 @@ public static class D3D12ShaderPrewarmer
             requests.Add(D3D12RayGiTemporalPass.GetPrewarmRequest());
         if (spec.IncludeGiDenoiser)
             requests.Add(D3D12RayGiDenoiser.GetPrewarmRequest());
+        if (spec.IncludeGiHalfRes)
+            requests.AddRange(D3D12RayGiHalfResPass.GetPrewarmRequests());
         if (spec.IncludePositionGather)
             requests.Add(D3D12HardwareRayGi.GetPositionGatherPrewarmRequest());
         return requests;

@@ -125,7 +125,8 @@ internal sealed partial class D3D12RayGiTemporalPass
                 minimum=min(minimum,sample);maximum=max(maximum,sample);
             }
             historical=clamp(historical,minimum,maximum);
-            float count=min(32,moments.z+1),alpha=1/count;
+            float maxHistory=Control.z>0?min((float)Control.z,32.0):32.0;
+            float count=min(maxHistory,moments.z+1),alpha=1/count;
             Output[index]=float4(Blend3(historical,current.rgb,alpha),current.a);
             // Compress luminance only for bounded diagnostic moments. Signal RGB remains linear incident radiance.
             float mean=Blend(moments.x,lum,alpha),second=Blend(moments.y,lum*lum,alpha);

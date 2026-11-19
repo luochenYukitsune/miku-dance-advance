@@ -136,7 +136,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                 try
                 {
                     var prepared = previewSampling.ApplyTo(scene);
-                    var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState);
+                    var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState, allowPreviewAcceleration: true);
                     var upscaling = D3D12ViewQuality.Upscaling(request.EffectiveQuality);
                     var diffusion = D3D12ViewQuality.Diffusion(request.EffectiveQuality);
                     if (recordAhead)
