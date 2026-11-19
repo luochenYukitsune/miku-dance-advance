@@ -124,6 +124,8 @@ public sealed partial class EditorLightingViewModel : INotifyPropertyChanged
     public bool HasValidationMessage => ValidationMessage.Length > 0;
     public void SetValidationMessage(string message) => ValidationMessage = message;
 
+    internal PmmCameraPose CreationCamera => creationCamera;
+
     /// <summary>Only subsequent additions use this detached view; existing lights keep their authored transforms.</summary>
     public void SetCreationCamera(PmmCameraPose camera)
     {
@@ -179,10 +181,12 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
     private bool isInspectorVisible;
     private Guid? groupId;
     private bool refreshingLocalization;
-    private decimal? positionX, positionY, positionZ, rotationX, rotationY, rotationZ;
+    private decimal? positionX, positionY, positionZ, rotationX, rotationY, rotationZ, targetX, targetY, targetZ;
     private decimal? red, green, blue, intensity, range, innerConeDegrees, outerConeDegrees;
     private decimal? areaWidth, areaHeight;
-    private bool areaSizeSpecified;
+    private bool areaSizeSpecified, aimDistanceModified, targetEdited, backlit;
+    private float? aimDistance;
+    private Quaternion? directRotation;
     public EditorNativeLightItem(NativeSceneLight light) : this(light, ToDegrees(light?.Rotation ?? Quaternion.Identity)) { }
 
     private EditorNativeLightItem(NativeSceneLight light, Vector3 sampledDegrees)
@@ -192,6 +196,15 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         positionX = Decimal(light.Position.X); positionY = Decimal(light.Position.Y); positionZ = Decimal(light.Position.Z);
         originalDegrees = sampledDegrees;
         rotationX = Decimal(originalDegrees.X); rotationY = Decimal(originalDegrees.Y); rotationZ = Decimal(originalDegrees.Z);
+        aimDistance = light.AimDistance;
+        var initialTarget = light.Target;
+        targetX = Decimal(initialTarget.X); targetY = Decimal(initialTarget.Y); targetZ = Decimal(initialTarget.Z);
+        var initialDir = light.Direction;
+        if (Finite(initialDir) && initialDir.LengthSquared() >= 1e-12f)
+        {
+            initialDir = Vector3.Normalize(initialDir);
+            if (MathF.Abs(initialDir.Z) > 1e-5f) backlit = initialDir.Z < 0;
+        }
         red = Decimal(light.Color.X); green = Decimal(light.Color.Y); blue = Decimal(light.Color.Z);
         intensity = Decimal(light.Intensity); range = Decimal(light.Range);
         areaWidth = Decimal(light.AreaSize?.X ?? 5); areaHeight = Decimal(light.AreaSize?.Y ?? 5);
@@ -224,7 +237,10 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
                 AreaWidth = 5; AreaHeight = 5;
             }
             Changed(nameof(Label)); Changed(nameof(TypeLabel)); Changed(nameof(HasDirection));
+            Changed(nameof(IsDirectional)); Changed(nameof(IsPositional));
             Changed(nameof(HasRange)); Changed(nameof(HasCone)); Changed(nameof(HasAreaSize));
+            Changed(nameof(LightDirectionVector)); Changed(nameof(IsBacklit)); Changed(nameof(HemisphereLabel));
+            SyncDisplayedTarget();
         }
     }
     public bool Enabled { get => enabled; set => Set(ref enabled, value); }
@@ -234,20 +250,40 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
     public string BrightnessLabel => UseModernControls ? Text("Mda.Text.Context.Lighting.Brightness") : Text("强度");
     public string ColorLabel => Text(UseModernControls ? "Mda.Text.Context.Lighting.Color" : "Mda.Text.44ba8282f5e5");
     public bool HasDirection => KindIndex != (int)SceneLightKind.Point;
+    public bool IsDirectional => KindIndex == (int)SceneLightKind.Directional;
+    public bool IsPositional => KindIndex != (int)SceneLightKind.Directional;
     public bool HasRange => KindIndex != (int)SceneLightKind.Directional;
     public bool HasCone => KindIndex == (int)SceneLightKind.Spot;
     public bool HasAreaSize => KindIndex == (int)SceneLightKind.Area;
-    public decimal? PositionX { get => positionX; set => Set(ref positionX, value); }
-    public decimal? PositionY { get => positionY; set => Set(ref positionY, value); }
-    public decimal? PositionZ { get => positionZ; set => Set(ref positionZ, value); }
-    public decimal? RotationX { get => rotationX; set => Set(ref rotationX, value); }
-    public decimal? RotationY { get => rotationY; set => Set(ref rotationY, value); }
-    public decimal? RotationZ { get => rotationZ; set => Set(ref rotationZ, value); }
+    public decimal? PositionX { get => positionX; set { if (Set(ref positionX, value)) SyncDisplayedTarget(); } }
+    public decimal? PositionY { get => positionY; set { if (Set(ref positionY, value)) SyncDisplayedTarget(); } }
+    public decimal? PositionZ { get => positionZ; set { if (Set(ref positionZ, value)) SyncDisplayedTarget(); } }
+    public decimal? RotationX { get => rotationX; set { if (Set(ref rotationX, value)) { directRotation = null; NotifyAimFromOrientation(); } } }
+    public decimal? RotationY { get => rotationY; set { if (Set(ref rotationY, value)) { directRotation = null; NotifyAimFromOrientation(); } } }
+    public decimal? RotationZ { get => rotationZ; set { if (Set(ref rotationZ, value)) { directRotation = null; NotifyAimFromOrientation(); } } }
+    public decimal? TargetX { get => targetX; set { if (Set(ref targetX, value)) { targetEdited = true; TryApplyTargetFromFields(); } } }
+    public decimal? TargetY { get => targetY; set { if (Set(ref targetY, value)) { targetEdited = true; TryApplyTargetFromFields(); } } }
+    public decimal? TargetZ { get => targetZ; set { if (Set(ref targetZ, value)) { targetEdited = true; TryApplyTargetFromFields(); } } }
+    public Vector3 LightDirectionVector { get => CurrentDirection(); set => ApplyAimDirection(value); }
+    public bool IsBacklit
+    {
+        get
+        {
+            var dir = CurrentDirection();
+            if (Finite(dir) && dir.LengthSquared() >= 1e-12f)
+            {
+                var normalized = Vector3.Normalize(dir);
+                if (MathF.Abs(normalized.Z) > 1e-5f) return normalized.Z < 0;
+            }
+            return backlit;
+        }
+    }
+    public string HemisphereLabel => Text(IsBacklit ? "Mda.Text.LightAim.FlipToFront" : "Mda.Text.LightAim.FlipToBack");
     public decimal? Red { get => red; set => Set(ref red, value); }
     public decimal? Green { get => green; set => Set(ref green, value); }
     public decimal? Blue { get => blue; set => Set(ref blue, value); }
     public decimal? Intensity { get => intensity; set { if (Set(ref intensity, value)) Changed(nameof(BrightnessSliderPosition)); } }
-    public decimal? Range { get => range; set { if (Set(ref range, value)) Changed(nameof(DistanceSliderPosition)); } }
+    public decimal? Range { get => range; set { if (Set(ref range, value)) { Changed(nameof(DistanceSliderPosition)); if (!aimDistanceModified) SyncDisplayedTarget(); } } }
     public double BrightnessSliderPosition => EditorLightParameterScale.BrightnessPosition(Intensity);
     public double DistanceSliderPosition => EditorLightParameterScale.DistancePosition(Range);
     public decimal? AreaWidth { get => areaWidth; set { if (Set(ref areaWidth, value)) { areaSizeSpecified = true; Changed(nameof(AreaWidthSliderPosition)); } } }
@@ -298,10 +334,22 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         Name = draft.Name; KindIndex = draft.KindIndex; Enabled = draft.Enabled; CastShadows = draft.CastShadows;
         PositionX = draft.PositionX; PositionY = draft.PositionY; PositionZ = draft.PositionZ;
         RotationX = draft.RotationX; RotationY = draft.RotationY; RotationZ = draft.RotationZ;
+        directRotation = draft.DirectRotation;
+        aimDistance = draft.AimDistance ?? draft.Original.AimDistance;
+        aimDistanceModified = draft.AimDistanceModified;
+        targetEdited = draft.TargetEdited;
         Red = draft.Red; Green = draft.Green; Blue = draft.Blue; Intensity = draft.Intensity; Range = draft.Range;
         InnerConeDegrees = draft.InnerConeDegrees; OuterConeDegrees = draft.OuterConeDegrees;
         AreaWidth = draft.AreaWidth; AreaHeight = draft.AreaHeight;
         areaSizeSpecified = draft.AreaSizeSpecified || draft.Original.AreaSize is not null || draft.KindIndex == (int)SceneLightKind.Area;
+        if (draft.TargetX.HasValue || draft.TargetY.HasValue || draft.TargetZ.HasValue || draft.TargetEdited)
+        {
+            targetX = draft.TargetX; targetY = draft.TargetY; targetZ = draft.TargetZ;
+            Changed(nameof(TargetX)); Changed(nameof(TargetY)); Changed(nameof(TargetZ));
+        }
+        else
+            SyncDisplayedTarget();
+        NotifyDirectionState();
     }
 
     /// <summary>Retain only unfinished fields across an outside edit. Committed fields follow Undo;
@@ -319,6 +367,18 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         if (pending.RotationX != before.RotationX) RotationX = pending.RotationX;
         if (pending.RotationY != before.RotationY) RotationY = pending.RotationY;
         if (pending.RotationZ != before.RotationZ) RotationZ = pending.RotationZ;
+        if (pending.DirectRotation != before.DirectRotation) directRotation = pending.DirectRotation;
+        if (pending.AimDistanceModified != before.AimDistanceModified || pending.AimDistance != before.AimDistance)
+        {
+            aimDistance = pending.AimDistance;
+            aimDistanceModified = pending.AimDistanceModified;
+        }
+        if (pending.TargetEdited || pending.DirectRotation is not null || pending.AimDistanceModified)
+        {
+            targetEdited = pending.TargetEdited;
+            targetX = pending.TargetX; targetY = pending.TargetY; targetZ = pending.TargetZ;
+            Changed(nameof(TargetX)); Changed(nameof(TargetY)); Changed(nameof(TargetZ));
+        }
         if (pending.Red != before.Red) Red = pending.Red;
         if (pending.Green != before.Green) Green = pending.Green;
         if (pending.Blue != before.Blue) Blue = pending.Blue;
@@ -329,6 +389,7 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         if (pending.AreaWidth != before.AreaWidth) AreaWidth = pending.AreaWidth;
         if (pending.AreaHeight != before.AreaHeight) AreaHeight = pending.AreaHeight;
         if (pending.AreaSizeSpecified != before.AreaSizeSpecified) areaSizeSpecified = pending.AreaSizeSpecified;
+        NotifyDirectionState();
     }
 
     internal EditorRecoveryNativeLightDraft CaptureRecoveryDraft() => new()
@@ -337,6 +398,9 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         Enabled = Enabled, CastShadows = CastShadows,
         PositionX = PositionX, PositionY = PositionY, PositionZ = PositionZ,
         RotationX = RotationX, RotationY = RotationY, RotationZ = RotationZ,
+        TargetX = TargetX, TargetY = TargetY, TargetZ = TargetZ,
+        AimDistance = aimDistance, AimDistanceModified = aimDistanceModified,
+        TargetEdited = targetEdited, DirectRotation = directRotation,
         Red = Red, Green = Green, Blue = Blue, Intensity = Intensity, Range = Range,
         InnerConeDegrees = InnerConeDegrees, OuterConeDegrees = OuterConeDegrees,
         AreaWidth = AreaWidth, AreaHeight = AreaHeight, AreaSizeSpecified = areaSizeSpecified,
@@ -358,8 +422,17 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(label) || label != original.Name && label.Any(char.IsControl)) throw Error("请填写光源名称，且不要包含控制字符。");
         if (!Enum.IsDefined((SceneLightKind)KindIndex)) throw Error("{0}：请选择光源类型。", label);
         var position = new Vector3(Number(PositionX, original.Position.X, "位置 X"), Number(PositionY, original.Position.Y, "位置 Y"), Number(PositionZ, original.Position.Z, "位置 Z"));
-        var rotation = RotationX == Decimal(originalDegrees.X) && RotationY == Decimal(originalDegrees.Y) && RotationZ == Decimal(originalDegrees.Z)
-            ? original.Rotation : Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(Radians(RotationY, "旋转 Y"), Radians(RotationX, "旋转 X"), Radians(RotationZ, "旋转 Z")));
+        if (targetEdited && HasDirection)
+        {
+            _ = RequiredNumber(targetX, "Mda.Text.Context.Lighting.TargetX");
+            _ = RequiredNumber(targetY, "Mda.Text.Context.Lighting.TargetY");
+            _ = RequiredNumber(targetZ, "Mda.Text.Context.Lighting.TargetZ");
+            if (!aimDistanceModified || aimDistance is not { } d || !float.IsFinite(d) || d < 1e-4f)
+                throw Error("Mda.Text.Context.Lighting.TargetTooClose", label);
+        }
+        var rotation = directRotation
+            ?? (RotationX == Decimal(originalDegrees.X) && RotationY == Decimal(originalDegrees.Y) && RotationZ == Decimal(originalDegrees.Z)
+                ? original.Rotation : Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(Radians(RotationY, "旋转 Y"), Radians(RotationX, "旋转 X"), Radians(RotationZ, "旋转 Z"))));
         var color = new Vector3(Number(Red, original.Color.X, "红色"), Number(Green, original.Color.Y, "绿色"), Number(Blue, original.Color.Z, "蓝色"));
         float strength = Number(Intensity, original.Intensity, "强度"), distance = Number(Range, original.Range, "影响范围");
         if (color.X < 0 || color.Y < 0 || color.Z < 0 || strength < 0) throw Error("{0}：颜色和强度不能小于 0。", label);
@@ -369,8 +442,9 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         Vector2? areaSize = areaSizeSpecified || HasAreaSize ? new(Number(AreaWidth, original.AreaSize?.X ?? 5, "Mda.Text.Context.Lighting.AreaWidth"),
             Number(AreaHeight, original.AreaSize?.Y ?? 5, "Mda.Text.Context.Lighting.AreaHeight")) : null;
         if (areaSize is { } size && (size.X <= 0 || size.Y <= 0)) throw Error("Mda.Text.Context.Lighting.AreaSizeInvalid", label);
+        float? resolvedAim = aimDistanceModified ? aimDistance : original.AimDistance;
         var result = original with { Name = label, Kind = (SceneLightKind)KindIndex, Position = position, Rotation = rotation,
-            Color = color, Intensity = strength, Range = distance, InnerConeRadians = inner, OuterConeRadians = outer, Enabled = Enabled, CastShadows = CastShadows, GroupId = GroupId, AreaSize = areaSize };
+            Color = color, Intensity = strength, Range = distance, InnerConeRadians = inner, OuterConeRadians = outer, Enabled = Enabled, CastShadows = CastShadows, GroupId = GroupId, AreaSize = areaSize, AimDistance = resolvedAim };
         SceneLightingSnapshot.ValidateLight(result);
         return result;
     }
@@ -407,6 +481,168 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         finally { refreshingLocalization = false; }
         Changed(nameof(KindIndex));
     }
+    internal void ApplyAimDirection(Vector3 travel)
+    {
+        if (!Finite(travel) || travel.LengthSquared() < 1e-12f) return;
+        var unitTravel = Vector3.Normalize(travel);
+        var currentRotation = CurrentRotation();
+        var currentDir = Vector3.Transform(-Vector3.UnitZ, currentRotation);
+        var nextRotation = Quaternion.Normalize(SceneLightAim.Arc(currentDir, unitTravel) * currentRotation);
+        SetOrientation(nextRotation, updateTarget: true);
+    }
+
+    internal void ApplyAimTarget(Vector3 target, bool growRange = true)
+    {
+        var pos = CurrentPosition();
+        if (!Finite(pos) || !Finite(target)) return;
+        var offset = target - pos;
+        float dist = offset.Length();
+        if (!float.IsFinite(dist) || dist < 1e-4f) return;
+        var currentRotation = CurrentRotation();
+        var currentDir = Vector3.Transform(-Vector3.UnitZ, currentRotation);
+        var nextRotation = KindIndex == (int)SceneLightKind.Point
+            ? currentRotation
+            : Quaternion.Normalize(SceneLightAim.Arc(currentDir, offset / dist) * currentRotation);
+        aimDistance = dist;
+        aimDistanceModified = true;
+        targetEdited = true;
+        if (growRange && dist > CurrentRange() * SceneLightFalloff.MaxReferenceFraction)
+            Range = Decimal(dist / SceneLightFalloff.MaxReferenceFraction);
+        SetOrientation(nextRotation, updateTarget: false);
+        targetX = Decimal(target.X); targetY = Decimal(target.Y); targetZ = Decimal(target.Z);
+        Changed(nameof(TargetX)); Changed(nameof(TargetY)); Changed(nameof(TargetZ));
+    }
+
+    internal void FlipHemisphere()
+    {
+        var next = Controls.EditorLightDirectionPad.FlipHemisphereDirection(CurrentDirection(), IsBacklit);
+        backlit = !IsBacklit;
+        ApplyAimDirection(next);
+    }
+
+    internal bool AimAtSceneCenter(PmmCameraPose camera)
+    {
+        var lookAt = camera.LookAt;
+        if (!Finite(lookAt)) return false;
+        var pos = CurrentPosition();
+        if (Vector3.Distance(pos, lookAt) >= 0.05f)
+        {
+            ApplyAimTarget(lookAt);
+            return true;
+        }
+        return AimFromCamera(camera);
+    }
+
+    internal bool AimFromCamera(PmmCameraPose camera)
+    {
+        try
+        {
+            var cam = EditorLightPlacement.ValidateCamera(camera);
+            var forward = cam.Target - cam.Eye;
+            if (!Finite(forward) || forward.LengthSquared() < 1e-12f) return false;
+            ApplyAimDirection(forward);
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    private void SetOrientation(Quaternion nextRotation, bool updateTarget)
+    {
+        directRotation = nextRotation;
+        var degrees = ToDegrees(nextRotation);
+        rotationX = Decimal(degrees.X); rotationY = Decimal(degrees.Y); rotationZ = Decimal(degrees.Z);
+        Changed(nameof(RotationX)); Changed(nameof(RotationY)); Changed(nameof(RotationZ));
+        if (updateTarget) SyncDisplayedTarget();
+        NotifyDirectionState();
+    }
+
+    private void NotifyAimFromOrientation()
+    {
+        SyncDisplayedTarget();
+        NotifyDirectionState();
+    }
+
+    private void NotifyDirectionState()
+    {
+        var dir = CurrentDirection();
+        if (Finite(dir) && dir.LengthSquared() >= 1e-12f)
+        {
+            var normalized = Vector3.Normalize(dir);
+            if (MathF.Abs(normalized.Z) > 1e-5f) backlit = normalized.Z < 0;
+        }
+        Changed(nameof(LightDirectionVector));
+        Changed(nameof(IsBacklit));
+        Changed(nameof(HemisphereLabel));
+    }
+
+    private void TryApplyTargetFromFields()
+    {
+        if (!targetX.HasValue || !targetY.HasValue || !targetZ.HasValue)
+        {
+            aimDistanceModified = true;
+            aimDistance = null;
+            return;
+        }
+        var target = new Vector3((float)targetX.Value, (float)targetY.Value, (float)targetZ.Value);
+        var pos = CurrentPosition();
+        if (!Finite(target) || !Finite(pos)) return;
+        var offset = target - pos;
+        float dist = offset.Length();
+        if (!float.IsFinite(dist) || dist < 1e-4f)
+        {
+            aimDistanceModified = true;
+            aimDistance = 0f;
+            return;
+        }
+        var currentRotation = CurrentRotation();
+        var currentDir = Vector3.Transform(-Vector3.UnitZ, currentRotation);
+        var nextRotation = KindIndex == (int)SceneLightKind.Point
+            ? currentRotation
+            : Quaternion.Normalize(SceneLightAim.Arc(currentDir, offset / dist) * currentRotation);
+        aimDistance = dist;
+        aimDistanceModified = true;
+        if (dist > CurrentRange() * SceneLightFalloff.MaxReferenceFraction)
+            Range = Decimal(dist / SceneLightFalloff.MaxReferenceFraction);
+        SetOrientation(nextRotation, updateTarget: false);
+    }
+
+    private void SyncDisplayedTarget()
+    {
+        var target = CurrentPosition() + CurrentDirection() * CurrentEffectiveAimDistance();
+        if (!Finite(target)) return;
+        targetX = Decimal(target.X); targetY = Decimal(target.Y); targetZ = Decimal(target.Z);
+        Changed(nameof(TargetX)); Changed(nameof(TargetY)); Changed(nameof(TargetZ));
+    }
+
+    private Vector3 CurrentPosition() => new(
+        PositionX.HasValue ? (float)PositionX.Value : original.Position.X,
+        PositionY.HasValue ? (float)PositionY.Value : original.Position.Y,
+        PositionZ.HasValue ? (float)PositionZ.Value : original.Position.Z);
+
+    private Quaternion CurrentRotation()
+    {
+        if (directRotation is { } q) return q;
+        if (RotationX == Decimal(originalDegrees.X) && RotationY == Decimal(originalDegrees.Y) && RotationZ == Decimal(originalDegrees.Z))
+            return original.Rotation;
+        if (RotationX.HasValue && RotationY.HasValue && RotationZ.HasValue)
+            return Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(
+                (float)RotationY.Value * (MathF.PI / 180),
+                (float)RotationX.Value * (MathF.PI / 180),
+                (float)RotationZ.Value * (MathF.PI / 180)));
+        return original.Rotation;
+    }
+
+    private Vector3 CurrentDirection() => Vector3.Transform(-Vector3.UnitZ, CurrentRotation());
+
+    private float CurrentRange() => Range.HasValue && (float)Range.Value > 0 ? (float)Range.Value : original.Range;
+
+    private float CurrentEffectiveAimDistance()
+        => aimDistanceModified && aimDistance is { } d && float.IsFinite(d) && d > 0
+            ? d
+            : (aimDistance ?? SceneLightFalloff.DefaultAimDistance(CurrentRange()));
+
+    private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+
     private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new(property));
     public override string ToString() => Label;
 }

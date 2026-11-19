@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -192,6 +193,105 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
             return true;
         }
         finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task FocusedNumericInputPreviewsLiveWithoutSpuriousInitialInteractionAndCommitsOnce() => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var controller = (EditorLightViewportController)typeof(EditorWindow).GetField("lightController", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
+            Assert.False(controller.IsInteracting);
+
+            var advanced = inspector.GetVisualDescendants().OfType<Expander>().Single(control => control.Name == "InlineLightAdvanced");
+            Assert.False(advanced.IsExpanded);
+            var posX = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightPositionX");
+            Assert.True(posX.IsEffectivelyVisible);
+
+            posX.GetVisualDescendants().OfType<TextBox>().First().Focus(); Dispatcher.UIThread.RunJobs();
+            Assert.False(controller.IsInteracting);
+            var committedBefore = shell.Workspace.Session!.Lighting;
+
+            posX.Value = 5m; Dispatcher.UIThread.RunJobs();
+            Assert.Same(committedBefore, shell.Workspace.Session.Lighting);
+            Assert.True(controller.IsInteracting);
+            Assert.Equal(5f, Assert.Single(controller.PreviewLighting.Lights).Position.X);
+
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(controller.IsInteracting);
+            Assert.Equal(light.Position.X, Assert.Single(shell.Workspace.Session.Lighting.Lights).Position.X);
+
+            posX.GetVisualDescendants().OfType<TextBox>().First().Focus(); Dispatcher.UIThread.RunJobs();
+            posX.Value = 7m; Dispatcher.UIThread.RunJobs();
+            Assert.True(controller.IsInteracting);
+            Assert.True(inspector.TryCommit());
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(controller.IsInteracting);
+            var after = Assert.Single(shell.Workspace.Session.Lighting.Lights);
+            Assert.Equal(7f, after.Position.X);
+            Assert.Equal(light.Rotation, after.Rotation);
+
+            Assert.True(shell.Workspace.Undo());
+            Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            Assert.True(shell.Workspace.Undo());
+            Assert.Empty(shell.Workspace.Session.Lighting.Lights);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task TargetInputsDirectionPadAndQuickAimWorkAndSurviveRecovery() => await session.Dispatch(() =>
+    {
+        var (window, shell, _) = Editor();
+        try
+        {
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var targetX = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightTargetX");
+            targetX.GetVisualDescendants().OfType<TextBox>().First().Focus(); Dispatcher.UIThread.RunJobs();
+            targetX.Value = 4m; Dispatcher.UIThread.RunJobs();
+            Assert.True(inspector.TryCommit());
+            var aimed = Assert.Single(shell.Workspace.Session!.Lighting.Lights);
+            Assert.InRange(aimed.Target.X, 3.99f, 4.01f);
+
+            var recovery = inspector.CaptureRecoveryState(shell.Workspace.Session.Lighting, EditorInspectorPage.Lighting, Guid.NewGuid());
+            Assert.InRange((double)(recovery.Lights[0].TargetX ?? 0m), 3.99, 4.01);
+
+            var centerBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightAimCenterButton");
+            centerBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var atCenter = Assert.Single(shell.Workspace.Session.Lighting.Lights);
+            var expectedLookAt = inspector.CreationCameraProvider?.Invoke().LookAt ?? EditorLightPlacement.DefaultCamera.LookAt;
+            Assert.True(Vector3.Distance(atCenter.Target, expectedLookAt) < 0.05f);
+
+            var cameraBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightAimCameraButton");
+            cameraBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var fromCam = Assert.Single(shell.Workspace.Session.Lighting.Lights);
+            var cam = (inspector.CreationCameraProvider?.Invoke() ?? EditorLightPlacement.DefaultCamera).CreateCamera();
+            Assert.InRange(Vector3.Dot(Vector3.Normalize(fromCam.Direction), Vector3.Normalize(cam.Target - cam.Eye)), 0.999f, 1.001f);
+
+            float prevZ = fromCam.Direction.Z;
+            var flipBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightFlipHemisphereButton");
+            flipBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            var flipped = Assert.Single(shell.Workspace.Session.Lighting.Lights);
+            Assert.True(MathF.Sign(flipped.Direction.Z) != MathF.Sign(prevZ) || MathF.Abs(prevZ) < 1e-4f);
+
+            var pad = inspector.GetVisualDescendants().OfType<EditorLightDirectionPad>().Single(control => control.Name == "InlineLightDirectionPad");
+            var beforePad = flipped.Direction;
+            var padCenter = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(new(padCenter.X + 20, padCenter.Y - 20), MouseButton.Left);
+            window.MouseUp(new(padCenter.X + 20, padCenter.Y - 20), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            var afterPad = Assert.Single(shell.Workspace.Session.Lighting.Lights);
+            Assert.NotEqual(beforePad, afterPad.Direction);
+            return true;
+        }
+        finally { Close(window); }
     }, TestContext.Current.CancellationToken);
 
     private static NativeSceneLight Light() => new(Guid.NewGuid(), "fill", SceneLightKind.Spot, Vector3.One, Quaternion.Identity, Vector3.One);

@@ -210,11 +210,11 @@ public sealed class EditorLightViewportController
           foreach (var original in gesture.Lights)
           {
             var light = delta == Vector2.Zero ? original : gesture.Target
-                ? SceneLightAim.AimAt(original, LightViewportInteraction.Translate(original.Target, delta, gesture.Camera, gesture.Width, gesture.Height))
+                ? SafeAimAt(original, LightViewportInteraction.Translate(original.Target, delta, gesture.Camera, gesture.Width, gesture.Height), original)
                 : gesture.Rotate
                 ? original with { Position = gesture.Pivot + Vector3.Transform(original.Position - gesture.Pivot, rotation),
                     Rotation = Quaternion.Normalize(rotation * original.Rotation) }
-                : keepAim ? SceneLightAim.AimAt(original with { Position = original.Position + translation }, original.Target)
+                : keepAim ? SafeAimAt(original with { Position = original.Position + translation }, original.Target, original)
                 : original with { Position = original.Position + translation };
             var authored = gesture.Authored.Single(source => source.Id == original.Id);
             // A zero-motion gesture preserves even the original quaternion sign and exact
@@ -229,6 +229,17 @@ public sealed class EditorLightViewportController
         catch (ArgumentException) { return false; }
         editor.ReplaceSnapshot(next);
         Notify(); return true;
+    }
+
+    private static NativeSceneLight SafeAimAt(NativeSceneLight light, Vector3 candidateTarget, NativeSceneLight reference)
+    {
+        var delta = candidateTarget - light.Position;
+        if (delta.LengthSquared() >= 0.05f * 0.05f) return SceneLightAim.AimAt(light, candidateTarget);
+        if (delta.LengthSquared() >= 1e-10f)
+            return SceneLightAim.AimAt(light, light.Position + Vector3.Normalize(delta) * 0.05f);
+        var fallbackDir = reference.Target - reference.Position;
+        var unit = fallbackDir.LengthSquared() >= 1e-10f ? Vector3.Normalize(fallbackDir) : Vector3.UnitZ;
+        return SceneLightAim.AimAt(light, light.Position + unit * 0.05f);
     }
 
     /// <summary>Mouse release commits exactly once if content changed. Capture loss and Escape must call CancelDrag.</summary>

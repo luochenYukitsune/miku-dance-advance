@@ -34,8 +34,17 @@ public static class LightViewportInteraction
         var viewProjection = camera.ViewProjection(width, height);
         if (!Matrix4x4.Invert(viewProjection, out var inverse)) throw new ArgumentException("Camera is not invertible.");
         var clip = Vector4.Transform(new Vector4(position, 1), viewProjection);
-        if (MathF.Abs(clip.W) < 1e-6f) return position;
+        if (clip.W <= 1e-6f) return position;
         var ndc = new Vector3(clip.X, clip.Y, clip.Z) / clip.W;
+        Vector3? FreeDelta()
+        {
+            var shifted = new Vector3(ndc.X + 2 * deltaPixels.X / width, ndc.Y - 2 * deltaPixels.Y / height, ndc.Z);
+            var a = Vector4.Transform(new Vector4(ndc, 1), inverse);
+            var b = Vector4.Transform(new Vector4(shifted, 1), inverse);
+            if (MathF.Abs(a.W) < 1e-6f || MathF.Abs(b.W) < 1e-6f) return null;
+            var free = new Vector3(b.X, b.Y, b.Z) / b.W - new Vector3(a.X, a.Y, a.Z) / a.W;
+            return Finite(free) ? free : null;
+        }
         if (axis != LightDragAxis.Free)
         {
             // Solve the projected world-axis line instead of projecting a camera-plane delta
@@ -51,15 +60,26 @@ public static class LightViewportInteraction
             var denominator = new Vector2(direction.X - target.X * direction.W, direction.Y - target.Y * direction.W);
             var numerator = new Vector2(target.X * clip.W - clip.X, target.Y * clip.W - clip.Y);
             float squared = denominator.LengthSquared();
-            if (!float.IsFinite(squared) || squared < 1e-12f) return position;
-            var moved = position + basis * (Vector2.Dot(numerator, denominator) / squared);
-            return Finite(moved) ? moved : position;
+            if (float.IsFinite(squared) && squared >= 1e-12f)
+            {
+                float axisStep = Vector2.Dot(numerator, denominator) / squared;
+                float movedClipW = clip.W + axisStep * direction.W;
+                float camDist = MathF.Max(1f, Vector3.Distance(position, camera.Eye));
+                var moved = position + basis * axisStep;
+                if (Finite(moved) && movedClipW > MathF.Max(1e-4f, clip.W * 0.05f) && MathF.Abs(axisStep) <= camDist * 8f)
+                    return moved;
+            }
+            if (FreeDelta() is { } freeDelta)
+            {
+                float projectedStep = Vector3.Dot(freeDelta, basis);
+                float fallbackW = clip.W + projectedStep * direction.W;
+                var fallbackMoved = position + basis * projectedStep;
+                if (Finite(fallbackMoved) && fallbackW > 1e-4f)
+                    return fallbackMoved;
+            }
+            return position;
         }
-        var shifted = new Vector3(ndc.X + 2 * deltaPixels.X / width, ndc.Y - 2 * deltaPixels.Y / height, ndc.Z);
-        var a = Vector4.Transform(new Vector4(ndc, 1), inverse);
-        var b = Vector4.Transform(new Vector4(shifted, 1), inverse);
-        if (MathF.Abs(a.W) < 1e-6f || MathF.Abs(b.W) < 1e-6f) return position;
-        var delta = new Vector3(b.X, b.Y, b.Z) / b.W - new Vector3(a.X, a.Y, a.Z) / a.W;
+        if (FreeDelta() is not { } delta) return position;
         var result = position + delta;
         return Finite(result) ? result : position;
     }
@@ -78,15 +98,48 @@ public static class LightViewportInteraction
     {
         if (!Enum.IsDefined(axis) || axis == LightDragAxis.Free) throw new ArgumentOutOfRangeException(nameof(axis));
         var normal = Axis(axis);
-        float angle = (current.X - start.X - current.Y + start.Y) * .01f;
-        if (Matrix4x4.Invert(camera.ViewProjection(width, height), out var inverse)
+        var toCamera = camera.Eye - pivot;
+        float camDist = toCamera.Length();
+        var viewDir = camDist > 1e-6f ? toCamera / camDist : -Vector3.UnitZ;
+        bool steepView = camDist > 1e-6f && MathF.Abs(Vector3.Dot(normal, viewDir)) >= 0.2f;
+        float maxRadius = MathF.Max(100f, camDist * 5f);
+        float maxRadiusSq = maxRadius * maxRadius;
+        float angle;
+        if (steepView && Matrix4x4.Invert(camera.ViewProjection(width, height), out var inverse)
             && TryPlanePoint(start, out var first) && TryPlanePoint(current, out var next))
         {
             first -= pivot; next -= pivot;
             if (first.LengthSquared() > 1e-10f && next.LengthSquared() > 1e-10f)
                 angle = MathF.Atan2(Vector3.Dot(normal, Vector3.Cross(first, next)), Vector3.Dot(first, next));
+            else
+                angle = TangentFallbackAngle();
+        }
+        else
+        {
+            angle = TangentFallbackAngle();
         }
         return Quaternion.Normalize(Quaternion.CreateFromAxisAngle(normal, angle) * rotation);
+
+        float TangentFallbackAngle()
+        {
+            var radial = viewDir - normal * Vector3.Dot(normal, viewDir);
+            if (radial.LengthSquared() < 1e-8f)
+            {
+                var alt = MathF.Abs(normal.X) < 0.9f ? Vector3.UnitX : Vector3.UnitZ;
+                radial = Vector3.Cross(normal, alt);
+            }
+            radial = Vector3.Normalize(radial);
+            var tangent3D = Vector3.Normalize(Vector3.Cross(normal, radial));
+            float sampleLen = MathF.Max(0.1f, camDist * 0.05f);
+            if (TryProject(pivot, camera, width, height, out var p0)
+                && TryProject(pivot + tangent3D * sampleLen, camera, width, height, out var p1))
+            {
+                var screenTangent = p1 - p0;
+                if (screenTangent.LengthSquared() > 1e-4f)
+                    return Vector2.Dot(current - start, Vector2.Normalize(screenTangent)) * .01f;
+            }
+            return (current.X - start.X - current.Y + start.Y) * .01f;
+        }
 
         bool TryPlanePoint(Vector2 pixel, out Vector3 point)
         {
@@ -99,8 +152,10 @@ public static class LightViewportInteraction
             var direction = new Vector3(far.X, far.Y, far.Z) / far.W - origin;
             float denominator = Vector3.Dot(normal, direction);
             if (!float.IsFinite(denominator) || MathF.Abs(denominator) < 1e-7f) return false;
-            point = origin + direction * (Vector3.Dot(normal, pivot - origin) / denominator);
-            return Finite(point);
+            float t = Vector3.Dot(normal, pivot - origin) / denominator;
+            if (!float.IsFinite(t) || t <= 0f) return false;
+            point = origin + direction * t;
+            return Finite(point) && Vector3.DistanceSquared(point, pivot) <= maxRadiusSq;
         }
     }
 

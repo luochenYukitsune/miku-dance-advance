@@ -40,20 +40,35 @@ public partial class EditorLightInspector : UserControl
         KeyDown += (_, args) =>
         {
             if (recoveryRestoreDepth != 0) return;
+            if (args.Key == Key.Escape && numericEdit is not null)
+            {
+                CancelActiveParameterEdit();
+                args.Handled = true;
+                return;
+            }
             if (args.Key != Key.Enter || args.KeyModifiers != KeyModifiers.None) return;
             if (args.Source is TextBox { Name: "LightHexColor" } hex) ApplyHex(hex);
             else if (args.Source is Control input && input.GetVisualAncestors().OfType<EditorNumericUpDown>()
                 .Any(number => number.Name is { } name && EditorRecoveryGlobalLightingDraft.NumericNames.Contains(name))) TryCommitGlobalSettings();
-            else TryCommit();
+            else
+            {
+                bool hadNumeric = numericEdit is not null;
+                numericEdit = null;
+                focusedNumericDraft = null;
+                try { TryCommit(); }
+                finally { if (hadNumeric) PreviewRequested?.Invoke(null); }
+            }
             args.Handled = true;
         };
-        AddHandler(GotFocusEvent, (_, _) => { if (modernParameters) EditStartingRequested?.Invoke(); }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
+        AddHandler(GotFocusEvent, OnInspectorGotFocus, RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
+        AddHandler(Spinner.SpinEvent, OnInspectorNumericSpin, RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
     }
     public Func<EditorLightingDraft, bool>? CommitRequested { get; set; }
     public Action<Guid?>? SelectionRequested { get; set; }
     public Action<IReadOnlyList<Guid>, Guid?>? SelectionSetRequested { get; set; }
     public Func<bool>? EditStartingRequested { get; set; }
     public Func<EditorLightingDraft?, bool>? PreviewRequested { get; set; }
+    public Func<Mmd.Modern.Application.PmmCameraPose>? CreationCameraProvider { get; set; }
     public EditorLightingViewModel? ViewModel => DataContext as EditorLightingViewModel;
     private bool modernParameters;
     internal void UseWorkspaceBrowser(bool value)
@@ -88,8 +103,10 @@ public partial class EditorLightInspector : UserControl
                 || light.GroupId is { } group && retainedGroups.Contains(group)).Select(light => light.Id).ToArray();
             if (selectedId is not { } primary || !requestedIds.Contains(primary)) selectedId = requestedIds.Length > 0 ? requestedIds[0] : null;
         }
-        if (replacingSource || selectionChanged && (groupParameterEdit is not null || parameterEdit is not null || globalParameterEdit is not null)
-            || parameterEdit is { } edit && edit.Light.Id != selectedId) CancelActiveParameterEdit();
+        if (replacingSource || selectionChanged && (groupParameterEdit is not null || parameterEdit is not null || padEdit is not null || numericEdit is not null || globalParameterEdit is not null)
+            || parameterEdit is { } edit && edit.Light.Id != selectedId
+            || padEdit is { } activePad && activePad.Light.Id != selectedId
+            || numericEdit is { } activeNumeric && activeNumeric.Light.Id != selectedId) CancelActiveParameterEdit();
         using (Mmd.Modern.Application.InteractionDiagnostics.Measure("lighting.inspector-capture-raw")) CaptureRawControlText();
         var pending = replacingSource ? SavePendingInputs() : null;
         Guid? previousDocument = sourceDocumentId;
@@ -125,6 +142,7 @@ public partial class EditorLightInspector : UserControl
             this.FindControl<TextBlock>("EmptyLightPrompt")!.IsVisible = ViewModel?.HasSelection != true;
         }
         finally { refreshing = false; }
+        SyncObservedPreviewLight();
         RefreshParentControls();
     }
 
@@ -151,8 +169,13 @@ public partial class EditorLightInspector : UserControl
                 && groupEdit.Groups.TryGetValue(group.Id, out var beforeGroup) ? beforeGroup : group.CaptureDraft()) with
             { NumericText = matching ? rawGroupNumericText.GetValueOrDefault(group.Id) : null }).ToImmutableArray(),
             Lights = model.Lights.Select(light => (matching && parameterEdit is { } editing && editing.Light.Id == light.Id
-                ? editing.Before : matching && groupParameterEdit is { } batchEdit && batchEdit.Lights.TryGetValue(light.Id, out var beforeLight)
-                    ? beforeLight : light.CaptureRecoveryDraft()) with
+                ? editing.Before
+                : matching && padEdit is { } activePad && activePad.Light.Id == light.Id
+                    ? activePad.Before
+                    : matching && numericEdit is { } activeNumeric && activeNumeric.Light.Id == light.Id
+                        ? activeNumeric.Before
+                        : matching && groupParameterEdit is { } batchEdit && batchEdit.Lights.TryGetValue(light.Id, out var beforeLight)
+                            ? beforeLight : light.CaptureRecoveryDraft()) with
             {
                 HexText = matching && rawHexText.TryGetValue(light.Id, out string? hex) ? hex : null,
                 NumericText = matching && rawNumericText.TryGetValue(light.Id, out var numeric)
@@ -205,6 +228,7 @@ public partial class EditorLightInspector : UserControl
             ApplyRecoveryNumericText();
         }
         finally { refreshing = false; }
+        SyncObservedPreviewLight();
         RefreshParentControls();
     }
 
@@ -295,19 +319,30 @@ public partial class EditorLightInspector : UserControl
     public bool TryCommit()
     {
         if (refreshing || committing || recoveryRestoreDepth != 0 || ViewModel is null) return true;
+        pendingNumericBinding = null;
+        bool hadNumeric = numericEdit is not null;
+        numericEdit = null;
+        focusedNumericDraft = null;
         CancelActiveParameterEdit();
-        if (!TryReadLightingDraft(out var draft) || draft is null) return false;
-        if (source.Lights.SequenceEqual(draft.Snapshot.Lights) && source.Groups.SequenceEqual(draft.Snapshot.Groups)
-            && source.Settings == draft.Snapshot.Settings) return true;
-        committing = true;
         try
         {
-            if (CommitRequested?.Invoke(draft) != true) return false;
-            source = draft.Snapshot;
-            RefreshColor();
-            return true;
+            if (!TryReadLightingDraft(out var draft) || draft is null) return false;
+            if (source.Lights.SequenceEqual(draft.Snapshot.Lights) && source.Groups.SequenceEqual(draft.Snapshot.Groups)
+                && source.Settings == draft.Snapshot.Settings) return true;
+            committing = true;
+            try
+            {
+                if (CommitRequested?.Invoke(draft) != true) return false;
+                source = draft.Snapshot;
+                RefreshColor();
+                return true;
+            }
+            finally { committing = false; }
         }
-        finally { committing = false; }
+        finally
+        {
+            if (hadNumeric) PreviewRequested?.Invoke(null);
+        }
     }
 
     // Parent changes read and validate the same complete draft, then publish the local transform
@@ -338,13 +373,16 @@ public partial class EditorLightInspector : UserControl
     {
         if (refreshing || recoveryRestoreDepth != 0 || args.PropertyName != nameof(EditorLightingViewModel.SelectedLightIds)) return;
         if (groupParameterEdit is not null) CancelActiveGroupParameterEdit();
-        if (parameterEdit is { } editing && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != editing.Light.Id)) CancelActiveParameterEdit();
+        if (parameterEdit is { } editing && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != editing.Light.Id)
+            || padEdit is { } activePad && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != activePad.Light.Id)
+            || numericEdit is { } activeNumeric && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != activeNumeric.Light.Id)) CancelActiveParameterEdit();
         CaptureRawControlText();
         if (!performingSelectionAction)
         {
             if (SelectionSetRequested is { } selectMany) selectMany(ViewModel?.SelectedLightIds ?? [], ViewModel?.SelectedLight?.Id);
             else SelectionRequested?.Invoke(ViewModel?.SelectedLight?.Id);
         }
+        SyncObservedPreviewLight();
         this.FindControl<TextBlock>("EmptyLightPrompt")!.IsVisible = ViewModel?.HasSelection != true;
         RefreshParentControls();
         Dispatcher.UIThread.Post(RefreshColor);
@@ -357,7 +395,15 @@ public partial class EditorLightInspector : UserControl
         if (ReferenceEquals(model.SelectedLight, choice.SelectedItem)) return;
         model.SelectedLight = choice.SelectedItem as EditorNativeLightItem;
     }
-    private void CommitInput(object? sender, RoutedEventArgs args) { if (!refreshing && parameterEdit is null && groupParameterEdit is null) TryCommit(); }
+    private void CommitInput(object? sender, RoutedEventArgs args)
+    {
+        if (refreshing || parameterEdit is not null || padEdit is not null || groupParameterEdit is not null) return;
+        bool hadNumeric = numericEdit is not null;
+        numericEdit = null;
+        focusedNumericDraft = null;
+        try { TryCommit(); }
+        finally { if (hadNumeric) PreviewRequested?.Invoke(null); }
+    }
     private void CommitToggle(object? sender, RoutedEventArgs args) { if (!refreshing) CommitSwitch(sender); }
     internal bool CommitSwitch(object? sender)
     {

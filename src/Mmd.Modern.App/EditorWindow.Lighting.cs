@@ -36,6 +36,7 @@ public partial class EditorWindow
         };
         inspector.PreviewRequested = draft => lightController?.SetParameterPreview(draft) == true;
         inspector.PreviewQualityRequested = () => OpenPreviewSettings(this, new RoutedEventArgs());
+        inspector.CreationCameraProvider = () => this.FindControl<EditorViewportHost>("SceneViewport")!.LightCreationCamera;
         if (lightController is not null)
         {
             lightController.Changed += LightToolsChanged;

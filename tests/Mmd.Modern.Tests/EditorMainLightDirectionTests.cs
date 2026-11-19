@@ -1,12 +1,20 @@
 using System.Numerics;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Threading;
 using Mmd.Modern.App;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.Formats;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
 
-public sealed class EditorMainLightDirectionTests
+[Collection(QualityLoadingCollection.Name)]
+public sealed class EditorMainLightDirectionTests : IAsyncDisposable
 {
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
     [Fact]
     public async Task DirectDirectionEditingKeepsColorAndIntensityAndRegistersTheExactPose()
     {
@@ -82,4 +90,85 @@ public sealed class EditorMainLightDirectionTests
         var forward = Vector3.Normalize(camera.Target - camera.Eye);
         Assert.InRange(Vector3.Dot(Vector3.Normalize(model.LightPose.Direction), forward), .9999f, 1.0001f);
     }
+
+    [Fact]
+    public async Task DirectionPadPointAtUsesSourceSemanticsAndPreservesBackHemisphereAcrossRim() => await session.Dispatch(() =>
+    {
+        var pad = new EditorLightDirectionPad { Width = 160, Height = 160 };
+        var window = new Window { Width = 160, Height = 160, Content = pad };
+        window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        try
+        {
+            window.MouseDown(new(80 + 32, 80 - 32), MouseButton.Left);
+            window.MouseUp(new(80 + 32, 80 - 32), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(pad.Direction.X < 0 && pad.Direction.Y < 0 && pad.Direction.Z > 0);
+            var (az, el) = EditorLightAngles.Angles(pad.Direction, 0);
+            Assert.InRange(az, 1, 89);
+            Assert.InRange(el, 1, 89);
+
+            window.MouseDown(new(80, 80), MouseButton.Right);
+            window.MouseUp(new(80, 80), MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(pad.Direction.Z < 0);
+
+            window.MouseDown(new(80 + 32, 80), MouseButton.Left);
+            window.MouseMove(new(80 + 64, 80));
+            Assert.InRange(MathF.Abs(pad.Direction.Z), 0, 1e-4f);
+            window.MouseMove(new(80 + 32, 80));
+            window.MouseUp(new(80 + 32, 80), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(pad.Direction.Z < 0);
+            return true;
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task DirectionPadArrowKeysStepSourceAzimuthAndElevation() => await session.Dispatch(() =>
+    {
+        var pad = new EditorLightDirectionPad { Width = 160, Height = 160, Direction = EditorLightAngles.Direction(45, 30, 1) };
+        var window = new Window { Width = 160, Height = 160, Content = pad };
+        window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        try
+        {
+            pad.Focus(); Dispatcher.UIThread.RunJobs();
+            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            Dispatcher.UIThread.RunJobs();
+            var (az1, el1) = EditorLightAngles.Angles(pad.Direction, 45);
+            Assert.InRange(az1, 49.5, 50.5);
+            Assert.InRange(el1, 29.5, 30.5);
+
+            window.KeyPress(Key.Up, RawInputModifiers.Shift, PhysicalKey.None, null);
+            window.KeyRelease(Key.Up, RawInputModifiers.Shift, PhysicalKey.None, null);
+            Dispatcher.UIThread.RunJobs();
+            var (az2, el2) = EditorLightAngles.Angles(pad.Direction, az1);
+            Assert.InRange(az2, 49.5, 50.5);
+            Assert.InRange(el2, 44.5, 45.5);
+            return true;
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public void RevertLightDraftAndFlipHemisphereWorkIndependentlyOfSceneSelection()
+    {
+        var model = new EditorSceneInspectorViewModel { SceneSelectionIndex = 1 };
+        model.AimLight("left");
+        Assert.True(model.HasLightDraft);
+        Assert.False(model.RevertDraftCommand.CanExecute(null));
+        Assert.True(model.RevertLightDraftCommand.CanExecute(null));
+        model.RevertLightDraftCommand.Execute(null);
+        Assert.False(model.HasLightDraft);
+        Assert.Equal(EditorSceneInspectorViewModel.DefaultLightDirection, model.LightPose.Direction);
+
+        model.AimLight("top");
+        bool beforeBack = model.IsMainLightBacklit;
+        model.FlipMainLightHemisphere();
+        Assert.NotEqual(beforeBack, model.IsMainLightBacklit);
+        Assert.True(MathF.Abs(model.LightPose.Direction.Z) > 0.05f);
+    }
+
+    public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }

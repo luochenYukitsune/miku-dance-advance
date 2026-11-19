@@ -9,6 +9,7 @@ namespace Mmd.Modern.App;
 public sealed partial class EditorSceneInspectorViewModel
 {
     private double lastAzimuth;
+    private bool mainLightBacklit;
 
     /// <summary>The MMD default main-light direction (−0.5, −1, 0.5).</summary>
     internal static Vector3 DefaultLightDirection => DefaultLight.Direction;
@@ -75,5 +76,39 @@ public sealed partial class EditorSceneInspectorViewModel
         try { var camera = cameraPose.CreateCamera(); forward = camera.Target - camera.Eye; }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException) { forward = Vector3.Zero; }
         if (!Finite(forward)) forward = Vector3.Zero;
+    }
+
+    public bool IsMainLightBacklit
+    {
+        get
+        {
+            var direction = lightPose.Direction;
+            if (Finite(direction) && direction.LengthSquared() >= 1e-12f)
+            {
+                var normalized = Vector3.Normalize(direction);
+                if (MathF.Abs(normalized.Z) > 1e-5f) return normalized.Z < 0;
+            }
+            return mainLightBacklit;
+        }
+    }
+
+    public string MainLightHemisphereLabel => EditorLocalization.Text(IsMainLightBacklit
+        ? "Mda.Text.LightAim.FlipToFront"
+        : "Mda.Text.LightAim.FlipToBack");
+
+    public void FlipMainLightHemisphere()
+    {
+        bool backlit = IsMainLightBacklit;
+        var next = EditorLightDirectionPad.FlipHemisphereDirection(lightPose.Direction, backlit);
+        mainLightBacklit = !backlit;
+        LightDirectionVector = next;
+    }
+
+    private void SyncMainLightHemisphere()
+    {
+        var direction = lightPose.Direction;
+        if (!Finite(direction) || direction.LengthSquared() < 1e-12f) return;
+        var normalized = Vector3.Normalize(direction);
+        if (MathF.Abs(normalized.Z) > 1e-5f) mainLightBacklit = normalized.Z < 0;
     }
 }
