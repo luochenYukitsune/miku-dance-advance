@@ -63,12 +63,12 @@ public sealed partial class SceneProjectSession
         // version (EditedModelPath). Both captures share one dependency snapshot cache, so each texture is read and
         // hashed once, and a bundle the first publish already wrote is not verified and rewritten again.
         using var originalBundles = PortableModelAssets.Prepare(input.Composition.Objects, token, limits: limits);
-        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits, originalBundles);
         SceneAnimationProjectStore.SaveSnapshot(path, input.Composition, input.Lighting, input.Animation,
             input.Settings, input.Media, new() { PortableLimits = limits, PreparedPortable = originalBundles }, token);
         var node = JsonNode.Parse(File.ReadAllText(path))!;
         var layout = node["layout"]!;
         var originals = layout["objects"]!.AsArray().ToDictionary(o => o!["id"]!.GetValue<Guid>(), o => o!["sourcePath"]!.GetValue<string>());
+        using var portable = PortableModelAssets.Prepare(input.Composition.Objects, token, overrides, limits, originalBundles);
         portable.Publish(stage, token, originalBundles.Bundles.Keys.ToHashSet(StringComparer.Ordinal));
         layout["portableModels"] = new JsonArray(portable.Hashes.Select(hash => (JsonNode?)JsonValue.Create(hash)).ToArray());
         foreach (var item in layout["objects"]!.AsArray()) item!["sourcePath"] = portable.Paths[item["id"]!.GetValue<Guid>()];

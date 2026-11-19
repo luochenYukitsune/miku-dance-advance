@@ -44,7 +44,8 @@ public sealed class BulletParallelWorldTests
             var definition = new CharacterPhysicsDefinition([], [new PhysicsBodyDefinition(
                 "falling", -1, PhysicsShapeKind.Sphere, new(.1f), new(x, 6, 3), Vector3.Zero,
                 1, 0, 0, 0, .3f, 0, 0, PhysicsBodyMode.Dynamic)], []);
-            using var owner = new BulletCharacterPhysicsBackend(new(0, -4 - index, 0), null, coupledSoftBodies: true);
+            // MMD-scale gravity (10x SI) keeps free-fall acceleration above Bullet's 120 Hz additional-damping threshold.
+            using var owner = new BulletCharacterPhysicsBackend(new(0, -40 - index * 10, 0), null, coupledSoftBodies: true);
             owner.Initialize(definition, definition.BodyRestWorldTransforms.ToArray());
             using var binding = owner.CreateSoftBodyBinding([]);
             binding.Initialize([new SoftBodyDefinition("cloth", SoftBodyShape.TriMesh, [0, 1, 2, 3], targets,
