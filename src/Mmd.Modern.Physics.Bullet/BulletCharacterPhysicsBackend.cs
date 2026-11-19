@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -5,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 namespace Mmd.Modern.Physics.Bullet;
 
 /// <summary>Owns one Bullet 2.75 world in raw PMX coordinates, using the float32 C ABI.</summary>
-public sealed partial class BulletCharacterPhysicsBackend : ICharacterPhysicsMutableBackend, ICharacterSoftBodyProvider, ICharacterPhysicsJointPullBackend
+public sealed partial class BulletCharacterPhysicsBackend : ICharacterPhysicsBatchedBackend, ICharacterSoftBodyProvider, ICharacterPhysicsJointPullBackend
 {
     private Vector3 gravity;
     private readonly float? groundY;
@@ -18,6 +19,8 @@ public sealed partial class BulletCharacterPhysicsBackend : ICharacterPhysicsMut
 
     public string Name => "Bullet 2.75 Compatibility (float32)";
     public IReadOnlyList<string> Diagnostics => diagnostics;
+    public bool SupportsConcurrentIndependentWorlds => true;
+    public bool SupportsBatchedExecution => batchedCapabilitySupported.Value;
 
     public BulletCharacterPhysicsBackend(Vector3? gravity = null, float? groundY = 0, bool coupledSoftBodies = false,
         bool mmdJointPullCorrection = true)
@@ -140,6 +143,11 @@ public sealed partial class BulletCharacterPhysicsBackend : ICharacterPhysicsMut
         var current = GetWorld(bodyIndex);
         int status = Native.GetBodyPose(current, bodyIndex, out var pose);
         if (status != 0) throw Failure(status, $"get pose for body {bodyIndex}", LastError());
+        return MatrixFromPose(in pose, bodyIndex);
+    }
+
+    private static Matrix4x4 MatrixFromPose(in NativePose pose, int bodyIndex)
+    {
         var rotation = new Quaternion(pose.Qx, pose.Qy, pose.Qz, pose.Qw);
         if (!Finite(pose.Position.Value) || !float.IsFinite(rotation.LengthSquared()) || rotation.LengthSquared() <= 0)
             throw new InvalidOperationException($"Bullet returned a nonfinite or invalid pose for body {bodyIndex}.");
@@ -258,6 +266,20 @@ public sealed partial class BulletCharacterPhysicsBackend : ICharacterPhysicsMut
     private struct NativeAbi
     {
         public int AbiVersion, BulletVersion, ScalarBytes, PoseBytes, BodyBytes, JointBytes;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct NativeKinematicTargetItem
+    {
+        public int BodyIndex, IsKinematic;
+        public NativePose Target;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct NativeJointPullItem
+    {
+        public int BodyA, BodyB;
+        public float MaximumDistance;
     }
 
     private static partial class Native

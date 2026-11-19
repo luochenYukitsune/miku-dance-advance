@@ -32,7 +32,11 @@ public sealed class CharacterPhysicsSample : IDisposable
             var indices = ValidateCompletion(physicsWorlds, reflectedBoneIndices);
             completed = true;
             try { return animator!.CompletePhysicsSample(evaluator!, world, physicsWorlds, indices, options); }
-            finally { animator = null; evaluator = null; }
+            finally
+            {
+                animator?.ReturnEvaluator(evaluator);
+                animator = null; evaluator = null;
+            }
         }
     }
 
@@ -45,21 +49,67 @@ public sealed class CharacterPhysicsSample : IDisposable
             var indices = ValidateCompletion(physicsWorlds, reflectedBoneIndices);
             completed = true;
             try { return animator!.CompletePhysicsBoneWorlds(evaluator!, world, physicsWorlds, indices, options); }
-            finally { animator = null; evaluator = null; }
+            finally
+            {
+                animator?.ReturnEvaluator(evaluator);
+                animator = null; evaluator = null;
+            }
         }
     }
 
-    private HashSet<int> ValidateCompletion(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices)
+    private IReadOnlyCollection<int> ValidateCompletion(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (completed) throw new InvalidOperationException("A physics sample can only be completed once.");
         ArgumentNullException.ThrowIfNull(reflectedBoneIndices);
         if (physicsWorlds.Length != world.Length) throw new ArgumentException("Physics pose bone count differs from the rig.", nameof(physicsWorlds));
-        var indices = new HashSet<int>();
-        foreach (int index in reflectedBoneIndices)
-            if (index < 0 || index >= world.Length || !indices.Add(index))
-                throw new ArgumentException("Reflected bone indices must be valid and unique.", nameof(reflectedBoneIndices));
+        var validated = ValidateReflectedBoneIndices(reflectedBoneIndices, world.Length);
         foreach (var transform in physicsWorlds) ValidateWorld(transform);
+        return validated;
+    }
+
+    private static IReadOnlyCollection<int> ValidateReflectedBoneIndices(IReadOnlyCollection<int> reflectedBoneIndices, int boneCount)
+    {
+        if (reflectedBoneIndices.Count == 0) return Array.Empty<int>();
+        if (reflectedBoneIndices is int[] array)
+        {
+            int previous = -1;
+            bool strictlyIncreasing = true;
+            for (int i = 0; i < array.Length; i++)
+            {
+                int index = array[i];
+                if ((uint)index >= (uint)boneCount)
+                    throw new ArgumentException("Reflected bone indices must be valid and unique.", nameof(reflectedBoneIndices));
+                if (index <= previous)
+                {
+                    strictlyIncreasing = false;
+                    break;
+                }
+                previous = index;
+            }
+            if (strictlyIncreasing) return array;
+            if (boneCount <= 8192)
+            {
+                Span<ulong> seen = stackalloc ulong[(boneCount + 63) >> 6];
+                seen.Clear();
+                for (int i = 0; i < array.Length; i++)
+                {
+                    int index = array[i];
+                    if ((uint)index >= (uint)boneCount)
+                        throw new ArgumentException("Reflected bone indices must be valid and unique.", nameof(reflectedBoneIndices));
+                    ref ulong word = ref seen[index >> 6];
+                    ulong bit = 1UL << (index & 63);
+                    if ((word & bit) != 0)
+                        throw new ArgumentException("Reflected bone indices must be valid and unique.", nameof(reflectedBoneIndices));
+                    word |= bit;
+                }
+                return array;
+            }
+        }
+        var indices = new HashSet<int>(reflectedBoneIndices.Count);
+        foreach (int index in reflectedBoneIndices)
+            if (index < 0 || index >= boneCount || !indices.Add(index))
+                throw new ArgumentException("Reflected bone indices must be valid and unique.", nameof(reflectedBoneIndices));
         return indices;
     }
 
@@ -80,6 +130,12 @@ public sealed class CharacterPhysicsSample : IDisposable
 
     public void Dispose()
     {
-        lock (sync) { disposed = true; animator = null; evaluator = null; }
+        lock (sync)
+        {
+            if (disposed) return;
+            disposed = true;
+            if (evaluator is not null) animator?.ReturnEvaluator(evaluator);
+            animator = null; evaluator = null;
+        }
     }
 }

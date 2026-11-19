@@ -22,6 +22,7 @@ public sealed partial class BepuCharacterPhysicsBackend : ICharacterPhysicsMutab
     private bool disposed;
     public string Name => "Bepu 2.4.0 Modern (experimental; not Bullet)";
     public IReadOnlyList<string> Diagnostics => diagnostics.AsReadOnly();
+    public bool SupportsConcurrentIndependentWorlds => true;
 
     public BepuCharacterPhysicsBackend(Vector3? gravity = null, float? groundY = 0)
     {

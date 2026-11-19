@@ -47,11 +47,16 @@ MMD_EXPORT int32_t mmd_bullet_set_body_kinematic(void* context, int32_t index, i
 // Additive ABI4 feature bit 2: original MMD joint pull safeguard, preserving actual body basis and contacts.
 MMD_EXPORT int32_t mmd_bullet_correct_joint_overextension(void* context, int32_t body_a, int32_t body_b, float maximum_distance) MMD_NOEXCEPT;
 // Additive ABI4 feature bit 1: explicit actual-body soft-rigid world.
+// Additive ABI4 feature bit 4: batched kinematic targets and joint-pull/pose readback.
+typedef struct { int32_t body_index, is_kinematic; MmdBulletPose target; } MmdBulletKinematicTargetItem;
+typedef struct { int32_t body_a, body_b; float maximum_distance; } MmdBulletJointPullItem;
 MMD_EXPORT int32_t mmd_bullet_features(void) MMD_NOEXCEPT;
 MMD_EXPORT int32_t mmd_bullet_create_coupled(MmdBulletVector gravity, int32_t has_ground, float ground_y, void** result) MMD_NOEXCEPT;
 MMD_EXPORT int32_t mmd_bullet_soft_create(void* context, const int32_t* rigid_slots, int32_t count, void** result) MMD_NOEXCEPT;
 MMD_EXPORT int32_t mmd_bullet_soft_destroy(void* context, void* binding) MMD_NOEXCEPT;
 MMD_EXPORT int32_t mmd_bullet_get_body_velocity(void* context, int32_t index, MmdBulletVector* linear, MmdBulletVector* angular) MMD_NOEXCEPT;
+MMD_EXPORT int32_t mmd_bullet_set_kinematic_targets_batch(void* context, const MmdBulletKinematicTargetItem* items, int32_t count) MMD_NOEXCEPT;
+MMD_EXPORT int32_t mmd_bullet_correct_joints_and_get_poses(void* context, const MmdBulletJointPullItem* joints, int32_t joint_count, const int32_t* body_indices, int32_t body_count, MmdBulletPose* poses_out) MMD_NOEXCEPT;
 #ifdef __cplusplus
 }
 #endif

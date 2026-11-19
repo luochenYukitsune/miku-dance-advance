@@ -59,7 +59,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
             AdapterIdentity = adapterIdentity;
         }
 
-        internal bool IsLibraryAvailable => library is not null && !tainted;
+        internal bool IsLibraryAvailable => library is not null && !Volatile.Read(ref tainted);
 
         internal void InitializeLibraryLocked(ID3D12Device device)
         {
@@ -113,7 +113,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
 
         internal bool StorePipelineLocked(string key, ID3D12PipelineState state, ID3D12RootSignature? rootSignature)
         {
-            if (library is null || tainted) return false;
+            if (library is null || Volatile.Read(ref tainted)) return false;
             if (!knownKeys.Add(key)) return false;
             ID3D12PipelineState? stateRef = null;
             ID3D12RootSignature? rootRef = null;
@@ -126,7 +126,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
                 library.StorePipeline(key, stateRef);
                 retainedPipelines.Add(stateRef);
                 if (rootRef is not null) retainedPipelines.Add(rootRef);
-                dirty = true;
+                Volatile.Write(ref dirty, true);
                 return true;
             }
             catch
@@ -140,8 +140,8 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
 
         internal void MarkTaintedLocked()
         {
-            tainted = true;
-            dirty = false;
+            Volatile.Write(ref tainted, true);
+            Volatile.Write(ref dirty, false);
             knownKeys.Clear();
             library?.Dispose();
             library = null;
@@ -152,7 +152,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
 
         internal void FlushLocked()
         {
-            if (tainted || !dirty || library is null || CacheFilePath is null) return;
+            if (Volatile.Read(ref tainted) || !Volatile.Read(ref dirty) || library is null || CacheFilePath is null) return;
             byte[] fileBytes;
             try
             {
@@ -165,7 +165,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
                         library.Serialize((nint)ptr, serializedSize);
                 }
                 fileBytes = BuildFileBytes(AdapterIdentity, knownKeys, blob);
-                dirty = false;
+                Volatile.Write(ref dirty, false);
             }
             catch
             {
@@ -281,7 +281,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
         string key = ComputeGraphicsKey(description, rootInfo.Hash);
         lock (GlobalGate)
         {
-            if (!disposed && store.library is not null && !store.tainted && store.knownKeys.Contains(key))
+            if (!Volatile.Read(ref disposed) && store.library is not null && !Volatile.Read(ref store.tainted) && store.knownKeys.Contains(key))
             {
                 try
                 {
@@ -299,7 +299,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
             }
 
             var created = device.CreateGraphicsPipelineState(description);
-            if (!disposed && store.StorePipelineLocked(key, created, description.RootSignature))
+            if (!Volatile.Read(ref disposed) && store.StorePipelineLocked(key, created, description.RootSignature))
                 Interlocked.Increment(ref libraryStores);
             return created;
         }
@@ -317,7 +317,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
         string key = ComputeComputeKey(description, rootInfo.Hash);
         lock (GlobalGate)
         {
-            if (!disposed && store.library is not null && !store.tainted && store.knownKeys.Contains(key))
+            if (!Volatile.Read(ref disposed) && store.library is not null && !Volatile.Read(ref store.tainted) && store.knownKeys.Contains(key))
             {
                 try
                 {
@@ -335,7 +335,7 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
             }
 
             var created = device.CreateComputePipelineState(description);
-            if (!disposed && store.StorePipelineLocked(key, created, description.RootSignature))
+            if (!Volatile.Read(ref disposed) && store.StorePipelineLocked(key, created, description.RootSignature))
                 Interlocked.Increment(ref libraryStores);
             return created;
         }
@@ -345,16 +345,27 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
     {
         lock (GlobalGate)
         {
-            if (disposed) return;
+            if (Volatile.Read(ref disposed)) return;
             store.FlushLocked();
         }
     }
 
     internal void FlushIfDirtyAsync()
     {
+        if (Volatile.Read(ref disposed)
+            || Volatile.Read(ref store.tainted)
+            || !Volatile.Read(ref store.dirty)
+            || CacheFilePath is null)
+            return;
+
         lock (GlobalGate)
         {
-            if (disposed || store.tainted || !store.dirty || store.library is null || store.CacheFilePath is null) return;
+            if (Volatile.Read(ref disposed)
+                || Volatile.Read(ref store.tainted)
+                || !Volatile.Read(ref store.dirty)
+                || store.library is null
+                || store.CacheFilePath is null)
+                return;
         }
         lock (flushGate)
         {
@@ -378,8 +389,8 @@ internal sealed class D3D12PipelineLibraryCache : IDisposable
 
         lock (GlobalGate)
         {
-            if (disposed) return;
-            disposed = true;
+            if (Volatile.Read(ref disposed)) return;
+            Volatile.Write(ref disposed, true);
             store.FlushLocked();
             store.ReleaseLocked();
         }

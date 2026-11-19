@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
@@ -5,11 +6,29 @@ namespace Mmd.Modern.Physics.Bullet;
 
 public sealed partial class BulletCharacterPhysicsBackend
 {
+    private static readonly Lazy<bool> batchedCapabilitySupported = new(DetectBatchedSupport);
     private readonly Dictionary<int, PhysicsBodyDefinition> mutableBodies = [];
     private readonly Dictionary<int, (int A, int B)> mutableJoints = [];
     private readonly HashSet<int> temporaryKinematic = [];
     private WorldHandle? bodyModeCacheWorld;
     private bool bodyModeCacheUncertain;
+
+    private static bool DetectBatchedSupport()
+    {
+        try
+        {
+            if ((Native.Features() & 4) == 0) return false;
+            IntPtr module = NativeLibrary.Load("mmd_bullet", typeof(BulletCharacterPhysicsBackend).Assembly, null);
+            try
+            {
+                return NativeLibrary.TryGetExport(module, "mmd_bullet_set_kinematic_targets_batch", out _)
+                    && NativeLibrary.TryGetExport(module, "mmd_bullet_correct_joints_and_get_poses", out _);
+            }
+            finally { NativeLibrary.Free(module); }
+        }
+        catch (EntryPointNotFoundException) { return false; }
+        catch (DllNotFoundException) { return false; }
+    }
 
     public void ValidateJointPullSupport()
     {
@@ -127,6 +146,154 @@ public sealed partial class BulletCharacterPhysicsBackend
         if (temporary) temporaryKinematic.Add(bodyIndex);
         else temporaryKinematic.Remove(bodyIndex);
     }
+
+    public unsafe void ApplyKinematicTargetsBatch(ReadOnlySpan<PhysicsKinematicTargetBatchItem> targets, float stepSeconds)
+    {
+        var current = GetWorld();
+        if (!ReferenceEquals(bodyModeCacheWorld, current))
+        {
+            bodyModeCacheWorld = current;
+            bodyModeCacheUncertain = false;
+        }
+        if (!SupportsBatchedExecution)
+        {
+            for (int i = 0; i < targets.Length; i++)
+            {
+                var item = targets[i];
+                SetBodyKinematic(item.BodyIndex, item.Kinematic);
+                if (item.Kinematic) SetKinematicTarget(item.BodyIndex, item.WorldTransform, stepSeconds);
+            }
+            return;
+        }
+        if (targets.IsEmpty) return;
+
+        NativeKinematicTargetItem[]? rented = null;
+        Span<NativeKinematicTargetItem> nativeItems = targets.Length <= 128
+            ? stackalloc NativeKinematicTargetItem[targets.Length]
+            : (rented = ArrayPool<NativeKinematicTargetItem>.Shared.Rent(targets.Length)).AsSpan(0, targets.Length);
+        try
+        {
+            bool stepValidated = false;
+            for (int i = 0; i < targets.Length; i++)
+            {
+                var item = targets[i];
+                if (!mutableBodies.ContainsKey(item.BodyIndex))
+                    throw new ArgumentOutOfRangeException(nameof(targets));
+                if (item.Kinematic)
+                {
+                    if (!stepValidated) { ValidateStep(stepSeconds); stepValidated = true; }
+                    nativeItems[i] = new NativeKinematicTargetItem
+                    {
+                        BodyIndex = item.BodyIndex,
+                        IsKinematic = 1,
+                        Target = Pose(item.WorldTransform, nameof(targets))
+                    };
+                }
+                else
+                {
+                    nativeItems[i] = new NativeKinematicTargetItem { BodyIndex = item.BodyIndex, IsKinematic = 0 };
+                }
+            }
+
+            int writeCount = 0;
+            for (int i = 0; i < targets.Length; i++)
+            {
+                var entry = nativeItems[i];
+                bool kinematic = entry.IsKinematic != 0;
+                bool temporary = kinematic && mutableBodies[entry.BodyIndex].Mode != PhysicsBodyMode.Kinematic;
+                bool modeChanged = temporary != temporaryKinematic.Contains(entry.BodyIndex);
+                if (bodyModeCacheUncertain || modeChanged || kinematic)
+                {
+                    nativeItems[writeCount++] = entry;
+                    if (temporary) temporaryKinematic.Add(entry.BodyIndex);
+                    else temporaryKinematic.Remove(entry.BodyIndex);
+                }
+            }
+            if (writeCount == 0) return;
+
+            fixed (NativeKinematicTargetItem* ptr = nativeItems)
+            {
+                int status = Native.SetKinematicTargetsBatch(current, ptr, writeCount);
+                if (status != 0)
+                {
+                    bodyModeCacheUncertain = true;
+                    throw Failure(status, "apply kinematic targets batch", LastError());
+                }
+            }
+        }
+        finally
+        {
+            if (rented is not null) ArrayPool<NativeKinematicTargetItem>.Shared.Return(rented);
+        }
+    }
+
+    public unsafe void CorrectJointsAndGetBodyTransforms(ReadOnlySpan<PhysicsJointPullBatchItem> joints,
+        ReadOnlySpan<int> bodyIndices, Span<Matrix4x4> worldTransforms)
+    {
+        var current = GetWorld();
+        if (bodyIndices.Length != worldTransforms.Length)
+            throw new ArgumentException("Transform buffer length mismatch.", nameof(worldTransforms));
+        for (int i = 0; i < joints.Length; i++)
+        {
+            var joint = joints[i];
+            if (!mutableBodies.ContainsKey(joint.BodyA) || !mutableBodies.ContainsKey(joint.BodyB))
+                throw new ArgumentOutOfRangeException(nameof(joints));
+            if (joint.BodyA == joint.BodyB || !float.IsFinite(joint.MaximumDistance) || joint.MaximumDistance < 0)
+                throw new ArgumentException("Pull correction requires distinct bodies and a finite nonnegative distance.");
+        }
+        for (int i = 0; i < bodyIndices.Length; i++)
+            if (!mutableBodies.ContainsKey(bodyIndices[i]))
+                throw new ArgumentOutOfRangeException(nameof(bodyIndices));
+        if (mmdJointPullCorrection && joints.Length > 0) RequireJointPullCapability();
+        if (!SupportsBatchedExecution)
+        {
+            if (mmdJointPullCorrection)
+                for (int i = 0; i < joints.Length; i++)
+                    CorrectJointOverextension(joints[i].BodyA, joints[i].BodyB, joints[i].MaximumDistance);
+            for (int i = 0; i < bodyIndices.Length; i++)
+                worldTransforms[i] = GetBodyWorldTransform(bodyIndices[i]);
+            return;
+        }
+        int activeJointCount = mmdJointPullCorrection ? joints.Length : 0;
+        if (activeJointCount == 0 && bodyIndices.Length == 0) return;
+
+        NativeJointPullItem[]? rentedJoints = null;
+        NativePose[]? rentedPoses = null;
+        Span<NativeJointPullItem> nativeJoints = activeJointCount <= 128
+            ? stackalloc NativeJointPullItem[activeJointCount]
+            : (rentedJoints = ArrayPool<NativeJointPullItem>.Shared.Rent(activeJointCount)).AsSpan(0, activeJointCount);
+        Span<NativePose> nativePoses = bodyIndices.Length <= 128
+            ? stackalloc NativePose[bodyIndices.Length]
+            : (rentedPoses = ArrayPool<NativePose>.Shared.Rent(bodyIndices.Length)).AsSpan(0, bodyIndices.Length);
+        try
+        {
+            for (int i = 0; i < activeJointCount; i++)
+            {
+                var joint = joints[i];
+                nativeJoints[i] = new NativeJointPullItem
+                {
+                    BodyA = joint.BodyA,
+                    BodyB = joint.BodyB,
+                    MaximumDistance = joint.MaximumDistance
+                };
+            }
+            fixed (NativeJointPullItem* jointsPtr = nativeJoints)
+            fixed (int* bodiesPtr = bodyIndices)
+            fixed (NativePose* posesPtr = nativePoses)
+            {
+                Check(Native.CorrectJointsAndGetPoses(current, jointsPtr, activeJointCount, bodiesPtr, bodyIndices.Length, posesPtr),
+                    "correct joints and get poses");
+            }
+            for (int i = 0; i < bodyIndices.Length; i++)
+                worldTransforms[i] = MatrixFromPose(in nativePoses[i], bodyIndices[i]);
+        }
+        finally
+        {
+            if (rentedJoints is not null) ArrayPool<NativeJointPullItem>.Shared.Return(rentedJoints);
+            if (rentedPoses is not null) ArrayPool<NativePose>.Shared.Return(rentedPoses);
+        }
+    }
+
     private static partial class Native
     {
         [DllImport(Library, EntryPoint = "mmd_bullet_correct_joint_overextension", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -143,5 +310,9 @@ public sealed partial class BulletCharacterPhysicsBackend
         public static extern int ResetBody(WorldHandle world, int index, in NativePose pose);
         [DllImport(Library, EntryPoint = "mmd_bullet_set_body_kinematic", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern int SetBodyKinematic(WorldHandle world, int index, int enabled);
+        [DllImport(Library, EntryPoint = "mmd_bullet_set_kinematic_targets_batch", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static unsafe extern int SetKinematicTargetsBatch(WorldHandle world, NativeKinematicTargetItem* items, int count);
+        [DllImport(Library, EntryPoint = "mmd_bullet_correct_joints_and_get_poses", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static unsafe extern int CorrectJointsAndGetPoses(WorldHandle world, NativeJointPullItem* joints, int jointCount, int* bodyIndices, int bodyCount, NativePose* posesOut);
     }
 }

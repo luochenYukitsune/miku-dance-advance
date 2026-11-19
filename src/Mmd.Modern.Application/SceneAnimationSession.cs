@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
+using System.Runtime.ExceptionServices;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
@@ -39,6 +41,11 @@ public sealed partial class SceneAnimationSession : IDisposable
     private OriginalFrameScene published = null!;
     private readonly ProjectSceneAssembler.CompositionCache compositionCache;
     private readonly Dictionary<Guid, (EditableSceneObject Object, OriginalFrameScene Local, OriginalFrameScene Placed)> placedFrames = [];
+    private static readonly IReadOnlyList<string> EmptyPlaybackDiagnostics = Array.AsReadOnly(Array.Empty<string>());
+    private static readonly IReadOnlyDictionary<SceneLightParent, Matrix4x4> EmptyLightParents = new Dictionary<SceneLightParent, Matrix4x4>();
+    private readonly List<Guid> composeIds = [];
+    private readonly List<OriginalFrameScene> composeSources = [];
+    private readonly List<OriginalFrameScene> composePlaced = [];
     private IReadOnlyList<SceneActorPlaybackState> states = Array.Empty<SceneActorPlaybackState>();
     private bool disposed;
     private bool deferVertexSkinning;
@@ -315,32 +322,88 @@ public sealed partial class SceneAnimationSession : IDisposable
         var next = (Entry[])entries.Clone(); bool changed = false;
         try
         {
-            foreach (int i in ValidateOutsideParents(outsideBindings, next))
+            if (CanEvaluateInParallel(next, frame, reset, token, out var workIndices))
             {
-                token.ThrowIfCancellationRequested(); var entry = next[i]; var controller = entry.Controller;
-                if (controller is null) continue;
-                double local = Math.Min(frame, controller.DurationFrames);
-                double prior = Math.Min(CurrentFrame, controller.DurationFrames);
-                bool attached = outsideBindings.Any(binding => binding.ObjectId == entry.Object.Id);
-                if (!reset && local <= prior && !attached) continue;
-                try
+                int degree = Math.Min(workIndices.Count, Math.Clamp(Environment.ProcessorCount, 1, 16));
+                var localFrames = new OriginalFrameScene?[workIndices.Count];
+                var errors = new ExceptionDispatchInfo?[workIndices.Count];
+                Parallel.For(0, workIndices.Count, new ParallelOptions
                 {
-                    var parents = attached ? EffectiveOutsideParents(entry.Object.Id, next, outsideBindings) : null;
-                    bool frozenAttachment = !reset && attached && local <= prior;
-                    if (attached && !frozenAttachment) controller.SetOutsideParents(parents);
-                    var motion = entry.Motion!;
-                    var pose = reset ? controller.ResetPhysics((uint)local, motion.IkEnabled, motion.MorphsEnabled)
-                        : frozenAttachment ? controller.RefreshFrozenOutsideParents(parents!)
-                        : controller.Advance(local, Math.Min(elapsed, (local - prior) / FramesPerSecond), motion.IkEnabled, motion.MorphsEnabled);
-                    if (!ReferenceEquals(pose.Surface, entry.LocalFrame.Surface) || !ReferenceEquals(pose.Outline, entry.LocalFrame.Outline))
+                    MaxDegreeOfParallelism = degree,
+                    TaskScheduler = TaskScheduler.Default,
+                }, w =>
+                {
+                    int i = workIndices[w];
+                    var entry = next[i];
+                    try
                     {
-                        var localFrame = new OriginalFrameScene(pose.Surface, pose.Outline, entry.Object.Source.OutlineOptions,
-                            materials: PmxOriginalFrameAdapter.FromEvaluatedMaterials(motion.Model, pose.Surface, pose.Outline));
-                        next[i] = entry with { LocalFrame = localFrame }; changed = true;
+                        if (TryEvaluateEntry(entry, frame, elapsed, reset, parents: null, frozenAttachment: false, out var localFrame))
+                            localFrames[w] = localFrame;
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        errors[w] = ExceptionDispatchInfo.Capture(
+                            new SceneActorAnimationException(entry.Object.Id, reset ? "seek" : "advance", exception));
+                    }
+                    catch (Exception exception)
+                    {
+                        errors[w] = ExceptionDispatchInfo.Capture(exception);
+                    }
+                });
+                for (int w = 0; w < workIndices.Count; w++)
+                {
+                    errors[w]?.Throw();
+                    if (localFrames[w] is { } localFrame)
+                    {
+                        int i = workIndices[w];
+                        next[i] = next[i] with { LocalFrame = localFrame };
+                        changed = true;
                     }
                 }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                { throw new SceneActorAnimationException(entry.Object.Id, reset ? "seek" : "advance", exception); }
+            }
+            else if (outsideBindings.Length == 0)
+            {
+                for (int i = 0; i < next.Length; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var entry = next[i]; var controller = entry.Controller;
+                    if (controller is null) continue;
+                    double local = Math.Min(frame, controller.DurationFrames);
+                    double prior = Math.Min(CurrentFrame, controller.DurationFrames);
+                    if (!reset && local <= prior) continue;
+                    try
+                    {
+                        if (TryEvaluateEntry(entry, frame, elapsed, reset, parents: null, frozenAttachment: false, out var localFrame))
+                        {
+                            next[i] = entry with { LocalFrame = localFrame! }; changed = true;
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    { throw new SceneActorAnimationException(entry.Object.Id, reset ? "seek" : "advance", exception); }
+                }
+            }
+            else
+            {
+                foreach (int i in ValidateOutsideParents(outsideBindings, next))
+                {
+                    token.ThrowIfCancellationRequested(); var entry = next[i]; var controller = entry.Controller;
+                    if (controller is null) continue;
+                    double local = Math.Min(frame, controller.DurationFrames);
+                    double prior = Math.Min(CurrentFrame, controller.DurationFrames);
+                    bool attached = HasOutsideBinding(outsideBindings, entry.Object.Id);
+                    if (!reset && local <= prior && !attached) continue;
+                    try
+                    {
+                        var parents = attached ? EffectiveOutsideParents(entry.Object.Id, next, outsideBindings) : null;
+                        bool frozenAttachment = !reset && attached && local <= prior;
+                        if (TryEvaluateEntry(entry, frame, elapsed, reset, parents, frozenAttachment, out var localFrame))
+                        {
+                            next[i] = entry with { LocalFrame = localFrame! }; changed = true;
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    { throw new SceneActorAnimationException(entry.Object.Id, reset ? "seek" : "advance", exception); }
+                }
             }
             var composed = changed ? Compose(next, published) : published;
             var nextStates = CaptureStates(next, frame);
@@ -349,6 +412,59 @@ public sealed partial class SceneAnimationSession : IDisposable
             return published;
         }
         catch (Exception error) { MarkFault(error); throw; } // Controllers may already have advanced. Only a successful Seek can recover.
+    }
+
+    private bool CanEvaluateInParallel(Entry[] next, double frame, bool reset, CancellationToken token, out List<int> workIndices)
+    {
+        workIndices = [];
+        if (token.CanBeCanceled || outsideBindings.Length != 0 || PoseEvaluationEventSource.Log.IsEnabled()) return false;
+        int maxDegree = Math.Clamp(Environment.ProcessorCount, 1, 16);
+        if (maxDegree < 2) return false;
+        var controllers = new HashSet<CharacterAnimationController>(ReferenceEqualityComparer.Instance);
+        var models = new HashSet<PmxModel>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < next.Length; i++)
+        {
+            var entry = next[i];
+            if (entry.Controller is not { } controller) continue;
+            if (controller.SoftBodiesEnabled) return false;
+            double local = Math.Min(frame, controller.DurationFrames);
+            double prior = Math.Min(CurrentFrame, controller.DurationFrames);
+            if (!reset && local <= prior) continue;
+            if (!controller.SupportsConcurrentIndependentPhysics || !controllers.Add(controller)
+                || entry.Motion is not { } motion
+                || (models.Add(motion.Model) && !StandardPreviewModel(motion.Model)))
+                return false;
+            workIndices.Add(i);
+        }
+        return workIndices.Count >= 2;
+    }
+
+    private static bool HasOutsideBinding(SceneOutsideParentBinding[] bindings, Guid objectId)
+    {
+        for (int i = 0; i < bindings.Length; i++)
+            if (bindings[i].ObjectId == objectId) return true;
+        return false;
+    }
+
+    private bool TryEvaluateEntry(Entry entry, double frame, double elapsed, bool reset,
+        IReadOnlyDictionary<int, Matrix4x4>? parents, bool frozenAttachment, out OriginalFrameScene? localFrame)
+    {
+        var controller = entry.Controller!;
+        double local = Math.Min(frame, controller.DurationFrames);
+        double prior = Math.Min(CurrentFrame, controller.DurationFrames);
+        if (parents is not null && !frozenAttachment) controller.SetOutsideParents(parents);
+        var motion = entry.Motion!;
+        var pose = reset ? controller.ResetPhysics((uint)local, motion.IkEnabled, motion.MorphsEnabled)
+            : frozenAttachment ? controller.RefreshFrozenOutsideParents(parents!)
+            : controller.Advance(local, Math.Min(elapsed, (local - prior) / FramesPerSecond), motion.IkEnabled, motion.MorphsEnabled);
+        if (!ReferenceEquals(pose.Surface, entry.LocalFrame.Surface) || !ReferenceEquals(pose.Outline, entry.LocalFrame.Outline))
+        {
+            localFrame = new OriginalFrameScene(pose.Surface, pose.Outline, entry.Object.Source.OutlineOptions,
+                materials: PmxOriginalFrameAdapter.FromEvaluatedMaterials(motion.Model, pose.Surface, pose.Outline));
+            return true;
+        }
+        localFrame = null;
+        return false;
     }
 
     private Entry PrepareEntry(EditableSceneObject item, SceneActorMotion binding, double frame, CancellationToken token,
@@ -416,78 +532,200 @@ public sealed partial class SceneAnimationSession : IDisposable
     private OriginalFrameScene Compose(Entry[] input, OriginalFrameScene? baseline)
     {
         var resolvedLighting = ResolveLighting(input, lighting);
-        var visible = input.Where(entry => entry.Controller?.IsVisible ?? true).ToArray();
-        if (visible.Length == 0)
+        int visibleCount = 0;
+        for (int i = 0; i < input.Length; i++)
+            if (input[i].Controller?.IsVisible ?? true) visibleCount++;
+        if (visibleCount == 0)
         {
             compositionCache.Clear(); placedFrames.Clear();
             var source = input[0].LocalFrame;
             return new(new(SceneSnapshot.CreateEmpty(source.Surface.Snapshot.Camera, source.Surface.Snapshot.LightDirection), [], source.Surface.Profile),
                 OriginalOutlineData.Empty, source.OutlineOptions, lighting: resolvedLighting);
         }
-        var placed = visible.Select(entry =>
+        composeIds.Clear();
+        composeSources.Clear();
+        composePlaced.Clear();
+        OriginalFrameScene combined;
+        OriginalStyleScene first;
+        try
         {
-            // Included in the caller's composition wall time; actors remain individually attributable.
-            using var placeMeasure = PoseEvaluationMetrics.Measure("composition.actor.place", entry.Object.Id);
-            if (placedFrames.TryGetValue(entry.Object.Id, out var previous)
-                && ReferenceEquals(previous.Object, entry.Object) && ReferenceEquals(previous.Local, entry.LocalFrame))
-                return previous.Placed;
-            // All posed routes, including shared/coupled physics, publish through this point.
-            // Retain explicit source styles before applying role GI treatment or environment clearing.
-            var local = entry.LocalFrame;
-            var sourceFlags = entry.Object.Source.Materials;
-            if (local.Materials.Where((flags, index) =>
-                (sourceFlags[index].CharacterOutlineStyle is {} style && flags.CharacterOutlineStyle != style)
-                || (sourceFlags[index].CharacterToonResponse is {} response && flags.CharacterToonResponse != response)
-                || (pmmControls is not null && ((flags.CastSelfShadow && !sourceFlags[index].CastSelfShadow)
-                    || (flags.ReceiveSelfShadow && !sourceFlags[index].ReceiveSelfShadow)))).Any())
-                local = new(local.Surface, local.Outline, local.OutlineOptions, local.Options,
-                    local.Materials.Select((flags, index) => flags with
-                    {
-                        CharacterOutlineStyle = sourceFlags[index].CharacterOutlineStyle ?? flags.CharacterOutlineStyle,
-                        CharacterToonResponse = sourceFlags[index].CharacterToonResponse ?? flags.CharacterToonResponse,
-                        // PMM's model-local self-shadow switch is captured in the static source.
-                        // Animated material evaluation may disable a flag, but cannot re-enable that switch.
-                        CastSelfShadow = flags.CastSelfShadow && (pmmControls is null || sourceFlags[index].CastSelfShadow),
-                        ReceiveSelfShadow = flags.ReceiveSelfShadow && (pmmControls is null || sourceFlags[index].ReceiveSelfShadow),
-                    }),
-                    local.Lighting, local.EditorOverlay);
-            local = SceneModelShadingPolicy.Apply(local, SceneModelShadingPolicy.ResolvePurpose(entry.Object, modelRoles));
-            local = new(local.Surface, local.Outline, local.OutlineOptions, local.Options,
-                local.Materials.Select(flags => flags with { LightReceiverObjectId = entry.Object.Id }), local.Lighting, local.EditorOverlay);
-            if (entry.Object.World != Matrix4x4.Identity)
+            for (int i = 0; i < input.Length; i++)
             {
-                var snapshot = local.Surface.Snapshot;
-                var transformed = snapshot.WithWorld(snapshot.World * entry.Object.World);
-                local = new OriginalFrameScene(new(transformed, local.Surface.Materials, local.Surface.Profile), local.Outline,
-                    local.OutlineOptions, materials: local.Materials);
+                var entry = input[i];
+                if (!(entry.Controller?.IsVisible ?? true)) continue;
+                var placed = PlaceComposeEntry(entry);
+                composeIds.Add(entry.Object.Id);
+                composeSources.Add(entry.Object.Source);
+                composePlaced.Add(placed);
             }
-            placedFrames[entry.Object.Id] = (entry.Object, entry.LocalFrame, local);
-            return local;
-        }).ToArray();
-        var first = placed[0].Surface;
-        // Published states are immutable and still describe the prior frame while controllers advance.
-        // Compare identities: equal-sized visible subsets can have different geometry and textures.
-        var combined = compositionCache.Compose(baseline, visible.Select(entry => entry.Object.Id).ToArray(),
-            visible.Select(entry => entry.Object.Source).ToArray(), placed, first.Profile.LightAmbient, first.Snapshot.LightDirection);
+            first = composePlaced[0].Surface;
+            // Published states are immutable and still describe the prior frame while controllers advance.
+            // Compare identities: equal-sized visible subsets can have different geometry and textures.
+            combined = compositionCache.Compose(baseline, composeIds, composeSources, composePlaced,
+                first.Profile.LightAmbient, first.Snapshot.LightDirection);
+        }
+        finally
+        {
+            composeIds.Clear();
+            composeSources.Clear();
+            composePlaced.Clear();
+        }
         if (ReferenceEquals(combined, baseline)
             && (ReferenceEquals(resolvedLighting, baseline!.Lighting)
                 || resolvedLighting.Lights.SequenceEqual(baseline.Lighting?.Lights ?? [])
                     && resolvedLighting.Groups.SequenceEqual(baseline.Lighting?.Groups ?? [])
                     && resolvedLighting.Settings == (baseline.Lighting?.Settings ?? SceneLightingSettings.Default)
                     && resolvedLighting.AuthoredLighting.Lights.SequenceEqual(baseline.Lighting?.AuthoredLighting.Lights ?? [])
-                    && resolvedLighting.ParentTransforms.SequenceEqual(baseline.Lighting?.ParentTransforms ?? new Dictionary<SceneLightParent, Matrix4x4>()))) return baseline!;
+                    && resolvedLighting.ParentTransforms.SequenceEqual(baseline.Lighting?.ParentTransforms ?? EmptyLightParents))) return baseline!;
         return new(new(combined.Surface.Snapshot, combined.Surface.Materials, first.Profile), combined.Outline, combined.OutlineOptions,
             materials: combined.Materials, lighting: resolvedLighting);
     }
 
-    private static IReadOnlyList<SceneActorPlaybackState> CaptureStates(Entry[] input, double frame) => Array.AsReadOnly(input.Select(entry =>
-        new SceneActorPlaybackState(entry.Object.Id, entry.Motion is not null, entry.Controller?.DurationFrames ?? 0,
-            entry.Controller is null ? 0 : Math.Min(frame, entry.Controller.DurationFrames),
-            entry.Motion?.IkEnabled ?? false, entry.Motion?.MorphsEnabled ?? false,
-            entry.Controller is { } controller && (controller.SupportsPhysics || controller.SupportsSoftBodies),
-            entry.Controller?.PhysicsEnabled ?? false, entry.Controller?.PhysicsBackendName,
-            Array.AsReadOnly((entry.Controller?.Diagnostics ?? Array.Empty<string>()).ToArray()))
-            { Visible = entry.Controller?.IsVisible ?? true }).ToArray());
+    private OriginalFrameScene PlaceComposeEntry(Entry entry)
+    {
+        // Included in the caller's composition wall time; actors remain individually attributable.
+        using var placeMeasure = PoseEvaluationMetrics.Measure("composition.actor.place", entry.Object.Id);
+        if (placedFrames.TryGetValue(entry.Object.Id, out var previous)
+            && ReferenceEquals(previous.Object, entry.Object) && ReferenceEquals(previous.Local, entry.LocalFrame))
+            return previous.Placed;
+        // All posed routes, including shared/coupled physics, publish through this point.
+        // Retain explicit source styles before applying role GI treatment or environment clearing.
+        var local = entry.LocalFrame;
+        var sourceFlags = entry.Object.Source.Materials;
+        var localMaterials = local.Materials;
+        bool needsSourceStyleUpdate = false;
+        for (int m = 0; m < localMaterials.Count; m++)
+        {
+            var flags = localMaterials[m];
+            var src = sourceFlags[m];
+            if ((src.CharacterOutlineStyle is { } style && flags.CharacterOutlineStyle != style)
+                || (src.CharacterToonResponse is { } response && flags.CharacterToonResponse != response)
+                || (pmmControls is not null && ((flags.CastSelfShadow && !src.CastSelfShadow)
+                    || (flags.ReceiveSelfShadow && !src.ReceiveSelfShadow))))
+            {
+                needsSourceStyleUpdate = true;
+                break;
+            }
+        }
+        if (needsSourceStyleUpdate)
+        {
+            var adjusted = new OriginalFrameMaterialFlags[localMaterials.Count];
+            for (int m = 0; m < adjusted.Length; m++)
+            {
+                var flags = localMaterials[m];
+                var src = sourceFlags[m];
+                adjusted[m] = flags with
+                {
+                    CharacterOutlineStyle = src.CharacterOutlineStyle ?? flags.CharacterOutlineStyle,
+                    CharacterToonResponse = src.CharacterToonResponse ?? flags.CharacterToonResponse,
+                    // PMM's model-local self-shadow switch is captured in the static source.
+                    // Animated material evaluation may disable a flag, but cannot re-enable that switch.
+                    CastSelfShadow = flags.CastSelfShadow && (pmmControls is null || src.CastSelfShadow),
+                    ReceiveSelfShadow = flags.ReceiveSelfShadow && (pmmControls is null || src.ReceiveSelfShadow),
+                };
+            }
+            local = new(local.Surface, local.Outline, local.OutlineOptions, local.Options,
+                adjusted, local.Lighting, local.EditorOverlay);
+        }
+        local = SceneModelShadingPolicy.Apply(local, SceneModelShadingPolicy.ResolvePurpose(entry.Object, modelRoles));
+        var policyMaterials = local.Materials;
+        bool needsReceiverId = false;
+        for (int m = 0; m < policyMaterials.Count; m++)
+        {
+            if (policyMaterials[m].LightReceiverObjectId != entry.Object.Id)
+            {
+                needsReceiverId = true;
+                break;
+            }
+        }
+        if (needsReceiverId)
+        {
+            var receiverMaterials = new OriginalFrameMaterialFlags[policyMaterials.Count];
+            for (int m = 0; m < receiverMaterials.Length; m++)
+                receiverMaterials[m] = policyMaterials[m] with { LightReceiverObjectId = entry.Object.Id };
+            local = new(local.Surface, local.Outline, local.OutlineOptions, local.Options,
+                receiverMaterials, local.Lighting, local.EditorOverlay);
+        }
+        if (entry.Object.World != Matrix4x4.Identity)
+        {
+            var snapshot = local.Surface.Snapshot;
+            var transformed = snapshot.WithWorld(snapshot.World * entry.Object.World);
+            local = new OriginalFrameScene(new(transformed, local.Surface.Materials, local.Surface.Profile), local.Outline,
+                local.OutlineOptions, materials: local.Materials);
+        }
+        placedFrames[entry.Object.Id] = (entry.Object, entry.LocalFrame, local);
+        return local;
+    }
+
+    private IReadOnlyList<SceneActorPlaybackState> CaptureStates(Entry[] input, double frame)
+    {
+        var previous = states;
+        if (input.Length == 0) return EmptyPlaybackStates;
+        bool canReuseList = previous.Count == input.Length;
+        bool allSame = canReuseList && previous is ReadOnlyCollection<SceneActorPlaybackState>;
+        var result = new SceneActorPlaybackState[input.Length];
+        for (int i = 0; i < input.Length; i++)
+        {
+            var entry = input[i];
+            var controller = entry.Controller;
+            var objectId = entry.Object.Id;
+            bool hasMotion = entry.Motion is not null;
+            uint duration = controller?.DurationFrames ?? 0;
+            double localFrame = controller is null ? 0 : Math.Min(frame, controller.DurationFrames);
+            bool ikEnabled = entry.Motion?.IkEnabled ?? false;
+            bool morphsEnabled = entry.Motion?.MorphsEnabled ?? false;
+            bool supportsPhysics = controller is not null && (controller.SupportsPhysics || controller.SupportsSoftBodies);
+            bool physicsEnabled = controller?.PhysicsEnabled ?? false;
+            string? backendName = controller?.PhysicsBackendName;
+            bool visible = controller?.IsVisible ?? true;
+            var currentDiags = controller?.Diagnostics ?? EmptyPlaybackDiagnostics;
+
+            SceneActorPlaybackState? prior = canReuseList ? previous[i] : null;
+            IReadOnlyList<string> diagnostics;
+            if (prior is not null && (ReferenceEquals(prior.Diagnostics, currentDiags) || SameStrings(prior.Diagnostics, currentDiags)))
+            {
+                diagnostics = prior.Diagnostics;
+            }
+            else
+            {
+                diagnostics = currentDiags is ReadOnlyCollection<string> ro ? ro : Array.AsReadOnly(currentDiags.ToArray());
+            }
+
+            if (prior is not null
+                && prior.ObjectId == objectId
+                && prior.HasMotion == hasMotion
+                && prior.DurationFrames == duration
+                && BitConverter.DoubleToInt64Bits(prior.LocalFrame) == BitConverter.DoubleToInt64Bits(localFrame)
+                && prior.IkEnabled == ikEnabled
+                && prior.MorphsEnabled == morphsEnabled
+                && prior.SupportsPhysics == supportsPhysics
+                && prior.PhysicsEnabled == physicsEnabled
+                && string.Equals(prior.PhysicsBackend, backendName, StringComparison.Ordinal)
+                && prior.Visible == visible
+                && ReferenceEquals(prior.Diagnostics, diagnostics))
+            {
+                result[i] = prior;
+            }
+            else
+            {
+                allSame = false;
+                result[i] = new SceneActorPlaybackState(objectId, hasMotion, duration, localFrame,
+                    ikEnabled, morphsEnabled, supportsPhysics, physicsEnabled, backendName, diagnostics)
+                { Visible = visible };
+            }
+        }
+        return allSame ? previous : Array.AsReadOnly(result);
+    }
+
+    private static readonly IReadOnlyList<SceneActorPlaybackState> EmptyPlaybackStates = Array.AsReadOnly(Array.Empty<SceneActorPlaybackState>());
+
+    private static bool SameStrings(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+        return true;
+    }
     private uint Duration(Entry[] input) => Math.Max(Math.Max(input.Max(entry => Math.Max(entry.Controller?.DurationFrames ?? 0,
         entry.Motion?.Motion.BoneKeyframes.Select(k => k.Frame).Concat(entry.Motion.Motion.MorphKeyframes.Select(k => k.Frame))
             .Concat(entry.Motion.Motion.IkKeyframes.Select(k => k.Frame)).DefaultIfEmpty(0u).Max() ?? 0)), sceneTracks?.DurationFrames ?? 0), pmmControls?.DurationFrames ?? 0);

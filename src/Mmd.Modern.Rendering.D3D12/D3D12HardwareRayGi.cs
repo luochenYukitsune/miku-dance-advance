@@ -20,6 +20,11 @@ internal static class D3D12HardwareRayGi
 {
     internal sealed class AccelerationStructure : IDisposable
     {
+        private readonly D3D12GpuCache? ownerCache;
+        private readonly ulong bottomResultBytes;
+        private readonly ulong topResultBytes;
+        private bool disposed;
+        internal ulong MaxSubmittedFence;
         internal ID3D12Resource BottomLevel { get; }
         internal ID3D12Resource TopLevel { get; }
         internal string BackendIdentity { get; }
@@ -31,7 +36,8 @@ internal static class D3D12HardwareRayGi
         internal int UpdatesSinceBuild { get; }
         internal AccelerationStructure(ID3D12Resource bottomLevel, ID3D12Resource topLevel, string backendIdentity,
             long operationFrameId, int triangleCount, bool updateCapable, bool wasUpdate,
-            Vector3[] buildSamples, int updatesSinceBuild)
+            Vector3[] buildSamples, int updatesSinceBuild,
+            D3D12GpuCache? ownerCache = null, ulong bottomResultBytes = 0, ulong topResultBytes = 0)
         {
             BottomLevel = bottomLevel;
             TopLevel = topLevel;
@@ -42,13 +48,37 @@ internal static class D3D12HardwareRayGi
             WasUpdate = wasUpdate;
             BuildSamples = buildSamples;
             UpdatesSinceBuild = updatesSinceBuild;
+            this.ownerCache = ownerCache;
+            this.bottomResultBytes = bottomResultBytes;
+            this.topResultBytes = topResultBytes;
         }
         public void Dispose()
         {
-            TopLevel.Dispose();
-            BottomLevel.Dispose();
+            if (disposed) return;
+            disposed = true;
+            if (ownerCache is null || bottomResultBytes == 0
+                || !ownerCache.TryRecycleAccelerationBuffer(BottomLevel, bottomResultBytes, isTopLevel: false, MaxSubmittedFence))
+                BottomLevel.Dispose();
+            if (ownerCache is null || topResultBytes == 0
+                || !ownerCache.TryRecycleAccelerationBuffer(TopLevel, topResultBytes, isTopLevel: true, MaxSubmittedFence))
+                TopLevel.Dispose();
         }
     }
+
+    private readonly record struct PrebuildInfoEntry(
+        ulong BottomResultBytes,
+        ulong TopResultBytes,
+        ulong BottomScratchBytes,
+        ulong TopScratchBytes);
+
+    private sealed class DeviceRaytracingCache
+    {
+        internal readonly object Gate = new();
+        internal int? RaytracingTier;
+        internal readonly Dictionary<(int TriangleCount, RaytracingAccelerationStructureBuildFlags Flags), PrebuildInfoEntry> PrebuildInfos = [];
+    }
+
+    private static readonly ConditionalWeakTable<ID3D12Device, DeviceRaytracingCache> DeviceCaches = new();
 
     internal static string TraceSource => """
         bool TraceClosest(GiRay ray, out GiHit hit) {
@@ -169,32 +199,78 @@ internal static class D3D12HardwareRayGi
     internal static (ulong Bottom, ulong Top, ulong BottomScratch, ulong TopScratch) PrebuildResources(
         ID3D12Device device, int triangleCount, bool dynamicGeometry)
     {
-        using var device5 = device.QueryInterface<ID3D12Device5>();
-        var flags = BuildFlags(dynamicGeometry);
-        var bottom = device5.GetRaytracingAccelerationStructurePrebuildInfo(new BuildRaytracingAccelerationStructureInputs
+        var entry = GetOrQueryPrebuildInfo(device, triangleCount, BuildFlags(dynamicGeometry), forPreflight: true);
+        return (entry.BottomResultBytes, entry.TopResultBytes, entry.BottomScratchBytes, entry.TopScratchBytes);
+    }
+
+    private static PrebuildInfoEntry GetOrQueryPrebuildInfo(
+        ID3D12Device device, int triangleCount, RaytracingAccelerationStructureBuildFlags flags, bool forPreflight)
+    {
+        int vertexCount = checked(triangleCount * 3);
+        var deviceCache = DeviceCaches.GetValue(device, static _ => new DeviceRaytracingCache());
+        lock (deviceCache.Gate)
         {
-            Type = RaytracingAccelerationStructureType.BottomLevel, Flags = flags,
-            DescriptorsCount = 1, Layout = ElementsLayout.Array,
-            GeometryDescriptions = [new RaytracingGeometryDescription
+            if (deviceCache.PrebuildInfos.TryGetValue((triangleCount, flags), out var cached))
+                return cached;
+
+            using var device5 = device.QueryInterface<ID3D12Device5>();
+            var bottom = device5.GetRaytracingAccelerationStructurePrebuildInfo(new BuildRaytracingAccelerationStructureInputs
             {
-                Type = RaytracingGeometryType.Triangles, Flags = RaytracingGeometryFlags.Opaque,
-                Triangles = new RaytracingGeometryTrianglesDescription
+                Type = RaytracingAccelerationStructureType.BottomLevel, Flags = flags,
+                DescriptorsCount = 1, Layout = ElementsLayout.Array,
+                GeometryDescriptions = [new RaytracingGeometryDescription
                 {
-                    VertexFormat = Format.R32G32B32_Float, VertexCount = checked(triangleCount * 3),
-                    VertexBuffer = new(0, 12), IndexFormat = Format.Unknown,
-                },
-            }],
-        });
-        var top = device5.GetRaytracingAccelerationStructurePrebuildInfo(new BuildRaytracingAccelerationStructureInputs
+                    Type = RaytracingGeometryType.Triangles, Flags = RaytracingGeometryFlags.Opaque,
+                    Triangles = new RaytracingGeometryTrianglesDescription
+                    {
+                        VertexFormat = Format.R32G32B32_Float, VertexCount = vertexCount,
+                        VertexBuffer = new(0, 12), IndexFormat = Format.Unknown,
+                    },
+                }],
+            });
+            if (bottom.ResultDataMaxSizeInBytes == 0)
+            {
+                throw forPreflight
+                    ? new NotSupportedException("The device could not estimate DXR acceleration-structure storage.")
+                    : new InvalidOperationException("The device returned no bottom-level acceleration-structure storage.");
+            }
+            var top = device5.GetRaytracingAccelerationStructurePrebuildInfo(new BuildRaytracingAccelerationStructureInputs
+            {
+                Type = RaytracingAccelerationStructureType.TopLevel, Flags = flags,
+                DescriptorsCount = 1, Layout = ElementsLayout.Array,
+            });
+            if (top.ResultDataMaxSizeInBytes == 0)
+            {
+                throw forPreflight
+                    ? new NotSupportedException("The device could not estimate DXR acceleration-structure storage.")
+                    : new InvalidOperationException("The device returned no top-level acceleration-structure storage.");
+            }
+
+            var entry = new PrebuildInfoEntry(
+                bottom.ResultDataMaxSizeInBytes,
+                top.ResultDataMaxSizeInBytes,
+                Math.Max(bottom.ScratchDataSizeInBytes, bottom.UpdateScratchDataSizeInBytes),
+                Math.Max(top.ScratchDataSizeInBytes, top.UpdateScratchDataSizeInBytes));
+            if (deviceCache.PrebuildInfos.Count >= 256)
+                deviceCache.PrebuildInfos.Clear();
+            deviceCache.PrebuildInfos[(triangleCount, flags)] = entry;
+            return entry;
+        }
+    }
+
+    private static int GetOrQueryRaytracingTier(ID3D12Device device)
+    {
+        var deviceCache = DeviceCaches.GetValue(device, static _ => new DeviceRaytracingCache());
+        lock (deviceCache.Gate)
         {
-            Type = RaytracingAccelerationStructureType.TopLevel, Flags = flags,
-            DescriptorsCount = 1, Layout = ElementsLayout.Array,
-        });
-        if (bottom.ResultDataMaxSizeInBytes == 0 || top.ResultDataMaxSizeInBytes == 0)
-            throw new NotSupportedException("The device could not estimate DXR acceleration-structure storage.");
-        return (bottom.ResultDataMaxSizeInBytes, top.ResultDataMaxSizeInBytes,
-            Math.Max(bottom.ScratchDataSizeInBytes, bottom.UpdateScratchDataSizeInBytes),
-            Math.Max(top.ScratchDataSizeInBytes, top.UpdateScratchDataSizeInBytes));
+            if (deviceCache.RaytracingTier is { } cached)
+                return cached;
+            var options = new FeatureDataD3D12Options5();
+            device.CheckFeatureSupport(D3D12Feature.Options5, ref options);
+            int tier = unchecked((int)options.RaytracingTier);
+            deviceCache.RaytracingTier = tier;
+            return tier;
+        }
     }
 
     internal static float[] PackPositions(RayGiScene scene, int maxDegree)
@@ -354,12 +430,10 @@ internal static class D3D12HardwareRayGi
         Vector3 EvaluateWorldPosition(int vertexIndex)
         {
             Vector3 local = default;
-            bool inRange = false;
-            for (int r = 0; r < ranges.Count; r++)
+            int rangeIndex = FindDeformationRangeIndex(ranges, vertexIndex);
+            if (rangeIndex >= 0)
             {
-                var range = ranges[r];
-                if (vertexIndex < range.Start || vertexIndex >= range.Start + range.Count) continue;
-                inRange = true;
+                var range = ranges[rangeIndex];
                 int tid = vertexIndex - range.Start;
                 var def = range.Deformation;
                 var model = def.Model;
@@ -414,11 +488,41 @@ internal static class D3D12HardwareRayGi
                     }
                 }
                 local = range.World == Matrix4x4.Identity ? pos : Vector3.Transform(pos, range.World);
-                break;
             }
-            if (!inRange) local = staticView.GetVertex(vertexIndex).Position;
+            else
+            {
+                local = staticView.GetVertex(vertexIndex).Position;
+            }
             return snapshot.World == Matrix4x4.Identity ? local : Vector3.Transform(local, snapshot.World);
         }
+    }
+
+    internal static int FindDeformationRangeIndex(IReadOnlyList<SceneDeformationRange> ranges, int vertexIndex)
+    {
+        int count = ranges.Count;
+        if (count <= 4)
+        {
+            for (int r = 0; r < count; r++)
+            {
+                var range = ranges[r];
+                if (vertexIndex >= range.Start && vertexIndex < range.Start + range.Count)
+                    return r;
+            }
+            return -1;
+        }
+        int lo = 0, hi = count - 1;
+        while (lo <= hi)
+        {
+            int mid = lo + ((hi - lo) >> 1);
+            var range = ranges[mid];
+            if (vertexIndex < range.Start)
+                hi = mid - 1;
+            else if (vertexIndex >= range.Start + range.Count)
+                lo = mid + 1;
+            else
+                return mid;
+        }
+        return -1;
     }
 
     private static AccelerationStructure Build(D3D12RecordingContext context, D3D12GpuCache cache, RayGiScene scene,
@@ -426,8 +530,7 @@ internal static class D3D12HardwareRayGi
         RayGiTriangleGpu[]? scratchRows, ID3D12Resource? positionBuffer, SceneSnapshot? deferredSnapshot)
     {
         var device = context.Device;
-        using var device5 = device.QueryInterface<ID3D12Device5>();
-        using var commands4 = context.Commands.QueryInterface<ID3D12GraphicsCommandList4>();
+        var commands4 = cache.AcquireCommandList4(context.Commands);
 
         int triangleCount = scene.TriangleCount;
         if (triangleCount == 0) throw new InvalidOperationException("Hardware ray tracing requires at least one triangle.");
@@ -439,6 +542,7 @@ internal static class D3D12HardwareRayGi
         bool update = dynamicGeometry && previous is { UpdateCapable: true } && previous.TriangleCount == triangleCount
             && !RequiresRebuild(previous.BuildSamples, samples, previous.UpdatesSinceBuild);
         var flags = BuildFlags(dynamicGeometry);
+        var prebuild = GetOrQueryPrebuildInfo(device, triangleCount, flags, forPreflight: false);
         int positionBytes = PositionByteCount(triangleCount);
         var vertexBuffer = positionBuffer
             ?? TryGatherPositions(context, cache, triangleBuffer, compiler, triangleCount, positionBytes)
@@ -465,73 +569,59 @@ internal static class D3D12HardwareRayGi
             Layout = ElementsLayout.Array,
             GeometryDescriptions = [geometry],
         };
-        var bottomInfo = device5.GetRaytracingAccelerationStructurePrebuildInfo(bottomInputs);
-        if (bottomInfo.ResultDataMaxSizeInBytes == 0)
-            throw new InvalidOperationException("The device returned no bottom-level acceleration-structure storage.");
         using var construction = new D3D12ConstructionScope();
-        var bottom = construction.Own(device.CreateCommittedResource(HeapType.Default,
-            ResourceDescription.Buffer(bottomInfo.ResultDataMaxSizeInBytes, ResourceFlags.AllowUnorderedAccess),
-            ResourceStates.RaytracingAccelerationStructure));
-            var bottomScratch = context.Own(device.CreateCommittedResource(HeapType.Default,
-                ResourceDescription.Buffer(Math.Max(bottomInfo.ScratchDataSizeInBytes, bottomInfo.UpdateScratchDataSizeInBytes), ResourceFlags.AllowUnorderedAccess),
-                ResourceStates.UnorderedAccess));
-            if (update) bottomInputs.Flags |= RaytracingAccelerationStructureBuildFlags.PerformUpdate;
-            commands4.BuildRaytracingAccelerationStructure(new BuildRaytracingAccelerationStructureDescription
-            {
-                Inputs = bottomInputs,
-                SourceAccelerationStructureData = update ? previous!.BottomLevel.GPUVirtualAddress : 0,
-                DestinationAccelerationStructureData = bottom.GPUVirtualAddress,
-                ScratchAccelerationStructureData = bottomScratch.GPUVirtualAddress,
-            });
-            context.Commands.ResourceBarrierUnorderedAccessView(bottom);
+        var bottom = construction.Own(cache.AcquireAccelerationBuffer(prebuild.BottomResultBytes, isTopLevel: false));
+        var bottomScratch = context.Runtime.Transients.Resource(context, HeapType.Default,
+            ResourceDescription.Buffer(prebuild.BottomScratchBytes, ResourceFlags.AllowUnorderedAccess),
+            ResourceStates.UnorderedAccess);
+        if (update) bottomInputs.Flags |= RaytracingAccelerationStructureBuildFlags.PerformUpdate;
+        commands4.BuildRaytracingAccelerationStructure(new BuildRaytracingAccelerationStructureDescription
+        {
+            Inputs = bottomInputs,
+            SourceAccelerationStructureData = update ? previous!.BottomLevel.GPUVirtualAddress : 0,
+            DestinationAccelerationStructureData = bottom.GPUVirtualAddress,
+            ScratchAccelerationStructureData = bottomScratch.GPUVirtualAddress,
+        });
+        context.Commands.ResourceBarrierUnorderedAccessView(bottom);
 
-            var instance = new RaytracingInstanceDescription
-            {
-                Transform = new Matrix3x4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0),
-                InstanceID = (Vortice.UInt24)0,
-                InstanceMask = 255,
-                InstanceContributionToHitGroupIndex = (Vortice.UInt24)0,
-                Flags = RaytracingInstanceFlags.TriangleCullDisable,
-                AccelerationStructure = bottom.GPUVirtualAddress,
-            };
-            int instanceSize = Marshal.SizeOf<RaytracingInstanceDescription>();
-            var instanceUpload = context.Own(device.CreateCommittedResource(HeapType.Upload,
-                ResourceDescription.Buffer((ulong)instanceSize), ResourceStates.GenericRead));
-            MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref instance, 1))
-                .CopyTo(instanceUpload.Map<byte>(0, instanceSize));
-            instanceUpload.Unmap(0);
-            var topInputs = new BuildRaytracingAccelerationStructureInputs
-            {
-                Type = RaytracingAccelerationStructureType.TopLevel,
-                Flags = flags,
-                DescriptorsCount = 1,
-                Layout = ElementsLayout.Array,
-                InstanceDescriptions = instanceUpload.GPUVirtualAddress,
-            };
-            var topInfo = device5.GetRaytracingAccelerationStructurePrebuildInfo(topInputs);
-            if (topInfo.ResultDataMaxSizeInBytes == 0)
-                throw new InvalidOperationException("The device returned no top-level acceleration-structure storage.");
-            var top = construction.Own(device.CreateCommittedResource(HeapType.Default,
-                ResourceDescription.Buffer(topInfo.ResultDataMaxSizeInBytes, ResourceFlags.AllowUnorderedAccess),
-                ResourceStates.RaytracingAccelerationStructure));
-            var topScratch = context.Own(device.CreateCommittedResource(HeapType.Default,
-                ResourceDescription.Buffer(Math.Max(topInfo.ScratchDataSizeInBytes, topInfo.UpdateScratchDataSizeInBytes), ResourceFlags.AllowUnorderedAccess),
-                ResourceStates.UnorderedAccess));
-            if (update) topInputs.Flags |= RaytracingAccelerationStructureBuildFlags.PerformUpdate;
-            commands4.BuildRaytracingAccelerationStructure(new BuildRaytracingAccelerationStructureDescription
-            {
-                Inputs = topInputs,
-                SourceAccelerationStructureData = update ? previous!.TopLevel.GPUVirtualAddress : 0,
-                DestinationAccelerationStructureData = top.GPUVirtualAddress,
-                ScratchAccelerationStructureData = topScratch.GPUVirtualAddress,
-            });
-            context.Commands.ResourceBarrierUnorderedAccessView(top);
-            var options = new FeatureDataD3D12Options5();
-            device5.CheckFeatureSupport(D3D12Feature.Options5, ref options);
-            var result = new AccelerationStructure(bottom, top, $"DXR-raw-{unchecked((int)options.RaytracingTier)}", context.Runtime.FrameId, triangleCount, dynamicGeometry, update,
-                update ? previous!.BuildSamples : samples, update ? previous!.UpdatesSinceBuild + 1 : 0);
-            construction.Complete();
-            return result;
+        var instance = new RaytracingInstanceDescription
+        {
+            Transform = new Matrix3x4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0),
+            InstanceID = (Vortice.UInt24)0,
+            InstanceMask = 255,
+            InstanceContributionToHitGroupIndex = (Vortice.UInt24)0,
+            Flags = RaytracingInstanceFlags.TriangleCullDisable,
+            AccelerationStructure = bottom.GPUVirtualAddress,
+        };
+        var instanceBytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref instance, 1));
+        var instanceUpload = cache.StageFrameBytesAligned(instanceBytes, 16);
+        var topInputs = new BuildRaytracingAccelerationStructureInputs
+        {
+            Type = RaytracingAccelerationStructureType.TopLevel,
+            Flags = flags,
+            DescriptorsCount = 1,
+            Layout = ElementsLayout.Array,
+            InstanceDescriptions = instanceUpload.Resource.GPUVirtualAddress + instanceUpload.Offset,
+        };
+        var top = construction.Own(cache.AcquireAccelerationBuffer(prebuild.TopResultBytes, isTopLevel: true));
+        var topScratch = context.Runtime.Transients.Resource(context, HeapType.Default,
+            ResourceDescription.Buffer(prebuild.TopScratchBytes, ResourceFlags.AllowUnorderedAccess),
+            ResourceStates.UnorderedAccess);
+        if (update) topInputs.Flags |= RaytracingAccelerationStructureBuildFlags.PerformUpdate;
+        commands4.BuildRaytracingAccelerationStructure(new BuildRaytracingAccelerationStructureDescription
+        {
+            Inputs = topInputs,
+            SourceAccelerationStructureData = update ? previous!.TopLevel.GPUVirtualAddress : 0,
+            DestinationAccelerationStructureData = top.GPUVirtualAddress,
+            ScratchAccelerationStructureData = topScratch.GPUVirtualAddress,
+        });
+        context.Commands.ResourceBarrierUnorderedAccessView(top);
+        int raytracingTier = GetOrQueryRaytracingTier(device);
+        var result = new AccelerationStructure(bottom, top, $"DXR-raw-{raytracingTier}", context.Runtime.FrameId, triangleCount, dynamicGeometry, update,
+            update ? previous!.BuildSamples : samples, update ? previous!.UpdatesSinceBuild + 1 : 0,
+            cache, prebuild.BottomResultBytes, prebuild.TopResultBytes);
+        construction.Complete();
+        return result;
     }
 
     private static ID3D12Resource? TryGatherPositions(D3D12RecordingContext context, D3D12GpuCache cache,
@@ -553,9 +643,9 @@ internal static class D3D12HardwareRayGi
         if (pipeline.State is null)
             return null;
 
-        var positions = context.Own(context.Device.CreateCommittedResource(HeapType.Default,
+        var positions = context.Runtime.Transients.Resource(context, HeapType.Default,
             ResourceDescription.Buffer((ulong)positionBytes, ResourceFlags.AllowUnorderedAccess),
-            ResourceStates.UnorderedAccess));
+            ResourceStates.UnorderedAccess);
         var commands = context.Commands;
         commands.SetComputeRootSignature(pipeline.Root!);
         commands.SetPipelineState(pipeline.State);

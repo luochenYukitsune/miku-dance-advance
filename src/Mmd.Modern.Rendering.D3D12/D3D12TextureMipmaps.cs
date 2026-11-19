@@ -75,11 +75,47 @@ internal static class D3D12TextureMipmaps
         int halfSamples = sampleCount >> 1;
         int srcStride = checked(srcWidth * 4);
         int dstStride = checked(dstWidth * 4);
+        int degree = Math.Clamp(Environment.ProcessorCount, 1, 8);
 
-        for (int dy = 0; dy < dstHeight; dy++)
+        unsafe
+        {
+            fixed (byte* srcPtr = srcRgba)
+            fixed (byte* dstPtr = dstRgba)
+            {
+                if ((long)dstWidth * dstHeight < 16_384 || degree == 1 || dstHeight <= 1 || srcRgba.Overlaps(dstRgba))
+                {
+                    DownsampleRowRange(srcPtr, dstPtr, 0, dstHeight, dstWidth, srcStride, dstStride,
+                        sampleXCount, sampleYCount, sampleCount, halfSamples);
+                }
+                else
+                {
+                    nint srcAddress = (nint)srcPtr;
+                    nint dstAddress = (nint)dstPtr;
+                    int rowsPerChunk = Math.Clamp(dstHeight / (degree * 4), 4, 64);
+                    int chunkCount = (dstHeight + rowsPerChunk - 1) / rowsPerChunk;
+                    // Buffers remain pinned until every worker joins; each chunk writes disjoint destination rows.
+                    Parallel.For(0, chunkCount,
+                        new ParallelOptions { MaxDegreeOfParallelism = degree, TaskScheduler = TaskScheduler.Default },
+                        chunk =>
+                        {
+                            int startY = chunk * rowsPerChunk;
+                            int endY = Math.Min(startY + rowsPerChunk, dstHeight);
+                            DownsampleRowRange((byte*)srcAddress, (byte*)dstAddress, startY, endY, dstWidth,
+                                srcStride, dstStride, sampleXCount, sampleYCount, sampleCount, halfSamples);
+                        });
+                }
+            }
+        }
+    }
+
+    private static unsafe void DownsampleRowRange(
+        byte* src, byte* dst, int startY, int endY, int dstWidth,
+        int srcStride, int dstStride, int sampleXCount, int sampleYCount, int sampleCount, int halfSamples)
+    {
+        for (int dy = startY; dy < endY; dy++)
         {
             int sy0 = dy * 2;
-            int dstRow = dy * dstStride;
+            byte* dstRow = dst + (nuint)(long)dy * (nuint)dstStride;
             for (int dx = 0; dx < dstWidth; dx++)
             {
                 int sx0 = dx * 2;
@@ -87,14 +123,14 @@ internal static class D3D12TextureMipmaps
                 int rawR = 0, rawG = 0, rawB = 0;
                 for (int oy = 0; oy < sampleYCount; oy++)
                 {
-                    int rowBase = (sy0 + oy) * srcStride + sx0 * 4;
+                    byte* rowBase = src + (nuint)((long)(sy0 + oy) * srcStride + (long)sx0 * 4);
                     for (int ox = 0; ox < sampleXCount; ox++)
                     {
-                        int p = rowBase + ox * 4;
-                        int r = srcRgba[p];
-                        int g = srcRgba[p + 1];
-                        int b = srcRgba[p + 2];
-                        int a = srcRgba[p + 3];
+                        byte* p = rowBase + ox * 4;
+                        int r = p[0];
+                        int g = p[1];
+                        int b = p[2];
+                        int a = p[3];
                         rawR += r;
                         rawG += g;
                         rawB += b;
@@ -105,22 +141,22 @@ internal static class D3D12TextureMipmaps
                     }
                 }
 
-                int dstOffset = dstRow + dx * 4;
+                byte* dstPixel = dstRow + dx * 4;
                 int outA = (sumA + halfSamples) / sampleCount;
                 if (sumA > 0)
                 {
                     int halfWeight = sumA >> 1;
-                    dstRgba[dstOffset] = (byte)Math.Clamp((sumR + halfWeight) / sumA, 0, 255);
-                    dstRgba[dstOffset + 1] = (byte)Math.Clamp((sumG + halfWeight) / sumA, 0, 255);
-                    dstRgba[dstOffset + 2] = (byte)Math.Clamp((sumB + halfWeight) / sumA, 0, 255);
+                    dstPixel[0] = (byte)Math.Clamp((sumR + halfWeight) / sumA, 0, 255);
+                    dstPixel[1] = (byte)Math.Clamp((sumG + halfWeight) / sumA, 0, 255);
+                    dstPixel[2] = (byte)Math.Clamp((sumB + halfWeight) / sumA, 0, 255);
                 }
                 else
                 {
-                    dstRgba[dstOffset] = (byte)((rawR + halfSamples) / sampleCount);
-                    dstRgba[dstOffset + 1] = (byte)((rawG + halfSamples) / sampleCount);
-                    dstRgba[dstOffset + 2] = (byte)((rawB + halfSamples) / sampleCount);
+                    dstPixel[0] = (byte)((rawR + halfSamples) / sampleCount);
+                    dstPixel[1] = (byte)((rawG + halfSamples) / sampleCount);
+                    dstPixel[2] = (byte)((rawB + halfSamples) / sampleCount);
                 }
-                dstRgba[dstOffset + 3] = (byte)Math.Clamp(outA, 0, 255);
+                dstPixel[3] = (byte)Math.Clamp(outA, 0, 255);
             }
         }
     }

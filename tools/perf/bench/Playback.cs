@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;
 
@@ -74,20 +76,37 @@ static class Playback
         double[] pose = new double[n], render = new double[n], frame = new double[n];
         var perFrameStats = stats.Names.ToDictionary(name => name, _ => new double[n]);
         var counters = stats.ReadAll().ToDictionary(p => p.Name, p => p.Value);
+        // Parity runs write a frame-major stream of solved matrices in scene actor order.
+        // Timed runs leave this option unset so reading the diagnostic pose cannot affect results.
+        using var boneAudit = config.BoneAuditPath is { } auditPath ? File.Open(auditPath, FileMode.CreateNew, FileAccess.Write) : null;
+        using var morphAudit = config.MorphAuditPath is { } morphPath ? new BinaryWriter(File.Open(morphPath, FileMode.CreateNew, FileAccess.Write)) : null;
+        using var process = Process.GetCurrentProcess();
+        using var timing = config.FrameTiming ? new FrameTiming(n) : null;
         var gc = GcWindow.Start();
+        var cpuBefore = process.TotalProcessorTime;
+        common["playWindowStartUtc"] = DateTimeOffset.UtcNow;
         long batchStart = Stopwatch.GetTimestamp(), previous = batchStart;
         for (int i = 0; i < n; i++)
         {
             long t0 = Stopwatch.GetTimestamp();
             var next = session.Advance(step);
             long t1 = Stopwatch.GetTimestamp();
-            using (gpu.Render(scene.Prepare(session, next), w, h, options)) { }
+            var view = scene.Prepare(session, next);
+            long prepared = timing is null ? 0 : Stopwatch.GetTimestamp();
+            using (gpu.Render(view, w, h, options)) { }
             long t2 = Stopwatch.GetTimestamp();
+            timing?.Record(i, Ms(t1, prepared));
             pose[i] = Ms(t0, t1); render[i] = Ms(t1, t2); frame[i] = Ms(previous, t2); previous = t2;
             stats.Read(perFrameStats, i);
+            if (morphAudit is not null) WriteMorphAudit(morphAudit, next.Surface.Snapshot);
+            if (boneAudit is not null)
+                foreach (var actor in scene.Motions)
+                    boneAudit.Write(MemoryMarshal.AsBytes(session.GetBoneWorldMatrices(actor.ObjectId).ToArray().AsSpan()));
         }
         gpu.WaitForIdle();
         double batchMs = Since(batchStart);
+        common["playWindowEndUtc"] = DateTimeOffset.UtcNow;
+        metrics["play.processCpuEquivalentCores"] = (process.TotalProcessorTime - cpuBefore).TotalMilliseconds / batchMs;
         gc.Stop(metrics, "play.gc", n);
         string after = BenchScene.PoseHash(session.Frame);
         double sessionFrameAfter = session.CurrentFrame;
@@ -157,9 +176,31 @@ static class Playback
         common["sessionFrameAfter"] = sessionFrameAfter;
         common["poseHashBefore"] = before; common["poseHashAfter"] = after;
         common["metrics"] = metrics;
+        if (timing is not null) common["frameTiming"] = timing.Rows;
         common["frames"] = new { frameMs = frame, poseMs = pose, renderCallMs = render, stats = perFrameStats.Where(p => p.Value.Any(v => !double.IsNaN(v))).ToDictionary(p => p.Key, p => p.Value),
             serialSubmitToFenceMs = fence, serialFrameMs = serial, seekMs = seeks };
         return common;
+    }
+
+    private static void WriteMorphAudit(BinaryWriter writer, SceneSnapshot snapshot)
+    {
+        // Per-frame CPU reference vertices (including UV), followed by the ordered
+        // sparse inputs actually published to the GPU. Keep both out of timed runs.
+        writer.Write(SHA256.HashData(MemoryMarshal.AsBytes(snapshot.Vertices)));
+        writer.Write(snapshot.DeformationRanges.Count);
+        foreach (var range in snapshot.DeformationRanges)
+        {
+            writer.Write(range.Start);
+            writer.Write(range.Count);
+            var morph = range.Deformation.Morphs;
+            writer.Write(morph?.Indices.Length ?? -1);
+            if (morph is null) continue;
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            hash.AppendData(MemoryMarshal.AsBytes(morph.Indices));
+            hash.AppendData(MemoryMarshal.AsBytes(morph.Positions));
+            hash.AppendData(MemoryMarshal.AsBytes(morph.Uvs));
+            writer.Write(hash.GetHashAndReset());
+        }
     }
 
     public static double Since(long start) => Stopwatch.GetElapsedTime(start).TotalMilliseconds;

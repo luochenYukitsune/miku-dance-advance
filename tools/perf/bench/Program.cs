@@ -48,7 +48,7 @@ namespace PerfBench
             PerfBench play|open|export --model a.pmx [--model b.pmx ...] --characters N [--stage s.pmx] [--vmd m.vmd ...] [--vmd-codepage 932|936]
                 [--gi off|on] [--size 960x544] [--physics independent|shared|off] [--warmup 60] [--frames 300]
                 [--serial-frames 60] [--seeks 3] [--export-frames 60] [--ffmpeg p --ffprobe p] [--keep-video]
-                [--switch name=value ...] [--tag key=value ...] --out f.json
+                [--switch name=value ...] [--tag key=value ...] [--bone-audit matrices.bin] [--morph-audit morphs.bin] [--frame-timing] --out f.json
             PerfBench summarize --dir runs --out summary   (writes summary.json/.md)
             PerfBench compare --base a[/summary.json] --cand b[/summary.json] --out compare   (writes compare.json/.md)
             PerfBench --compare <baselineDir> <candidateDir> [--out compare]
@@ -70,7 +70,7 @@ namespace PerfBench
             {
                 if (!args[i].StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException($"Unexpected '{args[i]}'.\n{Usage}");
                 string key = args[i][2..];
-                if (key is "keep-video") { Flags.Add(key); continue; }
+                if (key is "keep-video" or "frame-timing") { Flags.Add(key); continue; }
                 if (i + 1 >= args.Length) throw new ArgumentException($"--{key} needs a value.");
                 if (!Values.TryGetValue(key, out var list)) Values[key] = list = [];
                 list.Add(args[++i]);

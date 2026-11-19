@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace Mmd.Modern.Physics;
 
@@ -18,8 +20,15 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
     private readonly Dictionary<Guid, Actor> actors = [];
     private const int MaximumRetainedPreparationEntries = 16_384;
     private readonly List<(int Slot, Vector3 Linear, Vector3 Angular)> stepCommands = [];
-    private readonly List<(int Slot, bool Kinematic, Matrix4x4 Target)> stepTargets = [];
+    private readonly List<PhysicsKinematicTargetBatchItem> stepTargets = [];
+    private readonly List<PhysicsJointPullBatchItem> reflectJoints = [];
+    private readonly List<int> reflectBodySlots = [];
+    private readonly List<int> reflectActorReadCounts = [];
+    private Matrix4x4[]? reflectWorldTransforms;
+    private readonly HashSet<Guid> validationSeenActors = [];
     private int preparationBuffersInUse;
+    private int reflectionBuffersInUse;
+    private int validationBuffersInUse;
     private bool disposed;
     public long StepCount { get; private set; }
     public string BackendName => backend.Name;
@@ -144,10 +153,111 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
         {
             // Reflection can apply joint-pull corrections before a later backend read fails.
             // The same recovery boundary as Step must cover this public entry point too.
-            var result = samples.ToDictionary(sample => sample.ActorId, sample =>
-                actors[sample.ActorId].Session.ReflectValidatedSharedPose(sample.BeforePhysicsBoneWorlds,
-                    sample.DisabledBoneIndices, sample.Frozen));
-            foreach (var pair in result) actors[pair.Key].PreviousRootWorld = pair.Value.Length == 0 ? null : pair.Value[0];
+            var result = new Dictionary<Guid, Matrix4x4[]>(samples.Count);
+            if (backend is ICharacterPhysicsBatchedBackend { SupportsBatchedExecution: true } batched)
+            {
+                bool reuse = Interlocked.CompareExchange(ref reflectionBuffersInUse, 1, 0) == 0;
+                var joints = reuse ? reflectJoints : new List<PhysicsJointPullBatchItem>();
+                var bodySlots = reuse ? reflectBodySlots : new List<int>();
+                var actorReadCounts = reuse ? reflectActorReadCounts : new List<int>();
+                Matrix4x4[]? rentedTransforms = null;
+                try
+                {
+                    bool hasJointPull = backend is ICharacterPhysicsJointPullBackend;
+                    for (int i = 0; i < samples.Count; i++)
+                    {
+                        var sample = samples[i];
+                        var actor = actors[sample.ActorId];
+                        if (!sample.Frozen)
+                        {
+                            if (hasJointPull)
+                            {
+                                var actorJoints = actor.Definition.Joints;
+                                var maxDistances = actor.Definition.JointMaximumDistances;
+                                var slotMap = actor.Backend.BodySlots;
+                                for (int j = 0; j < actorJoints.Count; j++)
+                                {
+                                    var joint = actorJoints[j];
+                                    if (joint.Type > 5) continue;
+                                    joints.Add(new PhysicsJointPullBatchItem(slotMap[joint.BodyA], slotMap[joint.BodyB], maxDistances[j]));
+                                }
+                            }
+                            actor.Session.CollectReflectedBodyIndices(sample.DisabledBoneIndices, actor.Backend.BodySlots, bodySlots, out int readCount);
+                            actorReadCounts.Add(readCount);
+                        }
+                        else
+                        {
+                            var slotMap = actor.Backend.BodySlots;
+                            for (int b = 0; b < slotMap.Length; b++) bodySlots.Add(slotMap[b]);
+                            actorReadCounts.Add(slotMap.Length);
+                        }
+                    }
+
+                    int totalReads = bodySlots.Count;
+                    Span<Matrix4x4> worldTransformsSpan = Span<Matrix4x4>.Empty;
+                    if (totalReads > 0)
+                    {
+                        if (reuse)
+                        {
+                            if (reflectWorldTransforms is null || reflectWorldTransforms.Length < totalReads)
+                                reflectWorldTransforms = new Matrix4x4[totalReads];
+                            worldTransformsSpan = reflectWorldTransforms.AsSpan(0, totalReads);
+                        }
+                        else
+                        {
+                            rentedTransforms = ArrayPool<Matrix4x4>.Shared.Rent(totalReads);
+                            worldTransformsSpan = rentedTransforms.AsSpan(0, totalReads);
+                        }
+                    }
+
+                    batched.CorrectJointsAndGetBodyTransforms(CollectionsMarshal.AsSpan(joints), CollectionsMarshal.AsSpan(bodySlots), worldTransformsSpan);
+
+                    int offset = 0;
+                    for (int i = 0; i < samples.Count; i++)
+                    {
+                        var sample = samples[i];
+                        var actor = actors[sample.ActorId];
+                        int count = actorReadCounts[i];
+                        var slice = worldTransformsSpan.Slice(offset, count);
+                        offset += count;
+                        actor.Backend.ConvertWorldTransformsInPlace(slice);
+                        var reflected = actor.Session.ReflectValidatedSharedPose(sample.BeforePhysicsBoneWorlds,
+                            sample.DisabledBoneIndices, sample.Frozen, slice);
+                        result.Add(sample.ActorId, reflected);
+                        actor.PreviousRootWorld = reflected.Length == 0 ? null : reflected[0];
+                    }
+                    return result;
+                }
+                finally
+                {
+                    if (rentedTransforms is not null)
+                        ArrayPool<Matrix4x4>.Shared.Return(rentedTransforms, clearArray: true);
+                    if (reuse)
+                    {
+                        joints.Clear();
+                        bodySlots.Clear();
+                        actorReadCounts.Clear();
+                        if (joints.Capacity > MaximumRetainedPreparationEntries) joints.Capacity = 0;
+                        if (bodySlots.Capacity > MaximumRetainedPreparationEntries) bodySlots.Capacity = 0;
+                        if (actorReadCounts.Capacity > MaximumRetainedPreparationEntries) actorReadCounts.Capacity = 0;
+                        if (reflectWorldTransforms is { Length: > MaximumRetainedPreparationEntries })
+                            reflectWorldTransforms = null;
+                        else if (reflectWorldTransforms is not null)
+                            Array.Clear(reflectWorldTransforms);
+                        Volatile.Write(ref reflectionBuffersInUse, 0);
+                    }
+                }
+            }
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                var sample = samples[i];
+                var actor = actors[sample.ActorId];
+                var reflected = actor.Session.ReflectValidatedSharedPose(sample.BeforePhysicsBoneWorlds,
+                    sample.DisabledBoneIndices, sample.Frozen);
+                result.Add(sample.ActorId, reflected);
+                actor.PreviousRootWorld = reflected.Length == 0 ? null : reflected[0];
+            }
             return result;
         }
         catch { IsFaulted = true; throw; }
@@ -160,7 +270,7 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
         // An overlapping call keeps its own lists; this lease does not synchronize the solver.
         bool reuse = Interlocked.CompareExchange(ref preparationBuffersInUse, 1, 0) == 0;
         var commands = reuse ? stepCommands : new List<(int Slot, Vector3 Linear, Vector3 Angular)>();
-        var targets = reuse ? stepTargets : new List<(int Slot, bool Kinematic, Matrix4x4 Target)>();
+        var targets = reuse ? stepTargets : new List<PhysicsKinematicTargetBatchItem>();
         try { return StepPrepared(samples, commands, targets); }
         finally
         {
@@ -178,15 +288,17 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
 
     private IReadOnlyDictionary<Guid, Matrix4x4[]> StepPrepared(IReadOnlyList<SharedPhysicsActorSample> samples,
         List<(int Slot, Vector3 Linear, Vector3 Angular)> commands,
-        List<(int Slot, bool Kinematic, Matrix4x4 Target)> targets)
+        List<PhysicsKinematicTargetBatchItem> targets)
     {
         // Resolve local impulse orientation and every target before mutating any actor.
-        foreach (var sample in samples)
+        for (int s = 0; s < samples.Count; s++)
         {
+            var sample = samples[s];
             var actor = actors[sample.ActorId]; var definition = actor.Definition;
             for (int i = 0; i < definition.Bodies.Count; i++)
             {
-                var body = definition.Bodies[i]; bool disabled = body.BoneIndex >= 0 && sample.DisabledBoneIndices.Contains(body.BoneIndex);
+                var body = definition.Bodies[i];
+                bool disabled = body.BoneIndex >= 0 && sample.DisabledBoneIndices.Count > 0 && sample.DisabledBoneIndices.Contains(body.BoneIndex);
                 int bone = body.BoneIndex >= 0 ? body.BoneIndex : definition.Bones.Count == 0 ? -1 : 0;
                 var target = bone < 0 ? definition.BodyRestWorldTransforms[i] : definition.BodyBoneOffsets[i] * sample.BeforePhysicsBoneWorlds[bone];
                 target = Affine(target * actor.Backend.Placement);
@@ -205,12 +317,14 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
                     }
                 }
                 PhysicsMath.ValidateRigid(target, nameof(samples));
-                targets.Add((actor.Backend.Slot(i), sample.Frozen || disabled || body.Mode == PhysicsBodyMode.Kinematic, target));
+                targets.Add(new PhysicsKinematicTargetBatchItem(actor.Backend.Slot(i), sample.Frozen || disabled || body.Mode == PhysicsBodyMode.Kinematic, target));
             }
-            foreach (var impulse in sample.Impulses)
+            var sampleImpulses = sample.Impulses;
+            for (int j = 0; j < sampleImpulses.Length; j++)
             {
+                var impulse = sampleImpulses[j];
                 var body = definition.Bodies[impulse.BodyIndex];
-                if (sample.Frozen || body.Mode == PhysicsBodyMode.Kinematic || body.Mass == 0 || body.BoneIndex >= 0 && sample.DisabledBoneIndices.Contains(body.BoneIndex)) continue;
+                if (sample.Frozen || body.Mode == PhysicsBodyMode.Kinematic || body.Mass == 0 || (body.BoneIndex >= 0 && sample.DisabledBoneIndices.Count > 0 && sample.DisabledBoneIndices.Contains(body.BoneIndex))) continue;
                 var rotation = impulse.Local ? backend.GetBodyWorldTransform(actor.Backend.Slot(impulse.BodyIndex)) : actor.Backend.Placement;
                 var linear = Vector3.TransformNormal(impulse.Linear, rotation); var angular = Vector3.TransformNormal(impulse.Angular, rotation);
                 if (!PhysicsMath.Finite(linear) || !PhysicsMath.Finite(angular)) throw new ArgumentException("Impulse conversion overflowed.", nameof(samples));
@@ -219,12 +333,24 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
         }
         try
         {
-            foreach (var target in targets)
+            if (backend is ICharacterPhysicsBatchedBackend { SupportsBatchedExecution: true } batched)
             {
-                backend.SetBodyKinematic(target.Slot, target.Kinematic);
-                if (target.Kinematic) backend.SetKinematicTarget(target.Slot, target.Target, (float)CharacterPhysicsSession.FixedStepSeconds);
+                batched.ApplyKinematicTargetsBatch(CollectionsMarshal.AsSpan(targets), (float)CharacterPhysicsSession.FixedStepSeconds);
             }
-            foreach (var command in commands) backend.ApplyImpulse(command.Slot, command.Linear, command.Angular);
+            else
+            {
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    var target = targets[i];
+                    backend.SetBodyKinematic(target.BodyIndex, target.Kinematic);
+                    if (target.Kinematic) backend.SetKinematicTarget(target.BodyIndex, target.WorldTransform, (float)CharacterPhysicsSession.FixedStepSeconds);
+                }
+            }
+            for (int i = 0; i < commands.Count; i++)
+            {
+                var command = commands[i];
+                backend.ApplyImpulse(command.Slot, command.Linear, command.Angular);
+            }
             backend.Step((float)CharacterPhysicsSession.FixedStepSeconds); StepCount++;
             return ReflectValidated(samples);
         }
@@ -234,14 +360,54 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
     private void ValidateSamples(IReadOnlyList<SharedPhysicsActorSample> samples)
     {
         ArgumentNullException.ThrowIfNull(samples);
-        if (samples.Count != actors.Count || samples.Any(sample => sample is null) || samples.Select(sample => sample.ActorId).Distinct().Count() != samples.Count)
+        if (samples.Count != actors.Count)
             throw new ArgumentException("A shared step requires exactly one sample for every actor.", nameof(samples));
-        foreach (var sample in samples)
+
+        bool reuse = Interlocked.CompareExchange(ref validationBuffersInUse, 1, 0) == 0;
+        var seenActors = reuse ? validationSeenActors : new HashSet<Guid>(samples.Count);
+        int maxSeen = 0;
+        try
         {
+            for (int i = 0; i < samples.Count; i++)
+            {
+                var sample = samples[i];
+                if (sample is null || !seenActors.Add(sample.ActorId))
+                    throw new ArgumentException("A shared step requires exactly one sample for every actor.", nameof(samples));
+            }
+            maxSeen = seenActors.Count;
+        }
+        finally
+        {
+            seenActors.Clear();
+            if (reuse)
+            {
+                if (maxSeen > MaximumRetainedPreparationEntries) seenActors.TrimExcess();
+                Volatile.Write(ref validationBuffersInUse, 0);
+            }
+        }
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            var sample = samples[i];
             var actor = Find(sample.ActorId);
             ArgumentNullException.ThrowIfNull(sample.BeforePhysicsBoneWorlds); ArgumentNullException.ThrowIfNull(sample.DisabledBoneIndices); ArgumentNullException.ThrowIfNull(sample.Impulses);
-            if (sample.BeforePhysicsBoneWorlds.Length != actor.Definition.Bones.Count || sample.DisabledBoneIndices.Any(bone => (uint)bone >= (uint)actor.Definition.Bones.Count))
+            if (sample.BeforePhysicsBoneWorlds.Length != actor.Definition.Bones.Count)
                 throw new ArgumentException("Actor sample has invalid bones.", nameof(samples));
+            if (sample.DisabledBoneIndices.Count > 0)
+            {
+                if (sample.DisabledBoneIndices is HashSet<int> disabledSet)
+                {
+                    foreach (int bone in disabledSet)
+                        if ((uint)bone >= (uint)actor.Definition.Bones.Count)
+                            throw new ArgumentException("Actor sample has invalid bones.", nameof(samples));
+                }
+                else
+                {
+                    foreach (int bone in sample.DisabledBoneIndices)
+                        if ((uint)bone >= (uint)actor.Definition.Bones.Count)
+                            throw new ArgumentException("Actor sample has invalid bones.", nameof(samples));
+                }
+            }
             for (int bone = 0; bone < sample.BeforePhysicsBoneWorlds.Length; bone++)
             {
                 var pose = sample.BeforePhysicsBoneWorlds[bone];
@@ -264,9 +430,13 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
                     throw;
                 }
             }
-            foreach (var impulse in sample.Impulses)
+            var impulses = sample.Impulses;
+            for (int j = 0; j < impulses.Length; j++)
+            {
+                var impulse = impulses[j];
                 if ((uint)impulse.BodyIndex >= (uint)actor.Definition.Bodies.Count || !PhysicsMath.Finite(impulse.Linear) || !PhysicsMath.Finite(impulse.Angular))
                     throw new ArgumentException("Actor impulses require valid body indices and finite momentum.", nameof(samples));
+            }
         }
     }
     private Actor Find(Guid id) => actors.TryGetValue(id, out var actor) ? actor : throw new ArgumentException("Unknown physics actor.", nameof(id));
@@ -291,7 +461,17 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
         private readonly Matrix4x4 inversePlacement = Matrix4x4.Invert(placement, out var inverse) ? inverse : throw new ArgumentException("Invalid placement.");
         public string Name => owner.Name;
         public IReadOnlyList<string> Diagnostics => owner.Diagnostics;
+        public ReadOnlySpan<int> BodySlots => bodySlots;
         public int Slot(int localIndex) => (uint)localIndex < (uint)bodySlots.Length ? bodySlots[localIndex] : throw new ArgumentOutOfRangeException(nameof(localIndex));
+        public void ConvertWorldTransformsInPlace(Span<Matrix4x4> transforms)
+        {
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                var world = transforms[i];
+                PhysicsMath.ValidateRigid(world, nameof(owner));
+                transforms[i] = Affine(world * inversePlacement);
+            }
+        }
         public ICharacterSoftBodyBinding CreateSoftBodyBinding(IReadOnlyList<int> slots)
         {
             ObjectDisposedException.ThrowIf(released, this);

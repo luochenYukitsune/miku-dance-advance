@@ -1,5 +1,6 @@
 // Ported from saba (https://github.com/benikabocha/saba) @ 29b8efa8b31c8e746f9a88020fb0ad9dcdcf3332, MIT License, Copyright (c) 2016-2017 benikabocha
 // PMXModel.cpp reset/physics reflection and MMDPhysics.cpp motion-state semantics.
+using System.Buffers;
 using System.Numerics;
 
 namespace Mmd.Modern.Physics;
@@ -12,6 +13,12 @@ public sealed class CharacterPhysicsSession : IDisposable
     private readonly CharacterPhysicsDefinition definition;
     private readonly ICharacterPhysicsBackend backend;
     private readonly int[] drivenBodies;
+    private readonly int[] kinematicBodyIndices;
+    private readonly PhysicsJointPullBatchItem[] jointPullItems;
+    private readonly Matrix4x4[] kinematicStarts;
+    private readonly Matrix4x4[] kinematicTargets;
+    private readonly PhysicsKinematicTargetBatchItem[] kinematicBatchBuffer;
+    private int advanceBuffersInUse;
     private double accumulator;
     private Vector3? gravity;
     private bool disposed;
@@ -42,13 +49,55 @@ public sealed class CharacterPhysicsSession : IDisposable
     {
         this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
         this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
-        drivenBodies = Enumerable.Repeat(-1, definition.Bones.Count).ToArray();
+        drivenBodies = new int[definition.Bones.Count];
+        Array.Fill(drivenBodies, -1);
+        int kinematicCount = 0;
         for (int i = 0; i < definition.Bodies.Count; i++)
         {
             var body = definition.Bodies[i];
             if (body.BoneIndex >= 0 && body.Mode != PhysicsBodyMode.Kinematic) drivenBodies[body.BoneIndex] = i;
+            if (body.Mode == PhysicsBodyMode.Kinematic) kinematicCount++;
         }
-        try { Reset(initialBoneWorlds?.ToArray() ?? definition.Bones.Select(bone => bone.RestWorld).ToArray()); }
+        kinematicBodyIndices = new int[kinematicCount];
+        int k = 0;
+        for (int i = 0; i < definition.Bodies.Count; i++)
+            if (definition.Bodies[i].Mode == PhysicsBodyMode.Kinematic) kinematicBodyIndices[k++] = i;
+        kinematicStarts = kinematicCount == 0 ? [] : new Matrix4x4[kinematicCount];
+        kinematicTargets = kinematicCount == 0 ? [] : new Matrix4x4[kinematicCount];
+        kinematicBatchBuffer = kinematicCount == 0 ? [] : new PhysicsKinematicTargetBatchItem[kinematicCount];
+
+        int pullCount = 0;
+        for (int i = 0; i < definition.Joints.Count; i++)
+            if (definition.Joints[i].Type <= 5) pullCount++;
+        jointPullItems = pullCount == 0 ? [] : new PhysicsJointPullBatchItem[pullCount];
+        int p = 0;
+        for (int i = 0; i < definition.Joints.Count; i++)
+        {
+            var joint = definition.Joints[i];
+            if (joint.Type <= 5)
+                jointPullItems[p++] = new PhysicsJointPullBatchItem(joint.BodyA, joint.BodyB, definition.JointMaximumDistances[i]);
+        }
+
+        try
+        {
+            if (initialBoneWorlds is Matrix4x4[] initialArray)
+                Reset(initialArray);
+            else
+            {
+                var initial = new Matrix4x4[definition.Bones.Count];
+                if (initialBoneWorlds is not null)
+                {
+                    if (initialBoneWorlds.Count != initial.Length)
+                        throw new ArgumentException("Physics pose bone count differs from the definition.", nameof(initialBoneWorlds));
+                    for (int i = 0; i < initial.Length; i++) initial[i] = initialBoneWorlds[i];
+                }
+                else
+                {
+                    for (int i = 0; i < initial.Length; i++) initial[i] = definition.Bones[i].RestWorld;
+                }
+                Reset(initial);
+            }
+        }
         catch { backend.Dispose(); throw; }
     }
 
@@ -89,39 +138,94 @@ public sealed class CharacterPhysicsSession : IDisposable
         accumulator = Math.Max(0, accumulator - requested * FixedStepSeconds);
         LastStepCount = Math.Min(MaximumSubsteps, requested);
         DiscardedSeconds += (requested - LastStepCount) * FixedStepSeconds;
-        var starts = new Matrix4x4[definition.Bodies.Count]; var targets = new Matrix4x4[definition.Bodies.Count];
-        for (int i = 0; i < starts.Length; i++)
-            if (definition.Bodies[i].Mode == PhysicsBodyMode.Kinematic)
-            { starts[i] = backend.GetBodyWorldTransform(i); targets[i] = BodyTarget(i, animatedBoneWorlds); }
-        var worldImpulses = new CharacterBodyImpulse[impulses.Length];
-        for (int step = 0; step < LastStepCount; step++)
+
+        bool reuse = LastStepCount > 0 && kinematicBodyIndices.Length > 0
+            && Interlocked.CompareExchange(ref advanceBuffersInUse, 1, 0) == 0;
+        var starts = LastStepCount == 0 || kinematicBodyIndices.Length == 0 ? []
+            : reuse ? kinematicStarts : new Matrix4x4[kinematicBodyIndices.Length];
+        var targets = LastStepCount == 0 || kinematicBodyIndices.Length == 0 ? []
+            : reuse ? kinematicTargets : new Matrix4x4[kinematicBodyIndices.Length];
+        var batchBuffer = LastStepCount == 0 || kinematicBodyIndices.Length == 0 ? []
+            : reuse ? kinematicBatchBuffer : new PhysicsKinematicTargetBatchItem[kinematicBodyIndices.Length];
+        CharacterBodyImpulse[]? rentedImpulses = LastStepCount > 0 && impulses.Length > 0
+            ? ArrayPool<CharacterBodyImpulse>.Shared.Rent(impulses.Length)
+            : null;
+        try
         {
-            // Resolve the complete sample before mutating this step. A local impulse follows the
-            // body's simulated orientation at this boundary, not the animated bone's rotation.
-            for (int j = 0; j < impulses.Length; j++)
+            if (LastStepCount > 0 && kinematicBodyIndices.Length > 0)
             {
-                var impulse = impulses[j]; var config = definition.Bodies[impulse.BodyIndex];
-                if (config.Mode == PhysicsBodyMode.Kinematic || config.Mass == 0) continue;
-                if (impulse.Local)
-                {
-                    var world = backend.GetBodyWorldTransform(impulse.BodyIndex);
-                    PhysicsMath.ValidateRigid(world, nameof(backend));
-                    impulse = impulse with { Local = false, Linear = Vector3.TransformNormal(impulse.Linear, world),
-                        Angular = Vector3.TransformNormal(impulse.Angular, world) };
-                    if (!PhysicsMath.Finite(impulse.Linear) || !PhysicsMath.Finite(impulse.Angular))
-                        throw new ArgumentException("Local impulse conversion produced nonfinite momentum.", nameof(impulses));
-                }
-                worldImpulses[j] = impulse;
+                if (backend is ICharacterPhysicsBatchedBackend { SupportsBatchedExecution: true } batchedReads)
+                    batchedReads.CorrectJointsAndGetBodyTransforms([], kinematicBodyIndices, starts);
+                else
+                    for (int k = 0; k < kinematicBodyIndices.Length; k++)
+                        starts[k] = backend.GetBodyWorldTransform(kinematicBodyIndices[k]);
+                for (int k = 0; k < kinematicBodyIndices.Length; k++)
+                    targets[k] = BodyTarget(kinematicBodyIndices[k], animatedBoneWorlds);
             }
-            float fraction = (step + 1f) / LastStepCount;
-            beforeStep?.Invoke();
-            for (int i = 0; i < starts.Length; i++)
-                if (definition.Bodies[i].Mode == PhysicsBodyMode.Kinematic)
-                    backend.SetKinematicTarget(i, Interpolate(starts[i], targets[i], fraction), (float)FixedStepSeconds);
-            foreach (var impulse in worldImpulses)
-                if (impulse.Linear != Vector3.Zero || impulse.Angular != Vector3.Zero)
-                    ((ICharacterImpulseBackend)backend).ApplyImpulse(impulse.BodyIndex, impulse.Linear, impulse.Angular);
-            backend.Step((float)FixedStepSeconds);
+
+            var worldImpulses = rentedImpulses is null ? Span<CharacterBodyImpulse>.Empty : rentedImpulses.AsSpan(0, impulses.Length);
+            for (int step = 0; step < LastStepCount; step++)
+            {
+                // Resolve the complete sample before mutating this step. A local impulse follows the
+                // body's simulated orientation at this boundary, not the animated bone's rotation.
+                if (impulses.Length > 0)
+                {
+                    worldImpulses.Clear();
+                    for (int j = 0; j < impulses.Length; j++)
+                    {
+                        var impulse = impulses[j]; var config = definition.Bodies[impulse.BodyIndex];
+                        if (config.Mode == PhysicsBodyMode.Kinematic || config.Mass == 0) continue;
+                        if (impulse.Local)
+                        {
+                            var world = backend.GetBodyWorldTransform(impulse.BodyIndex);
+                            PhysicsMath.ValidateRigid(world, nameof(backend));
+                            impulse = impulse with { Local = false, Linear = Vector3.TransformNormal(impulse.Linear, world),
+                                Angular = Vector3.TransformNormal(impulse.Angular, world) };
+                            if (!PhysicsMath.Finite(impulse.Linear) || !PhysicsMath.Finite(impulse.Angular))
+                                throw new ArgumentException("Local impulse conversion produced nonfinite momentum.", nameof(impulses));
+                        }
+                        worldImpulses[j] = impulse;
+                    }
+                }
+                float fraction = (step + 1f) / LastStepCount;
+                beforeStep?.Invoke();
+                if (kinematicBodyIndices.Length > 0)
+                {
+                    if (backend is ICharacterPhysicsBatchedBackend { SupportsBatchedExecution: true } batchedTargets)
+                    {
+                        for (int k = 0; k < kinematicBodyIndices.Length; k++)
+                            batchBuffer[k] = new PhysicsKinematicTargetBatchItem(kinematicBodyIndices[k], true, Interpolate(starts[k], targets[k], fraction));
+                        batchedTargets.ApplyKinematicTargetsBatch(batchBuffer.AsSpan(0, kinematicBodyIndices.Length), (float)FixedStepSeconds);
+                    }
+                    else
+                    {
+                        for (int k = 0; k < kinematicBodyIndices.Length; k++)
+                            backend.SetKinematicTarget(kinematicBodyIndices[k], Interpolate(starts[k], targets[k], fraction), (float)FixedStepSeconds);
+                    }
+                }
+                if (impulses.Length > 0)
+                {
+                    for (int j = 0; j < worldImpulses.Length; j++)
+                    {
+                        var impulse = worldImpulses[j];
+                        if (impulse.Linear != Vector3.Zero || impulse.Angular != Vector3.Zero)
+                            ((ICharacterImpulseBackend)backend).ApplyImpulse(impulse.BodyIndex, impulse.Linear, impulse.Angular);
+                    }
+                }
+                backend.Step((float)FixedStepSeconds);
+            }
+        }
+        finally
+        {
+            if (rentedImpulses is not null)
+                ArrayPool<CharacterBodyImpulse>.Shared.Return(rentedImpulses, clearArray: true);
+            if (reuse)
+            {
+                Array.Clear(starts);
+                Array.Clear(targets);
+                Array.Clear(batchBuffer);
+                Volatile.Write(ref advanceBuffersInUse, 0);
+            }
         }
         return Reflect(animatedBoneWorlds);
     }
@@ -158,9 +262,37 @@ public sealed class CharacterPhysicsSession : IDisposable
     public Matrix4x4[] ReflectPose(ReadOnlySpan<Matrix4x4> input, IReadOnlySet<int>? disabledBoneIndices = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this); ValidatePose(input);
-        if (disabledBoneIndices is not null && disabledBoneIndices.Any(index => (uint)index >= (uint)definition.Bones.Count))
-            throw new ArgumentException("Disabled physics bone is outside the definition.", nameof(disabledBoneIndices));
+        if (disabledBoneIndices is { Count: > 0 })
+        {
+            if (disabledBoneIndices is HashSet<int> disabledSet)
+            {
+                foreach (int index in disabledSet)
+                    if ((uint)index >= (uint)definition.Bones.Count)
+                        throw new ArgumentException("Disabled physics bone is outside the definition.", nameof(disabledBoneIndices));
+            }
+            else
+            {
+                foreach (int index in disabledBoneIndices)
+                    if ((uint)index >= (uint)definition.Bones.Count)
+                        throw new ArgumentException("Disabled physics bone is outside the definition.", nameof(disabledBoneIndices));
+            }
+        }
         return Reflect(input, disabledBoneIndices);
+    }
+
+    internal void CollectReflectedBodyIndices(IReadOnlySet<int>? disabledBoneIndices, ReadOnlySpan<int> bodySlotMap, List<int> destination, out int addedCount)
+    {
+        int start = destination.Count;
+        bool hasDisabled = disabledBoneIndices is { Count: > 0 };
+        var order = definition.BoneOrder;
+        for (int i = 0; i < order.Length; i++)
+        {
+            int bone = order[i];
+            int bodyIndex = drivenBodies[bone];
+            if (bodyIndex < 0 || (hasDisabled && disabledBoneIndices!.Contains(bone))) continue;
+            destination.Add(bodySlotMap[bodyIndex]);
+        }
+        addedCount = destination.Count - start;
     }
 
     // The shared owner already validated the complete sample before touching the solver.
@@ -179,8 +311,56 @@ public sealed class CharacterPhysicsSession : IDisposable
         return result;
     }
 
+    internal Matrix4x4[] ReflectValidatedSharedPose(ReadOnlySpan<Matrix4x4> input,
+        IReadOnlySet<int> disabledBoneIndices, bool frozen, ReadOnlySpan<Matrix4x4> preFetchedBodyPoses)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (!frozen) return ReflectCore(input, disabledBoneIndices, preFetchedBodyPoses, usePreFetched: true);
+
+        for (int i = 0; i < preFetchedBodyPoses.Length; i++)
+            PhysicsMath.ValidateRigid(preFetchedBodyPoses[i], nameof(backend));
+        var result = input.ToArray();
+        for (int bone = 0; bone < result.Length; bone++) result[bone] = CanonicalAffine(result[bone]);
+        return result;
+    }
+
     private Matrix4x4[] Reflect(ReadOnlySpan<Matrix4x4> input, IReadOnlySet<int>? disabledBoneIndices = null)
     {
+        if (backend is ICharacterPhysicsBatchedBackend { SupportsBatchedExecution: true } batched)
+        {
+            int maxBodyCount = definition.BoneOrder.Length;
+            int[]? rentedIndices = null;
+            Matrix4x4[]? rentedPoses = null;
+            Span<int> bodyIndices = maxBodyCount <= 128
+                ? stackalloc int[maxBodyCount]
+                : (rentedIndices = ArrayPool<int>.Shared.Rent(maxBodyCount)).AsSpan(0, maxBodyCount);
+            Span<Matrix4x4> bodyPoses = maxBodyCount <= 128
+                ? stackalloc Matrix4x4[maxBodyCount]
+                : (rentedPoses = ArrayPool<Matrix4x4>.Shared.Rent(maxBodyCount)).AsSpan(0, maxBodyCount);
+            try
+            {
+                bool hasDisabled = disabledBoneIndices is { Count: > 0 };
+                int readCount = 0;
+                var order = definition.BoneOrder;
+                for (int i = 0; i < order.Length; i++)
+                {
+                    int bone = order[i];
+                    int bodyIndex = drivenBodies[bone];
+                    if (bodyIndex < 0 || (hasDisabled && disabledBoneIndices!.Contains(bone))) continue;
+                    bodyIndices[readCount++] = bodyIndex;
+                }
+                ReadOnlySpan<PhysicsJointPullBatchItem> pulls = backend is ICharacterPhysicsJointPullBackend
+                    ? jointPullItems
+                    : ReadOnlySpan<PhysicsJointPullBatchItem>.Empty;
+                batched.CorrectJointsAndGetBodyTransforms(pulls, bodyIndices.Slice(0, readCount), bodyPoses.Slice(0, readCount));
+                return ReflectCore(input, disabledBoneIndices, bodyPoses.Slice(0, readCount), usePreFetched: true);
+            }
+            finally
+            {
+                if (rentedIndices is not null) ArrayPool<int>.Shared.Return(rentedIndices);
+                if (rentedPoses is not null) ArrayPool<Matrix4x4>.Shared.Return(rentedPoses);
+            }
+        }
         if (backend is ICharacterPhysicsJointPullBackend pull)
             for (int i = 0; i < definition.Joints.Count; i++)
             {
@@ -188,7 +368,15 @@ public sealed class CharacterPhysicsSession : IDisposable
                 if (joint.Type > 5) continue;
                 pull.CorrectJointOverextension(joint.BodyA, joint.BodyB, definition.JointMaximumDistances[i]);
             }
+        return ReflectCore(input, disabledBoneIndices, ReadOnlySpan<Matrix4x4>.Empty, usePreFetched: false);
+    }
+
+    private Matrix4x4[] ReflectCore(ReadOnlySpan<Matrix4x4> input, IReadOnlySet<int>? disabledBoneIndices,
+        ReadOnlySpan<Matrix4x4> preFetchedBodyPoses, bool usePreFetched)
+    {
         var result = input.ToArray();
+        bool hasDisabled = disabledBoneIndices is { Count: > 0 };
+        int cursor = 0;
         // Topological reflection preserves dynamic child world poses even when PMX bodies are not sorted by bone.
         // Last PMX body wins if several dynamic bodies drive the same bone.
         foreach (int bone in definition.BoneOrder)
@@ -208,8 +396,8 @@ public sealed class CharacterPhysicsSession : IDisposable
                 result[bone] = CanonicalAffine(local * result[parent]);
             }
             int bodyIndex = drivenBodies[bone];
-            if (bodyIndex < 0 || disabledBoneIndices?.Contains(bone) == true) continue;
-            var bodyWorld = backend.GetBodyWorldTransform(bodyIndex);
+            if (bodyIndex < 0 || (hasDisabled && disabledBoneIndices!.Contains(bone))) continue;
+            var bodyWorld = usePreFetched ? preFetchedBodyPoses[cursor++] : backend.GetBodyWorldTransform(bodyIndex);
             // Do not let affine correction conceal a corrupt backend pose.
             PhysicsMath.ValidateRigid(bodyWorld, nameof(backend));
             var physical = CanonicalAffine(definition.InverseBodyBoneOffsets[bodyIndex] * bodyWorld);

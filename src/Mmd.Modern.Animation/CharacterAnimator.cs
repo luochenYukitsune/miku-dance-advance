@@ -46,6 +46,7 @@ public sealed class CharacterAnimator
     // not introduce mutable animator scratch or last-sample diagnostics.
     private readonly Action<int, int, int>? skinningRangeObserverForTesting;
     private static readonly ConditionalWeakTable<MorphPose, SceneMorphDeltas> morphDeltas = new();
+    private MmdConstraintEvaluator? pooledEvaluator;
     private volatile bool deferVertexSkinning;
     public IReadOnlyList<string> Diagnostics { get; }
     /// <summary>Selected by the owner only between samples. Samples then carry a deformation input instead of
@@ -186,27 +187,54 @@ public sealed class CharacterAnimator
         return (world, skin);
     }
 
+    private MmdConstraintEvaluator RentEvaluator()
+        => Interlocked.Exchange(ref pooledEvaluator, null) ?? new MmdConstraintEvaluator(rig);
+
+    internal void ReturnEvaluator(MmdConstraintEvaluator? evaluator)
+    {
+        if (evaluator is null) return;
+        evaluator.Release();
+        Interlocked.CompareExchange(ref pooledEvaluator, evaluator, null);
+    }
+
     /// <summary>Evaluate animation through the before-physics phase. Complete the owned sample after the physics step.</summary>
     public CharacterPhysicsSample BeginPhysicsSample(double frame, CharacterEvaluationOptions? options = null)
     {
         if (!double.IsFinite(frame)) throw new ArgumentOutOfRangeException(nameof(frame));
         options?.Morphs?.ValidateRig(rig);
-        if (options?.IkEnabledOverrides is { } overrides)
-            options = options with { IkEnabledOverrides = new Dictionary<int, bool>(overrides) };
-        if (options?.OutsideParents is { } outsideParents)
-            options = options with { OutsideParents = new Dictionary<int, Matrix4x4>(outsideParents) };
-        if (options?.PhysicsDrivenBoneIndices is { } driven)
-            options = options with { PhysicsDrivenBoneIndices = driven.ToArray() };
         var localBoneOverrides = CopyNormalizedLocalBoneOverrides(options?.LocalBoneOverrides);
-        if (options?.LocalBoneOverrides is not null)
-            options = options with { LocalBoneOverrides = localBoneOverrides };
+        if (options is not null)
+        {
+            IReadOnlyDictionary<int, bool>? ikOverrides = options.IkEnabledOverrides is { Count: > 0 } overrides
+                ? new Dictionary<int, bool>(overrides) : null;
+            IReadOnlyDictionary<int, Matrix4x4>? outsideParents = options.OutsideParents is { Count: > 0 } op
+                ? new Dictionary<int, Matrix4x4>(op) : null;
+            // ValidateOptions copies PhysicsDrivenBoneIndices into the evaluator's own HashSet before returning.
+            if (!ReferenceEquals(ikOverrides, options.IkEnabledOverrides)
+                || !ReferenceEquals(outsideParents, options.OutsideParents)
+                || !ReferenceEquals(localBoneOverrides, options.LocalBoneOverrides))
+                options = options with
+                {
+                    IkEnabledOverrides = ikOverrides,
+                    OutsideParents = outsideParents,
+                    LocalBoneOverrides = localBoneOverrides,
+                };
+        }
         var world = new Matrix4x4[rig.Bones.Count];
-        var translations = new Vector3[world.Length]; var rotations = new Quaternion[world.Length];
-        for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
-        ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
-        var evaluator = new MmdConstraintEvaluator(rig, translations, rotations, world, options?.Morphs);
-        evaluator.EvaluateBeforePhysics(options);
-        return new(this, evaluator, world, options);
+        var evaluator = RentEvaluator();
+        try
+        {
+            var translations = evaluator.Translations; var rotations = evaluator.AnimationRotations;
+            for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
+            ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
+            evaluator.EvaluateBeforePhysics(world, options?.Morphs, options);
+            return new(this, evaluator, world, options);
+        }
+        catch
+        {
+            ReturnEvaluator(evaluator);
+            throw;
+        }
     }
 
     private CharacterSample SampleCore(double frame, CharacterEvaluationOptions? options)
@@ -225,11 +253,19 @@ public sealed class CharacterAnimator
         if (rig.HasConstraints || options?.OutsideParents?.Count > 0 || options?.PhysicsDrivenBoneIndices?.Count > 0
             || options?.IkEnabledOverrides?.Count > 0)
         {
-            var translations = new Vector3[rig.Bones.Count]; var rotations = new Quaternion[rig.Bones.Count];
-            for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
-            ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
-            new MmdConstraintEvaluator(rig, translations, rotations, world, morphs).Evaluate(options);
-            for (int i = 0; i < skin.Length; i++) skin[i] = rig.InverseBindMatrices[i] * world[i];
+            var evaluator = RentEvaluator();
+            try
+            {
+                var translations = evaluator.Translations; var rotations = evaluator.AnimationRotations;
+                for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
+                ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
+                evaluator.Evaluate(world, morphs, options);
+                for (int i = 0; i < skin.Length; i++) skin[i] = rig.InverseBindMatrices[i] * world[i];
+            }
+            finally
+            {
+                ReturnEvaluator(evaluator);
+            }
         }
         else foreach (int index in rig.EvaluationOrder)
         {
@@ -252,7 +288,7 @@ public sealed class CharacterAnimator
 
     private Dictionary<int, BoneLocalTransform>? CopyNormalizedLocalBoneOverrides(IReadOnlyDictionary<int, BoneLocalTransform>? overrides)
     {
-        if (overrides is null) return null;
+        if (overrides is null or { Count: 0 }) return null;
         var copy = new Dictionary<int, BoneLocalTransform>(overrides.Count);
         foreach (var (index, value) in overrides)
         {
@@ -330,17 +366,41 @@ public sealed class CharacterAnimator
 
     private static SceneMorphDeltas BuildMorphDeltas(MorphPose morphs)
     {
-        var positions = morphs.HasVertexEffects ? morphs.VertexDeltaSpan : default;
+        var positions = morphs.HasVertexEffects ? morphs.PositionRange : default;
+        int firstDelta = morphs.FirstVertex;
         var uvs = morphs.HasUvEffects ? morphs.VertexUvDeltaSpan : default;
-        int count = Math.Max(positions.Length, uvs.Length);
-        var indices = new List<int>(); var p = new List<Vector3>(); var t = new List<Vector2>();
-        for (int i = 0; i < count; i++)
+        int start, end;
+        if (!positions.IsEmpty && !uvs.IsEmpty)
         {
-            var position = positions.IsEmpty ? Vector3.Zero : positions[i]; var uv = uvs.IsEmpty ? Vector2.Zero : uvs[i];
+            start = Math.Min(morphs.ActiveVertexStart, morphs.ActiveUvStart);
+            end = Math.Max(morphs.ActiveVertexEnd, morphs.ActiveUvEnd);
+        }
+        else if (!positions.IsEmpty)
+        {
+            start = morphs.ActiveVertexStart;
+            end = morphs.ActiveVertexEnd;
+        }
+        else if (!uvs.IsEmpty)
+        {
+            start = morphs.ActiveUvStart;
+            end = morphs.ActiveUvEnd;
+        }
+        else
+        {
+            start = 0;
+            end = 0;
+        }
+        int capacity = Math.Min(Math.Max(0, end - start), 256);
+        var indices = new List<int>(capacity); var p = new List<Vector3>(capacity); var t = new List<Vector2>(capacity);
+        for (int i = start; i < end; i++)
+        {
+            int deltaIndex = i - firstDelta;
+            var position = (uint)deltaIndex < (uint)positions.Length ? positions[deltaIndex] : Vector3.Zero;
+            var uv = uvs.IsEmpty ? Vector2.Zero : uvs[i];
             if (position == Vector3.Zero && uv == Vector2.Zero) continue;
             indices.Add(i); p.Add(position); t.Add(uv);
         }
-        return new(morphs.VertexDeltas.Count, CollectionsMarshal.AsSpan(indices), CollectionsMarshal.AsSpan(p), CollectionsMarshal.AsSpan(t));
+        return new(morphs.VertexCount, CollectionsMarshal.AsSpan(indices), CollectionsMarshal.AsSpan(p), CollectionsMarshal.AsSpan(t));
     }
 
     private CharacterSample SkinVertices(Matrix4x4[] world, Matrix4x4[] skin, MorphPose? morphs)
@@ -425,8 +485,11 @@ public sealed class CharacterAnimator
     {
         var source = rig.VertexArray; var bindings = rig.FullBindings;
         // Acquire spans inside each range; no ref-struct crosses the worker lambda.
-        ReadOnlySpan<Vector3> vertexDeltas = morphs is { HasVertexEffects: true } ? morphs.VertexDeltaSpan : default;
-        ReadOnlySpan<Vector2> uvDeltas = morphs is { HasUvEffects: true } ? morphs.VertexUvDeltaSpan : default;
+        ReadOnlySpan<Vector3> vertexDeltas = morphs is { HasVertexEffects: true } && start < morphs.ActiveVertexEnd && end > morphs.ActiveVertexStart
+            ? morphs.PositionRange : default;
+        int firstDelta = morphs?.FirstVertex ?? 0;
+        ReadOnlySpan<Vector2> uvDeltas = morphs is { HasUvEffects: true } && start < morphs.ActiveUvEnd && end > morphs.ActiveUvStart
+            ? morphs.VertexUvDeltaSpan : default;
         for (int i = start; i < end; i++)
         {
             var vertex = source[i]; ref readonly var binding = ref bindings[i];
@@ -434,8 +497,12 @@ public sealed class CharacterAnimator
             // SDEF C/R anchors stay at their bind values; only the position-minus-C term changes.
             if (!vertexDeltas.IsEmpty)
             {
-                var delta = vertexDeltas[i];
-                if (delta != Vector3.Zero) vertex = vertex with { Position = vertex.Position + delta };
+                int deltaIndex = i - firstDelta;
+                if ((uint)deltaIndex < (uint)vertexDeltas.Length)
+                {
+                    var delta = vertexDeltas[deltaIndex];
+                    if (delta != Vector3.Zero) vertex = vertex with { Position = vertex.Position + delta };
+                }
             }
             // Saba UpdatePositions adds only the base UV offset's X/Y; UVs do not undergo skinning.
             if (!uvDeltas.IsEmpty)
@@ -486,15 +553,22 @@ public sealed class CharacterAnimator
     private void SkinBdefRange(Matrix4x4[] skin, MorphPose? morphs, SceneVertex[] vertices, int start, int end)
     {
         var source = rig.VertexArray; var bindings = rig.CompactBdefBindings;
-        ReadOnlySpan<Vector3> vertexDeltas = morphs is { HasVertexEffects: true } ? morphs.VertexDeltaSpan : default;
-        ReadOnlySpan<Vector2> uvDeltas = morphs is { HasUvEffects: true } ? morphs.VertexUvDeltaSpan : default;
+        ReadOnlySpan<Vector3> vertexDeltas = morphs is { HasVertexEffects: true } && start < morphs.ActiveVertexEnd && end > morphs.ActiveVertexStart
+            ? morphs.PositionRange : default;
+        int firstDelta = morphs?.FirstVertex ?? 0;
+        ReadOnlySpan<Vector2> uvDeltas = morphs is { HasUvEffects: true } && start < morphs.ActiveUvEnd && end > morphs.ActiveUvStart
+            ? morphs.VertexUvDeltaSpan : default;
         for (int i = start; i < end; i++)
         {
             var vertex = source[i]; ref readonly var binding = ref bindings[i];
             if (!vertexDeltas.IsEmpty)
             {
-                var delta = vertexDeltas[i];
-                if (delta != Vector3.Zero) vertex = vertex with { Position = vertex.Position + delta };
+                int deltaIndex = i - firstDelta;
+                if ((uint)deltaIndex < (uint)vertexDeltas.Length)
+                {
+                    var delta = vertexDeltas[deltaIndex];
+                    if (delta != Vector3.Zero) vertex = vertex with { Position = vertex.Position + delta };
+                }
             }
             if (!uvDeltas.IsEmpty)
             {

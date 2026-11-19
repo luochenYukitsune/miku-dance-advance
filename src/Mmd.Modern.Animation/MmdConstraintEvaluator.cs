@@ -6,143 +6,241 @@ using System.Numerics;
 
 namespace Mmd.Modern.Animation;
 
-/// <summary>One sample owns all solver state. No seek or enable toggle can accumulate an earlier pose.</summary>
+/// <summary>One sample owns all solver state. No seek or enable toggle can accumulate an earlier pose.
+/// Callers may pool instances via Prepare/Release, never sharing an active instance across calls.</summary>
 internal sealed class MmdConstraintEvaluator
 {
     private readonly CharacterRig rig;
     private readonly Vector3[] translations;
     private readonly Quaternion[] animationRotations;
-    private readonly MorphPose? morphs;
     private readonly Quaternion[] ikRotations;
     private readonly Quaternion[] appendRotations;
     private readonly Vector3[] appendTranslations;
     private readonly Matrix4x4[] locals;
-    private readonly Matrix4x4[] world;
     private readonly int[] stack;
     private readonly Vector3[]? workingTranslations;
     private readonly bool[]? lateOrdinaryParents;
     private readonly bool[]? retainedIkWorlds;
-    private Dictionary<int, (Vector3 Translation, Quaternion Rotation)>? physicsLocalPoses;
+    private readonly Dictionary<int, (Vector3 Translation, Quaternion Rotation)> physicsLocalPoses = new();
+    private readonly HashSet<int> physicsDrivenBones = new();
+    private Vector3[] ikPreviousAngles = [];
+    private float[] ikPlaneAngles = [];
+    private Quaternion[] ikSaved = [];
+    private MorphPose? morphs;
+    private Matrix4x4[] world = [];
     private IReadOnlyDictionary<int, Matrix4x4>? outsideParents;
-    private HashSet<int>? physicsDrivenBones;
 
-    internal MmdConstraintEvaluator(CharacterRig rig, Vector3[] translations, Quaternion[] rotations, Matrix4x4[] world, MorphPose? morphs = null)
+    internal Vector3[] Translations => translations;
+    internal Quaternion[] AnimationRotations => animationRotations;
+
+    internal MmdConstraintEvaluator(CharacterRig rig)
     {
-        this.rig = rig; this.translations = translations; animationRotations = rotations; this.world = world;
-        this.morphs = morphs?.HasBoneEffects == true ? morphs : null;
-        int count = rotations.Length;
-        ikRotations = new Quaternion[count]; appendRotations = new Quaternion[count]; appendTranslations = new Vector3[count];
-        Array.Fill(ikRotations, Quaternion.Identity); Array.Fill(appendRotations, Quaternion.Identity);
-        locals = new Matrix4x4[count]; stack = new int[count];
-        for (int i = 0; i < count; i++) UpdateLocal(i);
+        this.rig = rig;
+        int count = rig.Bones.Count;
+        translations = new Vector3[count];
+        animationRotations = new Quaternion[count];
+        ikRotations = new Quaternion[count];
+        appendRotations = new Quaternion[count];
+        appendTranslations = new Vector3[count];
+        locals = new Matrix4x4[count];
+        stack = new int[count];
         if (rig.MmdSchedule is not null)
         {
             workingTranslations = new Vector3[count];
-            lateOrdinaryParents = new bool[count]; retainedIkWorlds = new bool[count];
-            for (int i = 0; i < count; i++) workingTranslations[i] = AnimatedTranslation(i);
+            lateOrdinaryParents = new bool[count];
+            retainedIkWorlds = new bool[count];
         }
     }
 
-    internal void Evaluate(CharacterEvaluationOptions? options)
+    internal void Evaluate(Matrix4x4[] world, MorphPose? morphs, CharacterEvaluationOptions? options)
     {
+        Prepare(world, morphs);
         ValidateOptions(options);
         EvaluatePhase(false, options); EvaluatePhase(true, options);
     }
 
-    internal void EvaluateBeforePhysics(CharacterEvaluationOptions? options)
+    internal void EvaluateBeforePhysics(Matrix4x4[] world, MorphPose? morphs, CharacterEvaluationOptions? options)
     {
+        Prepare(world, morphs);
         ValidateOptions(options);
         EvaluatePhase(false, options);
     }
 
     internal void EvaluateAfterPhysics(CharacterEvaluationOptions? options) => EvaluatePhase(true, options);
 
+    internal void Release()
+    {
+        world = [];
+        morphs = null;
+        outsideParents = null;
+        physicsLocalPoses.Clear();
+        physicsDrivenBones.Clear();
+    }
+
+    private void Prepare(Matrix4x4[] world, MorphPose? morphs)
+    {
+        this.world = world;
+        this.morphs = morphs?.HasBoneEffects == true ? morphs : null;
+        outsideParents = null;
+        physicsLocalPoses.Clear();
+        physicsDrivenBones.Clear();
+        Array.Fill(ikRotations, Quaternion.Identity);
+        Array.Fill(appendRotations, Quaternion.Identity);
+        Array.Clear(appendTranslations);
+        int count = animationRotations.Length;
+        for (int i = 0; i < count; i++) UpdateLocal(i);
+        if (rig.MmdSchedule is not null)
+        {
+            Array.Clear(lateOrdinaryParents!);
+            Array.Clear(retainedIkWorlds!);
+            for (int i = 0; i < count; i++) workingTranslations![i] = AnimatedTranslation(i);
+        }
+    }
+
     internal void ImportPhysicsWorlds(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices)
     {
         // Saba PMXModel::UpdatePhysicsAnimation reflects all body worlds before CalcLocalTransform.
         // Preserve that complete reflected parent pose, independently of reflected-index order.
         // CalcLocalTransform writes only the local matrix: animation/IK/append components are unchanged.
-        foreach (int index in reflectedBoneIndices)
+        if (reflectedBoneIndices is int[] reflectedArray)
         {
-            int parent = rig.Bones[index].ParentIndex;
-            // A late-pass world was composed with the ordinary parent. Reflect
-            // through the same parent space, rather than undoing an unused attachment.
-            bool ordinaryParent = lateOrdinaryParents?[index] == true;
-            if (!ordinaryParent && outsideParents?.TryGetValue(index, out var external) == true)
-            {
-                Matrix4x4.Invert(external, out var inverseExternal);
-                locals[index] = physicsWorlds[index] * inverseExternal;
-                // Locals retain their regular rest offset; UpdateWorld removes it for an individual attachment.
-                locals[index].Translation += rig.LocalRestPositions[index];
-            }
-            else if (parent < 0)
-            {
-                locals[index] = physicsWorlds[index];
-                if (!ordinaryParent && outsideParents?.TryGetValue(-1, out var modelParent) == true)
-                {
-                    Matrix4x4.Invert(modelParent, out var inverseExternal);
-                    locals[index] *= inverseExternal;
-                }
-            }
-            else
-            {
-                if (!Matrix4x4.Invert(physicsWorlds[parent], out var inverseParent))
-                    throw new ArgumentException("Physics parent world cannot be inverted.", nameof(physicsWorlds));
-                locals[index] = physicsWorlds[index] * inverseParent;
-            }
+            for (int i = 0; i < reflectedArray.Length; i++) ImportReflectedLocal(physicsWorlds, reflectedArray[i]);
+            if (rig.MmdSchedule is not null && physicsDrivenBones.Count > 0)
+                for (int i = 0; i < reflectedArray.Length; i++) ExtractPhysicsLocalPose(reflectedArray[i]);
         }
-        // Resolve every effective reflected local before reading grant sources.
-        // Keep those matrices intact while extracting the separate simulated
-        // bases, so neither input order nor a source's own append changes a reader.
-        foreach (int index in reflectedBoneIndices)
+        else if (reflectedBoneIndices is HashSet<int> reflectedSet)
         {
-            if (rig.MmdSchedule is not null && physicsDrivenBones?.Contains(index) == true)
-            {
-                int parent = rig.Bones[index].ParentIndex;
-                // B9F60 selects the simulated pose for active dynamic bones. Complete
-                // supplies effective local poses (including morphs), so retain that
-                // base separately from IK/grant changes and do not apply morphs twice.
-                physicsLocalPoses ??= new();
-                var rotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(locals[index]));
-                if (rig.Bones[index].Append is { Rotate: true } append)
-                {
-                    // Original C3460 removes the inherited rotation before writing
-                    // simulated 0x19c. Its root/parent branches use opposite sides;
-                    // retain that order even when the rotations do not commute.
-                    var sourceRotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(locals[append.SourceBoneIndex]));
-                    var inverseGrant = Quaternion.Conjugate(WeightMmdAppendRotation(sourceRotation, append.Weight));
-                    rotation = Quaternion.Normalize(parent < 0 ? inverseGrant * rotation : rotation * inverseGrant);
-                }
-                physicsLocalPoses[index] = (locals[index].Translation - rig.LocalRestPositions[index],
-                    rotation);
-            }
+            foreach (int index in reflectedSet) ImportReflectedLocal(physicsWorlds, index);
+            if (rig.MmdSchedule is not null && physicsDrivenBones.Count > 0)
+                foreach (int index in reflectedSet) ExtractPhysicsLocalPose(index);
+        }
+        else
+        {
+            foreach (int index in reflectedBoneIndices) ImportReflectedLocal(physicsWorlds, index);
+            if (rig.MmdSchedule is not null && physicsDrivenBones.Count > 0)
+                foreach (int index in reflectedBoneIndices) ExtractPhysicsLocalPose(index);
         }
         UpdateAllWorld();
     }
 
+    private void ImportReflectedLocal(ReadOnlySpan<Matrix4x4> physicsWorlds, int index)
+    {
+        int parent = rig.Bones[index].ParentIndex;
+        // A late-pass world was composed with the ordinary parent. Reflect
+        // through the same parent space, rather than undoing an unused attachment.
+        bool ordinaryParent = lateOrdinaryParents?[index] == true;
+        if (!ordinaryParent && outsideParents?.TryGetValue(index, out var external) == true)
+        {
+            Matrix4x4.Invert(external, out var inverseExternal);
+            locals[index] = physicsWorlds[index] * inverseExternal;
+            // Locals retain their regular rest offset; UpdateWorld removes it for an individual attachment.
+            locals[index].Translation += rig.LocalRestPositions[index];
+        }
+        else if (parent < 0)
+        {
+            locals[index] = physicsWorlds[index];
+            if (!ordinaryParent && outsideParents?.TryGetValue(-1, out var modelParent) == true)
+            {
+                Matrix4x4.Invert(modelParent, out var inverseExternal);
+                locals[index] *= inverseExternal;
+            }
+        }
+        else
+        {
+            if (!Matrix4x4.Invert(physicsWorlds[parent], out var inverseParent))
+                throw new ArgumentException("Physics parent world cannot be inverted.", nameof(physicsWorlds));
+            locals[index] = physicsWorlds[index] * inverseParent;
+        }
+    }
+
+    private void ExtractPhysicsLocalPose(int index)
+    {
+        // Resolve every effective reflected local before reading grant sources.
+        // Keep those matrices intact while extracting the separate simulated
+        // bases, so neither input order nor a source's own append changes a reader.
+        if (!physicsDrivenBones.Contains(index)) return;
+        int parent = rig.Bones[index].ParentIndex;
+        // B9F60 selects the simulated pose for active dynamic bones. Complete
+        // supplies effective local poses (including morphs), so retain that
+        // base separately from IK/grant changes and do not apply morphs twice.
+        var rotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(locals[index]));
+        if (rig.Bones[index].Append is { Rotate: true } append)
+        {
+            // Original C3460 removes the inherited rotation before writing
+            // simulated 0x19c. Its root/parent branches use opposite sides;
+            // retain that order even when the rotations do not commute.
+            var sourceRotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(locals[append.SourceBoneIndex]));
+            var inverseGrant = Quaternion.Conjugate(WeightMmdAppendRotation(sourceRotation, append.Weight));
+            rotation = Quaternion.Normalize(parent < 0 ? inverseGrant * rotation : rotation * inverseGrant);
+        }
+        physicsLocalPoses[index] = (locals[index].Translation - rig.LocalRestPositions[index], rotation);
+    }
+
     private void ValidateOptions(CharacterEvaluationOptions? options)
     {
-        physicsDrivenBones = options?.PhysicsDrivenBoneIndices is { } driven ? new(driven) : null;
-        if (physicsDrivenBones is not null && physicsDrivenBones.Any(index => index < 0 || index >= rig.Bones.Count))
-            throw new ArgumentException("Physics-driven indices must reference rig bones.", nameof(options));
+        physicsDrivenBones.Clear();
+        if (options?.PhysicsDrivenBoneIndices is { } driven)
+        {
+            if (driven is int[] drivenArray)
+            {
+                for (int i = 0; i < drivenArray.Length; i++)
+                {
+                    int index = drivenArray[i];
+                    if ((uint)index >= (uint)rig.Bones.Count)
+                        throw new ArgumentException("Physics-driven indices must reference rig bones.", nameof(options));
+                    physicsDrivenBones.Add(index);
+                }
+            }
+            else
+            {
+                foreach (int index in driven)
+                {
+                    if ((uint)index >= (uint)rig.Bones.Count)
+                        throw new ArgumentException("Physics-driven indices must reference rig bones.", nameof(options));
+                    physicsDrivenBones.Add(index);
+                }
+            }
+        }
         outsideParents = options?.OutsideParents;
         if (outsideParents is not null)
-            foreach (var (index, value) in outsideParents)
+        {
+            if (outsideParents is Dictionary<int, Matrix4x4> parentDict)
             {
-                if (index < -1 || index >= rig.Bones.Count)
-                    throw new ArgumentException("Outside parents must reference a rig bone or the whole-model slot -1.", nameof(options));
-                var x = new Vector3(value.M11, value.M12, value.M13);
-                var y = new Vector3(value.M21, value.M22, value.M23);
-                var z = new Vector3(value.M31, value.M32, value.M33);
-                if (!AnimationValidation.Finite(x) || !AnimationValidation.Finite(y) || !AnimationValidation.Finite(z)
-                    || !AnimationValidation.Finite(value.Translation) || value.M14 != 0 || value.M24 != 0 || value.M34 != 0 || value.M44 != 1
-                    || !Matrix4x4.Invert(value, out _))
-                    throw new ArgumentException("Outside parents must be finite invertible affine transforms.", nameof(options));
+                foreach (var (index, value) in parentDict) ValidateOutsideParent(index, value);
             }
+            else
+            {
+                foreach (var (index, value) in outsideParents) ValidateOutsideParent(index, value);
+            }
+        }
         if (options?.IkEnabledOverrides is { } overrides)
-            foreach (int index in overrides.Keys)
-                if (index < 0 || index >= rig.Bones.Count || rig.Bones[index].Ik is null)
-                    throw new ArgumentException("IK overrides must reference controller bones.", nameof(options));
+        {
+            if (overrides is Dictionary<int, bool> overrideDict)
+            {
+                foreach (var (index, _) in overrideDict)
+                    if (index < 0 || index >= rig.Bones.Count || rig.Bones[index].Ik is null)
+                        throw new ArgumentException("IK overrides must reference controller bones.", nameof(options));
+            }
+            else
+            {
+                foreach (int index in overrides.Keys)
+                    if (index < 0 || index >= rig.Bones.Count || rig.Bones[index].Ik is null)
+                        throw new ArgumentException("IK overrides must reference controller bones.", nameof(options));
+            }
+        }
+    }
+
+    private void ValidateOutsideParent(int index, Matrix4x4 value)
+    {
+        if (index < -1 || index >= rig.Bones.Count)
+            throw new ArgumentException("Outside parents must reference a rig bone or the whole-model slot -1.", "options");
+        var x = new Vector3(value.M11, value.M12, value.M13);
+        var y = new Vector3(value.M21, value.M22, value.M23);
+        var z = new Vector3(value.M31, value.M32, value.M33);
+        if (!AnimationValidation.Finite(x) || !AnimationValidation.Finite(y) || !AnimationValidation.Finite(z)
+            || !AnimationValidation.Finite(value.Translation) || value.M14 != 0 || value.M24 != 0 || value.M34 != 0 || value.M44 != 1
+            || !Matrix4x4.Invert(value, out _))
+            throw new ArgumentException("Outside parents must be finite invertible affine transforms.", "options");
     }
 
     private void EvaluatePhase(bool afterPhysics, CharacterEvaluationOptions? options)
@@ -242,7 +340,7 @@ internal sealed class MmdConstraintEvaluator
     private bool ShouldSolveIk(int controller, IkDefinition ik, CharacterEvaluationOptions? options)
         => (options?.EnableIk ?? true)
             && !(options?.IkEnabledOverrides?.TryGetValue(controller, out bool enabled) == true && !enabled)
-            && !(physicsDrivenBones?.Contains(rig.Bones[ik.TargetBoneIndex].ParentIndex) ?? false);
+            && !(physicsDrivenBones.Count > 0 && physicsDrivenBones.Contains(rig.Bones[ik.TargetBoneIndex].ParentIndex));
 
     private void UpdateLocal(int index)
     {
@@ -256,9 +354,9 @@ internal sealed class MmdConstraintEvaluator
 
     // Keep VMD and morph base components separate. IK removes the complete animated rotation,
     // while append reads the effective source transform, including the morph base.
-    private Quaternion AnimatedRotation(int index) => physicsLocalPoses?.TryGetValue(index, out var pose) == true
+    private Quaternion AnimatedRotation(int index) => physicsLocalPoses.Count > 0 && physicsLocalPoses.TryGetValue(index, out var pose)
         ? pose.Rotation : morphs?.ApplyBoneRotation(index, animationRotations[index]) ?? animationRotations[index];
-    private Vector3 AnimatedTranslation(int index) => physicsLocalPoses?.TryGetValue(index, out var pose) == true
+    private Vector3 AnimatedTranslation(int index) => physicsLocalPoses.Count > 0 && physicsLocalPoses.TryGetValue(index, out var pose)
         ? pose.Translation : morphs?.ApplyBoneTranslation(index, translations[index]) ?? translations[index];
 
     // CCD's inverse world includes the evaluated append. Apply and remove the same complete
@@ -334,7 +432,16 @@ internal sealed class MmdConstraintEvaluator
         int count = ik.Links.Count;
         if (count == 0 || ik.Iterations == 0) return;
         Vector3 mmdGoal = world[controller].Translation;
-        var previousAngles = new Vector3[count]; var planeAngles = new float[count]; var saved = new Quaternion[count];
+        if (ikPreviousAngles.Length < count)
+        {
+            ikPreviousAngles = new Vector3[count];
+            ikPlaneAngles = new float[count];
+            ikSaved = new Quaternion[count];
+        }
+        var previousAngles = ikPreviousAngles.AsSpan(0, count);
+        var planeAngles = ikPlaneAngles.AsSpan(0, count);
+        var saved = ikSaved.AsSpan(0, count);
+        previousAngles.Clear();
         for (int i = 0; i < count; i++)
         {
             int node = ik.Links[i].BoneIndex;
@@ -348,7 +455,7 @@ internal sealed class MmdConstraintEvaluator
         // BA200 mode3 skips dynamic chain-link world recomposition in the
         // inner loop. Their local IK rotation may change, while descendants
         // continue solving against the retained simulated world transform.
-        if (retainedIkWorlds is not null && physicsLocalPoses is not null)
+        if (retainedIkWorlds is not null && physicsLocalPoses.Count > 0)
             foreach (var link in ik.Links)
                 if (physicsLocalPoses.ContainsKey(link.BoneIndex)) retainedIkWorlds[link.BoneIndex] = true;
         float bestDistance = float.MaxValue;

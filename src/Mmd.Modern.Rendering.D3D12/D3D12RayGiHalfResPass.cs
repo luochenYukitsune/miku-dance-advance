@@ -12,6 +12,7 @@ internal sealed class D3D12RayGiHalfResPass(D3D12GpuRuntime runtime) : IDisposab
 {
     private ID3D12RootSignature? downsampleRoot, upsampleRoot;
     private ID3D12PipelineState? downsamplePipeline, upsamplePipeline;
+    private int cachedSrvStride;
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct DownsampleConstants(RayGiUInt4 Dimensions);
@@ -46,8 +47,59 @@ internal sealed class D3D12RayGiHalfResPass(D3D12GpuRuntime runtime) : IDisposab
         var heap = ownerRuntime.Transients.Heap(new(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
             6, DescriptorHeapFlags.ShaderVisible));
-        stride = device.GetDescriptorHandleIncrementSize(
+        stride = GetSrvStride(device);
+        WriteDescriptors(device, heap, stride, fullPosition, fullNormal, halfPosition, halfNormal);
+        ownerRuntime.DescriptorHighWater = Math.Max(ownerRuntime.DescriptorHighWater, 6);
+        return heap;
+    }
+
+    internal ID3D12DescriptorHeap AcquireHalfResDescriptorHeap(D3D12GpuRuntime ownerRuntime,
+        D3D12RayGiWorkspace workspace, D3D12RayGiWorkspace.HalfResWorkspace halfWorkspace, out int stride)
+    {
+        if (!workspace.IsSlotReusable)
+        {
+            return CreateDescriptorHeap(ownerRuntime, workspace.Position.Resource, workspace.Normal.Resource,
+                halfWorkspace.Position.Resource, halfWorkspace.Normal.Resource, out stride);
+        }
+
+        var device = ownerRuntime.Device;
+        stride = GetSrvStride(device);
+        ownerRuntime.DescriptorHighWater = Math.Max(ownerRuntime.DescriptorHighWater, 6);
+        if (halfWorkspace.DescriptorHeap is { } cached)
+            return cached;
+
+        var heap = device.CreateDescriptorHeap(new(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+            6, DescriptorHeapFlags.ShaderVisible));
+        try
+        {
+            WriteDescriptors(device, heap, stride, workspace.Position.Resource, workspace.Normal.Resource,
+                halfWorkspace.Position.Resource, halfWorkspace.Normal.Resource);
+            halfWorkspace.AttachDescriptorHeap(heap);
+            return heap;
+        }
+        catch
+        {
+            heap.Dispose();
+            throw;
+        }
+    }
+
+    private int GetSrvStride(ID3D12Device device)
+    {
+        if (ReferenceEquals(device, runtime.Device))
+        {
+            return cachedSrvStride != 0 ? cachedSrvStride : (cachedSrvStride = device.GetDescriptorHandleIncrementSize(
+                DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView));
+        }
+        return device.GetDescriptorHandleIncrementSize(
             DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+    }
+
+    private static void WriteDescriptors(ID3D12Device device, ID3D12DescriptorHeap heap, int stride,
+        ID3D12Resource fullPosition, ID3D12Resource fullNormal,
+        ID3D12Resource halfPosition, ID3D12Resource halfNormal)
+    {
         var cpuStart = heap.GetCPUDescriptorHandleForHeapStart();
         device.CreateShaderResourceView(fullPosition, null, CpuSlot(cpuStart, 0, stride));
         device.CreateShaderResourceView(fullNormal, null, CpuSlot(cpuStart, 1, stride));
@@ -55,8 +107,6 @@ internal sealed class D3D12RayGiHalfResPass(D3D12GpuRuntime runtime) : IDisposab
         device.CreateShaderResourceView(halfNormal, null, CpuSlot(cpuStart, 3, stride));
         device.CreateUnorderedAccessView(halfPosition, null, null, CpuSlot(cpuStart, 4, stride));
         device.CreateUnorderedAccessView(halfNormal, null, null, CpuSlot(cpuStart, 5, stride));
-        ownerRuntime.DescriptorHighWater = Math.Max(ownerRuntime.DescriptorHighWater, 6);
-        return heap;
     }
 
     internal void Downsample(D3D12RecordingContext context, ID3D12DescriptorHeap heap, int stride,

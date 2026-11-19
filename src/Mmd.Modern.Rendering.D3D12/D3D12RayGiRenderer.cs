@@ -35,6 +35,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
     private Dictionary<string,long>? cpuStageTicks;
     private readonly HashSet<D3D12HardwareRayGi.AccelerationStructure> countedAcceleration=[];
     private readonly HashSet<D3D12RayGiWorkspace> receiverWorkspaces=[];
+    private readonly D3D12RayGiWorkspace?[] slotWorkspaces=new D3D12RayGiWorkspace?[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];
     internal int DiagnosticReadbackCount=>readbacks.Count+timings.Count;
     internal D3D12RayGiStatistics? LastStatistics {get;private set;}
     internal string? LastBackendIdentity {get;private set;}
@@ -292,9 +293,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
             :Upload("nodes",nodes.Length==0?[new RayGiBvhNodeGpu(new(float.PositiveInfinity),new(float.NegativeInfinity),new(0,0,1,1))]:nodes,scene.GeometryIdentity);
         var order=hardware?Upload<uint>("order",HardwareTriangleOrder,HardwareBvhIdentity)
             :Upload("order",bvh!.TriangleOrder.Length==0?[0u]:bvh.TriangleOrder,scene.GeometryIdentity);
-        workspace??=new(context,width,height);
+        workspace=AcquireReceiverWorkspace(context,width,height,spatialSampleCount,workspace);
         receiverWorkspaces.Add(workspace);
-        workspace.BeginSample(context,width,height);
         var position=workspace.Position.Resource;var normal=workspace.Normal.Resource;
         var rtv=workspace.PositionRtv;var normalRtv=workspace.NormalRtv;var dsv=workspace.Dsv;
         runtime.Device.CreateShaderResourceView(position,null,heap.GetCPUDescriptorHandleForHeapStart().Offset(giSlot,stride));
@@ -361,7 +361,9 @@ internal sealed class D3D12RayGiRenderer : IDisposable
             compiler??=runtime.GetOrCreateDxcCompiler();
             halfResPass??=new(runtime);
             halfWorkspace=workspace.AcquireHalfRes(context,traceWidth,traceHeight);
-            activeHeap=halfResPass.CreateDescriptorHeap(runtime,position,normal,halfWorkspace.Position.Resource,halfWorkspace.Normal.Resource,out halfStride);
+            activeHeap=workspace.IsSlotReusable
+                ? halfResPass.AcquireHalfResDescriptorHeap(runtime,workspace,halfWorkspace,out halfStride)
+                : halfResPass.CreateDescriptorHeap(runtime,position,normal,halfWorkspace.Position.Resource,halfWorkspace.Normal.Resource,out halfStride);
             halfResPass.Downsample(context,activeHeap,halfStride,workspace.Position,workspace.Normal,halfWorkspace,width,height,compiler);
             activeInputs=activeHeap.GetGPUDescriptorHandleForHeapStart().Offset(2,halfStride);
             indirect=halfWorkspace.Indirect.Resource;
@@ -513,5 +515,47 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
         try{runtime.ShaderCompilations++;runtime.PipelineCreations++;var state=runtime.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=root,ComputeShader=shader.Dxil});var result=new Pipeline(root,state,textureFactorRoot,nativeLightRoot,subTextureRoot);computePipelines.Add(key,result);return result;}catch{root.Dispose();throw;}
     }
-    public void Dispose(){if(disposed)return;disposed=true;triangleScratch.Clear();temporalDenoiser?.Dispose();denoiser?.Dispose();halfResPass?.Dispose();foreach(var p in computePipelines.Values){p.State.Dispose();p.Root.Dispose();}computePipelines.Clear();}
+    private D3D12RayGiWorkspace AcquireReceiverWorkspace(D3D12RecordingContext context,int width,int height,int spatialSampleCount,D3D12RayGiWorkspace? explicitWorkspace)
+    {
+        if(explicitWorkspace is not null)
+        {
+            explicitWorkspace.BeginSample(context,width,height);
+            return explicitWorkspace;
+        }
+        if(spatialSampleCount==1)
+        {
+            int slot=runtime.SlotIndex;
+            if((uint)slot<(uint)slotWorkspaces.Length)
+            {
+                var cached=slotWorkspaces[slot];
+                if(cached is not null&&cached.LastUsedFrameId!=runtime.FrameId&&cached.Width==width&&cached.Height==height)
+                {
+                    cached.BeginSlotSample(context,width,height);
+                    return cached;
+                }
+                if(cached is null||cached.LastUsedFrameId!=runtime.FrameId)
+                {
+                    if(cached is not null)
+                    {
+                        slotWorkspaces[slot]=null;
+                        cached.Dispose();
+                    }
+                    var created=new D3D12RayGiWorkspace(context,width,height,slotReusable:true);
+                    slotWorkspaces[slot]=created;
+                    runtime.OnAbort(()=>
+                    {
+                        if(!disposed&&ReferenceEquals(slotWorkspaces[slot],created))
+                            slotWorkspaces[slot]=null;
+                        created.Dispose();
+                    });
+                    created.BeginSample(context,width,height);
+                    return created;
+                }
+            }
+        }
+        var transient=new D3D12RayGiWorkspace(context,width,height);
+        transient.BeginSample(context,width,height);
+        return transient;
+    }
+    public void Dispose(){if(disposed)return;disposed=true;for(int i=0;i<slotWorkspaces.Length;i++){slotWorkspaces[i]?.Dispose();slotWorkspaces[i]=null;}triangleScratch.Clear();temporalDenoiser?.Dispose();denoiser?.Dispose();halfResPass?.Dispose();foreach(var p in computePipelines.Values){p.State.Dispose();p.Root.Dispose();}computePipelines.Clear();}
 }

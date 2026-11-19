@@ -4,6 +4,7 @@
 // immutable offset copies and the caller's PMM-scaled baseline materials.
 using System.Collections.ObjectModel;
 using System.Numerics;
+using System.Threading;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 
@@ -12,20 +13,41 @@ namespace Mmd.Modern.Application;
 /// <summary>Evaluates PMX material colour and edge offsets independently of geometry and renderer state.</summary>
 public sealed class PmxMaterialMorphAdapter
 {
+    private const int MaxCachedContributions = 65_536;
     private sealed record Definition(int Index, PmxMorph.MaterialOffset[] Offsets);
+    private sealed record TextureEvaluationCacheEntry(
+        PmxMorphWeights.Contribution[] Contributions,
+        IReadOnlyList<PmxMaterialTextureFactors> Factors);
+    private sealed record ApplyCacheEntry(
+        PmxMorphWeights.Contribution[] Contributions,
+        OriginalStyleScene InputSurface,
+        OriginalOutlineData InputOutline,
+        OriginalStyleScene ResultSurface,
+        OriginalOutlineData ResultOutline,
+        ReadOnlyCollection<SceneMaterial> EvaluatedMaterials,
+        ReadOnlyCollection<OriginalOutlineMaterial> EvaluatedEdges);
+
     private readonly Definition?[] definitions;
     private readonly PmxMorphWeights groupWeights;
     private readonly bool[] supported;
     private readonly int materialCount;
+    private readonly IReadOnlyList<PmxMaterialTextureFactors> identityTextureFactors;
+    private TextureEvaluationCacheEntry? lastTextureEvaluation;
+    private ApplyCacheEntry? lastApplyEvaluation;
+
     public IReadOnlyDictionary<string, int> SupportedMorphIndices { get; }
     public IReadOnlyList<string> Diagnostics { get; }
     internal IReadOnlyList<int> SupportedIndices { get; }
+    internal IReadOnlyList<PmxMaterialTextureFactors> IdentityTextureFactors => identityTextureFactors;
     public int SupportedMorphCount => SupportedIndices.Count;
 
     public PmxMaterialMorphAdapter(PmxModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
         materialCount = model.Materials.Count;
+        var identityFactors = new PmxMaterialTextureFactors[materialCount];
+        Array.Fill(identityFactors, PmxMaterialTextureFactors.Identity);
+        identityTextureFactors = Array.AsReadOnly(identityFactors);
         groupWeights = new(model);
         supported = groupWeights.Supported(type => type == PmxMorphType.Material);
         SupportedIndices = Array.AsReadOnly(Enumerable.Range(0, supported.Length).Where(i => supported[i]).ToArray());
@@ -74,8 +96,21 @@ public sealed class PmxMaterialMorphAdapter
         var contributions = groupWeights.Expand(weights, supported);
         if (contributions.Count == 0) return (surface, outline);
 
-        var multiply = new Factor[materialCount]; var add = new Factor[materialCount];
-        Array.Fill(multiply, Factor.One);
+        var cached = Volatile.Read(ref lastApplyEvaluation);
+        if (cached is not null && SameContributions(cached.Contributions, contributions))
+        {
+            if (ReferenceEquals(surface, cached.InputSurface) && ReferenceEquals(outline, cached.InputOutline))
+                return (cached.ResultSurface, cached.ResultOutline);
+            if (ReferenceEquals(surface.Snapshot.Materials, cached.InputSurface.Snapshot.Materials)
+                && ReferenceEquals(outline.Materials, cached.InputOutline.Materials))
+                return (new(surface.Snapshot.WithMaterials(cached.EvaluatedMaterials), surface.Materials, surface.Profile),
+                    outline.WithMaterials(cached.EvaluatedEdges));
+        }
+
+        Span<Factor> multiply = materialCount <= 32 ? stackalloc Factor[materialCount] : new Factor[materialCount];
+        Span<Factor> add = materialCount <= 32 ? stackalloc Factor[materialCount] : new Factor[materialCount];
+        multiply.Fill(Factor.One);
+        add.Clear();
         // PMX root and depth-first Group offset order; shared leaves remain separate applications.
         foreach (var contribution in contributions)
         {
@@ -105,7 +140,14 @@ public sealed class PmxMaterialMorphAdapter
             materials[i] = baseline with { Diffuse = value.Diffuse, Specular = value.Specular, Shininess = value.Power, Ambient = value.Ambient };
             edges[i] = edge with { Color = value.Edge, Width = value.Width };
         }
-        return (new(surface.Snapshot.WithMaterials(materials), surface.Materials, surface.Profile), outline.WithMaterials(edges));
+        var nextSnapshot = surface.Snapshot.WithMaterials(materials);
+        var nextSurface = new OriginalStyleScene(nextSnapshot, surface.Materials, surface.Profile);
+        var nextOutline = outline.WithMaterials(edges);
+        Volatile.Write(ref lastApplyEvaluation, contributions.Count <= MaxCachedContributions
+            ? new ApplyCacheEntry(contributions.ToArray(), surface, outline, nextSurface, nextOutline,
+                nextSnapshot.Materials, nextOutline.Materials)
+            : null);
+        return (nextSurface, nextOutline);
     }
 
     /// <summary>Evaluates all four components of diffuse/sphere/toon sample factors. This neutral output
@@ -113,6 +155,10 @@ public sealed class PmxMaterialMorphAdapter
     public IReadOnlyList<PmxMaterialTextureFactors> EvaluateTextureFactors(IReadOnlyDictionary<int, float> weights)
     {
         var contributions = groupWeights.Expand(weights, supported);
+        if (contributions.Count == 0) return identityTextureFactors;
+        var cached = Volatile.Read(ref lastTextureEvaluation);
+        if (cached is not null && SameContributions(cached.Contributions, contributions)) return cached.Factors;
+
         var result = new PmxMaterialTextureFactors[materialCount];
         Array.Fill(result, PmxMaterialTextureFactors.Identity);
         static PmxTextureFactor Combine(PmxTextureFactor current, Vector4 value, float weight, PmxMaterialMorphOperation operation)
@@ -139,7 +185,24 @@ public sealed class PmxMaterialMorphAdapter
                 || !Finite(value.Sphere.Add) || !Finite(value.Toon.Multiply) || !Finite(value.Toon.Add))
                 throw new ArgumentException($"Texture morph factors for material {i} are not finite.", nameof(weights));
         }
-        return Array.AsReadOnly(result);
+        var readonlyResult = Array.AsReadOnly(result);
+        Volatile.Write(ref lastTextureEvaluation, contributions.Count <= MaxCachedContributions
+            ? new TextureEvaluationCacheEntry(contributions.ToArray(), readonlyResult)
+            : null);
+        return readonlyResult;
+    }
+
+    private static bool SameContributions(PmxMorphWeights.Contribution[] cached, IReadOnlyList<PmxMorphWeights.Contribution> current)
+    {
+        if (cached.Length != current.Count) return false;
+        for (int i = 0; i < cached.Length; i++)
+        {
+            var previous = cached[i]; var next = current[i];
+            if (previous.Index != next.Index
+                || BitConverter.SingleToInt32Bits(previous.Weight) != BitConverter.SingleToInt32Bits(next.Weight))
+                return false;
+        }
+        return true;
     }
 
     private readonly record struct Factor(Vector4 Diffuse, Vector3 Specular, float Power, Vector3 Ambient, Vector4 Edge, float Width)

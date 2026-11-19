@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <BulletNativeLibrary Condition="'$(BulletNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-cluster-bounds-20261114/rigid/mmd_bullet.dll</BulletNativeLibrary>
-    <SoftBodyNativeLibrary Condition="'$(SoftBodyNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-cluster-bounds-20261114/soft/mmd_bullet_soft.dll</SoftBodyNativeLibrary>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BulletNativeLibrary Condition="'$(BulletNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-opt-20261120/rigid/mmd_bullet.dll</BulletNativeLibrary>
+    <SoftBodyNativeLibrary Condition="'$(SoftBodyNativeLibrary)' == ''">$(MSBuildThisFileDirectory)../../../.dev-cache/bullet-opt-20261120/soft/mmd_bullet_soft.dll</SoftBodyNativeLibrary>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../Mmd.Modern.Physics/Mmd.Modern.Physics.csproj" /></ItemGroup>
   <ItemGroup>
