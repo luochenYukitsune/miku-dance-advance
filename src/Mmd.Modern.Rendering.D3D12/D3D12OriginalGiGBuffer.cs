@@ -37,7 +37,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             ID3D12PipelineState Create(RasterizerDescription selected)
             {
                 runtime.PipelineCreations++;
-                return device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+                return runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                     RootSignature=pipeline.Root,VertexShader=subTexture?GetSubTextureFrameShader("VSSurface",true,gi:true):GetFrameShader("VSSurface",true),
                     PixelShader=subTexture?GetSubTextureFrameShader("PSGBuffer",false,gi:true):GetGiFrameShader("PSGBuffer",false),
                     InputLayout=new InputLayoutDescription(SurfaceLayout(subTexture)),

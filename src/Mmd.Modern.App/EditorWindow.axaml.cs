@@ -81,17 +81,18 @@ public partial class EditorWindow : Window
         RefreshClassicEffectsMenu();
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
-        viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null;
+        viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null; viewport.PlaybackAdvance = null;
         viewport.LightController = null; viewport.BoneController = null;
-        if (shell is null || _shell is null) return;
+        if (shell is null || _shell is null) { _lightParentContextKey = null; return; }
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
         shell.Workspace.Changed += OnClassicMappingChanged;
         viewport.SetRenderEngine(shell.Workspace.RenderEngine);
-        _mappedRevision = -1; _mappedBindingRevision = -1; _mappedSession = null;
+        _mappedRevision = -1; _mappedBindingRevision = -1; _mappedSession = null; _lightParentContextKey = null;
         shell.Animation.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         shell.SceneInspector.ValidateInput = () => !EditorNumericUpDown.HasInvalidInputs(this);
         this.FindControl<EditorViewportHost>("SceneViewport")!.SnapshotProvider = CaptureEditorSnapshot;
         viewport.PoseInputPending = () => shell.PosePreview.IsPreparingPreview && !shell.PosePreview.HasLatestInputSnapshot;
+        viewport.PlaybackAdvance = shell.AdvancePlaybackForFrame;
         InitializeLightController(shell);
         AttachLoadingState(shell);
         _shell.PropertyChanged += OnShellPropertyChanged;
@@ -210,7 +211,8 @@ public partial class EditorWindow : Window
             _mappedRevision = shell.ContentRevision; _mappedSession = shell.Workspace.Session;
             viewport.InvalidateTemporalHistory();
         }
-        RefreshLightingInspector();
+        // Authored lighting does not depend on the frame; a pure playback advance leaves it unchanged.
+        if (!ReferenceEquals(args, EditorShellViewModel.PlaybackFrameAdvanced)) RefreshLightingInspector();
         viewport.RequestRender();
     }
 
@@ -253,6 +255,10 @@ public partial class EditorWindow : Window
         catch (Exception error) { await ShowErrorAsync(error); }
     }
 
+    private void BeginTimelineScrub(object? sender, EventArgs args) => _shell?.BeginScrub();
+
+    private void EndTimelineScrub(object? sender, EventArgs args) => _shell?.EndScrub();
+
     private void SelectTimelineKeys(object? sender, EventArgs args)
     {
         if (_shell is null || sender is not EditorTimeline timeline) return;
@@ -286,6 +292,7 @@ public partial class EditorWindow : Window
     private async void OpenModelProperties(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
     {
         if (_shell is not { IsBusy: false } shell || shell.Browser.SelectedModel is not { } selected) return;
+        shell.SynchronizePendingScrub();
         if (!await CheckPoseDraftsAsync()) return;
         try
         {
@@ -401,6 +408,7 @@ public partial class EditorWindow : Window
         if (_shell is not { } shell) return false;
         if (Path.GetExtension(path).Equals(".pmm", StringComparison.OrdinalIgnoreCase)) return await OpenPmmAsync(path);
         bool committed = false;
+        shell.CancelPendingScrub();
         await ExecuteAsync(EditorLocalization.Text("正在打开工程…"), async token =>
         {
             await Task.Run(() => shell.Workspace.Open(path, token), token);
@@ -414,6 +422,7 @@ public partial class EditorWindow : Window
     private async Task SaveProjectAsync(bool saveAs)
     {
         if (_shell is not { HasProject: true } shell || !CommitPendingInlineLighting() || !await CheckPoseDraftsAsync() || !await EnsureMotionHeadersAsync()) return;
+        shell.SynchronizePendingScrub();
         string? path = saveAs ? null : shell.Workspace.ProjectPath;
         if (path is null)
         {
@@ -441,6 +450,7 @@ public partial class EditorWindow : Window
     private async Task NewProjectAsync()
     {
         if (!await CheckUnsavedAsync() || _shell is null) return;
+        _shell.CancelPendingScrub();
         _shell.Workspace.New(); _shell.CurrentFrame = 0; _shell.OperationStatus = EditorLocalization.Text("新建空工程。");
     }
 

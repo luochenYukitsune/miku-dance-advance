@@ -4,7 +4,6 @@ using Vortice.Direct3D;
 using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
-using D3D12Api=Vortice.Direct3D12.D3D12;
 namespace Mmd.Modern.Rendering.D3D12;
 
 /// <summary>Elapsed wall time within the recording thread, including driver blocking or preemption,
@@ -89,6 +88,14 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public int ConstantAllocations {get;init;}
     public long ConstantBytes {get;init;}
     public int FrameOwnedAllocations {get;init;}
+    // Fence-protected transient pool: resources and heaps created or reused by this frame, and all live entries.
+    public int TransientCreations {get;init;}
+    public int TransientResourceCreations {get;init;}
+    public int TransientReuses {get;init;}
+    public int TransientLiveResources {get;init;}
+    // Shader-resource and target view descriptors written by the frame renderer's texture binding and targets.
+    public int TextureDescriptorWrites {get;init;}
+    public int TextureDescriptorSkips {get;init;}
     public int TemporalGiInFlightFrames {get;init;}
     public int TemporalGiHistoryGenerations {get;init;}
     public bool TemporalGiBoundedFlight=>TemporalGiInFlightFrames==1;
@@ -179,32 +186,29 @@ internal sealed class D3D12GpuRuntime:IDisposable
     internal ulong CompletedFence=>fence.CompletedValue;
     internal int PendingFrames=>slots.Count(s=>s.Fence>CompletedFence);
     internal bool IsRecording {get;private set;}
+    internal D3D12TransientResources Transients {get;}
     private readonly Slot[] slots;
     private readonly ID3D12Fence fence;
+    private readonly D3D12FenceWaiter fenceWaiter;
     private int slotIndex=-1;
     private ulong fenceValue;
     private bool disposed;
-    internal D3D12GpuRuntime()
+    private readonly D3D12PipelineLibraryCache pipelineLibrary;
+    private DxcShaderCompiler? dxcCompiler;
+    private readonly object dxcLock = new();
+    internal D3D12PipelineLibraryCache PipelineLibrary => pipelineLibrary;
+    internal D3D12GpuRuntime() : this(null) { }
+    internal D3D12GpuRuntime(string? pipelineCacheDirectory)
     {
         DebugRequested=Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG")=="1";
         DebugLayerEnabled=D3D12DebugLayerBootstrap.BeforeDeviceCreation(DebugRequested);
-        using var factory=DXGI.CreateDXGIFactory1<IDXGIFactory4>();
-        ID3D12Device? selected=null; string name="";
-        for(int i=0;factory.EnumAdapters1(i,out var adapter).Success&&adapter is not null;i++)
-        {
-            using(adapter) if((adapter.Description1.Flags&AdapterFlags.Software)==0&&D3D12Api.D3D12CreateDevice(adapter,FeatureLevel.Level_11_0,out selected).Success&&selected is not null)
-            {name=adapter.Description1.Description;break;}
-        }
-        if(selected is null)
-        {
-            using var warp=factory.EnumWarpAdapter<IDXGIAdapter1>();
-            D3D12Api.D3D12CreateDevice(warp,FeatureLevel.Level_11_0,out selected).CheckError();name=warp.Description1.Description;IsWarp=true;
-        }
-        Device=selected??throw new InvalidOperationException("No D3D12 device.");AdapterName=name;
+        (Device,AdapterName,IsWarp)=D3D12AdapterSelection.CreateDevice(FeatureLevel.Level_11_0);
         FeatureLevel=Device.CheckMaxSupportedFeatureLevel();
         if(DebugRequested) DebugQueue=Device.QueryInterfaceOrNull<ID3D12InfoQueue>();
-        Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);
+        Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);fenceWaiter=new(fence);
         slots=Enumerable.Range(0,3).Select(_=>new Slot(Device)).ToArray();
+        Transients=new(this);
+        pipelineLibrary=new(Device,pipelineCacheDirectory);
     }
     internal D3D12RecordingContext Begin()
     {
@@ -236,7 +240,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         if(!IsRecording)throw new InvalidOperationException("No open GPU frame.");
         var slot=slots[slotIndex];slot.Commands.Close();IsRecording=false;
-        Queue.ExecuteCommandList(slot.Commands);Queue.Signal(fence,++fenceValue).CheckError();slot.Fence=fenceValue;slot.AbortActions.Clear();Submissions++;return fenceValue;
+        Queue.ExecuteCommandList(slot.Commands);Queue.Signal(fence,++fenceValue).CheckError();slot.Fence=fenceValue;slot.AbortActions.Clear();Submissions++;pipelineLibrary.FlushIfDirtyAsync();return fenceValue;
     }
     internal void Abort()
     {
@@ -247,11 +251,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
 
     internal void WaitForFence(ulong value,CancellationToken cancellationToken)
     {
-        while(fence.CompletedValue<value)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(1);
-        }
+        fenceWaiter.Wait(value,cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
     }
@@ -260,17 +260,34 @@ internal sealed class D3D12GpuRuntime:IDisposable
         ObjectDisposedException.ThrowIf(disposed,this);
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         Wait(fenceValue);foreach(var slot in slots)Retire(slot);
+        Transients.ReleaseIdle();
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
     internal D3D12FrameStatistics Statistics(int scenes,int passes,int readbacks,int submissions)=>new(FrameId,submissions,readbacks,scenes,passes,
         Submissions,Readbacks,BufferUploads,TextureUploads,ShaderCompilations,PipelineCreations,fenceValue,CompletedFence,PendingFrames,DescriptorHighWater,
-        DeviceIdentity,CommandListIdentity){LiveFrameResources=LiveFrameResources,LastSlotWaitMilliseconds=LastSlotWaitMilliseconds,ConstantAllocations=ConstantAllocations,ConstantBytes=ConstantBytes,FrameOwnedAllocations=FrameOwnedAllocations};
+        DeviceIdentity,CommandListIdentity){LiveFrameResources=LiveFrameResources,LastSlotWaitMilliseconds=LastSlotWaitMilliseconds,ConstantAllocations=ConstantAllocations,ConstantBytes=ConstantBytes,FrameOwnedAllocations=FrameOwnedAllocations,
+        TransientCreations=Transients.FrameCreations,TransientResourceCreations=Transients.FrameResourceCreations,TransientReuses=Transients.FrameReuses,TransientLiveResources=Transients.LiveCount};
     public void Dispose()
     {
-        if(disposed)return;Abort();WaitForIdle();disposed=true;
-        foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-        DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        if(disposed)return;
+        try{Abort();WaitForIdle();}
+        finally
+        {
+            disposed=true;Transients.Dispose();pipelineLibrary.Dispose();
+            foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
+            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceWaiter.Dispose();
+        }
     }
+    internal DxcShaderCompiler GetOrCreateDxcCompiler()
+    {
+        lock (dxcLock) return dxcCompiler ??= DxcShaderCompiler.GetOrCreateShared();
+    }
+    internal ID3D12RootSignature CreateRootSignature(RootSignatureDescription description, RootSignatureVersion version = RootSignatureVersion.Version10)
+        => pipelineLibrary.CreateRootSignature(description, version);
+    internal ID3D12PipelineState CreateGraphicsPipelineState(GraphicsPipelineStateDescription description)
+        => pipelineLibrary.CreateGraphicsPipelineState(description);
+    internal ID3D12PipelineState CreateComputePipelineState(ComputePipelineStateDescription description)
+        => pipelineLibrary.CreateComputePipelineState(description);
 }
 
 internal sealed class D3D12RecordingContext(D3D12GpuRuntime runtime)

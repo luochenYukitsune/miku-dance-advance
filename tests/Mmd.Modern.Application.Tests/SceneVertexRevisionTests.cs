@@ -199,7 +199,7 @@ public sealed class SceneVertexRevisionTests
 
     private static IEnumerable<WeakReference> PayloadReferences(object storage)
     {
-        var chunks = storage.GetType().GetField("Chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(storage)!;
+        var chunks = storage.GetType().GetProperty("Chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(storage)!;
         var payloads = (ReadOnlyMemory<SceneVertex>[])chunks.GetType().GetField("chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(chunks)!;
         foreach (var payload in payloads)
         {

@@ -61,18 +61,18 @@ internal static class OriginalTextureMorphShader
 internal static partial class OriginalFrameShaders
 {
     internal static byte[] CompileTextureMorph(string entry,bool native,bool gi=false)
-        =>Compiler.Compile(OriginalTextureMorphShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:"")),entry,
+        =>D3D12FxcShaderCache.Compile(OriginalTextureMorphShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:"")),entry,
             native?"OriginalFrameNativeTextureMorph.hlsl":"OriginalFrameTextureMorph.hlsl","ps_5_1",
-            ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+            ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }
 
 internal static partial class OriginalStyleShaders
 {
     internal static (byte[] Vertex,byte[] Pixel) CompileTextureMorph()
-        =>(Compiler.Compile(Source,"VSMain","OriginalSurface.hlsl","vs_5_1",
-                ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray(),
-            Compiler.Compile(OriginalTextureMorphShader.Apply(Source),"PSMain","OriginalSurfaceTextureMorph.hlsl","ps_5_1",
-                ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray());
+        =>(D3D12FxcShaderCache.Compile(Source,"VSMain","OriginalSurface.hlsl","vs_5_1",
+                ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness),
+            D3D12FxcShaderCache.Compile(OriginalTextureMorphShader.Apply(Source),"PSMain","OriginalSurfaceTextureMorph.hlsl","ps_5_1",
+                ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness));
 }
 
 public sealed partial class D3D12OriginalStyleRenderer

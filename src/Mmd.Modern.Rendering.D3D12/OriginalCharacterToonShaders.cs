@@ -48,9 +48,9 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileCharacterToon(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>Compiler.Compile(CharacterToonSource(native,gi,textureMorph,subTexture),entry,
+        =>D3D12FxcShaderCache.Compile(CharacterToonSource(native,gi,textureMorph,subTexture),entry,
             "OriginalFrameCharacterToon.hlsl","ps_5_1",
-            ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+            ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }
 
 public sealed partial class D3D12OriginalStyleRenderer

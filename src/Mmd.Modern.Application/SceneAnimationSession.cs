@@ -41,6 +41,21 @@ public sealed partial class SceneAnimationSession : IDisposable
     private readonly Dictionary<Guid, (EditableSceneObject Object, OriginalFrameScene Local, OriginalFrameScene Placed)> placedFrames = [];
     private IReadOnlyList<SceneActorPlaybackState> states = Array.Empty<SceneActorPlaybackState>();
     private bool disposed;
+    private bool deferVertexSkinning;
+    /// <summary>Selected by a host whose renderer skins on the GPU (the modern engine, for preview and export alike).
+    /// Published actor ranges then carry deformation inputs instead of CPU-skinned vertices; vertex reads still
+    /// evaluate the exact CPU reference. Soft-body models always keep CPU skinning. Takes effect from the next sample.</summary>
+    public bool DeferVertexSkinningToRenderer
+    {
+        get => deferVertexSkinning;
+        set
+        {
+            RequireAlive();
+            deferVertexSkinning = value;
+            foreach (var entry in entries) if (entry.Controller is { } controller) controller.DeferVertexSkinning = value;
+            states = CaptureStates(entries, CurrentFrame);
+        }
+    }
     private readonly List<string> cleanupDiagnostics = [];
     /// <summary>Cleanup failures are reported separately; they cannot invalidate a successfully committed replacement.</summary>
     public IReadOnlyList<string> CleanupDiagnostics => Array.AsReadOnly(cleanupDiagnostics.ToArray());
@@ -53,7 +68,7 @@ public sealed partial class SceneAnimationSession : IDisposable
         Vector3? sharedWorldGravity = null, ScenePmmControlState? pmmControls = null, bool coupledSoftBodies = false,
         IReadOnlyDictionary<string, ModelPurpose>? modelRoles = null)
         : this(objects, null, motions, physicsFactory, lighting, cancellationToken, initialFrame, outsideParents,
-            sceneMotion, sharedPhysicsFactory, softPhysicsFactory, sharedWorldGravity, pmmControls, coupledSoftBodies, modelRoles, false, null)
+            sceneMotion, sharedPhysicsFactory, softPhysicsFactory, sharedWorldGravity, pmmControls, coupledSoftBodies, modelRoles, false, null, false)
     { }
 
     internal SceneAnimationSession(ValidatedSceneLayout layout, IEnumerable<SceneActorMotion> motions,
@@ -63,10 +78,10 @@ public sealed partial class SceneAnimationSession : IDisposable
         Func<EditableSceneObject, ISoftBodyBackend>? softPhysicsFactory = null,
         Vector3? sharedWorldGravity = null, ScenePmmControlState? pmmControls = null, bool coupledSoftBodies = false,
         IReadOnlyDictionary<string, ModelPurpose>? modelRoles = null, bool deferInitialComposition = false,
-        SceneSnapshot? initialTextureSource = null)
+        SceneSnapshot? initialTextureSource = null, bool deferVertexSkinning = false)
         : this(null, layout ?? throw new ArgumentNullException(nameof(layout)), motions, physicsFactory, lighting,
             cancellationToken, initialFrame, outsideParents, sceneMotion, sharedPhysicsFactory, softPhysicsFactory,
-            sharedWorldGravity, pmmControls, coupledSoftBodies, modelRoles, deferInitialComposition, initialTextureSource)
+            sharedWorldGravity, pmmControls, coupledSoftBodies, modelRoles, deferInitialComposition, initialTextureSource, deferVertexSkinning)
     { }
 
     private SceneAnimationSession(IEnumerable<EditableSceneObject>? objects, ValidatedSceneLayout? validatedLayout,
@@ -75,8 +90,10 @@ public sealed partial class SceneAnimationSession : IDisposable
         IEnumerable<SceneOutsideParentBinding>? outsideParents, SceneMotionAsset? sceneMotion,
         Func<ICharacterPhysicsMutableBackend>? sharedPhysicsFactory, Func<EditableSceneObject, ISoftBodyBackend>? softPhysicsFactory,
         Vector3? sharedWorldGravity, ScenePmmControlState? pmmControls, bool coupledSoftBodies,
-        IReadOnlyDictionary<string, ModelPurpose>? modelRoles, bool deferInitialComposition, SceneSnapshot? initialTextureSource)
+        IReadOnlyDictionary<string, ModelPurpose>? modelRoles, bool deferInitialComposition, SceneSnapshot? initialTextureSource,
+        bool deferVertexSkinning)
     {
+        this.deferVertexSkinning = deferVertexSkinning;
         if (validatedLayout is null) ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(motions);
         compositionCache = new(initialTextureSource);
@@ -361,6 +378,7 @@ public sealed partial class SceneAnimationSession : IDisposable
             }
             else controller = prepared.TakeController();
             controller.SetOutsideParents(parents);
+            controller.DeferVertexSkinning = deferVertexSkinning;
             ICharacterPhysicsBackend? backend = null; double local = Math.Min(frame, controller.DurationFrames);
             if (binding.PhysicsEnabled && (controller.SupportsPhysics || coupledSoftBodies && controller.SupportsSoftBodies) && sharedPhysicsFactory is null && pmmControls is null)
             {

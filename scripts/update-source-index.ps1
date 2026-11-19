@@ -5,7 +5,7 @@ try{
  $indexPath=Join-Path $projectRoot 'src/SOURCE_INDEX.json'
  $index=Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8|ConvertFrom-Json
  # Discover every source project so new product/test/tool files cannot silently fall outside the snapshot.
- $paths=@(& rg --files src tests tools examples|Where-Object{[IO.Path]::GetExtension($_) -in '.cs','.csproj'}|ForEach-Object{$_.Replace('\','/')}|Sort-Object -Unique)
+ $paths=@(& rg --files src tests tools examples|Where-Object{[IO.Path]::GetExtension($_) -in '.cs','.csproj'}|ForEach-Object{$_.Replace('\','/')}|Where-Object{-not $_.StartsWith('tools/perf/')}|Sort-Object -Unique)
  $entries=@();$known=@{};foreach($entry in $index.files){$known[$entry.path]=$entry}
  foreach($relative in $paths){
   if($known.ContainsKey($relative)){$entry=$known[$relative]}

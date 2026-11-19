@@ -63,13 +63,36 @@ public sealed class CharacterParallelSkinningTests
             return;
         }
         Assert.Equal((count + 4095) / 4096, ordered.Length);
-        Assert.Equal(Enumerable.Range(0, degree), ordered.Select(range => range.Worker).Distinct().Order());
+        // Blocks are claimed dynamically; a worker that starts late may claim none.
+        Assert.All(ordered, range => Assert.InRange(range.Worker, 0, degree - 1));
         for (int block = 0; block < ordered.Length; block++)
         {
             Assert.Equal(block * 4096, ordered[block].Start);
             Assert.Equal(Math.Min(count, (block + 1) * 4096), ordered[block].End);
-            Assert.Equal(block % degree, ordered[block].Worker);
         }
+    }
+
+    [Fact]
+    public void StalledWorkerDoesNotHoldBackTheBlocksOtherWorkersCanClaim()
+    {
+        if (Environment.ProcessorCount < 2) return;
+        var rig = Rig(32769, mixed: true);
+        using var othersDone = new CountdownEvent(8);
+        var ranges = new ConcurrentBag<(int Worker, int Start)>();
+        bool released = true;
+        var animator = new CharacterAnimator(rig, new([]), 2, (worker, start, _) =>
+        {
+            ranges.Add((worker, start));
+            // A fixed stride would leave blocks 2, 4, 6 and 8 queued behind this stalled worker.
+            if (start == 0) released = othersDone.Wait(TimeSpan.FromSeconds(10));
+            else othersDone.Signal();
+        });
+        Exact(new CharacterAnimator(rig, new([]), 1).SkinWorldPose(Worlds(rigid: true), Pose(rig, 4)),
+            animator.SkinWorldPose(Worlds(rigid: true), Pose(rig, 4)));
+        Assert.True(released, "Other workers did not claim the remaining blocks.");
+        int stalled = ranges.Single(range => range.Start == 0).Worker;
+        Assert.Equal(new[] { 0 }, ranges.Where(range => range.Worker == stalled).Select(range => range.Start));
+        Assert.Equal(9, ranges.Count);
     }
 
     [Fact]
@@ -91,7 +114,7 @@ public sealed class CharacterParallelSkinningTests
             animator.SkinWorldPose(Worlds(rigid: true), Pose(rig, 4)));
         Assert.Equal(2, threads.Values.Distinct().Count());
         Assert.Equal(9, ranges.Count);
-        Assert.All(ranges.GroupBy(range => range.Worker), worker => Assert.True(worker.Count() >= 4));
+        Assert.Equal(new[] { 0, 1 }, ranges.Select(range => range.Worker).Distinct().Order());
     }
 
     [Fact]
@@ -165,6 +188,29 @@ public sealed class CharacterParallelSkinningTests
     }
 
     [Fact]
+    public void EveryAvailableDegreeMatchesOneWorkerAndKeepsTheFirstBlockFailure()
+    {
+        var rig = Rig(65539, mixed: true);
+        var worlds = Worlds(rigid: true); var morphs = Pose(rig, 4);
+        var expected = new CharacterAnimator(rig, new([]), 1).SkinWorldPose(worlds, morphs);
+        var bdef = Rig(65539, mixed: false); var bindings = bdef.Bindings.ToArray();
+        // Block 1 fails before block 3; both use QDEF bones whose skin matrices are not rigid.
+        bindings[4096 + 5] = new(SkinningKind.Qdef, 1, -1, -1, -1, new(1, 0, 0, 0));
+        bindings[3 * 4096 + 5] = new(SkinningKind.Qdef, 2, -1, -1, -1, new(1, 0, 0, 0));
+        var failing = new CharacterRig(Bones(), bdef.Vertices, bindings);
+        var scaled = (Matrix4x4[])worlds.Clone();
+        scaled[1] = Matrix4x4.CreateScale(2, 1, 1); scaled[2] = Matrix4x4.CreateScale(3, 1, 1);
+        var serialError = Assert.Throws<NotSupportedException>(() => new CharacterAnimator(failing, new([]), 1).SkinWorldPose(scaled));
+        Assert.Contains("bone 1", serialError.Message);
+        for (int degree = 2; degree <= Math.Min(16, Environment.ProcessorCount); degree++)
+        {
+            Exact(expected, new CharacterAnimator(rig, new([]), degree).SkinWorldPose(worlds, morphs));
+            var error = Assert.Throws<NotSupportedException>(() => new CharacterAnimator(failing, new([]), degree).SkinWorldPose(scaled));
+            Assert.Equal(serialError.Message, error.Message);
+        }
+    }
+
+    [Fact]
     public void QdefCachePreparationStaysLazyForUnusedNonRigidBone()
     {
         const int count = 32769;
@@ -192,7 +238,7 @@ public sealed class CharacterParallelSkinningTests
             .SkinWorldPose(worlds);
         Exact(new CharacterAnimator(rig, new([]), 1).SkinWorldPose(worlds), actual);
         int degree = Math.Min(budgetDegree, Math.Min(4, Math.Max(1, Environment.ProcessorCount)));
-        Assert.Equal(Enumerable.Range(0, degree), ranges.Select(range => range.Worker).Distinct().Order());
+        Assert.All(ranges, range => Assert.InRange(range.Worker, 0, degree - 1));
         Assert.Equal(degree == 1 ? 1 : 9, ranges.Count);
     }
 

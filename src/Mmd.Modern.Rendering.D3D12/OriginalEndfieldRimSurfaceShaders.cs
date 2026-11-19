@@ -77,6 +77,6 @@ internal static partial class OriginalFrameShaders
         """;
 
     internal static byte[] CompileEndfieldRimSurface(string entry,bool native,bool gi,bool morph,bool sub,bool hair=false)
-        =>Compiler.Compile(EndfieldRimSurfaceSource(entry,native,gi,morph,sub,hair),entry,
-            "OriginalEndfieldRimAdapter.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(EndfieldRimSurfaceSource(entry,native,gi,morph,sub,hair),entry,
+            "OriginalEndfieldRimAdapter.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

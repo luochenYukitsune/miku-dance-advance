@@ -219,6 +219,39 @@ public sealed class D3D12ParallelVisibilityBoundsTests
         Assert.Equal(saved, Bytes(first)); Assert.Equal(otherSaved, Bytes(otherBounds));
     }
 
+    [Fact]
+    public void SkewedMaterialSizesMatchSerialAndOracleAcrossAllAvailableDegrees()
+    {
+        int[] counts = [3, 6 * Chunk, 9, 3 * Chunk + 3, 6, 9 * Chunk, 12, 3 * Chunk];
+        int totalVertices = counts.Sum() + 5;
+        var vertices = Enumerable.Range(0, totalVertices)
+            .Select(i => new SceneVertex(new(i % 2 == 0 ? NegativeZero : i * .125f, (i % 11) - 5, .25f * (i % 7)), Vector3.UnitY, Vector2.Zero))
+            .ToArray();
+        var indices = new List<uint>(counts.Sum());
+        var materials = new List<SceneMaterial>(counts.Length);
+        int cursor = 0;
+        for (int m = 0; m < counts.Length; m++)
+        {
+            materials.Add(new($"m{m}", cursor, counts[m], Vector4.One, Vector3.Zero, Vector3.Zero, 1));
+            for (int k = 0; k < counts[m]; k++) indices.Add((uint)((cursor + k) % totalVertices));
+            cursor += counts[m];
+        }
+        var scene = new SceneSnapshot(vertices, indices.ToArray(), materials);
+        var dense = Dense(scene);
+        var serial = NewCache(1, Budget);
+        var expectedFirst = serial.GetSurface(scene);
+        var expectedDense = serial.GetSurface(dense);
+        EqualOracle(scene, Array.Empty<Vector4>(), 0, expectedFirst);
+        EqualOracle(dense, Array.Empty<Vector4>(), 0, expectedDense);
+        for (int degree = 2; degree <= Math.Min(16, Environment.ProcessorCount); degree++)
+        {
+            var parallel = NewCache(degree, Budget);
+            Equal(expectedFirst, parallel.GetSurface(scene));
+            Equal(expectedDense, parallel.GetSurface(dense));
+            EqualStatistics(serial, parallel);
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(17)]

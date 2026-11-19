@@ -118,7 +118,10 @@ internal static class D3D12TemporalGiMemoryBudget
             return bytes;
         }
         ulong Buffer(ulong bytes, ResourceFlags flags = ResourceFlags.None) => Allocation(ResourceDescription.Buffer(bytes, flags));
-        ulong signalBytes = checked((ulong)width * (ulong)height * (HistoryBytesPerPixel / HistoryBufferCount));
+        bool halfRes = options.PreviewAcceleration && width >= 2 && height >= 2;
+        int traceWidth = halfRes ? (width + 1) / 2 : width;
+        int traceHeight = halfRes ? (height + 1) / 2 : height;
+        ulong signalBytes = checked((ulong)traceWidth * (ulong)traceHeight * (HistoryBytesPerPixel / HistoryBufferCount));
         ulong historyBuffer = Buffer(signalBytes, ResourceFlags.AllowUnorderedAccess);
         bool smaa = frame?.Options?.Antialiasing == FrameAntialiasing.Smaa1X;
         bool spatialUpscaling = !temporalUpscaling && (width != displayWidth || height != displayHeight);
@@ -174,7 +177,7 @@ internal static class D3D12TemporalGiMemoryBudget
             workspace=checked(workspace+2*Buffer(checked((ulong)scene.VertexCount*44))
                 +2*Buffer(checked((ulong)scene.Indices.Length*4)));
             if(frame.Outline is not null)
-                workspace=checked(workspace+2*Buffer(checked((ulong)frame.Outline.Vertices.Count*44)));
+                workspace=checked(workspace+2*Buffer(checked((ulong)frame.Outline.VertexCount*44)));
         }
         return workspace;
     }

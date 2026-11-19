@@ -17,10 +17,38 @@ internal sealed class D3D12GpuCache:IDisposable
     private readonly D3D12BufferUploadStaging bufferUploadStaging;
     private readonly D3D12VertexBufferPool sceneVertexBuffers;
     private readonly D3D12VertexBufferPool expandedPositionBuffers;
+    // UAV-capable streams whose deferred ranges are overwritten by GPU skinning after the static upload.
+    private readonly D3D12VertexBufferPool skinnedVertexBuffers,skinnedExpandedBuffers,staticOutlineBuffers,writableGpuBuffers;
+    private D3D12GpuSkinning? gpuSkinning;
     private long largeGiRetentionFrameId=-1;
     private bool retainLargeGiUploads;
     internal D3D12GpuCache(D3D12GpuRuntime runtime)
-    {this.runtime=runtime;bufferUploadStaging=new(runtime);sceneVertexBuffers=new(runtime,bufferUploadStaging);expandedPositionBuffers=new(runtime,bufferUploadStaging);}
+    {this.runtime=runtime;bufferUploadStaging=new(runtime);sceneVertexBuffers=new(runtime,bufferUploadStaging);expandedPositionBuffers=new(runtime,bufferUploadStaging);
+        skinnedVertexBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);skinnedExpandedBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);
+        staticOutlineBuffers=new(runtime,bufferUploadStaging);writableGpuBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);}
+    internal D3D12GpuSkinning GpuSkinning => gpuSkinning ??= new(runtime,this);
+    internal D3D12GpuSkinning? ExistingGpuSkinning => gpuSkinning;
+    /// <summary>Per-slot UAV vertex stream holding the static view's bytes; wrote reports any copy or replacement.</summary>
+    internal ID3D12Resource SkinnedVertexBuffer(string stream,SceneSnapshot staticView,out bool wrote)
+    {
+        if(!runtime.IsRecording)throw new InvalidOperationException("Scene vertex uploads require an open GPU frame.");
+        var buffer=skinnedVertexBuffers.Get(stream,staticView);wrote=skinnedVertexBuffers.LastGetWrote;return buffer;
+    }
+    internal ID3D12Resource SkinnedExpandedBuffer(string stream,D3D12ExpandedPositions positions,out bool wrote)
+    {
+        if(!runtime.IsRecording)throw new InvalidOperationException("Expanded position uploads require an open GPU frame.");
+        var buffer=skinnedExpandedBuffers.GetExpanded(stream,positions);wrote=skinnedExpandedBuffers.LastGetWrote;return buffer;
+    }
+    /// <summary>Frame-lifetime upload-heap bytes, usable directly as a root SRV by this recording.</summary>
+    internal ID3D12Resource StaticOutlineBuffer(string stream,OriginalOutlineData staticOutline,out bool wrote)
+    {
+        if(!runtime.IsRecording)throw new InvalidOperationException("Static outline uploads require an open GPU frame.");
+        var buffer=staticOutlineBuffers.GetOutlineStatic(stream,staticOutline);wrote=staticOutlineBuffers.LastGetWrote;return buffer;
+    }
+    internal ID3D12Resource WritableGpuBuffer(string stream,int count,int stride,out ResourceStates currentState,out bool replaced)
+        =>writableGpuBuffers.GetWritable(stream,count,stride,out currentState,out replaced);
+    internal void SetWritableGpuBufferState(string stream,ResourceStates state)=>writableGpuBuffers.SetWritableState(stream,state);
+    internal D3D12BufferUploadStaging.Allocation StageFrameBytes(ReadOnlySpan<byte> bytes)=>bufferUploadStaging.Write(bytes);
     internal D3D12BufferUploadStatistics BufferUploadStatistics=>bufferUploadStaging.Statistics;
     internal void BeginFrame(bool retainLargeGiUploads)
     {
@@ -32,10 +60,12 @@ internal sealed class D3D12GpuCache:IDisposable
     internal D3D12SceneVertexBufferStatistics ExpandedPositionBufferStatistics=>expandedPositionBuffers.Statistics;
     private sealed record TextureIdentity(string Key,ID3D12Resource Resource);
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> textureIdentities=new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> mipmappedTextureIdentities=new();
     // The same source bytes may be numerical UNorm and authored sRGB in one frame.
     // Separate identity and content namespaces prevent either role from changing the other.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbColorTextureIdentities=new();
-    internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount;
+    internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount
+        +skinnedVertexBuffers.RetainedBufferCount+skinnedExpandedBuffers.RetainedBufferCount+staticOutlineBuffers.RetainedBufferCount+writableGpuBuffers.RetainedBufferCount;
     internal ID3D12Resource ExpandedPositionBuffer(string stream,Vector4[] positions)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stream);ArgumentNullException.ThrowIfNull(positions);
@@ -210,26 +240,62 @@ internal sealed class D3D12GpuCache:IDisposable
         objects.Add(key,gpu);
         runtime.OnAbort(()=>{if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
     }
-    internal ID3D12Resource Texture(SceneTexture texture)
+    internal ID3D12Resource Texture(SceneTexture texture)=>Texture(texture,generateMipmaps:false);
+    internal ID3D12Resource Texture(SceneTexture texture,bool generateMipmaps)
     {
-        if(textureIdentities.TryGetValue(texture,out var identity))
+        ArgumentNullException.ThrowIfNull(texture);
+        bool useMips=generateMipmaps&&(texture.Width>1||texture.Height>1);
+        var identities=useMips?mipmappedTextureIdentities:textureIdentities;
+        if(identities.TryGetValue(texture,out var identity))
         {
             if(objects.TryGetValue(identity.Key,out var live)&&ReferenceEquals(live,identity.Resource))return identity.Resource;
-            textureIdentities.Remove(texture);
+            identities.Remove(texture);
         }
-        string key=$"texture:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
-        if(objects.TryGetValue(key,out var found)){textureIdentities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;}
-        var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
+        string prefix=useMips?"texture-mip":"texture";
+        string key=$"{prefix}:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        if(objects.TryGetValue(key,out var found)){identities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;}
+        ushort mipCount=useMips?checked((ushort)D3D12TextureMipmaps.MipLevelCount(texture.Width,texture.Height)):(ushort)1;
+        var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)texture.Width,(uint)texture.Height,mipLevels:mipCount);
         var gpu=runtime.Device.CreateCommittedResource(HeapType.Default,desc,ResourceStates.CopyDest);
-        var layouts=new PlacedSubresourceFootPrint[1];var rows=new int[1];var sizes=new ulong[1];
-        runtime.Device.GetCopyableFootprints(desc,0,1,0,layouts,rows,sizes,out ulong size);
-        var upload=runtime.Own(runtime.Device.CreateCommittedResource(HeapType.Upload,ResourceDescription.Buffer(size),ResourceStates.GenericRead));
-        var mapped=upload.Map<byte>(0,checked((int)size));
-        for(int y=0;y<texture.Height;y++)texture.Rgba.Slice(y*texture.Width*4,texture.Width*4).CopyTo(mapped.Slice(y*layouts[0].Footprint.RowPitch,texture.Width*4));
-        upload.Unmap(0);runtime.Commands.CopyTextureRegion(new TextureCopyLocation(gpu,0),0,0,0,new TextureCopyLocation(upload,layouts[0]));
-        runtime.Commands.ResourceBarrierTransition(gpu,ResourceStates.CopyDest,ResourceStates.PixelShaderResource);
-        objects.Add(key,gpu);textureIdentities.Add(texture,new(key,gpu));runtime.TextureUploads++;
-        runtime.OnAbort(()=>{textureIdentities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
+        try
+        {
+            var layouts=new PlacedSubresourceFootPrint[mipCount];var rows=new int[mipCount];var sizes=new ulong[mipCount];
+            runtime.Device.GetCopyableFootprints(desc,0,mipCount,0,layouts,rows,sizes,out ulong size);
+            var upload=runtime.Own(runtime.Device.CreateCommittedResource(HeapType.Upload,ResourceDescription.Buffer(size),ResourceStates.GenericRead));
+            var mapped=upload.Map<byte>(0,checked((int)size));
+            try
+            {
+                CopyMipLevel(texture.Width,texture.Height,texture.Rgba,mapped,layouts[0]);
+                if(mipCount>1)
+                {
+                    int prevWidth=texture.Width,prevHeight=texture.Height;
+                    byte[]? prevPixels=null,nextPixels=null;
+                    for(int mip=1;mip<mipCount;mip++)
+                    {
+                        int mipWidth=Math.Max(1,prevWidth>>1),mipHeight=Math.Max(1,prevHeight>>1);
+                        int byteCount=checked(mipWidth*mipHeight*4);
+                        var dstBuffer=nextPixels is not null&&nextPixels.Length>=byteCount?nextPixels:new byte[byteCount];
+                        var dstSpan=dstBuffer.AsSpan(0,byteCount);
+                        ReadOnlySpan<byte> srcSpan=prevPixels is null?texture.Rgba:prevPixels.AsSpan(0,checked(prevWidth*prevHeight*4));
+                        D3D12TextureMipmaps.DownsampleBox2x2(prevWidth,prevHeight,srcSpan,mipWidth,mipHeight,dstSpan);
+                        CopyMipLevel(mipWidth,mipHeight,dstSpan,mapped,layouts[mip]);
+                        nextPixels=prevPixels;prevPixels=dstBuffer;prevWidth=mipWidth;prevHeight=mipHeight;
+                    }
+                }
+            }
+            finally{upload.Unmap(0);}
+            for(int mip=0;mip<mipCount;mip++)
+                runtime.Commands.CopyTextureRegion(new TextureCopyLocation(gpu,mip),0,0,0,new TextureCopyLocation(upload,layouts[mip]));
+            runtime.Commands.ResourceBarrierTransition(gpu,ResourceStates.CopyDest,ResourceStates.PixelShaderResource);
+            objects.Add(key,gpu);identities.Add(texture,new(key,gpu));runtime.TextureUploads++;
+            runtime.OnAbort(()=>{identities.Remove(texture);if(objects.Remove(key,out var aborted))aborted.Dispose();});return gpu;
+        }
+        catch{gpu.Dispose();throw;}
+    }
+    private static void CopyMipLevel(int width,int height,ReadOnlySpan<byte> pixels,Span<byte> mapped,PlacedSubresourceFootPrint layout)
+    {
+        int rowBytes=checked(width*4),baseOffset=checked((int)layout.Offset),pitch=layout.Footprint.RowPitch;
+        for(int y=0;y<height;y++)pixels.Slice(y*rowBytes,rowBytes).CopyTo(mapped.Slice(baseOffset+y*pitch,rowBytes));
     }
     /// <summary>MatCap authored color role. Hardware sRGB decode precedes bilinear filtering;
     /// alpha remains linear. Linear color reuses the unchanged numerical UNorm resource.</summary>
@@ -278,7 +344,7 @@ internal sealed class D3D12GpuCache:IDisposable
         dynamicBuffers[key]=(hash,gpu,identity);
         runtime.OnAbort(()=>{if(dynamicBuffers.Remove(key,out var aborted))aborted.Resource.Dispose();});return gpu;
     }
-    public void Dispose(){foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();bufferUploadStaging.Dispose();}
+    public void Dispose(){gpuSkinning?.Dispose();gpuSkinning=null;foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();skinnedVertexBuffers.Dispose();skinnedExpandedBuffers.Dispose();staticOutlineBuffers.Dispose();writableGpuBuffers.Dispose();bufferUploadStaging.Dispose();}
 }
 
 /// <summary>Snapshot topology arrays are private and immutable. Exact span origin permits constant-time reuse.</summary>

@@ -25,18 +25,19 @@ internal sealed class D3D12SpatialAccumulationPass(D3D12GpuRuntime runtime, D3D1
         var device = context.Device;
         var pipeline = GetPipeline(outputFormat);
         ulong bytes = checked((ulong)width * (ulong)height * 16);
-        var accumulation = context.Own(device.CreateCommittedResource(HeapType.Default,
-            ResourceDescription.Buffer(bytes, ResourceFlags.AllowUnorderedAccess), ResourceStates.UnorderedAccess));
-        var srvHeap = context.Own(device.CreateDescriptorHeap(new(
-            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible)));
-        var rtvHeap = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1)));
-        var outputResource = context.Own(device.CreateCommittedResource(HeapType.Default,
+        // Sample zero overwrites the whole pooled accumulation buffer; the opaque resolve overwrites the output.
+        var accumulation = runtime.Transients.Resource(context, HeapType.Default,
+            ResourceDescription.Buffer(bytes, ResourceFlags.AllowUnorderedAccess), ResourceStates.UnorderedAccess);
+        var srvHeap = runtime.Transients.Heap(new(
+            DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible));
+        var rtvHeap = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 1));
+        var outputResource = runtime.Transients.Resource(context, HeapType.Default,
             ResourceDescription.Texture2D(outputFormat, (uint)width, (uint)height,
-                mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
+                mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget);
         var outputHandle = rtvHeap.GetCPUDescriptorHandleForHeapStart();
         device.CreateRenderTargetView(outputResource, null, outputHandle);
-        var output = new D3D12GpuTarget("$ssaa-output", outputResource, outputHandle,
-            width, height, outputFormat, false);
+        var output = runtime.Transients.Track(new D3D12GpuTarget("$ssaa-output", outputResource, outputHandle,
+            width, height, outputFormat, false));
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 1);
         return new(context, pipeline, accumulation, srvHeap, output, samples);
     }
@@ -52,7 +53,7 @@ internal sealed class D3D12SpatialAccumulationPass(D3D12GpuRuntime runtime, D3D1
     {
         var device = runtime.Device;
         var binary = GetShaders();
-        var computeRoot = cache.Get("ssaa:accumulate-root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var computeRoot = cache.Get("ssaa:accumulate-root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
                  new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.All),
@@ -60,19 +61,19 @@ internal sealed class D3D12SpatialAccumulationPass(D3D12GpuRuntime runtime, D3D1
             RootSignatureVersion.Version10));
         var compute = cache.Get("ssaa:accumulate-pso", () =>
         {
-            var created = device.CreateComputePipelineState(new ComputePipelineStateDescription
+            var created = runtime.CreateComputePipelineState(new ComputePipelineStateDescription
             { RootSignature = computeRoot, ComputeShader = binary.Compute });
             runtime.PipelineCreations++;
             return created;
         });
-        var resolveRoot = cache.Get("ssaa:resolve-root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var resolveRoot = cache.Get("ssaa:resolve-root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.Pixel),
                  new(RootParameterType.ShaderResourceView, new RootDescriptor(0, 0), ShaderVisibility.Pixel)]),
             RootSignatureVersion.Version10));
         var resolve = cache.Get(outputFormat==Format.R8G8B8A8_UNorm?"ssaa:resolve-pso":"ssaa:resolve-pso:fp16", () =>
         {
-            var created = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            var created = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature = resolveRoot, VertexShader = binary.Vertex, PixelShader = binary.Pixel,
                 BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -86,13 +87,21 @@ internal sealed class D3D12SpatialAccumulationPass(D3D12GpuRuntime runtime, D3D1
         return new(computeRoot, compute, resolveRoot, resolve);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        yield return new(ComputeSource, "CSAccumulate", "spatial-accumulation.hlsl", "cs_5_1", flags);
+        yield return new(ResolveSource, "VSResolve", "spatial-resolve.hlsl", "vs_5_1", flags);
+        yield return new(ResolveSource, "PSResolve", "spatial-resolve.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Compute, byte[] Vertex, byte[] Pixel) GetShaders()
     {
         if (shaders is { } found) return found;
         var flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
-        var compute = Compiler.Compile(ComputeSource, "CSAccumulate", "spatial-accumulation.hlsl", "cs_5_1", flags).ToArray();
-        var vertex = Compiler.Compile(ResolveSource, "VSResolve", "spatial-resolve.hlsl", "vs_5_1", flags).ToArray();
-        var pixel = Compiler.Compile(ResolveSource, "PSResolve", "spatial-resolve.hlsl", "ps_5_1", flags).ToArray();
+        var compute = D3D12FxcShaderCache.Compile(ComputeSource, "CSAccumulate", "spatial-accumulation.hlsl", "cs_5_1", flags);
+        var vertex = D3D12FxcShaderCache.Compile(ResolveSource, "VSResolve", "spatial-resolve.hlsl", "vs_5_1", flags);
+        var pixel = D3D12FxcShaderCache.Compile(ResolveSource, "PSResolve", "spatial-resolve.hlsl", "ps_5_1", flags);
         runtime.ShaderCompilations += 3;
         return (shaders = (compute, vertex, pixel)).Value;
     }

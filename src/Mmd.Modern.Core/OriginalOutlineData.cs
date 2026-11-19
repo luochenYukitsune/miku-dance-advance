@@ -1,12 +1,14 @@
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Mmd.Modern.Core;
 
 public enum OriginalOutlineVertexMode { Expand, Inward }
 
 /// <summary>Already deformed model-space inputs. Normal is raw, including non-unit and zero normals.</summary>
+[StructLayout(LayoutKind.Sequential)]
 public readonly record struct OriginalOutlineVertex(Vector3 Position,Vector3 Normal,OriginalOutlineVertexMode Mode,float VertexScale,int SelectedMaterialIndex);
 internal delegate void OriginalOutlineRangeWriter(int rangeIndex, Span<OriginalOutlineVertex> destination);
 internal delegate void OriginalOutlineVertexWriter(Span<OriginalOutlineVertex> destination);
@@ -18,25 +20,37 @@ public sealed record OriginalOutlineOptions(Vector4 ReferencePoint,Matrix4x4 Dis
 /// <summary>Immutable outline snapshot. SelectedMaterialIndex is established at load and survives material-width morphs.</summary>
 public sealed class OriginalOutlineData
 {
-    private readonly OwnedVertexChunks<OriginalOutlineVertex> vertices;
+    private readonly OwnedVertexChunks<OriginalOutlineVertex>? eager;
+    private readonly Lazy<OwnedVertexChunks<OriginalOutlineVertex>>? deferred;
+    private readonly int count;
+    private OwnedVertexChunks<OriginalOutlineVertex> vertices => eager ?? deferred!.Value;
     /// <summary>No edge geometry, paired only with an explicitly empty scene snapshot.</summary>
     public static OriginalOutlineData Empty { get; } = new();
     public ReadOnlyCollection<OriginalOutlineVertex> Vertices { get; }
     /// <summary>Reads immutable owned geometry without creating a compatibility flat array.</summary>
-    public int VertexCount => vertices.Count;
-    public int VertexChunkCount => vertices.ChunkCount;
+    public int VertexCount => count;
+    public int VertexChunkCount => count / OwnedVertexChunks<OriginalOutlineVertex>.ChunkSize + (count % OwnedVertexChunks<OriginalOutlineVertex>.ChunkSize == 0 ? 0 : 1);
     public ReadOnlySpan<OriginalOutlineVertex> GetVertexChunk(int chunkIndex) => vertices.GetChunk(chunkIndex);
     /// <summary>Conservative immutable outline lineage; material-only updates share this identity.</summary>
     public SceneVertexRevision VertexRevision => SceneVertexRevision.For(Vertices, Vertices.Count);
     public ReadOnlyCollection<OriginalOutlineMaterial> Materials { get; }
+    /// <summary>Deferred surface whose DeformationRanges supply this outline's positions and raw normals at the same
+    /// vertex indices. Reading those vertices evaluates the surface's CPU reference. Null for ordinary outlines.</summary>
+    public SceneSnapshot? DeferredSurface { get; }
+    // Eager owner of the mode, scale and selected material of every vertex and of all non-deferred positions.
+    private readonly OriginalOutlineData? deferredBase;
+    private OriginalOutlineData? staticView;
+    /// <summary>These materials over the eager owner: exact outside the deferred ranges, placeholders inside them.</summary>
+    public OriginalOutlineData StaticView => deferredBase is not { } owner ? this
+        : Volatile.Read(ref staticView) ?? Interlocked.CompareExchange(ref staticView, new(owner.vertices, owner.Vertices, Materials), null) ?? staticView!;
     private OriginalOutlineData()
-    { vertices=new([]);Vertices=new(vertices);Materials=Array.AsReadOnly<OriginalOutlineMaterial>([]); }
+    { eager=new([]);Vertices=new(eager);Materials=Array.AsReadOnly<OriginalOutlineMaterial>([]); }
     public OriginalOutlineData(IEnumerable<OriginalOutlineVertex> vertices,IEnumerable<OriginalOutlineMaterial> materials)
     {
         ArgumentNullException.ThrowIfNull(vertices); ArgumentNullException.ThrowIfNull(materials);
         var ownedVertices=vertices.ToArray(); var ownedMaterials=materials.ToArray();
         ValidateContents(ownedVertices,ownedMaterials);
-        this.vertices=new(ownedVertices);Vertices=new(this.vertices); Materials=Array.AsReadOnly(ownedMaterials);
+        eager=new(ownedVertices);count=eager.Count;Vertices=new(eager); Materials=Array.AsReadOnly(ownedMaterials);
     }
     /// <summary>Core allocates the only output vertex array. The synchronous writer receives its
     /// full bounded span, never an owned array; publication retains every ordinary outline check.</summary>
@@ -78,7 +92,38 @@ public sealed class OriginalOutlineData
                 &&Bits(next.Color.X,prior.Color.X)&&Bits(next.Color.Y,prior.Color.Y)
                 &&Bits(next.Color.Z,prior.Color.Z)&&Bits(next.Color.W,prior.Color.W);
         }
-        return same?this:new(vertices,Vertices,Array.AsReadOnly(materials.ToArray()));
+        if(same)return this;
+        var replaced=Array.AsReadOnly(materials.ToArray());
+        return deferredBase is null?new(vertices,Vertices,replaced):new(this,replaced);
+    }
+    /// <summary>Takes positions and raw normals of the surface's deferred ranges from that surface, without
+    /// evaluating it. Mode, scale, selected material and every other range keep this outline's validated values.</summary>
+    internal OriginalOutlineData WithDeferredSurface(SceneSnapshot surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        var owner=deferredBase??this;
+        if(surface.VertexCount!=VertexCount)throw new ArgumentException("Surface updates must preserve outline vertex count.",nameof(surface));
+        if(!surface.HasDeferredDeformation)return ReferenceEquals(owner,this)?this:new(owner.vertices,owner.Vertices,Materials);
+        return new(owner,surface,Materials);
+    }
+    private OriginalOutlineData(OriginalOutlineData owner,SceneSnapshot surface,ReadOnlyCollection<OriginalOutlineMaterial> materials)
+    {
+        deferredBase=owner;DeferredSurface=surface;count=owner.count;Materials=materials;
+        var bounds=surface.DeformationRanges.Select(range=>(range.Start,range.Count)).ToArray();
+        deferred=new(()=>owner.vertices.WithRanges(bounds,(index,offset,destination)=>
+        {
+            int start=bounds[index].Start+offset;
+            var source=surface.GetVertexChunk(start/OwnedVertexChunks<SceneVertex>.ChunkSize)
+                .Slice(start%OwnedVertexChunks<SceneVertex>.ChunkSize,destination.Length);
+            for(int i=0;i<destination.Length;i++)destination[i]=destination[i] with{Position=source[i].Position,Normal=source[i].Normal};
+        }),LazyThreadSafetyMode.ExecutionAndPublication);
+        Vertices=new(new DeferredVertexList<OriginalOutlineVertex>(count,()=>deferred.Value));
+        SceneVertexRevision.RegisterComposed(owner.Vertices,Vertices,count,bounds);
+    }
+    private OriginalOutlineData(OriginalOutlineData source,ReadOnlyCollection<OriginalOutlineMaterial> materials)
+    {
+        eager=source.eager;deferred=source.deferred;count=source.count;Vertices=source.Vertices;
+        deferredBase=source.deferredBase;DeferredSurface=source.DeferredSurface;Materials=materials;
     }
     /// <summary>Compatibility writer for complete actor ranges. Product composition uses the
     /// chunk writer below; this adapter allocates only each explicitly requested range.</summary>
@@ -87,13 +132,14 @@ public sealed class OriginalOutlineData
     {
         ArgumentNullException.ThrowIfNull(ranges); ArgumentNullException.ThrowIfNull(write);
         var updates=ranges.ToArray();var replacements=new OriginalOutlineVertex[updates.Length][];
+        var owner=deferredBase??this;
         return WithComposedVertexChunks(updates,(range,offset,destination)=>
         {
             var replacement=replacements[range];
             if(replacement is null)
             {
                 replacement=new OriginalOutlineVertex[updates[range].Count];
-                vertices.CopyTo(updates[range].Start,replacement);write(range,replacement);replacements[range]=replacement;
+                owner.vertices.CopyTo(updates[range].Start,replacement);write(range,replacement);replacements[range]=replacement;
             }
             replacement.AsSpan(offset,destination.Length).CopyTo(destination);
         },materials);
@@ -110,7 +156,9 @@ public sealed class OriginalOutlineData
             if (m is null || !float.IsFinite(m.Width) || m.Width < 0 || !OriginalOutlineMath.Finite(m.Color))
                 throw new ArgumentException("Invalid outline material.", nameof(materials));
         var updates=ranges.ToArray();
-        var composed=vertices.WithRanges(updates,(range,offset,destination)=>
+        // A deferred outline composes its eager owner; the caller re-attaches the deferred surface.
+        var owner=deferredBase??this;
+        var composed=owner.vertices.WithRanges(updates,(range,offset,destination)=>
         {
             write(range,offset,destination);
             foreach (var v in destination)
@@ -119,9 +167,9 @@ public sealed class OriginalOutlineData
                     || v.SelectedMaterialIndex < 0 || v.SelectedMaterialIndex >= nextMaterials.Count)
                     throw new ArgumentException("Invalid composed outline vertex.", nameof(write));
         });
-        if(ReferenceEquals(composed,vertices))return ReferenceEquals(nextMaterials,Materials)?this:new(vertices,Vertices,nextMaterials);
+        if(ReferenceEquals(composed,owner.vertices))return ReferenceEquals(nextMaterials,owner.Materials)?owner:new(owner.vertices,owner.Vertices,nextMaterials);
         var nextVertices = new ReadOnlyCollection<OriginalOutlineVertex>(composed);
-        SceneVertexRevision.RegisterComposed(Vertices, nextVertices, composed.Count, updates);
+        SceneVertexRevision.RegisterComposed(owner.Vertices, nextVertices, composed.Count, updates);
         return new(composed,nextVertices,nextMaterials);
     }
     /// <summary>Refresh position and raw normal from an already validated immutable surface.
@@ -141,7 +189,8 @@ public sealed class OriginalOutlineData
                 throw new ArgumentException("Invalid outline material.", nameof(materials));
         var nextMaterials = ownedMaterials.SequenceEqual(Materials) ? Materials : Array.AsReadOnly(ownedMaterials);
         var updates = ranges.ToArray();
-        var composed = vertices.WithTrustedParallelRanges(updates, (range, offset, destination) =>
+        var owner = deferredBase ?? this;
+        var composed = owner.vertices.WithTrustedParallelRanges(updates, (range, offset, destination) =>
         {
             int start = updates[range].Start + offset;
             var source = surface.GetVertexChunk(start / OwnedVertexChunks<SceneVertex>.ChunkSize)
@@ -152,14 +201,14 @@ public sealed class OriginalOutlineData
                 destination[index] = destination[index] with { Position = vertex.Position, Normal = vertex.Normal };
             }
         }, maxDegree);
-        if (ReferenceEquals(composed, vertices))
-            return ReferenceEquals(nextMaterials, Materials) ? this : new(vertices, Vertices, nextMaterials);
+        if (ReferenceEquals(composed, owner.vertices))
+            return ReferenceEquals(nextMaterials, owner.Materials) ? owner : new(owner.vertices, owner.Vertices, nextMaterials);
         var nextVertices = new ReadOnlyCollection<OriginalOutlineVertex>(composed);
-        SceneVertexRevision.RegisterComposed(Vertices, nextVertices, composed.Count, updates);
+        SceneVertexRevision.RegisterComposed(owner.Vertices, nextVertices, composed.Count, updates);
         return new(composed, nextVertices, nextMaterials);
     }
     private OriginalOutlineData(OwnedVertexChunks<OriginalOutlineVertex> storage,ReadOnlyCollection<OriginalOutlineVertex> vertices, ReadOnlyCollection<OriginalOutlineMaterial> materials)
-    { this.vertices=storage;Vertices = vertices; Materials = materials; }
+    { eager=storage;count=storage.Count;Vertices = vertices; Materials = materials; }
 }
 
 /// <summary>Independent implementation of the documented original outline input/output contract.</summary>

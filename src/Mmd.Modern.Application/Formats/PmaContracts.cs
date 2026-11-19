@@ -44,6 +44,11 @@ public sealed record PmaLoadOptions
     /// <summary>Optional per-instance model-source decoration after package/resource validation and host model loading,
     /// before animation and physics construction. Must retain the host PMX model instance; null preserves the old load path.</summary>
     public Func<PmaModelResourceContext, SceneAnimationModelAsset, SceneAnimationModelAsset>? ModelAssetTransform { get; init; }
+    /// <summary>Optional advisory notice, after package/reference validation and before the first host model callback,
+    /// of the distinct extracted model paths the host loader will be asked for, in layout order. Lets the host start
+    /// bounded background preparation; it is called at most once, its exceptions are ignored and it never replaces
+    /// the ordered loader calls, which still define every result and error.</summary>
+    public Action<IReadOnlyList<string>, CancellationToken>? ModelPrefetch { get; init; }
     /// <summary>Maximum compressed package size. Independent of the expanded and per-resource budgets.</summary>
     public long MaxPackageBytes { get; init; } = 50L * 1024 * 1024 * 1024;
     /// <summary>Maximum archive expansion and logical extraction size, including repeated logical files.</summary>

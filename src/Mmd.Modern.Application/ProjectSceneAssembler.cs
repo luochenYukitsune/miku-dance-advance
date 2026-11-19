@@ -53,6 +53,8 @@ public static class ProjectSceneAssembler
             }
 
             var ranges = new List<(int Start, int Count)>(); var dirtyModels = new List<int>();
+            // Actors deformed by the renderer are attached by reference; their vertices are not copied.
+            var deferred = new List<SceneDeformationRange>(); bool deferredChanged = false;
             bool changed = false, seedsChanged = false, identityGeometry = true; int offset = 0;
             for (int i = 0; i < inputs.Count; i++)
             {
@@ -60,7 +62,12 @@ public static class ProjectSceneAssembler
                 var oldSnapshot = prior.Surface.Snapshot; var snapshot = next.Surface.Snapshot;
                 bool sameWorld = SameBits(oldSnapshot.World, snapshot.World);
                 bool geometryChanged = !oldSnapshot.SharesVertexStorage(snapshot) || !sameWorld;
-                if (geometryChanged)
+                if (snapshot.WholeDeformation is { } deformation)
+                {
+                    deferred.Add(SceneSnapshot.PlacedDeformation(offset, deformation, snapshot.World));
+                    deferredChanged |= geometryChanged;
+                }
+                else if (geometryChanged)
                 {
                     ranges.Add((offset, snapshot.VertexCount)); dirtyModels.Add(i);
                     identityGeometry &= snapshot.World == Matrix4x4.Identity;
@@ -90,6 +97,11 @@ public static class ProjectSceneAssembler
                     updated = baselineFrame.Surface.Snapshot.WithComposedVertexChunks(ranges, (range, rangeOffset, destination) =>
                         CopyTransformedVertices(inputs[dirtyModels[range]].Surface.Snapshot, destination, rangeOffset));
             }
+            bool baselineDeferred = baselineFrame.Surface.Snapshot.HasDeferredDeformation;
+            bool rewrap = ranges.Count > 0 || deferredChanged || (deferred.Count > 0) != baselineDeferred;
+            if (deferred.Count > 0 || baselineDeferred)
+                using (PoseEvaluationMetrics.Measure("composition.deferred"))
+                    updated = rewrap ? updated.WithDeferredRanges(deferred) : baselineFrame.Surface.Snapshot;
             using (PoseEvaluationMetrics.Measure("composition.additional-uvs"))
                 updated = updated.WithAdditionalUvs(CombineAdditionalUvs(inputs, offset, baselineFrame.Surface.Snapshot.AdditionalUvs));
             if (seedsChanged)
@@ -122,7 +134,12 @@ public static class ProjectSceneAssembler
             OriginalOutlineData outline;
             using (PoseEvaluationMetrics.Measure("composition.outline"))
             {
-                outline = baselineFrame.Outline!.WithSurfaceVertexChunks(updated, ranges, edgeMaterials, OutlineCompositionDegree());
+                if (!rewrap && updated.HasDeferredDeformation) outline = baselineFrame.Outline!.WithMaterials(edgeMaterials);
+                else
+                {
+                    outline = baselineFrame.Outline!.WithSurfaceVertexChunks(updated.StaticVertexView, ranges, edgeMaterials, OutlineCompositionDegree());
+                    if (updated.HasDeferredDeformation) outline = outline.WithDeferredSurface(updated);
+                }
             }
             var result = new OriginalFrameScene(new(updated, bindings.SequenceEqual(baselineFrame.Surface.Materials) ? baselineFrame.Surface.Materials : bindings,
                 baselineFrame.Surface.Profile), outline, baselineFrame.OutlineOptions, baselineFrame.Options, flags);
@@ -211,10 +228,11 @@ public static class ProjectSceneAssembler
         var textures=new List<SceneTexture>(textureCount);var textureIdentities=new Dictionary<SceneTexture,int>(textureCount,ReferenceEqualityComparer.Instance);
         var bindings=new List<OriginalStyleMaterialBinding>(materialCount);
         var edges=new OriginalOutlineVertex[vertexCount];var edgeMaterials=new List<OriginalOutlineMaterial>(materialCount);var flags=new List<OriginalFrameMaterialFlags>(materialCount);
-        int vertexOffset=0,indexOffset=0;
+        int vertexOffset=0,indexOffset=0;var deferred=new List<SceneDeformationRange>();
         foreach(var model in models)
         {
             var snapshot=model.Surface.Snapshot;
+            if(snapshot.WholeDeformation is {} deformation)deferred.Add(SceneSnapshot.PlacedDeformation(vertexOffset,deformation,snapshot.World));
             if(model.Outline is null)throw new ArgumentException("Project models require outline geometry even when outline drawing is disabled.",nameof(models));
             int vertexBase=vertexOffset,indexBase=indexOffset,materialBase=materials.Count;
             var textureMap=new int[snapshot.Textures.Count];
@@ -226,20 +244,24 @@ public static class ProjectSceneAssembler
                 textureMap[i]=existing;
             }
             int Texture(int value)=>value<0?-1:textureMap[value];
-            CopyTransformedVertices(snapshot,vertices.AsSpan(vertexOffset,snapshot.VertexCount));
+            // Deferred actors contribute placeholders; the composed range keeps their deformation instead.
+            CopyTransformedVertices(snapshot.WholeDeformation is null?snapshot:snapshot.StaticVertexView,vertices.AsSpan(vertexOffset,snapshot.VertexCount));
             vertexOffset=checked(vertexOffset+snapshot.VertexCount);
             foreach(uint index in snapshot.Indices)indices[indexOffset++]=checked(index+(uint)vertexBase);
             foreach(var material in snapshot.Materials)materials.Add(material with{StartIndex=checked(material.StartIndex+indexBase),DiffuseTexture=Texture(material.DiffuseTexture),ToonTexture=Texture(material.ToonTexture)});
             foreach(var material in model.Surface.Materials)bindings.Add(material with{SphereTexture=Texture(material.SphereTexture)});
-            for(int i=0;i<model.Outline.Vertices.Count;i++)
-            {var edge=model.Outline.Vertices[i];var vertex=vertices[vertexBase+i];edges[vertexBase+i]=edge with{Position=vertex.Position,Normal=vertex.Normal,SelectedMaterialIndex=checked(edge.SelectedMaterialIndex+materialBase)};}
+            var edgeSource=model.Outline.StaticView;
+            for(int i=0;i<edgeSource.Vertices.Count;i++)
+            {var edge=edgeSource.Vertices[i];var vertex=vertices[vertexBase+i];edges[vertexBase+i]=edge with{Position=vertex.Position,Normal=vertex.Normal,SelectedMaterialIndex=checked(edge.SelectedMaterialIndex+materialBase)};}
             edgeMaterials.AddRange(model.Outline.Materials);flags.AddRange(model.Materials);
         }
         var scene=new SceneSnapshot(vertices,indices,materials,textures,world:null,camera:null,lightDirection:incomingDirection,
             additionalUvs:CombineAdditionalUvs(models,vertexCount),rawRadialSeeds:CombineRawRadialSeeds(models,vertexCount),
             textureSource:textureSource,dynamicVertices:models.Any(m=>m.Surface.Snapshot.HasDynamicVertices));
         var profile=models[0].Surface.Profile with{LightAmbient=lightColor,LightSpecular=lightColor};
-        return new(new(scene,bindings,profile),new(edges,edgeMaterials),models[0].OutlineOptions,materials:flags);
+        var outline=new OriginalOutlineData(edges,edgeMaterials);
+        if(deferred.Count>0){scene=scene.WithDeferredRanges(deferred);outline=outline.WithDeferredSurface(scene);}
+        return new(new(scene,bindings,profile),outline,models[0].OutlineOptions,materials:flags);
     }
 
     /// <summary>Only pose changes; the source model order and topology must match the baseline.</summary>

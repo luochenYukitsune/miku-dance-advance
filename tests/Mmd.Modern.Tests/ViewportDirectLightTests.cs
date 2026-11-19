@@ -1,6 +1,9 @@
 using System.Numerics;
 using Mmd.Modern.App;
+using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Formats;
+using Mmd.Modern.ViewOutput;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -93,6 +96,85 @@ public sealed class ViewportDirectLightTests
         var rotation = LightViewportInteraction.RotateOnAxis(Quaternion.Identity, Vector3.Zero, start, end, camera, 800, 600, LightDragAxis.Z);
         Assert.InRange(Vector3.Distance(Vector3.Transform(Vector3.UnitX, rotation), Vector3.UnitY), 0, .0001f);
         Assert.InRange(Vector3.Distance(Vector3.Transform(Vector3.UnitZ, rotation), Vector3.UnitZ), 0, .0001f);
+    }
+
+    [Fact]
+    public void EdgeOnAndHorizonRingDragRemainsSmoothWithoutHalfTurnJump()
+    {
+        var edgeCamera = new SceneCamera(new(0, 1, -20), Vector3.Zero, Vector3.UnitY, 10, .1f, 100);
+        float previousYaw = 0;
+        for (int x = 360; x <= 440; x += 10)
+        {
+            var rot = LightViewportInteraction.RotateOnAxis(Quaternion.Identity, Vector3.Zero,
+                new(350, 300), new(x, 300), edgeCamera, 800, 600, LightDragAxis.Y);
+            var rotated = Vector3.Transform(Vector3.UnitZ, rot);
+            float yaw = MathF.Atan2(rotated.X, rotated.Z);
+            if (x > 360)
+            {
+                float step = yaw - previousYaw;
+                Assert.True(MathF.Abs(step) < 0.2f);
+                Assert.True(MathF.Abs(step) > 0.01f);
+            }
+            previousYaw = yaw;
+        }
+
+        var horizonCamera = new SceneCamera(new(0, 12, -12), Vector3.Zero, Vector3.UnitY, 10, .1f, 100, VerticalFovDegrees: 45f);
+        var beforeHorizon = LightViewportInteraction.RotateOnAxis(Quaternion.Identity, Vector3.Zero,
+            new(350, 320), new(350, 300), horizonCamera, 800, 600, LightDragAxis.Y);
+        var pastHorizon = LightViewportInteraction.RotateOnAxis(Quaternion.Identity, Vector3.Zero,
+            new(350, 320), new(350, 5), horizonCamera, 800, 600, LightDragAxis.Y);
+        float dot = Vector3.Dot(Vector3.Transform(Vector3.UnitX, beforeHorizon), Vector3.Transform(Vector3.UnitX, pastHorizon));
+        Assert.True(dot > 0f);
+    }
+
+    [Fact]
+    public void AxialTranslateNearVanishingPointDoesNotCrossBehindCamera()
+    {
+        var perspective = new SceneCamera(new(0, 2, -10), new(0, 2, 0), Vector3.UnitY, 10, .1f, 100, VerticalFovDegrees: 45f);
+        var position = Vector3.Zero;
+        Assert.True(LightViewportInteraction.TryProject(position, perspective, 800, 600, out var p0));
+        Assert.True(LightViewportInteraction.TryProject(position + Vector3.UnitZ * 4, perspective, 800, 600, out var p1));
+        var hugeDelta = Vector2.Normalize(p1 - p0) * 5000f;
+        var moved = LightViewportInteraction.Translate(position, hugeDelta, perspective, 800, 600, LightDragAxis.Z);
+        Assert.True(float.IsFinite(moved.X) && float.IsFinite(moved.Y) && float.IsFinite(moved.Z));
+        Assert.Equal(position.X, moved.X);
+        Assert.Equal(position.Y, moved.Y);
+        var forward = Vector3.Normalize(perspective.Target - perspective.Eye);
+        Assert.True(Vector3.Dot(moved - perspective.Eye, forward) > 0f);
+    }
+
+    [Fact]
+    public void TargetDragNearLampPositionClampsCleanlyAndCanContinue()
+    {
+        using var workspace = new EditorProjectWorkspace();
+        string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+        using var input = File.OpenRead(path);
+        var asset = EditorProjectWorkspace.CreateModelAsset(PmdPmxAdapter.Convert(PmdReader.Read(input)), path, TestContext.Current.CancellationToken);
+        workspace.AddModel(path, asset, ModelRole.Character);
+
+        var camera = new SceneCamera(new(0, 0, -12), Vector3.Zero, Vector3.UnitY, 10, .1f, 100);
+        var spot = new NativeSceneLight(Guid.NewGuid(), "spot", SceneLightKind.Spot, new(0, 0, -2),
+            Quaternion.Identity, Vector3.One, AimDistance: 4f);
+        workspace.EditLighting(new(new([spot]), spot.Id));
+
+        var controller = new EditorLightViewportController(workspace, draft => workspace.EditLighting(draft), () => { });
+        var snap = workspace.Session!.CaptureRenderSnapshot();
+        var frame = controller.DecorateFrame(new PreviewFrame(800, 600, snap.SourceFrame, snap.Scene, snap.Camera, snap.Light, snap.SelfShadow)
+            { ResolvedCamera = camera });
+        controller.FramePresented(frame);
+
+        Assert.True(LightViewportInteraction.TryProject(spot.Target, camera, 800, 600, out var targetPx));
+        Assert.True(LightViewportInteraction.TryProject(spot.Position, camera, 800, 600, out var posPx));
+        Assert.True(LightViewportInteraction.TryProject(spot.Position + new Vector3(3, 1, -2), camera, 800, 600, out var farPx));
+
+        Assert.True(controller.TryBeginDrag((int)MathF.Round(targetPx.X), (int)MathF.Round(targetPx.Y), 800, 600, camera));
+        Assert.True(controller.MoveDrag((int)MathF.Round(posPx.X), (int)MathF.Round(posPx.Y)));
+        var nearLamp = Assert.Single(controller.PreviewLighting.Lights);
+        Assert.InRange(nearLamp.EffectiveAimDistance, 0.049f, 5f);
+        Assert.True(controller.MoveDrag((int)MathF.Round(farPx.X), (int)MathF.Round(farPx.Y)));
+        var draggedOut = Assert.Single(controller.PreviewLighting.Lights);
+        Assert.True(draggedOut.EffectiveAimDistance > 1f);
+        Assert.True(controller.EndDrag());
     }
 
     private static NativeSceneLight Light(string name, Vector3 position) => new(Guid.NewGuid(), name,

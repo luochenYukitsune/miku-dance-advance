@@ -129,7 +129,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         var commands=context.Commands;var scene=frame.Surface.Snapshot;var style=frame.Surface;int width=color.Width,height=color.Height;
         bool subTexture=HasSubTexture(frame);
         bool textureMorph=subTexture||style.Materials.Any(binding=>!binding.TextureFactors.IsIdentity);
-        if(!HasNativeLights(frame))LastNativeLightStatistics=null;
+        if(!HasNativeLights(frame)){LastNativeLightStatistics=null;nativeShadowCasterVersions.Reset();}
         BeginVisibility(frame);
         ID3D12Resource Own(ID3D12Resource value)=>context.Own(value);
         ID3D12Resource UploadBuffer(D3D12ExpandedPositions positions)
@@ -202,12 +202,12 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
             AddressU=wrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp,
             AddressV=wrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp,
             AddressW=wrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp };
-        var createdRoot=device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(
+        var createdRoot=runtime.CreateRootSignature(new RootSignatureDescription(
             RootSignatureFlags.AllowInputAssemblerInputLayout,parameters,[sampler]),RootSignatureVersion.Version10);
         ID3D12PipelineState? doubleSided=null;
         try {
             var shader=subTexture?GetSubTextureSurfaceShaders():textureMorph?GetTextureMorphSurfaceShaders():GetSurfaceShaders();
-            ID3D12PipelineState Create(RasterizerDescription raster) {runtime.PipelineCreations++;return device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            ID3D12PipelineState Create(RasterizerDescription raster) {runtime.PipelineCreations++;return runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature=createdRoot,VertexShader=shader.Vertex,PixelShader=shader.Pixel,
                 InputLayout=new InputLayoutDescription(SurfaceLayout(subTexture)),
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=raster,

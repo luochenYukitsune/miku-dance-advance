@@ -45,7 +45,10 @@ public sealed partial class D3D12OriginalStyleRenderer
         using var outlineCpu=MeasureSceneCpu(SceneCpuStage.ModernOutline);
         if (!frame.Materials.Any(flags => flags.CharacterOutlineStyle is not null)) return 0;
         var scene = frame.Surface.Snapshot; var options = frame.Options;
-        var positions = GetOutlinePositions(frame);
+        bool deferred = frame.Outline?.DeferredSurface is not null || scene.HasDeferredDeformation;
+        var positions = deferred ? null : GetOutlinePositions(frame);
+        var deferredMask = deferred ? GetDeferredMaterialMask(scene) : null;
+        int vertexCount = frame.Outline!.VertexCount;
         ID3D12Resource? buffer = null;
         ID3D12Resource? scaleSource = null;
         var commands = context.Commands;
@@ -67,6 +70,10 @@ public sealed partial class D3D12OriginalStyleRenderer
             Vector4.One, Vector4.Zero, new(0, options?.SelfShadow?.PartialFar == true ? 1 : 0, options?.SelfShadow is null ? 0 : 1, 0), Vector4.Zero);
         int draws = 0;
         int endMaterial = (int)Math.Min(frame.Materials.Count, (long)firstMaterial + materialCount);
+        bool needWidthSource = false;
+        if (deferred)
+            for (int k = firstMaterial; k < endMaterial; k++)
+                if (frame.Materials[k].CharacterOutlineStyle is not null && frame.Materials[k].OutlineWidthScale != 1) { needWidthSource = true; break; }
         for (int i = firstMaterial; i < endMaterial; i++)
         {
             var flags = frame.Materials[i]; var style = flags.CharacterOutlineStyle;
@@ -74,15 +81,26 @@ public sealed partial class D3D12OriginalStyleRenderer
             var edge = CharacterOutlineMath.ResolveMaterial(frame.Outline!.Materials[i], style);
             var material = scene.Materials[i]; var binding = frame.Surface.Materials[i];
             float scale = flags.OutlineWidthScale;
-            if (!edge.DrawEnabled || scale == 0 || material.IndexCount == 0 || !ShouldDrawOutline(frame, i, positions, wvp)) continue;
+            if (!edge.DrawEnabled || scale == 0 || material.IndexCount == 0
+                || (deferred ? !ShouldDrawOutlineDeferred(frame, i, deferredMask!, wvp) : !ShouldDrawOutline(frame, i, positions!, wvp))) continue;
             if(buffer is null)
             {
-                buffer=GetCharacterOutlineBuffer(frame,cache,positions);
-                commands.IASetVertexBuffers(0,new VertexBufferView(buffer.GPUVirtualAddress,checked(positions.Length*52),52));
+                if (deferred)
+                {
+                    var gpuModern = cache.GpuSkinning.GetOutlineStreams(frame, sharedSurfaceBuffer, modern: true, needWidthSource: needWidthSource);
+                    commands.SetPipelineState(pipeline.State);
+                    buffer = gpuModern.Stream;
+                    scaleSource = gpuModern.WidthSource;
+                }
+                else
+                {
+                    buffer=GetCharacterOutlineBuffer(frame,cache,positions!);
+                }
+                commands.IASetVertexBuffers(0,new VertexBufferView(buffer.GPUVirtualAddress,checked(vertexCount*52),52));
             }
             var source = scale == 1 ? sharedSurfaceBuffer : (scaleSource ??= D3D12OutlineDrawScale.SourceBuffer(frame.Outline!, cache));
             int sourceStride = scale == 1 ? 32 : 16;
-            commands.IASetVertexBuffers(1, new VertexBufferView(source.GPUVirtualAddress, checked(positions.Length * sourceStride), sourceStride));
+            commands.IASetVertexBuffers(1, new VertexBufferView(source.GPUVirtualAddress, checked(vertexCount * sourceStride), sourceStride));
             var host = OriginalStyleMath.ResolveHostColors(material, frame.Surface.Profile);
             commands.SetGraphicsRootConstantBufferView(0, context.UploadConstants(common with {
                 EgColor = host.EgColor, SpecularPower = host.SpecularPower, ToonShadowColor = SurfaceToon(binding),
@@ -114,7 +132,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 2)), ShaderVisibility.Pixel),
             new(RootParameterType.ConstantBufferView, new RootDescriptor(3, 0), ShaderVisibility.Pixel),
             new(RootParameterType.ConstantBufferView, new RootDescriptor(4, 0), ShaderVisibility.All)];
-        var root = device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(
+        var root = runtime.CreateRootSignature(new RootSignatureDescription(
             RootSignatureFlags.AllowInputAssemblerInputLayout, parameters, [Sampler(key.Sampling, 0), Sampler(key.ShadowSampling, 1)]), RootSignatureVersion.Version10);
         try
         {
@@ -134,7 +152,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 depth.FrontFace.StencilFunc = ComparisonFunction.Always; depth.FrontFace.StencilPassOp = StencilOperation.Replace;
                 depth.BackFace = depth.FrontFace;
             }
-            var state = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            var state = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature = root, VertexShader = shader.Vertex, PixelShader = shader.Pixel,
                 InputLayout = new InputLayoutDescription([
                     new("POSITION", 0, Format.R32G32B32_Float, 0, 0), new("POSITION", 1, Format.R32G32B32_Float, 12, 0),

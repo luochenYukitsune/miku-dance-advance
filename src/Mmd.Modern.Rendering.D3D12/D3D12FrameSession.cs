@@ -2,7 +2,8 @@ using Mmd.Modern.Core;
 using Vortice.Direct3D12;
 namespace Mmd.Modern.Rendering.D3D12;
 
-/// <summary>A retained GPU image. Native resources stay inside the rendering assembly; dispose the lease when consumed.</summary>
+/// <summary>A retained GPU image. Native resources stay inside the rendering assembly; dispose the lease when consumed.
+/// A pooled image is not reused by later frames before its lease is disposed.</summary>
 public sealed class D3D12FrameOutput:IDisposable
 {
     public int Width {get;}
@@ -10,10 +11,11 @@ public sealed class D3D12FrameOutput:IDisposable
     public long FrameId {get;}
     public D3D12FrameStatistics Statistics {get;}
     internal ID3D12Resource Resource {get;}
-    internal D3D12FrameOutput(int width,int height,long frameId,D3D12FrameStatistics statistics,ID3D12Resource resource)
-    {Width=width;Height=height;FrameId=frameId;Statistics=statistics;Resource=resource;}
-    private bool disposed;
-    public void Dispose(){if(disposed)return;disposed=true;Resource.Dispose();}
+    private readonly Action? release;
+    internal D3D12FrameOutput(int width,int height,long frameId,D3D12FrameStatistics statistics,ID3D12Resource resource,Action? release=null)
+    {Width=width;Height=height;FrameId=frameId;Statistics=statistics;Resource=resource;this.release=release;}
+    private int disposed;
+    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)!=0)return;Resource.Dispose();release?.Invoke();}
 }
 
 /// <summary>Persistent complete-frame recording session. Render retains GPU output; Capture alone requests CPU pixels.</summary>
@@ -21,6 +23,10 @@ public sealed class D3D12FrameSession:IDisposable
 {
     internal D3D12GpuRuntime Runtime {get;}
     private readonly D3D12FrameRenderer renderer;
+    private readonly object prewarmGate = new();
+    private CancellationTokenSource? prewarmCts;
+    private Task prewarmTask = Task.CompletedTask;
+    private bool disposed;
     public string AdapterName=>Runtime.AdapterName;
     public long AdapterLuid=>Runtime.Device.AdapterLuid;
     public bool IsWarp=>Runtime.IsWarp;
@@ -31,7 +37,9 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12CaptureMemoryStatistics? CaptureMemoryStatistics=>renderer.CaptureMemoryStatistics;
     public D3D12VisibilityStatistics? VisibilityStatistics=>renderer.VisibilityStatistics;
     public D3D12RayGiStatistics? RayGiStatistics=>renderer.RayGiStatistics;
+    public D3D12GpuSkinningStatistics? GpuSkinningStatistics=>renderer.GpuSkinningStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
+    internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>renderer.TemporalUpscalingStatistics;
     public int EditorOverlayDrawCalls=>renderer.EditorOverlayDrawCalls;
     public string? RayGiBackendIdentity=>renderer.RayGiBackendIdentity;
@@ -43,14 +51,68 @@ public sealed class D3D12FrameSession:IDisposable
     public IReadOnlyList<PostEffectPassRecord> LastPasses=>renderer.LastPasses;
     public IReadOnlyList<PostEffectTargetRecord> LastTargets=>renderer.LastTargets;
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings=>renderer.LastRecordings;
-    public D3D12FrameSession(){Runtime=new();renderer=new(Runtime);}
+    internal bool IsPipelineLibraryLoadedFromDisk => Runtime.PipelineLibrary.LoadedFromDisk;
+    internal int PipelineLibraryHits => Runtime.PipelineLibrary.LibraryHits;
+    internal string? PipelineLibraryCachePath => Runtime.PipelineLibrary.CacheFilePath;
+    public D3D12FrameSession() : this(null) { }
+    internal D3D12FrameSession(string? pipelineCacheDirectory){Runtime=new(pipelineCacheDirectory);renderer=new(Runtime);}
     public D3D12FrameOutput Render(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,null,upscaling,temporalUpscaling,surfaceStyles,diffusion);
     public RenderedFrame Capture(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
         =>renderer.Render(frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+    /// <summary>Capture into caller-owned storage of at least width*height*4 bytes (tightly packed RGBA8 rows),
+    /// so repeated captures can reuse one CPU buffer. The returned frame's Rgba is empty.</summary>
+    public RenderedFrame CaptureInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
+        =>renderer.RenderInto(destination,frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
     internal D3D12FrameOutput RenderForPresent(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
         Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
         =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion);
+    public Task PrewarmAsync(D3D12ShaderWarmupSpec spec, int maxParallelism = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed), this);
+        DxcShaderCompiler? compiler = null;
+        if (spec.Gi)
+        {
+            try { compiler = Runtime.GetOrCreateDxcCompiler(); } catch { }
+        }
+        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, compiler, cancellationToken);
+    }
+    internal void StartBackgroundPrewarm(D3D12ShaderWarmupSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        CancellationTokenSource? prior;
+        CancellationTokenSource next;
+        lock (prewarmGate)
+        {
+            if (disposed) return;
+            prior = prewarmCts;
+            next = new();
+            prewarmCts = next;
+            prewarmTask = PrewarmAsync(spec, 0, next.Token);
+        }
+        try { prior?.Cancel(); prior?.Dispose(); } catch { }
+    }
     public void WaitForIdle()=>Runtime.WaitForIdle();
-    public void Dispose(){renderer.Dispose();Runtime.Dispose();}
+    public void Dispose()
+    {
+        CancellationTokenSource? cts;
+        Task task;
+        lock (prewarmGate)
+        {
+            if (disposed) return;
+            disposed = true;
+            cts = prewarmCts;
+            prewarmCts = null;
+            task = prewarmTask;
+            prewarmTask = Task.CompletedTask;
+        }
+        if (cts is not null)
+        {
+            try { cts.Cancel(); } catch { }
+            try { task.GetAwaiter().GetResult(); } catch { }
+            cts.Dispose();
+        }
+        renderer.Dispose();Runtime.Dispose();
+    }
 }

@@ -24,10 +24,11 @@ public sealed partial class SceneAnimationSession
                 throw new InvalidOperationException("A coupled seek requires a newly owned backend; the active world cannot be reused.");
             return backend;
         }
-        using var candidate = new SceneAnimationSession(entries.Select(entry => entry.Object),
+        using var candidate = new SceneAnimationSession(entries.Select(entry => entry.Object), null,
             entries.Where(entry => entry.Motion is not null).Select(entry => entry.Motion!), Independent, lighting,
             token, frame, outsideBindings, sceneMotion, sharedPhysicsFactory is null ? null : Shared,
-            sharedWorldGravity: sharedWorldGravity, pmmControls: pmmControls, coupledSoftBodies: true, modelRoles: modelRoles);
+            null, sharedWorldGravity, pmmControls, coupledSoftBodies: true, modelRoles: modelRoles,
+            deferInitialComposition: false, initialTextureSource: null, deferVertexSkinning: deferVertexSkinning);
         token.ThrowIfCancellationRequested();
 
         var oldEntries = entries;

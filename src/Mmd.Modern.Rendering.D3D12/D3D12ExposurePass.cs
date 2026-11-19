@@ -31,21 +31,22 @@ internal sealed class D3D12ExposurePass(D3D12GpuRuntime runtime, D3D12GpuCache c
         if(!float.IsFinite(ev)||ev is < -8 or > 8) throw new ArgumentOutOfRangeException(nameof(ev));
         if(ev==0) return input;
         var device=context.Device;var commands=context.Commands;var compiled=GetShaders();
-        var root=cache.Get("lighting-exposure:root",()=>device.CreateRootSignature<ID3D12RootSignature>(
+        var root=cache.Get("lighting-exposure:root",()=>runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,[
                 new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,0)),ShaderVisibility.Pixel),
                 new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.Pixel)]),RootSignatureVersion.Version10));
-        var resource=context.Own(device.CreateCommittedResource(HeapType.Default,
-            ResourceDescription.Texture2D(input.Format,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),ResourceStates.RenderTarget));
-        var rtv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView,1)));
-        var srv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible)));
+        // The opaque full-target draw overwrites every texel of the pooled image.
+        var resource=runtime.Transients.Resource(context,HeapType.Default,
+            ResourceDescription.Texture2D(input.Format,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),ResourceStates.RenderTarget);
+        var rtv=runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView,1));
+        var srv=runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible));
         device.CreateRenderTargetView(resource,null,rtv.GetCPUDescriptorHandleForHeapStart());
         device.CreateShaderResourceView(input.Resource,null,srv.GetCPUDescriptorHandleForHeapStart());
         runtime.DescriptorHighWater=Math.Max(runtime.DescriptorHighWater,1);
-        var output=new D3D12GpuTarget("$lighting-exposure",resource,rtv.GetCPUDescriptorHandleForHeapStart(),input.Width,input.Height,input.Format,false);
+        var output=runtime.Transients.Track(new D3D12GpuTarget("$lighting-exposure",resource,rtv.GetCPUDescriptorHandleForHeapStart(),input.Width,input.Height,input.Format,false));
         var pipeline=cache.Get("lighting-exposure:pso",()=>
         {
-            var pso=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            var pso=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature=root,VertexShader=compiled.Vertex,PixelShader=compiled.Pixel,BlendState=BlendDescription.Opaque,
                 SampleMask=uint.MaxValue,RasterizerState=RasterizerDescription.CullNone,DepthStencilState=DepthStencilDescription.None,
                 PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[input.Format],SampleDescription=new(1,0) });
@@ -61,12 +62,19 @@ internal sealed class D3D12ExposurePass(D3D12GpuRuntime runtime, D3D12GpuCache c
         output.Initialized=true;return output;
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        yield return new(Source, "VSMain", "lighting-exposure.hlsl", "vs_5_1", flags);
+        yield return new(Source, "PSMain", "lighting-exposure.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex,byte[] Pixel) GetShaders()
     {
         if(shaders is { } value) return value;
         const ShaderFlags flags=ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness;
-        value=(Compiler.Compile(Source,"VSMain","lighting-exposure.hlsl","vs_5_1",flags).ToArray(),
-            Compiler.Compile(Source,"PSMain","lighting-exposure.hlsl","ps_5_1",flags).ToArray());
+        value=(D3D12FxcShaderCache.Compile(Source,"VSMain","lighting-exposure.hlsl","vs_5_1",flags),
+            D3D12FxcShaderCache.Compile(Source,"PSMain","lighting-exposure.hlsl","ps_5_1",flags));
         runtime.ShaderCompilations+=2;shaders=value;return value;
     }
     internal const string Source="""

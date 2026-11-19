@@ -87,6 +87,6 @@ internal static partial class OriginalFrameShaders
 
     internal static byte[] CompileGenshinMetallicSpecularSurface(string entry,
         bool native, bool gi, bool morph, bool sub, bool rb, bool atlas)
-        => Compiler.Compile(GenshinMetallicSpecularSurfaceSource(native, gi, morph, sub, rb, atlas), entry,
-            "OriginalGenshinMetallicSpecular.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(GenshinMetallicSpecularSurfaceSource(native, gi, morph, sub, rb, atlas), entry,
+            "OriginalGenshinMetallicSpecular.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

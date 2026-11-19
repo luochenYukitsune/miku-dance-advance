@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Mmd.Modern.ViewOutput.D3D12/Mmd.Modern.ViewOutput.D3D12.csproj" />
+    <ProjectReference Include="../../../src/Mmd.Modern.ViewOutput.FFmpeg/Mmd.Modern.ViewOutput.FFmpeg.csproj" />
+    <ProjectReference Include="../../../src/Mmd.Modern.Physics.Bullet/Mmd.Modern.Physics.Bullet.csproj" />
+    <Compile Include="../../../src/Mmd.Modern.Smoke/SceneTextureLoader.cs" Link="SceneTextureLoader.cs" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+  </ItemGroup>
+</Project>

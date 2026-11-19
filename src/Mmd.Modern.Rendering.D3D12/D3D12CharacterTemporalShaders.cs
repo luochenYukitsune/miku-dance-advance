@@ -47,7 +47,7 @@ internal sealed partial class D3D12TemporalInputPass
                 AddressW = TextureAddressMode.Clamp };
             samplers = [sampler, shadowSampler];
         }
-        var root = runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(
+        var root = runtime.CreateRootSignature(new RootSignatureDescription(
             RootSignatureFlags.AllowInputAssemblerInputLayout, parameters, samplers),
             RootSignatureVersion.Version10);
         try
@@ -56,8 +56,8 @@ internal sealed partial class D3D12TemporalInputPass
             {
                 string identity = key.SubTexture ? "subtexture:" + entry : entry;
                 if (characterShaders.TryGetValue(identity, out var bytes)) return bytes;
-                bytes = Compiler.Compile(CharacterShaderSource(key.SubTexture), entry, "CharacterTemporal.hlsl", vertex ? "vs_5_1" : "ps_5_1",
-                    ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+                bytes = D3D12FxcShaderCache.Compile(CharacterShaderSource(key.SubTexture), entry, "CharacterTemporal.hlsl", vertex ? "vs_5_1" : "ps_5_1",
+                    ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
                 runtime.ShaderCompilations++; characterShaders.Add(identity, bytes); return bytes;
             }
             var raster = RasterizerDescription.CullNone; raster.CullMode = key.Cull; raster.FrontCounterClockwise = key.FrontCounterClockwise;
@@ -102,7 +102,7 @@ internal sealed partial class D3D12TemporalInputPass
                 ?new("TEXCOORD",1,Format.R32G32B32A32_Float,0,2):new("TEXCOORD",1,Format.R32G32B32A32_Float,0,1)];
             layout = [..layout, new("TEXCOORD",2,Format.R32G32B32A32_Float,0,3),
                 new("TEXCOORD",3,Format.R32G32B32A32_Float,16,3)];
-            var state = runtime.Device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            var state = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature = root, VertexShader = Shader("VSCharacter", true), PixelShader = Shader(key.EditorVisibility ? "PSGuideVisibility" : key.Reactive ? "PSReactive" : "PSOpaque", false),
                 InputLayout = new InputLayoutDescription(layout),
@@ -115,6 +115,16 @@ internal sealed partial class D3D12TemporalInputPass
             var created = new CharacterPipeline(root, state); characterPipelines.Add(key, created); return created;
         }
         catch { root.Dispose(); throw; }
+    }
+
+    internal static IEnumerable<D3D12FxcShaderRequest> GetCharacterPrewarmRequests(bool subTexture, bool includeReactive, bool includeEditorVisibility)
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        string source = CharacterShaderSource(subTexture);
+        yield return new(source, "VSCharacter", "CharacterTemporal.hlsl", "vs_5_1", flags);
+        yield return new(source, "PSOpaque", "CharacterTemporal.hlsl", "ps_5_1", flags);
+        if (includeReactive) yield return new(source, "PSReactive", "CharacterTemporal.hlsl", "ps_5_1", flags);
+        if (includeEditorVisibility) yield return new(source, "PSGuideVisibility", "CharacterTemporal.hlsl", "ps_5_1", flags);
     }
 
     internal static string CharacterShaderSource(bool subTexture)

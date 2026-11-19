@@ -14,6 +14,7 @@ public sealed partial class CharacterAnimationController
     public bool SupportsSoftBodies => model.SoftBodies.Count != 0;
     public bool SoftBodiesEnabled => softBodies is not null || UsesCoupledSoftBodies;
     internal bool UsesSoftBodyBackend(ISoftBodyBackend backend) => ReferenceEquals(softBackend, backend);
+    internal bool SharesSoftBodyBackendWith(SceneAnimationSession other) => softBackend is not null && other.UsesSoftPhysicsBackend(softBackend);
     internal void SetSoftBodyGravity(Vector3 gravity)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

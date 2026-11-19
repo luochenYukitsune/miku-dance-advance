@@ -60,6 +60,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileGenshinHairSurface(string entry, bool native, bool gi, bool textureMorph, bool subTexture)
-        => Compiler.Compile(GenshinHairSurfaceSource(native, gi, textureMorph, subTexture), entry,
-            "OriginalGenshinPackedHair.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness).ToArray();
+        => D3D12FxcShaderCache.Compile(GenshinHairSurfaceSource(native, gi, textureMorph, subTexture), entry,
+            "OriginalGenshinPackedHair.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
 }

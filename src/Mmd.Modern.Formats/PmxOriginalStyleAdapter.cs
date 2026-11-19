@@ -8,6 +8,21 @@ public sealed record PmxOriginalStyleAdaptationResult(OriginalStyleScene Scene,I
 /// <summary>Static PMX character rest pose to a format-neutral surface contract. Assets are caller owned.</summary>
 public static class PmxOriginalStyleAdapter
 {
+    /// <summary>Distinct authored texture tokens that <see cref="FromRestPose"/> may request, in request order.
+    /// Out-of-range identities are omitted; the adapter still reports them when it reaches them.</summary>
+    public static IReadOnlyList<string> RequestedTextures(PmxModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var result=new List<string>();var seen=new HashSet<int>();
+        void Add(int index) {if(index>=0&&index<model.Textures.Count&&seen.Add(index))result.Add(model.Textures[index]);}
+        foreach(var m in model.Materials) {
+            Add(m.TextureIndex);
+            if(m.SphereMode!=PmxSphereMode.None)Add(m.SphereTextureIndex);
+            if(m.ToonMode==PmxToonMode.Separate)Add(m.ToonTextureIndex);
+        }
+        return result.AsReadOnly();
+    }
+
     public static PmxOriginalStyleAdaptationResult FromRestPose(PmxModel model,Func<string,SceneTexture?>? loadTexture=null,
         Func<int,SceneTexture?>? loadCommonToon=null,OriginalStyleProfile? profile=null,bool initialSubTextureAdditive=false,
         bool retainToonTextures=false,Func<SceneTexture?>? loadDefaultToon=null)

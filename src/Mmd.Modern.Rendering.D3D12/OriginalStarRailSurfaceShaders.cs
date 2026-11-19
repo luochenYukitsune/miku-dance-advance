@@ -55,6 +55,6 @@ internal static partial class OriginalFrameShaders
     }
 
     internal static byte[] CompileStarRailSurface(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>Compiler.Compile(StarRailSurfaceSource(native,gi,textureMorph,subTexture),entry,
-            "OriginalStarRailPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+        =>D3D12FxcShaderCache.Compile(StarRailSurfaceSource(native,gi,textureMorph,subTexture),entry,
+            "OriginalStarRailPmxBody.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }

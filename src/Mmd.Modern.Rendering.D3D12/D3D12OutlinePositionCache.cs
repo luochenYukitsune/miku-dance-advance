@@ -77,9 +77,15 @@ internal sealed class D3D12OutlinePositionCache
                 var resultChunks=reuse?oldPositions!.CopyChunkTable():new Vector4[data.VertexChunkCount][];
                 var compared=new int[work.Length];var expanded=new int[work.Length];var copiedChunks=new bool[work.Length];
                 var changed=new bool[work.Length];
-                Parallel.For(0,work.Length,new ParallelOptions{MaxDegreeOfParallelism=maximumDegree,TaskScheduler=TaskScheduler.Default},chunkIndex=>
+                var active=new int[workChunks];
+                for(int i=0,j=0;i<work.Length;i++)if(work[i] is not null)active[j++]=i;
+                int workerCount=Math.Min(maximumDegree,active.Length),claimed=-1;
+                Parallel.For(0,workerCount,new ParallelOptions{MaxDegreeOfParallelism=workerCount,TaskScheduler=TaskScheduler.Default},_=>
                 {
-                    var segments=work[chunkIndex];if(segments is null)return;
+                    for(int i;(i=Interlocked.Increment(ref claimed))<active.Length;)
+                    {
+                    int chunkIndex=active[i];
+                    var segments=work[chunkIndex]!;
                     var current=data.GetVertexChunk(chunkIndex);
                     var prior=reuse?oldData!.GetVertexChunk(chunkIndex):default;
                     Vector4[]? output=reuse?null:new Vector4[current.Length];
@@ -123,6 +129,7 @@ internal sealed class D3D12OutlinePositionCache
                     if(output is not null)resultChunks[chunkIndex]=output;
                     compared[chunkIndex]=localCompared;expanded[chunkIndex]=localExpanded;
                     copiedChunks[chunkIndex]=localCopied;changed[chunkIndex]=localChanged;
+                    }
                 });
                 int comparedTotal=0,expandedTotal=0,copiedTotal=0;bool anyChanged=false;
                 for(int index=0;index<work.Length;index++)

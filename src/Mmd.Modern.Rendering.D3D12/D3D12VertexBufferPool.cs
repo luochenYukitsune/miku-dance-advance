@@ -15,7 +15,7 @@ internal readonly record struct D3D12SceneVertexBufferStatistics(long FullUpload
 /// <summary>One mutable DEFAULT vertex buffer per fence slot and stream. Begin has already waited
 /// that slot's fence. Each destination remembers its own actual revision, so omitted publications
 /// and branches cannot drop changes. Only small revision metadata, never older CPU arrays, is held.</summary>
-internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferUploadStaging staging):IDisposable
+internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferUploadStaging staging,bool unorderedAccess=false):IDisposable
 {
     private sealed class Buffer(ID3D12Resource resource,int bytes,Action released):IDisposable
     {
@@ -23,20 +23,24 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         internal int Bytes {get;}=bytes;
         public void Dispose(){Resource.Dispose();released();}
     }
-    private sealed class Entry(D3D12RetainedResource owner,object revision)
+    private sealed class Entry(D3D12RetainedResource owner,object revision,ResourceStates state=ResourceStates.VertexAndConstantBuffer)
     {
         internal D3D12RetainedResource Owner {get;}=owner;
         internal Buffer Buffer=>(Buffer)Owner.Value;
         internal object Revision=revision;
+        internal ResourceStates State=state;
         // A second different publication in one list must preserve previously returned readers.
         internal long RecordingFrame=-1;
     }
     private static readonly int vertexStride=Marshal.SizeOf<SceneVertex>();
+    private static readonly int outlineVertexStride=Marshal.SizeOf<OriginalOutlineVertex>();
     private const int vertexChunkSize=4096;
     private readonly Dictionary<string,Entry?[]> streams=[];
     private long fullUploads,partialUploads,unchangedHits,copyCalls,copiedBytes,fullPotentialBytes,bufferCreations,liveBytes;
     private int liveBuffers;
     private bool disposed;
+    /// <summary>False only when the latest Get returned an existing buffer without any copy.</summary>
+    internal bool LastGetWrote {get;private set;}
     internal int RetainedBufferCount=>streams.Values.Sum(slots=>slots.Count(entry=>entry is not null));
     internal D3D12SceneVertexBufferStatistics Statistics=>new(fullUploads,partialUploads,unchangedHits,copyCalls,copiedBytes,
         fullPotentialBytes,bufferCreations,RetainedBufferCount,streams.Values.Sum(slots=>slots.Sum(entry=>(long)(entry?.Buffer.Bytes??0))),
@@ -61,8 +65,48 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         if(positions.Length==0)throw new ArgumentException("An expanded buffer requires nonempty geometry.",nameof(positions));
         return GetPayload(stream,default,positions.Length,16,positions.Revision,expanded:positions);
     }
+    internal ID3D12Resource GetOutlineStatic(string stream,OriginalOutlineData staticOutline)
+    {
+        ArgumentNullException.ThrowIfNull(staticOutline);
+        if(staticOutline.VertexCount==0)throw new ArgumentException("An outline buffer requires nonempty geometry.",nameof(staticOutline));
+        return GetPayload(stream,default,staticOutline.VertexCount,outlineVertexStride,staticOutline.VertexRevision,outlineStatic:staticOutline);
+    }
+    internal ID3D12Resource GetWritable(string stream,int count,int stride,out ResourceStates currentState,out bool replaced)
+    {
+        ObjectDisposedException.ThrowIf(disposed,this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stream);
+        if(count<=0||stride<=0)throw new ArgumentOutOfRangeException(nameof(count));
+        if(!runtime.IsRecording)throw new InvalidOperationException("Writable GPU buffers require an open GPU frame.");
+        if(!unorderedAccess)throw new InvalidOperationException("Writable pool must allow UnorderedAccess.");
+        if(!streams.TryGetValue(stream,out var slots))
+        {slots=new Entry?[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];streams.Add(stream,slots);}
+        int slot=runtime.SlotIndex,bytes=checked(count*stride);
+        var entry=slots[slot];
+        LastGetWrote=false;
+        bool needNew=entry is null||entry.Buffer.Bytes!=bytes||entry.RecordingFrame==runtime.FrameId;
+        if(needNew)
+        {
+            var resource=runtime.Device.CreateCommittedResource(HeapType.Default,
+                ResourceDescription.Buffer((ulong)bytes,ResourceFlags.AllowUnorderedAccess),ResourceStates.Common);
+            var owned=new Buffer(resource,bytes,()=>{liveBuffers--;liveBytes-=bytes;});
+            bufferCreations++;liveBuffers++;liveBytes+=bytes;
+            var previous=entry;entry=new(new(stream,owned),stream,ResourceStates.Common);slots[slot]=entry;previous?.Owner.Dispose();
+            KeepForFrame(entry);entry.RecordingFrame=runtime.FrameId;LastGetWrote=true;
+            runtime.OnAbort(()=>{if(ReferenceEquals(slots[slot],entry)){slots[slot]=null;entry.Owner.Dispose();}});
+            currentState=ResourceStates.Common;replaced=true;return resource;
+        }
+        var reused=entry!;KeepForFrame(reused);reused.RecordingFrame=runtime.FrameId;
+        var priorState=reused.State;
+        runtime.OnAbort(()=>{if(ReferenceEquals(slots[slot],reused)){slots[slot]=null;reused.Owner.Dispose();}});
+        currentState=priorState;replaced=false;return reused.Buffer.Resource;
+    }
+    internal void SetWritableState(string stream,ResourceStates state)
+    {
+        if(!streams.TryGetValue(stream,out var slots))return;
+        if(slots[runtime.SlotIndex] is {} entry)entry.State=state;
+    }
     private ID3D12Resource GetPayload(string stream,ReadOnlySpan<byte> payload,int count,int stride,object revision,
-        SceneSnapshot? scene=null,D3D12ExpandedPositions? expanded=null)
+        SceneSnapshot? scene=null,D3D12ExpandedPositions? expanded=null,OriginalOutlineData? outlineStatic=null)
     {
         ObjectDisposedException.ThrowIf(disposed,this);
         ArgumentException.ThrowIfNullOrWhiteSpace(stream);
@@ -71,6 +115,7 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         {slots=new Entry?[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];streams.Add(stream,slots);}
         int slot=runtime.SlotIndex,bytes=checked(count*stride);
         var entry=slots[slot];
+        LastGetWrote=false;
         if(entry is not null&&ReferenceEquals(entry.Revision,revision))return Hit(entry);
 
         bool replacement=entry is null||entry.Buffer.Bytes!=bytes||entry.RecordingFrame==runtime.FrameId;
@@ -79,12 +124,13 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         bool full=ranges.Count==1&&ranges[0].Start==0&&ranges[0].Count==count;
         if(replacement)
         {
-            var resource=runtime.Device.CreateCommittedResource(HeapType.Default,ResourceDescription.Buffer((ulong)bytes),ResourceStates.CopyDest);
+            var resource=runtime.Device.CreateCommittedResource(HeapType.Default,
+                ResourceDescription.Buffer((ulong)bytes,unorderedAccess?ResourceFlags.AllowUnorderedAccess:ResourceFlags.None),ResourceStates.CopyDest);
             var owned=new Buffer(resource,bytes,()=>{liveBuffers--;liveBytes-=bytes;});
             bufferCreations++;liveBuffers++;liveBytes+=bytes;
             var previous=entry;entry=new(new(revision,owned),revision);slots[slot]=entry;previous?.Owner.Dispose();
         }
-        var changed=entry!;KeepForFrame(changed);changed.RecordingFrame=runtime.FrameId;
+        var changed=entry!;KeepForFrame(changed);changed.RecordingFrame=runtime.FrameId;LastGetWrote=true;
         // Removing a touched entry handles both preexisting buffers and newly allocated buffers:
         // aborted barriers/copies never ran, so neither their final state nor revision is reusable.
         runtime.OnAbort(()=>
@@ -95,7 +141,7 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
         if(!replacement)runtime.Commands.ResourceBarrierTransition(gpu,ResourceStates.VertexAndConstantBuffer,ResourceStates.CopyDest);
         foreach(var range in ranges)
         {
-            if(scene is null&&expanded is null)
+            if(scene is null&&expanded is null&&outlineStatic is null)
             {
                 CopyRange(gpu,checked(range.Start*stride),payload.Slice(checked(range.Start*stride),checked(range.Count*stride)));
                 continue;
@@ -110,6 +156,11 @@ internal sealed class D3D12VertexBufferPool(D3D12GpuRuntime runtime,D3D12BufferU
                 if(expanded is not null)
                 {
                     var chunk=expanded.GetChunk(chunkIndex);length=Math.Min(remaining,chunk.Length-chunkOffset);
+                    CopyRange(gpu,checked(source*stride),MemoryMarshal.AsBytes(chunk.Slice(chunkOffset,length)));
+                }
+                else if(outlineStatic is not null)
+                {
+                    var chunk=outlineStatic.GetVertexChunk(chunkIndex);length=Math.Min(remaining,chunk.Length-chunkOffset);
                     CopyRange(gpu,checked(source*stride),MemoryMarshal.AsBytes(chunk.Slice(chunkOffset,length)));
                 }
                 else

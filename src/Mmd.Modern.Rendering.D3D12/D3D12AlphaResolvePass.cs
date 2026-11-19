@@ -40,27 +40,28 @@ internal sealed class D3D12AlphaResolvePass(D3D12GpuRuntime runtime,D3D12GpuCach
             throw new InvalidOperationException("Alpha resolve requires initialized premultiplied RGBA16F.");
         var device=context.Device;var commands=context.Commands;
         var compiled=GetShaders();
-        var root=cache.Get("alpha-resolve:root",()=>device.CreateRootSignature<ID3D12RootSignature>(
+        var root=cache.Get("alpha-resolve:root",()=>runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView,1,0)),ShaderVisibility.Pixel)]),
             RootSignatureVersion.Version10));
         var pipeline=cache.Get("alpha-resolve:pso",()=>
         {
-            var created=device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
+            var created=runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription {
                 RootSignature=root,VertexShader=compiled.Vertex,PixelShader=compiled.Pixel,
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=RasterizerDescription.CullNone,
                 DepthStencilState=DepthStencilDescription.None,PrimitiveTopologyType=PrimitiveTopologyType.Triangle,
                 RenderTargetFormats=[Format.R8G8B8A8_UNorm],SampleDescription=new(1,0)});
             runtime.PipelineCreations++;return created;
         });
-        var resource=context.Own(device.CreateCommittedResource(HeapType.Default,
+        // The opaque full-target draw overwrites every texel of the pooled image.
+        var resource=runtime.Transients.Resource(context,HeapType.Default,
             ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)input.Width,(uint)input.Height,mipLevels:1,flags:ResourceFlags.AllowRenderTarget),
-            ResourceStates.RenderTarget));
-        var rtv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView,1)));
-        var srv=context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible)));
+            ResourceStates.RenderTarget);
+        var rtv=runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView,1));
+        var srv=runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,1,DescriptorHeapFlags.ShaderVisible));
         var handle=rtv.GetCPUDescriptorHandleForHeapStart();device.CreateRenderTargetView(resource,null,handle);
         device.CreateShaderResourceView(input.Resource,null,srv.GetCPUDescriptorHandleForHeapStart());
-        var output=new D3D12GpuTarget("$straight-alpha",resource,handle,input.Width,input.Height,Format.R8G8B8A8_UNorm,false);
+        var output=runtime.Transients.Track(new D3D12GpuTarget("$straight-alpha",resource,handle,input.Width,input.Height,Format.R8G8B8A8_UNorm,false));
         commands.UnsetRenderTargets();context.Transition(input,ResourceStates.PixelShaderResource);
         commands.SetDescriptorHeaps(srv);commands.SetGraphicsRootSignature(root);commands.SetPipelineState(pipeline);
         commands.SetGraphicsRootDescriptorTable(0,srv.GetGPUDescriptorHandleForHeapStart());
@@ -71,12 +72,19 @@ internal sealed class D3D12AlphaResolvePass(D3D12GpuRuntime runtime,D3D12GpuCach
         commands.UnsetRenderTargets();output.Initialized=true;return output;
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        yield return new(Source, "VSMain", "alpha-resolve.hlsl", "vs_5_1", flags);
+        yield return new(Source, "PSMain", "alpha-resolve.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex,byte[] Pixel) GetShaders()
     {
         if(shaders is {} compiled)return compiled;
         const ShaderFlags flags=ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness;
-        compiled=(Compiler.Compile(Source,"VSMain","alpha-resolve.hlsl","vs_5_1",flags).ToArray(),
-            Compiler.Compile(Source,"PSMain","alpha-resolve.hlsl","ps_5_1",flags).ToArray());
+        compiled=(D3D12FxcShaderCache.Compile(Source,"VSMain","alpha-resolve.hlsl","vs_5_1",flags),
+            D3D12FxcShaderCache.Compile(Source,"PSMain","alpha-resolve.hlsl","ps_5_1",flags));
         shaders=compiled;runtime.ShaderCompilations+=2;return compiled;
     }
 

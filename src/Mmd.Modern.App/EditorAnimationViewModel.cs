@@ -41,6 +41,25 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private SceneMotionDetachment? detachment;
     private VmdMotion? effectiveMotion;
     private VmdMotion EffectiveMotion => effectiveMotion ??= detachment?.Filter(motion) ?? motion;
+    // Exact authored keys by bone and frame for one immutable effective motion; a commit, Undo or
+    // detachment change produces a new motion instance and therefore a new index.
+    private (VmdMotion Source, Dictionary<string, Dictionary<uint, VmdBoneKeyframe>> Keys)? boneKeyIndex;
+    internal VmdBoneKeyframe? FindExactBoneKey(string bone, uint frame)
+    {
+        var source = EffectiveMotion;
+        if (boneKeyIndex is not { } index || !ReferenceEquals(index.Source, source))
+        {
+            var keys = new Dictionary<string, Dictionary<uint, VmdBoneKeyframe>>(StringComparer.Ordinal);
+            // Later records overwrite earlier ones, matching the previous LastOrDefault scan.
+            foreach (var key in source.BoneKeyframes)
+            {
+                if (!keys.TryGetValue(key.BoneName, out var frames)) keys.Add(key.BoneName, frames = []);
+                frames[key.Frame] = key;
+            }
+            boneKeyIndex = index = (source, keys);
+        }
+        return index.Keys.TryGetValue(bone, out var byFrame) && byFrame.TryGetValue(frame, out var exact) ? exact : null;
+    }
     public bool IsSelectedUnowned => IsBoneSelected && detachment?.BoneNames.Contains(SelectedBone!.Name) == true
         || IsMorphSelected && detachment?.MorphNames.Contains(model!.Morphs[morphIndex!.Value].Name) == true;
     private CharacterAnimator? boneSampler;
@@ -510,7 +529,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             if (IsBoneSelected && boneSampler is not null)
             {
                 var local = boneSampler.Sample(CurrentFrame).BoneWorldMatrices[0];
-                var exact = EffectiveMotion.BoneKeyframes.LastOrDefault(key => key.BoneName == SelectedBone!.Name && key.Frame == (uint)CurrentFrame);
+                var exact = FindExactBoneKey(SelectedBone!.Name, (uint)CurrentFrame);
                 sampledRotation = exact?.Rotation ?? Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(local));
                 var degrees = ToDegrees(Quaternion.Normalize(sampledRotation));
                 positionX = ToDecimal(local.Translation.X); positionY = ToDecimal(local.Translation.Y); positionZ = ToDecimal(local.Translation.Z);
@@ -545,6 +564,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private void RebuildTracks()
     {
         effectiveMotion = null;
+        boneKeyIndex = null;
         var result = new List<EditorTimelineTrack>();
         result.AddRange(EffectiveMotion.BoneKeyframes.GroupBy(k => k.BoneName, StringComparer.Ordinal).Select(g => new EditorTimelineTrack(KeyframeTrackKind.Bone, g.Key, g.Select(k => k.Frame))));
         result.AddRange(EffectiveMotion.MorphKeyframes.GroupBy(k => k.MorphName, StringComparer.Ordinal).Select(g => new EditorTimelineTrack(KeyframeTrackKind.Morph, g.Key, g.Select(k => k.Frame))));
@@ -665,6 +685,10 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private void RefreshCommands()
     {
         foreach (var name in new[] { nameof(CanTranslate), nameof(CanRotate), nameof(CanEditMorph), nameof(CanRegister), nameof(CanEditSelection), nameof(CanModifySelection), nameof(CanPaste) }) Changed(name);
+        if (!presentation.TryDeferCommands()) RaiseCommandAvailabilityChanged();
+    }
+    private void RaiseCommandAvailabilityChanged()
+    {
         foreach (var command in new[] { RegisterKeyframeCommand, DeleteKeyframesCommand, CopyKeyframesCommand, PasteKeyframesCommand, MoveKeyframesCommand, ResetPoseCommand, SelectTimelineRangeCommand, ClearTimelineSelectionCommand }) ((AnimationCommand)command).Refresh();
     }
     private void SetStatus(string value, params object?[] arguments)
@@ -676,7 +700,13 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         RebuildTimelineGroups();
         foreach (string name in new[] { nameof(Status), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(FrameSummary), nameof(KeyframeSummary), nameof(TimelineEmptyHint), nameof(HiddenSelectionSummary), nameof(TimelineSelectionSummary), nameof(TimelineRangeValidationMessage) }) Changed(name);
     }
-    private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private readonly EditorDeferredPresentation presentation = new();
+    /// <summary>Playback presentation: notifications raised while deferred wait for FlushPresentation.</summary>
+    internal void DeferPresentation(bool defer) => presentation.IsDeferring = defer;
+    internal bool HasDeferredPresentation => presentation.HasPending;
+    internal void FlushPresentation() => presentation.Flush(name => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)), RaiseCommandAvailabilityChanged);
+    private void Changed([CallerMemberName] string? name = null)
+    { if (!presentation.TryDefer(name)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)); }
     private static int FindIndex(IEnumerable<string> names, string name) { int i = 0; foreach (var candidate in names) { if (candidate == name) return i; i++; } return -1; }
     private static float ToRadians(decimal? value) => (float)((double)(value ?? 0) * Math.PI / 180);
     private static decimal? ToDecimal(float value)

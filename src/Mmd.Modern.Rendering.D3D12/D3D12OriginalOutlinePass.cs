@@ -28,9 +28,10 @@ public sealed partial class D3D12OriginalStyleRenderer
     {
         using var outlineCpu=MeasureSceneCpu(SceneCpuStage.OriginalOutline);
         var data=frame.Outline!; var options=frame.OutlineOptions!; var scene=frame.Surface.Snapshot;
-        // This recorder only draws original/null styles. Shared vertices must not inherit
-        // a modern neighbour's width through their selected-material binding.
-        var positions=GetEdgePositions(frame);
+        bool deferred=data.DeferredSurface is not null||scene.HasDeferredDeformation;
+        var positions=deferred?null:GetEdgePositions(frame);
+        var deferredMask=deferred?GetDeferredMaterialMask(scene):null;
+        int vertexCount=data.VertexCount;
         ID3D12Resource? vb=null;
         ID3D12Resource? scaleSource=null;
         commands.SetGraphicsRootSignature(pipeline.Root); commands.SetPipelineState(pipeline.State);
@@ -39,6 +40,10 @@ public sealed partial class D3D12OriginalStyleRenderer
         int draws=0;
         var worldViewProjection=scene.World*(frame.Options?.CameraOverride??scene.Camera).ViewProjection(width,height);
         int end=(int)Math.Min(data.Materials.Count,(long)firstMaterial+materialCount);
+        bool needWidthSource=false;
+        if(deferred)
+            for(int k=firstMaterial;k<end;k++)
+                if(frame.Materials[k].CharacterOutlineStyle is null&&frame.Materials[k].OutlineWidthScale!=1){needWidthSource=true;break;}
         for(int i=firstMaterial;i<end;i++)
         {
             if(frame.Materials[i].CharacterOutlineStyle is not null)continue;
@@ -46,15 +51,25 @@ public sealed partial class D3D12OriginalStyleRenderer
             // Alpha==0 is deliberately not a material gate. Colour alpha is retained for the next blend slice.
             float scale=frame.Materials[i].OutlineWidthScale;
             if(!edge.DrawEnabled || scale==0 || range.IndexCount==0) continue;
-            if(!ShouldDrawOutline(frame,i,positions,worldViewProjection))continue;
+            if(deferred?!ShouldDrawOutlineDeferred(frame,i,deferredMask!,worldViewProjection):!ShouldDrawOutline(frame,i,positions!,worldViewProjection))continue;
             if(vb is null)
             {
-                vb=upload(positions);
-                commands.IASetVertexBuffers(0,new VertexBufferView(vb.GPUVirtualAddress,checked(positions.Length*16),16));
+                if(deferred)
+                {
+                    var gpuOutline=cache.GpuSkinning.GetOutlineStreams(frame,sharedSurfaceBuffer,modern:false,needWidthSource:needWidthSource);
+                    commands.SetPipelineState(pipeline.State);
+                    vb=gpuOutline.Stream;
+                    scaleSource=gpuOutline.WidthSource;
+                }
+                else
+                {
+                    vb=upload(positions!);
+                }
+                commands.IASetVertexBuffers(0,new VertexBufferView(vb.GPUVirtualAddress,checked(vertexCount*16),16));
             }
             var source=scale==1?sharedSurfaceBuffer:(scaleSource??=D3D12OutlineDrawScale.SourceBuffer(data,cache));
             int sourceStride=scale==1?32:16;
-            commands.IASetVertexBuffers(1,new VertexBufferView(source.GPUVirtualAddress,checked(positions.Length*sourceStride),sourceStride));
+            commands.IASetVertexBuffers(1,new VertexBufferView(source.GPUVirtualAddress,checked(vertexCount*sourceStride),sourceStride));
             commands.SetGraphicsRootConstantBufferView(0,context.UploadConstants(new OutlineConstants(worldViewProjection,edge.Color,new(scale,0,0,0))));
             commands.DrawIndexedInstanced(range.IndexCount,1,range.StartIndex,0,0); draws++;
         }
@@ -89,7 +104,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         var key=(Depth:depthFormat,FrontCounterClockwise:D3D12RasterWinding.FrontCounterClockwise(frame));
         if(outlinePipelines.TryGetValue(key,out var cached))return cached;
         RootParameter[] parameters=[new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)];
-        var root=device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
+        var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
         ID3D12PipelineState? state=null;
         try
         {
@@ -107,7 +122,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=depth,
                 PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[Format.R8G8B8A8_UNorm],DepthStencilFormat=depthFormat,
                 SampleDescription=new SampleDescription(1,0),IndexBufferStripCutValue=IndexBufferStripCutValue.Disabled };
-            state=device.CreateGraphicsPipelineState(description);
+            state=runtime.CreateGraphicsPipelineState(description);
             var result=new OutlinePipeline(root,state);outlinePipelines.Add(key,result);return result;
         }
         catch { state?.Dispose();root.Dispose(); throw; }

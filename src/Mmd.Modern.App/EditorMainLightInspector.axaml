@@ -38,6 +38,8 @@
       </UniformGrid>
       <Button Name="MainLightFromCameraButton" Classes="action" Click="AimMainLightFromCamera" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0"
               Content="{DynamicResource Mda.Text.LightAim.FromCamera}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FromCameraHint}" />
+      <Button Name="MainLightFlipHemisphereButton" Classes="action" Click="FlipMainLightHemisphere" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0"
+              Content="{Binding MainLightHemisphereLabel}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FlipHemisphereHint}" />
     </StackPanel>
     <Grid ColumnDefinitions="*,10,*" IsEnabled="{Binding CanEdit}">
       <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
@@ -70,13 +72,14 @@
             <validated:EditorNumericUpDown Name="LightDirectionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.d24d0eadb9f7}" />
             <validated:EditorNumericUpDown Name="LightDirectionZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.80db92699158}" />
           </Grid>
+          <TextBlock Text="{DynamicResource Mda.Text.LightAim.VectorHint}" Classes="caption" TextWrapping="Wrap" />
         </StackPanel>
       </StackPanel>
     </Expander>
     <TextBlock Text="{Binding LightValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasLightValidation}" />
     <Grid ColumnDefinitions="*,8,Auto">
       <Button Name="RegisterLightKeyframeButton" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}" Command="{Binding RegisterLightKeyframeCommand}" HorizontalAlignment="Stretch" />
-      <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
+      <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertLightDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
     </Grid>
     <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
   </StackPanel>

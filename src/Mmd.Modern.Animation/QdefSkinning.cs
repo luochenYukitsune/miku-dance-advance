@@ -57,6 +57,12 @@ internal sealed class QdefSkinning
         return (blendedReal, new Vector3(translation.X, translation.Y, translation.Z));
     }
 
+    /// <summary>Prepares the listed bones in order, with the same rigid-transform checks as lazy blending.</summary>
+    public void CopyPalette(ReadOnlySpan<int> bones, Quaternion[] realPalette, Quaternion[] dualPalette)
+    {
+        foreach (int bone in bones) { Prepare(bone); realPalette[bone] = real[bone]; dualPalette[bone] = dual[bone]; }
+    }
+
     private void Prepare(int bone)
     {
         if (ready[bone]) return;

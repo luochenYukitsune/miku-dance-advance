@@ -26,6 +26,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
     private DxcShaderCompiler? compiler;
     private D3D12RayGiDenoiser? denoiser;
     private D3D12RayGiTemporalPass? temporalDenoiser;
+    private D3D12RayGiHalfResPass? halfResPass;
     private bool disposed;
     private sealed record DiagnosticReadback(string Name,ID3D12Resource Resource,int Bytes,int Width,int Height,int RowPitch);
     private readonly List<DiagnosticReadback> readbacks=[];
@@ -239,28 +240,41 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         EndCpuStage("OtherUploadAndPreparation");
         // Obtain current-frame leases on every call. No lookup may survive an aborted upload.
         bool dynamicGeometry=frame.Surface.Snapshot.HasDynamicVertices;
-        bool useScratch=UsesTriangleScratch(frame.Surface.Snapshot,options,capture);
-        RayGiScene scene=useScratch?RayGiScene.FromOriginalForGpu(frame):RayGiScene.FromOriginal(frame);
+        bool gpuDeferredTriangles=hardware&&frame.Surface.Snapshot.HasDeferredDeformation;
+        bool useScratch=!gpuDeferredTriangles&&UsesTriangleScratch(frame.Surface.Snapshot,options,capture);
+        RayGiScene scene=(gpuDeferredTriangles||useScratch)?RayGiScene.FromOriginalForGpu(frame):RayGiScene.FromOriginal(frame);
         EndCpuStage("FromOriginal");
         RayGiBvh? bvh=hardware?null:scene.Bvh;
         EndCpuStage("OtherUploadAndPreparation");
         ID3D12Resource Upload<T>(string name,ReadOnlySpan<T> bytes,object identity) where T:unmanaged
             =>cache.BufferByIdentity("gi:"+name,MemoryMarshal.AsBytes(bytes),ResourceStates.NonPixelShaderResource,identity);
         RayGiTriangleGpu[]? scratchRows=null;
-        var triangles=useScratch
-            ?cache.DeferredBufferByIdentity("gi:triangles",ResourceStates.NonPixelShaderResource,scene.GeometryIdentity,() =>
-            {
-                // The cache invokes this synchronously only when it needs new triangle bytes.
-                // Keep its actual upload separate from scratch allocation and row assembly.
-                EndCpuStage("TriangleUpload");
-                scratchRows=triangleScratch.GetBuffer(scene.TriangleCount);
-                ReadOnlySpan<RayGiTriangleGpu> rows;
-                if(scratchRows is null)rows=scene.Triangles;
-                else{scene.WriteTriangleRows(scratchRows);rows=scratchRows;}
-                EndCpuStage("TriangleAssembly");
-                return MemoryMarshal.AsBytes(rows);
-            })
-            :Upload("triangles",scene.Triangles,scene.GeometryIdentity);
+        ID3D12Resource? gpuBlasPositions=null;
+        ID3D12Resource triangles;
+        if(gpuDeferredTriangles)
+        {
+            var built=cache.GpuSkinning.BuildRayGiTriangles(frame,vb,ib);
+            triangles=built.Triangles;
+            gpuBlasPositions=built.BlasPositions;
+            EndCpuStage("TriangleAssembly");
+        }
+        else
+        {
+            triangles=useScratch
+                ?cache.DeferredBufferByIdentity("gi:triangles",ResourceStates.NonPixelShaderResource,scene.GeometryIdentity,() =>
+                {
+                    // The cache invokes this synchronously only when it needs new triangle bytes.
+                    // Keep its actual upload separate from scratch allocation and row assembly.
+                    EndCpuStage("TriangleUpload");
+                    scratchRows=triangleScratch.GetBuffer(scene.TriangleCount);
+                    ReadOnlySpan<RayGiTriangleGpu> rows;
+                    if(scratchRows is null)rows=scene.Triangles;
+                    else{scene.WriteTriangleRows(scratchRows);rows=scratchRows;}
+                    EndCpuStage("TriangleAssembly");
+                    return MemoryMarshal.AsBytes(rows);
+                })
+                :Upload("triangles",scene.Triangles,scene.GeometryIdentity);
+        }
         EndCpuStage("TriangleUpload");
         var materials=Upload("materials",scene.Materials,scene.MaterialIdentity);
         bool textureMorph=!scene.DiffuseTextureFactors.IsEmpty;
@@ -307,17 +321,21 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         EndStage(gbufferTiming);
         EndCpuStage("GBuffer");
         workspace.ResetDiagnostics(context);
+        bool halfRes=options.PreviewAcceleration&&width>=2&&height>=2;
+        bool temporal=IsTemporalEnabled(options);
+        int effectiveSamples=halfRes?Math.Min(options.SamplesPerPixel,temporal?2:4):options.SamplesPerPixel;
+        var (traceWidth,traceHeight)=halfRes?D3D12RayGiHalfResPass.HalfDimensions(width,height):(width,height);
+        var temporalOptions=halfRes||!options.PreviewAcceleration?options:options with {PreviewAcceleration=false};
         var indirect=workspace.RawIndirect.Resource;var diagnostics=workspace.Diagnostics.Resource;
         var light=options.DirectionalLightDirection??Vector3.Normalize(frame.Surface.Snapshot.LightDirection);
-        bool temporal=IsTemporalEnabled(options);
         uint actualSeed=options.Seed;
         if(temporal)
         {
             EndCpuStage("OtherUploadAndPreparation");
-            actualSeed=(temporalDenoiser??=new(runtime)).Prepare(frame,scene,options,width,height,sampleIndex,spatialSampleCount);
+            actualSeed=(temporalDenoiser??=new(runtime)).Prepare(frame,scene,temporalOptions,traceWidth,traceHeight,sampleIndex,spatialSampleCount);
             EndCpuStage("TemporalPrepare");
         }
-        var constants=new RayGiConstants(new((uint)width,(uint)height,(uint)options.SamplesPerPixel,actualSeed),new((uint)scene.TriangleCount,(uint)scene.Materials.Length,(uint)nodes.Length,hardware?1u:0u),
+        var constants=new RayGiConstants(new((uint)traceWidth,(uint)traceHeight,(uint)effectiveSamples,actualSeed),new((uint)scene.TriangleCount,(uint)scene.Materials.Length,(uint)nodes.Length,hardware?1u:0u),
             new(light,options.MaxRayDistance),new(options.DirectionalIrradiance??new Vector3(3),options.Strength),new(options.RayEpsilon,options.DirectScale,options.EffectiveOcclusionRadius,0),new(nativeLights.Values.Length,nativeLights.HasReceiverMasks?1:0,nativeLights.EnvironmentStrength,0),scene.SphereRotation);
         // Millions of rays must not contend on shared diagnostic atomics in ordinary playback.
         // Only the existing explicit debug capture compiles them; overflow protection stays active.
@@ -329,38 +347,62 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         {
             var asTiming=BeginStage("AS");
             acceleration=D3D12HardwareRayGi.GetAccelerationStructure(context,cache,scene,dynamicGeometry,
-                triangleBuffer:triangles,compiler:compiler,scratchRows:scratchRows);identity=acceleration.BackendIdentity;
+                triangleBuffer:triangles,compiler:compiler,scratchRows:scratchRows,
+                positionBuffer:gpuBlasPositions,deferredSnapshot:gpuDeferredTriangles?frame.Surface.Snapshot:null);identity=acceleration.BackendIdentity;
             EndStage(asTiming,"GI stage/AS "+(acceleration.OperationFrameId!=runtime.FrameId||countedAcceleration.Contains(acceleration)?"reuse":acceleration.WasUpdate?"update":"build"));
             EndCpuStage("DxrAccelerationStructure");
         }
-        commands.SetDescriptorHeaps(heap);commands.SetComputeRootSignature(pipeline.Root);commands.SetPipelineState(pipeline.State);commands.SetComputeRootConstantBufferView(0,context.UploadConstants(constants));
+        D3D12RayGiWorkspace.HalfResWorkspace? halfWorkspace=null;
+        ID3D12DescriptorHeap activeHeap=heap;
+        GpuDescriptorHandle activeInputs=inputs;
+        int halfStride=0;
+        if(halfRes)
+        {
+            compiler??=runtime.GetOrCreateDxcCompiler();
+            halfResPass??=new(runtime);
+            halfWorkspace=workspace.AcquireHalfRes(context,traceWidth,traceHeight);
+            activeHeap=halfResPass.CreateDescriptorHeap(runtime,position,normal,halfWorkspace.Position.Resource,halfWorkspace.Normal.Resource,out halfStride);
+            halfResPass.Downsample(context,activeHeap,halfStride,workspace.Position,workspace.Normal,halfWorkspace,width,height,compiler);
+            activeInputs=activeHeap.GetGPUDescriptorHandleForHeapStart().Offset(2,halfStride);
+            indirect=halfWorkspace.Indirect.Resource;
+        }
+        commands.SetDescriptorHeaps(activeHeap);commands.SetComputeRootSignature(pipeline.Root);commands.SetPipelineState(pipeline.State);commands.SetComputeRootConstantBufferView(0,context.UploadConstants(constants));
         commands.SetComputeRootShaderResourceView(1,triangles.GPUVirtualAddress);commands.SetComputeRootShaderResourceView(2,materials.GPUVirtualAddress);commands.SetComputeRootShaderResourceView(3,texels.GPUVirtualAddress);
-        commands.SetComputeRootShaderResourceView(4,gpuNodes.GPUVirtualAddress);commands.SetComputeRootShaderResourceView(5,order.GPUVirtualAddress);commands.SetComputeRootDescriptorTable(6,inputs);
+        commands.SetComputeRootShaderResourceView(4,gpuNodes.GPUVirtualAddress);commands.SetComputeRootShaderResourceView(5,order.GPUVirtualAddress);commands.SetComputeRootDescriptorTable(6,activeInputs);
         if(hardware)commands.SetComputeRootShaderResourceView(7,acceleration!.TopLevel.GPUVirtualAddress);
         commands.SetComputeRootUnorderedAccessView(hardware?8:7,indirect.GPUVirtualAddress);commands.SetComputeRootUnorderedAccessView(hardware?9:8,diagnostics.GPUVirtualAddress);
         if(pipeline.TextureFactorRoot>=0)commands.SetComputeRootShaderResourceView(pipeline.TextureFactorRoot,textureFactors!.GPUVirtualAddress);
         if(pipeline.NativeLightRoot>=0)commands.SetComputeRootShaderResourceView(pipeline.NativeLightRoot,nativeLightBuffer!.GPUVirtualAddress);
         if(pipeline.SubTextureRoot>=0)commands.SetComputeRootShaderResourceView(pipeline.SubTextureRoot,subTextureUvs!.GPUVirtualAddress);
         var integrateTiming=BeginStage("Integrate");
-        commands.Dispatch((width+7)/8,(height+7)/8,1);commands.ResourceBarrierUnorderedAccessView(indirect);
+        commands.Dispatch((traceWidth+7)/8,(traceHeight+7)/8,1);commands.ResourceBarrierUnorderedAccessView(indirect);
         EndStage(integrateTiming);
         bool filter=D3D12RayGiDenoiser.IsEnabled(options);var rawIndirect=indirect;
+        var camera=frame.Options?.CameraOverride??frame.Surface.Snapshot.Camera;
         if(filter)
         {
-            workspace.RawIndirect.Transition(context,ResourceStates.NonPixelShaderResource);
+            if(halfRes)halfWorkspace!.Indirect.Transition(context,ResourceStates.NonPixelShaderResource);
+            else workspace.RawIndirect.Transition(context,ResourceStates.NonPixelShaderResource);
             if(temporal)
             {
                 var temporalTiming=BeginStage("Temporal");
-                indirect=temporalDenoiser!.Record(context,indirect,triangles,inputs,frame,scene,options,width,height,compiler!);
+                indirect=temporalDenoiser!.Record(context,indirect,triangles,activeInputs,frame,scene,temporalOptions,traceWidth,traceHeight,compiler!);
                 EndStage(temporalTiming);
             }
             denoiser??=new(runtime);
             var spatialTiming=BeginStage("Spatial");
-            indirect=denoiser.Record(context,indirect,triangles,inputs,width,height,scene.TriangleCount,scene.Materials.Length,
-                frame.Options?.CameraOverride??frame.Surface.Snapshot.Camera,compiler!,workspace.SpatialOutput(context));
+            var spatialTarget=halfRes?halfWorkspace!.SpatialOutput(context):workspace.SpatialOutput(context);
+            indirect=denoiser.Record(context,indirect,triangles,activeInputs,traceWidth,traceHeight,scene.TriangleCount,scene.Materials.Length,
+                camera,compiler!,spatialTarget);
             EndStage(spatialTiming);
         }
-        else workspace.RawIndirect.Transition(context,ResourceStates.PixelShaderResource);
+        if(halfRes)
+        {
+            var upsampleInput=filter?halfWorkspace!.SpatialOutput(context):halfWorkspace!.Indirect;
+            indirect=halfResPass!.Upsample(context,activeHeap,halfStride,upsampleInput,workspace.RawIndirect,camera,width,height,traceWidth,traceHeight,compiler!);
+            commands.SetDescriptorHeaps(heap);
+        }
+        else if(!filter)workspace.RawIndirect.Transition(context,ResourceStates.PixelShaderResource);
         if(gpuTiming is not null){gpuTiming.EndAndResolve();timings.Add(new(timingDirectory!,gpuTiming,
             hardware&&frame.Surface.Snapshot.HasDynamicVertices
                 ? "GI GBuffer + AS "+(acceleration!.OperationFrameId!=runtime.FrameId||countedAcceleration.Contains(acceleration)?"reuse":acceleration.WasUpdate?"update":"build")+" + compute" : null));}
@@ -381,11 +423,12 @@ internal sealed class D3D12RayGiRenderer : IDisposable
                 readbacks.Add(new(name,cpu,(int)size,width,height,footprints[0].Footprint.RowPitch));
             }
             string suffix=readbacks.Count.ToString();Image("position-"+suffix,position);Image("normal-id-"+suffix,normal);
-            if(filter)Buffer("raw-indirect-"+suffix,rawIndirect,ResourceStates.NonPixelShaderResource,checked(width*height*16));
+            int traceBytes=checked(traceWidth*traceHeight*16);
+            if(filter)Buffer("raw-indirect-"+suffix,rawIndirect,ResourceStates.NonPixelShaderResource,traceBytes);
             if(temporal)
             {
-                Buffer("temporal-indirect-"+suffix,temporalDenoiser!.RecordedSignal!,ResourceStates.NonPixelShaderResource,checked(width*height*16));
-                Buffer("temporal-moments-"+suffix,temporalDenoiser.RecordedMoments!,ResourceStates.NonPixelShaderResource,checked(width*height*16));
+                Buffer("temporal-indirect-"+suffix,temporalDenoiser!.RecordedSignal!,ResourceStates.NonPixelShaderResource,traceBytes);
+                Buffer("temporal-moments-"+suffix,temporalDenoiser.RecordedMoments!,ResourceStates.NonPixelShaderResource,traceBytes);
             }
             Buffer("indirect-"+suffix,indirect,ResourceStates.PixelShaderResource,checked(width*height*16));
             commands.ResourceBarrierUnorderedAccessView(diagnostics);Buffer("counters-"+suffix,diagnostics,ResourceStates.UnorderedAccess,16);
@@ -394,7 +437,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         long builds=previous?.AccelerationBuilds??0,updates=previous?.AccelerationUpdates??0;
         if(acceleration?.OperationFrameId==runtime.FrameId&&countedAcceleration.Add(acceleration))
         {if(acceleration.WasUpdate)updates++;else builds++;}
-        LastStatistics=new(options.Mode,options.Mode,(previous?.DispatchCount??0)+1,(previous?.GBufferDrawCalls??0)+gbufferDraws,runtime.BufferUploads,builds,options.SamplesPerPixel,actualSeed,options.Strength,width,height,cache.LiveResourceCount)
+        LastStatistics=new(options.Mode,options.Mode,(previous?.DispatchCount??0)+1,(previous?.GBufferDrawCalls??0)+gbufferDraws,runtime.BufferUploads,builds,effectiveSamples,actualSeed,options.Strength,width,height,cache.LiveResourceCount)
             {AccelerationUpdates=updates,Composition=options.Composition,ToonResponse=options.ToonResponse,
              PaletteBandReceiverMaterials=options.Composition==RayGiComposition.ToonPalette?frame.Materials.Where((flags,index)=>flags.SurfaceEnabled&&frame.Surface.Snapshot.Materials[index].IndexCount>0)
                 .Count(flags=>(flags.GiToonResponseOverride??options.ToonResponse)==RayGiToonResponse.PreservePaletteBands):0,
@@ -402,7 +445,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
              TemporalResetHistory=temporal&&((previous?.TemporalResetHistory??false)||temporalDenoiser!.LastReset),
              TemporalResetReason=temporal?(previous?.TemporalResetHistory==true?previous.TemporalResetReason:temporalDenoiser!.LastResetReason):"None",
              TemporalHistoryFrames=temporal?temporalDenoiser!.LastHistoryFrames:0,
-             TemporalHistoryBytes=temporal?checked((previous?.TemporalHistoryBytes??0)+(long)width*height*D3D12TemporalGiMemoryBudget.HistoryBytesPerPixel):0,
+             TemporalHistoryBytes=temporal?checked((previous?.TemporalHistoryBytes??0)+(long)traceWidth*traceHeight*D3D12TemporalGiMemoryBudget.HistoryBytesPerPixel):0,
              DenoiseDispatchCount=(previous?.DenoiseDispatchCount??0)+(filter?temporal?2:1:0),RecordCpuMilliseconds=(previous?.RecordCpuMilliseconds??0)+timer.Elapsed.TotalMilliseconds,
              ReceiverWorkspaceCount=receiverWorkspaces.Count,ReceiverWorkspaceBytes=receiverWorkspaces.Sum(value=>checked((long)value.AllocationBytes))};
         if(cpuStageTiming)PublishCpuStages();
@@ -451,7 +494,7 @@ internal sealed class D3D12RayGiRenderer : IDisposable
     private Pipeline GetComputePipeline(bool hardware,RayGiComposition composition,bool textureMorph=false,bool nativeLights=false,bool subTexture=false,bool diagnostics=false)
     {
         var key=(hardware,composition,textureMorph,nativeLights,subTexture,diagnostics);
-        if(computePipelines.TryGetValue(key,out var found))return found;compiler??=new DxcShaderCompiler();
+        if(computePipelines.TryGetValue(key,out var found))return found;compiler??=runtime.GetOrCreateDxcCompiler();
         var defines=new Dictionary<string,string?>();if(hardware)defines.Add("GI_HARDWARE","1");
         if(composition==RayGiComposition.ToonPalette)defines.Add("GI_TOON","1");
         if(diagnostics)defines.Add("GI_DIAGNOSTICS","1");
@@ -467,8 +510,8 @@ internal sealed class D3D12RayGiRenderer : IDisposable
         if(nativeLights)parameters.Add(new(RootParameterType.ShaderResourceView,new RootDescriptor(9,0),ShaderVisibility.All));
         int subTextureRoot=subTexture?parameters.Count:-1;
         if(subTexture)parameters.Add(new(RootParameterType.ShaderResourceView,new RootDescriptor(10,0),ShaderVisibility.All));
-        var root=runtime.Device.CreateRootSignature<ID3D12RootSignature>(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
-        try{runtime.ShaderCompilations++;runtime.PipelineCreations++;var state=runtime.Device.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=root,ComputeShader=shader.Dxil});var result=new Pipeline(root,state,textureFactorRoot,nativeLightRoot,subTextureRoot);computePipelines.Add(key,result);return result;}catch{root.Dispose();throw;}
+        var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.None,parameters.ToArray()),RootSignatureVersion.Version10);
+        try{runtime.ShaderCompilations++;runtime.PipelineCreations++;var state=runtime.CreateComputePipelineState(new ComputePipelineStateDescription{RootSignature=root,ComputeShader=shader.Dxil});var result=new Pipeline(root,state,textureFactorRoot,nativeLightRoot,subTextureRoot);computePipelines.Add(key,result);return result;}catch{root.Dispose();throw;}
     }
-    public void Dispose(){if(disposed)return;disposed=true;triangleScratch.Clear();temporalDenoiser?.Dispose();denoiser?.Dispose();foreach(var p in computePipelines.Values){p.State.Dispose();p.Root.Dispose();}computePipelines.Clear();}
+    public void Dispose(){if(disposed)return;disposed=true;triangleScratch.Clear();temporalDenoiser?.Dispose();denoiser?.Dispose();halfResPass?.Dispose();foreach(var p in computePipelines.Values){p.State.Dispose();p.Root.Dispose();}computePipelines.Clear();}
 }

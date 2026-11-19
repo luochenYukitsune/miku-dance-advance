@@ -129,6 +129,26 @@ public sealed class OutlineSurfaceCompositionTests
         Assert.Equal(source, unchanged);
     }
 
+    [Fact]
+    public void StalledChunkDoesNotHoldBackDynamicClaimingAndAllDegreesMatchBitForBit()
+    {
+        var outline = Outline(Count); var surface = Surface(Count, 20);
+        (int Start, int Count)[] ranges = [(3, 5), (Chunk - 2, Chunk * 26 + 11), (Count - 3, 3)];
+        OriginalOutlineMaterial[] materials = [new(.7f, Vector4.One, false), new(.1f, new(.1f, .2f, .3f, .4f)), new(0, Vector4.Zero)];
+        var serial = Bytes(Refresh(outline, surface, ranges, materials, 1));
+        for (int degree = 2; degree <= Math.Min(16, Environment.ProcessorCount); degree++)
+            Assert.Equal(serial, Bytes(Refresh(outline, surface, ranges, materials, degree)));
+
+        if (Environment.ProcessorCount < 2) return;
+        var source = CreateIntStorage(Enumerable.Range(0, Count).ToArray());
+        var writer = new StalledFirstChunkWriter(32);
+        var method = IntStorageType.GetMethod("WithTrustedParallelRanges", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var callback = Delegate.CreateDelegate(method.GetParameters()[1].ParameterType, writer, typeof(StalledFirstChunkWriter).GetMethod("Write")!);
+        var result = (IList<int>)Invoke(method, source, [new (int, int)[] { (0, Count) }, callback, 2]);
+        Assert.True(writer.Released, "Other worker did not dynamically claim all remaining chunks.");
+        Assert.Equal(Enumerable.Range(0, Count).Select(i => i + 1), result);
+    }
+
     private static OriginalOutlineData Outline(int count)
         => new(Enumerable.Range(0, count).Select(i => new OriginalOutlineVertex(new(-100 - i, NegativeZero, .5f),
             new(2, NegativeZero, -.75f), i % 2 == 0 ? OriginalOutlineVertexMode.Expand : OriginalOutlineVertexMode.Inward,
@@ -142,7 +162,7 @@ public sealed class OutlineSurfaceCompositionTests
     private static byte[] VertexBytes(OriginalOutlineVertex[] values) => MemoryMarshal.AsBytes(values.AsSpan()).ToArray();
     private static ReadOnlyMemory<OriginalOutlineVertex>[] Memories(OriginalOutlineData value)
     {
-        var storage = typeof(OriginalOutlineData).GetField("vertices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
+        var storage = typeof(OriginalOutlineData).GetProperty("vertices", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(value)!;
         return (ReadOnlyMemory<OriginalOutlineVertex>[])storage.GetType().GetField("chunks", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(storage)!;
     }
     private static bool IsMaterialized(SceneSnapshot scene)
@@ -197,6 +217,17 @@ public sealed class OutlineSurfaceCompositionTests
         public readonly List<int> Threads = [];
         public void Write(int range, int offset, Span<int> destination)
         { Offsets.Add(offset); Threads.Add(Environment.CurrentManagedThreadId); }
+    }
+    private sealed class StalledFirstChunkWriter(int others)
+    {
+        private readonly CountdownEvent remaining = new(others);
+        public bool Released = true;
+        public void Write(int range, int offset, Span<int> destination)
+        {
+            if (offset == 0) Released = remaining.Wait(TimeSpan.FromSeconds(10));
+            else remaining.Signal();
+            for (int i = 0; i < destination.Length; i++) destination[i] += 1;
+        }
     }
     private static object Invoke(MethodInfo method, object owner, object?[] arguments)
     {

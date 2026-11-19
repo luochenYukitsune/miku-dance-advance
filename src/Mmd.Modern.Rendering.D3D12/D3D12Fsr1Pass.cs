@@ -22,24 +22,25 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             throw new InvalidOperationException("FSR1 requires initialized RGBA8 scene color.");
         var device = context.Device; var commands = context.Commands;
         var compiled = GetShaders();
-        var root = cache.Get("fsr1:root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var root = cache.Get("fsr1:root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
                  new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel)],
                 [new StaticSamplerDescription(ShaderVisibility.Pixel, 0, 0)
                 { Filter = Filter.MinMagLinearMipPoint, AddressU = TextureAddressMode.Clamp, AddressV = TextureAddressMode.Clamp, AddressW = TextureAddressMode.Clamp }]), RootSignatureVersion.Version10));
-        var rtv = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 2)));
-        var srv = context.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 2, DescriptorHeapFlags.ShaderVisible)));
+        var rtv = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 2));
+        var srv = runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 2, DescriptorHeapFlags.ShaderVisible));
         int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
         int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 2);
         D3D12GpuTarget Allocate(string name, int index, Format format)
         {
-            var resource = context.Own(device.CreateCommittedResource(HeapType.Default,
-                ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget));
+            // Each opaque full-target draw overwrites every texel of its pooled image.
+            var resource = runtime.Transients.Resource(context, HeapType.Default,
+                ResourceDescription.Texture2D(format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget), ResourceStates.RenderTarget);
             var handle = rtv.GetCPUDescriptorHandleForHeapStart().Offset(index, rtvStride);
             device.CreateRenderTargetView(resource, null, handle);
-            return new(name, resource, handle, width, height, format, false);
+            return runtime.Transients.Track(new(name, resource, handle, width, height, format, false));
         }
         // Keep reconstructed samples at float precision between filters. Final output follows the existing RGBA8 contract.
         var easu = Allocate("$fsr1-easu", 0, options.EnableRcas ? Format.R32G32B32A32_Float : Format.R8G8B8A8_UNorm);
@@ -57,7 +58,7 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         {
             var pipeline = cache.Get($"fsr1:pso:{pass}:{target.Format}", () =>
             {
-                var pso = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+                var pso = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
                 {
                     RootSignature = root, VertexShader = compiled.Vertex, PixelShader = pixel,
                     BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -76,14 +77,23 @@ internal sealed class D3D12Fsr1Pass(D3D12GpuRuntime runtime, D3D12GpuCache cache
         return new(easu, rcas);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        string source = Prefix + Read("ffx_a.h") + Read("ffx_fsr1.h") + Entries;
+        var flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        yield return new(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags);
+        yield return new(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags);
+        yield return new(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex, byte[] Easu, byte[] Rcas) GetShaders()
     {
         if (shaders is { } compiled) return compiled;
         string source = Prefix + Read("ffx_a.h") + Read("ffx_fsr1.h") + Entries;
         var flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
-        compiled = (Compiler.Compile(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags).ToArray(),
-            Compiler.Compile(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags).ToArray(),
-            Compiler.Compile(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags).ToArray());
+        compiled = (D3D12FxcShaderCache.Compile(source, "VSMain", "fsr1-wrapper.hlsl", "vs_5_1", flags),
+            D3D12FxcShaderCache.Compile(source, "PSEasu", "fsr1-wrapper.hlsl", "ps_5_1", flags),
+            D3D12FxcShaderCache.Compile(source, "PSRcas", "fsr1-wrapper.hlsl", "ps_5_1", flags));
         shaders = compiled; runtime.ShaderCompilations += 3; return compiled;
     }
     private static string Read(string name)

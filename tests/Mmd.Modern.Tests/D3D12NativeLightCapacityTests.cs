@@ -49,8 +49,11 @@ public sealed class D3D12NativeLightCapacityTests
             { Intensity = index == 31 ? (kind == SceneLightKind.Directional ? 1 : 4) : .00001f }).ToArray();
         var watch = Stopwatch.StartNew();
         var shadowed = session.Capture(D3D12NativeLightTests.WithLight(frame, lights), 129, 97); watch.Stop();
-        Assert.Equal(32, session.NativeLightStatistics!.EnabledLights); Assert.Equal(faces, session.NativeLightStatistics.ShadowFaces);
-        Assert.Equal(faces, session.NativeLightStatistics.ShadowDrawCalls);
+        var stats = session.NativeLightStatistics!;
+        Assert.Equal(32, stats.EnabledLights); Assert.Equal(faces, stats.ShadowFaces);
+        Assert.Equal(faces, stats.ShadowCasterDraws);
+        Assert.Equal(32, stats.ShadowDrawCalls);
+        Assert.Equal(faces, stats.ShadowDrawCalls + stats.ShadowCulledDraws);
         Evidence("shadow-" + kind, session, watch.Elapsed.TotalMilliseconds, shadowed);
         var noLastShadow = lights.Select((light, index) => index == 31 ? light with { CastShadows = false } : light).ToArray();
         var lit = session.Capture(D3D12NativeLightTests.WithLight(frame, noLastShadow), 129, 97);

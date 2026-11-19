@@ -21,6 +21,11 @@ public sealed partial class EditorMainLightInspector : UserControl
         if (DataContext is EditorSceneInspectorViewModel model) model.AimLightFromCamera();
     }
 
+    private void FlipMainLightHemisphere(object? sender, RoutedEventArgs args)
+    {
+        if (DataContext is EditorSceneInspectorViewModel model) model.FlipMainLightHemisphere();
+    }
+
     private void MainLightColor(object? sender, RoutedEventArgs args)
     {
         if (DataContext is not EditorSceneInspectorViewModel model || sender is not Button { Tag: string color }) return;

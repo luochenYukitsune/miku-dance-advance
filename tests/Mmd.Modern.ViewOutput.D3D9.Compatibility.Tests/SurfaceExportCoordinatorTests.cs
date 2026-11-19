@@ -18,7 +18,30 @@ public sealed class SurfaceExportCoordinatorTests
     [InlineData(true)]
     public async Task ProjectExportAtSixtyFpsUsesFiveSameSampleFramesAndEightPhysicsSteps(bool configuredFx)
     {
-        var fixture = new ProjectFixture { ConfiguredFx = configuredFx };
+        var fixture = new ProjectFixture { ConfiguredFx = configuredFx, VerifyLiveClock = true };
+        var sink = new RecordingSink(fixture);
+        var coordinator = fixture.Coordinator();
+        coordinator.OverlapCapture = false; // Capturing and sink probes read the live owner, which only the serial order permits.
+        var result = await coordinator.RunAsync(new(new(2, 2, new(60), 0, 2)), sink, cancellationToken: Token);
+        Assert.Equal(5, result.CompletedFrames); Assert.Equal(8, result.SimulationTicks);
+        Assert.Equal(configuredFx ? "d3d9-object-fx-experimental" : "d3d9-isolated-surface-experimental", result.BackendId);
+        Assert.Equal(new[] { 0d, .5d, 1d, 1.5d, 2d }, fixture.Native.SourceFrames);
+        Assert.Equal(new[] { 0, 2, 4, 6, 8 }, fixture.Native.StepCounts);
+        Assert.Equal(new[] { 0d, .5d, 1d, 1.5d, 2d }, sink.SourceFrames);
+        Assert.Equal(8, fixture.Physics.TotalSteps);
+        Assert.All(fixture.Physics.Backends.SelectMany(backend => backend.StepSeconds),
+            seconds => Assert.Equal(1f / 120, seconds));
+        Assert.Equal(5, fixture.CaptureClockChecks); Assert.Equal(1, sink.Begins);
+        Assert.True(sink.Completed); Assert.False(sink.Aborted); Assert.Equal(1, fixture.Native.Disposals);
+        Assert.All(fixture.Physics.Backends, backend => Assert.Equal(1, backend.Disposals));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OverlappedProjectExportAtSixtyFpsUsesFiveSameSampleFramesAndEightPhysicsSteps(bool configuredFx)
+    {
+        var fixture = new ProjectFixture { ConfiguredFx = configuredFx, VerifyLiveClock = false };
         var sink = new RecordingSink(fixture);
         var coordinator = fixture.Coordinator();
         var result = await coordinator.RunAsync(new(new(2, 2, new(60), 0, 2)), sink, cancellationToken: Token);
@@ -56,7 +79,7 @@ public sealed class SurfaceExportCoordinatorTests
         internal readonly FakeCaptureSession Native;
         internal SceneProjectSession Project = null!;
         internal Guid ObjectId;
-        internal bool ModernPreset, ConfiguredFx;
+        internal bool ModernPreset, ConfiguredFx, VerifyLiveClock = true;
         internal int CaptureClockChecks;
         internal ProjectFixture() => Native = new(this);
 
@@ -96,9 +119,13 @@ public sealed class SurfaceExportCoordinatorTests
         public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests => inner.SceneInputRequests;
         public async ValueTask<FrameBufferLease> CaptureAsync(OfflineFrame frame, CancellationToken cancellationToken = default)
         {
-            double clock = fixture.Project.CurrentFrame; int steps = fixture.Physics.TotalSteps;
+            double clock = fixture.VerifyLiveClock ? fixture.Project.CurrentFrame : 0;
+            int steps = fixture.VerifyLiveClock ? fixture.Physics.TotalSteps : 0;
             var result = await inner.CaptureAsync(frame, cancellationToken);
-            Assert.Equal(clock, fixture.Project.CurrentFrame); Assert.Equal(steps, fixture.Physics.TotalSteps);
+            if (fixture.VerifyLiveClock)
+            {
+                Assert.Equal(clock, fixture.Project.CurrentFrame); Assert.Equal(steps, fixture.Physics.TotalSteps);
+            }
             fixture.CaptureClockChecks++;
             return result;
         }
@@ -122,8 +149,9 @@ public sealed class SurfaceExportCoordinatorTests
         {
             token.ThrowIfCancellationRequested();
             Assert.Equal(fixture.ConfiguredFx ? D3D9SurfaceScope.ConfiguredObjectFx : D3D9SurfaceScope.IsolatedSurface, snapshot.Scope);
-            Assert.Equal(snapshot.SourceFrame, fixture.Project.CurrentFrame);
-            SourceFrames.Add(snapshot.SourceFrame); StepCounts.Add(fixture.Physics.TotalSteps);
+            if (fixture.VerifyLiveClock) Assert.Equal(snapshot.SourceFrame, fixture.Project.CurrentFrame);
+            SourceFrames.Add(snapshot.SourceFrame);
+            StepCounts.Add((int)Math.Round(snapshot.SourceFrame * 4));
             return ValueTask.FromResult(new D3D9SurfacePixels(snapshot.Width, snapshot.Height, snapshot.SourceFrame,
                 new byte[checked(snapshot.Width * snapshot.Height * 4)]));
         }
@@ -141,7 +169,10 @@ public sealed class SurfaceExportCoordinatorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             double source = sample.SampledSourceFrame.ToDouble();
-            Assert.Equal(source, fixture.Project.CurrentFrame); Assert.Equal((int)(source * 4), fixture.Physics.TotalSteps);
+            if (fixture.VerifyLiveClock)
+            {
+                Assert.Equal(source, fixture.Project.CurrentFrame); Assert.Equal((int)(source * 4), fixture.Physics.TotalSteps);
+            }
             Assert.Equal(16, frame.Pixels.Length); SourceFrames.Add(source); return ValueTask.CompletedTask;
         }
         public ValueTask CompleteAsync(CancellationToken cancellationToken = default)

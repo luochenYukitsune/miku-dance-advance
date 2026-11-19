@@ -77,9 +77,9 @@ internal static partial class OriginalFrameShaders
         .Replace("GroundDirection","SurfaceGroundDirection",StringComparison.Ordinal);
 
     internal static byte[] CompileSubTexture(string entry,bool vertex,bool native=false,bool gi=false)
-        =>Compiler.Compile(OriginalSubTextureShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:""),true,native,gi),entry,
+        =>D3D12FxcShaderCache.Compile(OriginalSubTextureShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:""),true,native,gi),entry,
             native?"OriginalFrameSubTextureNative.hlsl":"OriginalFrameSubTexture.hlsl",
-            vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray();
+            vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
 }
 
 internal static partial class OriginalStyleShaders
@@ -87,8 +87,8 @@ internal static partial class OriginalStyleShaders
     internal static (byte[] Vertex,byte[] Pixel) CompileSubTexture()
     {
         string source=OriginalSubTextureShader.Apply(Source,false);
-        return (Compiler.Compile(source,"VSMain","OriginalSurfaceSubTexture.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray(),
-            Compiler.Compile(source,"PSMain","OriginalSurfaceSubTexture.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray());
+        return (D3D12FxcShaderCache.Compile(source,"VSMain","OriginalSurfaceSubTexture.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness),
+            D3D12FxcShaderCache.Compile(source,"PSMain","OriginalSurfaceSubTexture.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness));
     }
 }
 

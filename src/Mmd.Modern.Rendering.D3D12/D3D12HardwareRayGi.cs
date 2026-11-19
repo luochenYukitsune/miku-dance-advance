@@ -148,11 +148,13 @@ internal static class D3D12HardwareRayGi
         D3D12RecordingContext context,
         D3D12GpuCache cache,
         RayGiScene scene, bool dynamicGeometry, bool forceRebuild = false,
-        ID3D12Resource? triangleBuffer = null, DxcShaderCompiler? compiler = null, RayGiTriangleGpu[]? scratchRows = null)
+        ID3D12Resource? triangleBuffer = null, DxcShaderCompiler? compiler = null, RayGiTriangleGpu[]? scratchRows = null,
+        ID3D12Resource? positionBuffer = null, SceneSnapshot? deferredSnapshot = null)
     {
         object identity = forceRebuild ? new object() : scene.GeometryIdentity;
         return cache.GetReplaceable<AccelerationStructure>("hardware-raygi", identity,
-            previous => Build(context, cache, scene, dynamicGeometry, forceRebuild ? null : previous, triangleBuffer, compiler, scratchRows));
+            previous => Build(context, cache, scene, dynamicGeometry, forceRebuild ? null : previous,
+                triangleBuffer, compiler, scratchRows, positionBuffer, deferredSnapshot));
     }
 
     internal static RaytracingAccelerationStructureBuildFlags BuildFlags(bool dynamicGeometry)
@@ -161,6 +163,9 @@ internal static class D3D12HardwareRayGi
 
     // Mirrors the single flattened geometry/instance layout below, without creating GPU resources.
     // Preflight must query AllowUpdate and reserve max(build scratch, update scratch), like Build.
+    internal static DxcShaderWarmupRequest GetPositionGatherPrewarmRequest()
+        => new(PositionGatherPipeline.Source, "CSMain", "cs_6_0");
+
     internal static (ulong Bottom, ulong Top, ulong BottomScratch, ulong TopScratch) PrebuildResources(
         ID3D12Device device, int triangleCount, bool dynamicGeometry)
     {
@@ -319,9 +324,106 @@ internal static class D3D12HardwareRayGi
         return false;
     }
 
+    private static Vector3[] SampleDeferredGeometry(SceneSnapshot snapshot)
+    {
+        const int blockSize = 4096;
+        var indices = snapshot.Indices;
+        int triangleCount = indices.Length / 3;
+        var samples = new Vector3[((triangleCount + blockSize - 1) / blockSize) * 9];
+        int p = 0;
+        var staticView = snapshot.StaticVertexView;
+        var ranges = snapshot.DeformationRanges;
+        for (int start = 0; start < triangleCount; start += blockSize)
+        {
+            int end = Math.Min(start + blockSize, triangleCount) - 1;
+            CopyTri(start);
+            CopyTri(start + (end - start) / 2);
+            CopyTri(end);
+        }
+        return samples;
+
+        void CopyTri(int tri)
+        {
+            int baseIdx = tri * 3;
+            var span = snapshot.Indices;
+            samples[p++] = EvaluateWorldPosition((int)span[baseIdx]);
+            samples[p++] = EvaluateWorldPosition((int)span[baseIdx + 1]);
+            samples[p++] = EvaluateWorldPosition((int)span[baseIdx + 2]);
+        }
+
+        Vector3 EvaluateWorldPosition(int vertexIndex)
+        {
+            Vector3 local = default;
+            bool inRange = false;
+            for (int r = 0; r < ranges.Count; r++)
+            {
+                var range = ranges[r];
+                if (vertexIndex < range.Start || vertexIndex >= range.Start + range.Count) continue;
+                inRange = true;
+                int tid = vertexIndex - range.Start;
+                var def = range.Deformation;
+                var model = def.Model;
+                var vPos = model.RestVertices[tid].Position;
+                if (def.Morphs is { } morphs)
+                {
+                    int mIdx = morphs.Indices.BinarySearch(tid);
+                    if (mIdx >= 0) vPos += morphs.Positions[mIdx];
+                }
+                var binding = model.Bindings[tid];
+                Vector3 pos;
+                if (binding.Kind == SceneSkinKind.Qdef)
+                {
+                    Quaternion refQ = default, bReal = default, bDual = default;
+                    bool hasRef = false;
+                    for (int s = 0; s < 4; s++)
+                    {
+                        float w = s switch { 0 => binding.Weights.X, 1 => binding.Weights.Y, 2 => binding.Weights.Z, _ => binding.Weights.W };
+                        if (w == 0) continue;
+                        int bone = s switch { 0 => binding.Bone0, 1 => binding.Bone1, 2 => binding.Bone2, _ => binding.Bone3 };
+                        var qr = def.QdefReal[bone]; var qd = def.QdefDual[bone];
+                        if (!hasRef) { refQ = qr; hasRef = true; }
+                        if (Quaternion.Dot(refQ, qr) < 0) w = -w;
+                        bReal += qr * w; bDual += qd * w;
+                    }
+                    float inv = 1f / MathF.Sqrt(bReal.LengthSquared());
+                    bReal *= inv; bDual *= inv;
+                    bDual -= bReal * Quaternion.Dot(bReal, bDual);
+                    var tq = (bDual * Quaternion.Conjugate(bReal)) * 2f;
+                    pos = Vector3.Transform(vPos, bReal) + new Vector3(tq.X, tq.Y, tq.Z);
+                }
+                else if (binding.Kind == SceneSkinKind.Sdef)
+                {
+                    int b0 = binding.Weights.X > 0 ? binding.Bone0 : binding.Bone1;
+                    int b1 = binding.Weights.Y > 0 ? binding.Bone1 : binding.Bone0;
+                    var rot = Quaternion.Normalize(Quaternion.Slerp(def.SdefRotations[b0], def.SdefRotations[b1], binding.Weights.Y));
+                    var sdef = model.Sdef[tid];
+                    var offset = Vector3.Transform(sdef.Anchor0, def.SkinMatrices[b0]) * binding.Weights.X
+                        + Vector3.Transform(sdef.Anchor1, def.SkinMatrices[b1]) * binding.Weights.Y;
+                    pos = Vector3.Transform(vPos - sdef.C, rot) + offset;
+                }
+                else
+                {
+                    pos = Vector3.Zero;
+                    int slots = binding.Kind == SceneSkinKind.Bdef1 ? 1 : binding.Kind == SceneSkinKind.Bdef2 ? 2 : 4;
+                    for (int s = 0; s < slots; s++)
+                    {
+                        float w = s switch { 0 => binding.Weights.X, 1 => binding.Weights.Y, 2 => binding.Weights.Z, _ => binding.Weights.W };
+                        if (w == 0) continue;
+                        int bone = s switch { 0 => binding.Bone0, 1 => binding.Bone1, 2 => binding.Bone2, _ => binding.Bone3 };
+                        pos += Vector3.Transform(vPos, def.SkinMatrices[bone]) * w;
+                    }
+                }
+                local = range.World == Matrix4x4.Identity ? pos : Vector3.Transform(pos, range.World);
+                break;
+            }
+            if (!inRange) local = staticView.GetVertex(vertexIndex).Position;
+            return snapshot.World == Matrix4x4.Identity ? local : Vector3.Transform(local, snapshot.World);
+        }
+    }
+
     private static AccelerationStructure Build(D3D12RecordingContext context, D3D12GpuCache cache, RayGiScene scene,
         bool dynamicGeometry, AccelerationStructure? previous, ID3D12Resource? triangleBuffer, DxcShaderCompiler? compiler,
-        RayGiTriangleGpu[]? scratchRows)
+        RayGiTriangleGpu[]? scratchRows, ID3D12Resource? positionBuffer, SceneSnapshot? deferredSnapshot)
     {
         var device = context.Device;
         using var device5 = device.QueryInterface<ID3D12Device5>();
@@ -331,12 +433,15 @@ internal static class D3D12HardwareRayGi
         if (triangleCount == 0) throw new InvalidOperationException("Hardware ray tracing requires at least one triangle.");
         // The current descriptor is always one flattened, nonindexed R32G32B32 triangle array.
         // Indexed/multidescriptor layouts would need a stronger compatibility key.
-        var samples = SampleGeometry(scratchRows is null ? scene.Triangles : scratchRows);
+        var samples = deferredSnapshot is not null
+            ? SampleDeferredGeometry(deferredSnapshot)
+            : SampleGeometry(scratchRows is null ? scene.Triangles : scratchRows);
         bool update = dynamicGeometry && previous is { UpdateCapable: true } && previous.TriangleCount == triangleCount
             && !RequiresRebuild(previous.BuildSamples, samples, previous.UpdatesSinceBuild);
         var flags = BuildFlags(dynamicGeometry);
         int positionBytes = PositionByteCount(triangleCount);
-        var vertexBuffer = TryGatherPositions(context, cache, triangleBuffer, compiler, triangleCount, positionBytes)
+        var vertexBuffer = positionBuffer
+            ?? TryGatherPositions(context, cache, triangleBuffer, compiler, triangleCount, positionBytes)
             ?? cache.FrameBuffer(positionBytes, ResourceStates.NonPixelShaderResource,
                 destination => WritePositionsCore(scene, scratchRows, Environment.ProcessorCount, destination));
 
@@ -473,7 +578,7 @@ internal static class D3D12HardwareRayGi
             && Marshal.OffsetOf<RayGiTriangleGpu>(nameof(RayGiTriangleGpu.P2)) == 32;
 
         // Copy integer words so DXR receives the same float bits and nonindexed primitive order.
-        private static readonly string Source = $$"""
+        internal static readonly string Source = $$"""
             cbuffer GatherConstants : register(b0) { uint TriangleCount; }
             ByteAddressBuffer Triangles : register(t0);
             RWByteAddressBuffer Positions : register(u0);
@@ -504,9 +609,9 @@ internal static class D3D12HardwareRayGi
                     new(RootParameterType.UnorderedAccessView, new RootDescriptor(0, 0), ShaderVisibility.All),
                 ];
                 using var construction = new D3D12ConstructionScope();
-                var signature = construction.Own(context.Device.CreateRootSignature<ID3D12RootSignature>(
+                var signature = construction.Own(context.Runtime.CreateRootSignature(
                     new RootSignatureDescription(RootSignatureFlags.None, parameters), RootSignatureVersion.Version10));
-                var pipeline = construction.Own(context.Device.CreateComputePipelineState(
+                var pipeline = construction.Own(context.Runtime.CreateComputePipelineState(
                     new ComputePipelineStateDescription { RootSignature = signature, ComputeShader = shader.Dxil }));
                 var result = new PositionGatherPipeline(signature, pipeline);
                 construction.Complete();

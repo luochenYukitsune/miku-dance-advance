@@ -41,7 +41,7 @@ internal sealed class D3D12TemporalColorTransfer(D3D12GpuRuntime runtime, D3D12G
         var device = context.Device;
         var commands = context.Commands;
         var compiled = GetShaders();
-        var root = cache.Get("temporal-color:root", () => device.CreateRootSignature<ID3D12RootSignature>(
+        var root = cache.Get("temporal-color:root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
                 [new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel)]),
             RootSignatureVersion.Version10));
@@ -59,7 +59,7 @@ internal sealed class D3D12TemporalColorTransfer(D3D12GpuRuntime runtime, D3D12G
             resource, outputHandle, input.Width, input.Height, format, false);
         var pipeline = cache.Get(encode ? "temporal-color:pso:encode" : "temporal-color:pso:decode", () =>
         {
-            var pso = device.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
+            var pso = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
             {
                 RootSignature = root, VertexShader = compiled.Vertex, PixelShader = encode ? compiled.Encode : compiled.Decode,
                 BlendState = BlendDescription.Opaque, SampleMask = uint.MaxValue,
@@ -85,13 +85,21 @@ internal sealed class D3D12TemporalColorTransfer(D3D12GpuRuntime runtime, D3D12G
         return target;
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        yield return new(Shader, "VSMain", "temporal-color-transfer.hlsl", "vs_5_1", flags);
+        yield return new(Shader, "PSDecode", "temporal-color-transfer.hlsl", "ps_5_1", flags);
+        yield return new(Shader, "PSEncode", "temporal-color-transfer.hlsl", "ps_5_1", flags);
+    }
+
     private (byte[] Vertex, byte[] Decode, byte[] Encode) GetShaders()
     {
         if (shaders is { } compiled) return compiled;
         const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
-        compiled = (Compiler.Compile(Shader, "VSMain", "temporal-color-transfer.hlsl", "vs_5_1", flags).ToArray(),
-            Compiler.Compile(Shader, "PSDecode", "temporal-color-transfer.hlsl", "ps_5_1", flags).ToArray(),
-            Compiler.Compile(Shader, "PSEncode", "temporal-color-transfer.hlsl", "ps_5_1", flags).ToArray());
+        compiled = (D3D12FxcShaderCache.Compile(Shader, "VSMain", "temporal-color-transfer.hlsl", "vs_5_1", flags),
+            D3D12FxcShaderCache.Compile(Shader, "PSDecode", "temporal-color-transfer.hlsl", "ps_5_1", flags),
+            D3D12FxcShaderCache.Compile(Shader, "PSEncode", "temporal-color-transfer.hlsl", "ps_5_1", flags));
         shaders = compiled;
         runtime.ShaderCompilations += 3;
         return compiled;

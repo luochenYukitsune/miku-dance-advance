@@ -58,12 +58,21 @@ internal sealed class D3D12ShadowTargets:IDisposable
             cache.RemoveReplaceable(stream+":"+slot,keepIdentity);
     }
 
-    internal void Begin(D3D12RecordingContext context)
+    /// <summary>Null clears everything; otherwise only the listed rectangles (possibly none) are cleared.</summary>
+    internal void Begin(D3D12RecordingContext context,RawRect[]? clear=null)
     {
         context.Commands.ResourceBarrierTransition(Color,ResourceStates.PixelShaderResource,ResourceStates.RenderTarget);
         context.Commands.OMSetRenderTargets(Rtv,Dsv);
-        context.Commands.ClearRenderTargetView(Rtv,new Color4(1f,1f,1f,1f));
-        context.Commands.ClearDepthStencilView(Dsv,ClearFlags.Depth,1,0);
+        if(clear is null)
+        {
+            context.Commands.ClearRenderTargetView(Rtv,new Color4(1f,1f,1f,1f));
+            context.Commands.ClearDepthStencilView(Dsv,ClearFlags.Depth,1,0);
+        }
+        else if(clear.Length>0)
+        {
+            context.Commands.ClearRenderTargetView(Rtv,new Color4(1f,1f,1f,1f),clear);
+            context.Commands.ClearDepthStencilView(Dsv,ClearFlags.Depth,1,0,clear);
+        }
     }
     internal void End(D3D12RecordingContext context)
     {

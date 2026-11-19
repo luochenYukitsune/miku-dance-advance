@@ -8,9 +8,19 @@ namespace Mmd.Modern.App;
 
 public sealed partial class EditorShellViewModel : IDisposable
 {
+    // Fallback pacing only: the viewport's frame permits advance playback at the display cadence.
+    // Win32 delivers this 16 ms timer only ~30 ms apart, so it covers intervals without a permit.
     private readonly DispatcherTimer playbackTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
-    private bool refreshingFrame;
-    private long lastPlaybackTimestamp;
+    private EditorScrubSeekCoordinator scrubSeek = null!;
+    // Numeric inspectors are read by people: while playing, their bindings refresh at a fixed UX
+    // rate (10 Hz, as Unity's Inspector and UE's Details panel do at runtime), on the next playback
+    // advance after the interval, so never faster than the display cadence. The models stay exact;
+    // pause, seek and stop publish immediately.
+    private static readonly long PanelPresentationInterval = Stopwatch.Frequency / 10;
+    internal static readonly EventArgs PlaybackFrameAdvanced = new();
+    private bool refreshingFrame, playbackPacedSinceTick;
+    private long lastPlaybackTimestamp, panelPresentationTimestamp;
+    internal Func<long> PlaybackClock { get; set; } = Stopwatch.GetTimestamp;
     private bool advancing, refreshing, playing, busy, preparingPreview, canCancelOperation;
     private string operationStatus = "就绪";
     private Func<string>? operationStatusSource;
@@ -55,7 +65,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         NotifyActivityChanged();
     }
     public bool CanEditWorkspace => !IsBusy;
-    public bool IsPlaying { get => playing; private set { playing = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); } }
+    public bool IsPlaying { get => playing; private set { playing = value; if (!value) FlushPanelPresentation(force: true); OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); } }
     public string PlayLabel => EditorLocalization.Text(IsPlaying ? "暂停" : "播放");
     public string OperationStatus
     {
@@ -78,15 +88,16 @@ public sealed partial class EditorShellViewModel : IDisposable
         NewProjectCommand = new WorkspaceCommand(() => Request(NewProjectRequested), () => !IsBusy);
         SaveProjectCommand = new WorkspaceCommand(() => Request(SaveProjectRequested), () => !IsBusy && HasProject);
         SaveAsCommand = new WorkspaceCommand(() => Request(SaveAsRequested), () => !IsBusy && HasProject);
-        UndoCommand = new WorkspaceCommand(() => { StopPlayback(); Workspace.Undo(); }, () => !IsBusy && Workspace.CanUndo);
-        RedoCommand = new WorkspaceCommand(() => { StopPlayback(); Workspace.Redo(); }, () => !IsBusy && Workspace.CanRedo);
+        scrubSeek = new(() => Workspace.Session, OnScrubPublished, error => ReportActivityFailure(error, previewUnavailable: true));
+        UndoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Undo(); }, () => !IsBusy && Workspace.CanUndo);
+        RedoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Redo(); }, () => !IsBusy && Workspace.CanRedo);
         Browser.ReplaceModelCommand = new WorkspaceCommand(() => Request(ReplaceModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         Browser.RemoveModelCommand = new WorkspaceCommand(() => Request(RemoveModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         PlayCommand = new WorkspaceCommand(TogglePlayback, () => !IsBusy && HasProject);
         GoToEndCommand = new WorkspaceCommand(() => CurrentFrame = (int)Math.Min(int.MaxValue, Workspace.Session?.DurationFrames ?? 0), () => !IsBusy && HasProject);
         Browser.ImportModelCommand = ImportModelCommand;
         Browser.SelectionChanged += (_, _) => RefreshSelection();
-        Animation.CommitMotion = Workspace.CommitMotion;
+        Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion); };
         Animation.CanMutateProject = () => !IsBusy;
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };
         Animation.PoseDraftChanged += (_, _) =>
@@ -94,15 +105,17 @@ public sealed partial class EditorShellViewModel : IDisposable
             if (Animation.HasAnyDraft)
             {
                 StopPlayback();
-                if (Workspace.Session is { } session && session.CurrentFrame != CurrentFrame) session.Seek(CurrentFrame);
+                // Even if SeekWithoutPhysicsPreRoll already updated session.CurrentFrame, finalize physics warmup.
+                bool hadPending = scrubSeek.Cancel();
+                if (Workspace.Session is { } session && (hadPending || session.CurrentFrame != CurrentFrame)) session.Seek(CurrentFrame);
             }
             if (!refreshingFrame) ViewStateChanged?.Invoke(this, EventArgs.Empty);
         };
         Animation.PropertyChanged += (_, args) =>
         { if (args.PropertyName is null or nameof(EditorAnimationViewModel.SelectionLabel)) OnPropertyChanged(nameof(AnimationSelectionLabel)); };
         SceneInspector.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => SceneInspector.Status; };
-        SceneInspector.CommitSceneMotion = Workspace.CommitSceneMotion;
-        SceneInspector.CommitSceneMotionWithCameraParent = Workspace.CommitSceneMotion;
+        SceneInspector.CommitSceneMotion = motion => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion); };
+        SceneInspector.CommitSceneMotionWithCameraParent = (motion, frame, camera) => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion, frame, camera); };
         Workspace.Changed += (_, args) =>
         {
             bool preservePoseDrafts = args is EditorWorkspaceChangedEventArgs { PreservePoseDrafts: true };
@@ -149,6 +162,7 @@ public sealed partial class EditorShellViewModel : IDisposable
 
     public void RefreshWorkspace(Guid? preferredId = null, bool preservePoseDrafts = false, bool preserveRenderBinding = false)
     {
+        scrubSeek.Cancel();
         RefreshAudioWorkspace();
         using var measure = InteractionDiagnostics.Measure("shell.refresh-workspace");
         if (!preservePoseDrafts) Animation.InvalidateDrafts();
@@ -191,23 +205,92 @@ public sealed partial class EditorShellViewModel : IDisposable
         RefreshCommands(); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public void BeginScrub() => scrubSeek.BeginScrub();
+
+    public void EndScrub() => scrubSeek.EndScrub(Workspace.Session, CurrentFrame);
+
+    internal bool IsScrubbing => scrubSeek.IsScrubbing;
+    internal bool HasPendingScrubSeek => scrubSeek.HasPendingSeek;
+    internal bool SkipPhysicsPreRollDuringScrub
+    {
+        get => scrubSeek.SkipPhysicsPreRollDuringScrub;
+        set => scrubSeek.SkipPhysicsPreRollDuringScrub = value;
+    }
+    internal Task WaitForScrubIdleAsync() => scrubSeek.WaitForWorkerIdleAsync();
+    internal void CancelPendingScrub() => scrubSeek.Cancel();
+
+    internal void SynchronizePendingScrub()
+    {
+        bool hadPending = scrubSeek.Cancel();
+        // When scrub skipped physics pre-roll, session.CurrentFrame already equals CurrentFrame;
+        // still execute a full Seek so playback, edits, and Undo/Redo never observe un-warmed poses.
+        if (hadPending && Workspace.Session is { } session)
+        {
+            PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+            session.Seek(CurrentFrame);
+            if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
+            SynchronizeAudioPlayback(explicitSeek: true);
+            FlushPanelPresentation(force: true);
+            ViewStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void OnScrubPublished(SceneProjectSession session)
+    {
+        if (!ReferenceEquals(session, Workspace.Session)) return;
+        PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+        if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
+        SynchronizeAudioPlayback(explicitSeek: true);
+        FlushPanelPresentation(force: true);
+        ViewStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnFrameChanged()
     {
         if (!advancing)
         {
-            PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
-            Workspace.Session?.Seek(CurrentFrame);
-            if (IsPlaying) lastPlaybackTimestamp = Stopwatch.GetTimestamp();
-            SynchronizeAudioPlayback(explicitSeek: true);
+            if (scrubSeek.IsScrubbing)
+            {
+                using var measure = InteractionDiagnostics.Measure("scrub.ui-frame", relatedId: CurrentFrame);
+                if (Workspace.Session is { } session)
+                    scrubSeek.RequestSeek(session, CurrentFrame);
+            }
+            else
+            {
+                scrubSeek.Cancel();
+                using var measure = InteractionDiagnostics.Measure("timeline.seek-sync", relatedId: CurrentFrame);
+                PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
+                Workspace.Session?.Seek(CurrentFrame);
+                if (IsPlaying) lastPlaybackTimestamp = PlaybackClock();
+                SynchronizeAudioPlayback(explicitSeek: true);
+            }
         }
+        PublishPanelFrame();
+        ViewStateChanged?.Invoke(this, advancing ? PlaybackFrameAdvanced : EventArgs.Empty);
+    }
+
+    /// <summary>Playback defers only binding notifications; the inspector models update exactly.</summary>
+    private void PublishPanelFrame()
+    {
+        bool defer = advancing;
         refreshingFrame = true;
+        Animation.DeferPresentation(defer); SceneInspector.DeferPresentation(defer);
         try
         {
             Animation.CurrentFrame = CurrentFrame;
             SceneInspector.CurrentFrame = CurrentFrame;
         }
-        finally { refreshingFrame = false; }
-        ViewStateChanged?.Invoke(this, EventArgs.Empty);
+        finally { Animation.DeferPresentation(false); SceneInspector.DeferPresentation(false); refreshingFrame = false; }
+        if (!defer) FlushPanelPresentation(force: true);
+    }
+
+    private void FlushPanelPresentation(bool force)
+    {
+        if (!Animation.HasDeferredPresentation && !SceneInspector.HasDeferredPresentation) return;
+        long now = PlaybackClock();
+        if (!force && now - panelPresentationTimestamp < PanelPresentationInterval) return;
+        panelPresentationTimestamp = now;
+        Animation.FlushPresentation(); SceneInspector.FlushPresentation();
     }
 
     /// <summary>The loaded recovery PMA already owns the exact paused clock, including fractions.
@@ -217,22 +300,25 @@ public sealed partial class EditorShellViewModel : IDisposable
         if (frame < 0 || Workspace.Session is not { } session
             || frame != (int)Math.Min(int.MaxValue, session.CurrentFrame))
             throw new InvalidDataException("Recovered playhead does not match the project clock.");
+        scrubSeek.Cancel();
         PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
         _currentFrame = frame;
         SynchronizeAudioPlayback(explicitSeek: true);
         refreshingFrame = true;
         try { Animation.CurrentFrame = frame; SceneInspector.CurrentFrame = frame; }
         finally { refreshingFrame = false; }
+        FlushPanelPresentation(force: true);
         OnPropertyChanged(nameof(CurrentFrame)); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void TogglePlayback()
     {
         if (IsPlaying) { StopPlayback(); return; }
+        SynchronizePendingScrub();
         if (Workspace.Session is not { } session) return;
         if (CurrentFrame >= session.DurationFrames) CurrentFrame = 0;
         audioBlocked = false; reportedAudioFailure = null;
-        lastPlaybackTimestamp = Stopwatch.GetTimestamp(); IsPlaying = true; playbackTimer.Start();
+        lastPlaybackTimestamp = PlaybackClock(); playbackPacedSinceTick = false; IsPlaying = true; playbackTimer.Start();
         SynchronizeAudioPlayback();
     }
     public void StopPlayback()
@@ -240,15 +326,33 @@ public sealed partial class EditorShellViewModel : IDisposable
         playbackTimer.Stop(); if (IsPlaying) IsPlaying = false;
         SynchronizeAudioPlayback();
     }
+    /// <summary>Called by the viewport at each playback frame permit, right before it captures the
+    /// scene. It paces the single shell-owned clock; the view never runs a clock of its own.</summary>
+    internal void AdvancePlaybackForFrame()
+    {
+        if (!IsPlaying) return;
+        playbackPacedSinceTick = true;
+        using var measure = InteractionDiagnostics.Measure("playback.frame-pulse");
+        AdvancePlayback();
+    }
     private void PlaybackTick(object? sender, EventArgs e)
     {
         using var tickMeasure = InteractionDiagnostics.Measure("playback.ui-tick");
+        if (IsPlaying && playbackPacedSinceTick)
+        {
+            // Frame permits already advanced this interval; only publish a due panel refresh.
+            playbackPacedSinceTick = false; FlushPanelPresentation(force: false); return;
+        }
+        AdvancePlayback();
+    }
+    private void AdvancePlayback()
+    {
         if (!IsPlaying || Workspace.Session is not { } session || IsBusy) { StopPlayback(); return; }
-        long now = Stopwatch.GetTimestamp();
+        long now = PlaybackClock();
         // A delayed UI tick still owns its full elapsed time. Keep the scene's
         // bounded physics catch-up and carry very long gaps across ticks so that
         // no call exceeds the soft-body advance limit.
-        long elapsedTicks = Math.Min(now - lastPlaybackTimestamp, 10L * Stopwatch.Frequency);
+        long elapsedTicks = Math.Clamp(now - lastPlaybackTimestamp, 0L, 10L * Stopwatch.Frequency);
         lastPlaybackTimestamp += elapsedTicks;
         double elapsed = elapsedTicks / (double)Stopwatch.Frequency;
         try
@@ -259,8 +363,9 @@ public sealed partial class EditorShellViewModel : IDisposable
             bool changed = nextFrame != CurrentFrame;
             CurrentFrame = nextFrame;
             SynchronizeAudioPlayback();
-            if (!changed) ViewStateChanged?.Invoke(this, EventArgs.Empty);
+            if (!changed) ViewStateChanged?.Invoke(this, PlaybackFrameAdvanced);
             if (session.CurrentFrame >= session.DurationFrames) StopPlayback();
+            else FlushPanelPresentation(force: false);
         }
         catch (Exception error) { StopPlayback(); ReportActivityFailure(error, previewUnavailable: true); }
         finally { advancing = false; }
@@ -281,6 +386,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     public void Dispose()
     {
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
+        scrubSeek.Dispose();
         DisposeAudioPlayback(); PosePreview.Dispose(); Workspace.Dispose();
     }
 }

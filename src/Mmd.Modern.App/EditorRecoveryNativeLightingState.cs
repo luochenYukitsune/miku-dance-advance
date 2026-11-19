@@ -95,6 +95,13 @@ public sealed record EditorRecoveryNativeLightDraft
     public required decimal? RotationX { get; init; }
     public required decimal? RotationY { get; init; }
     public required decimal? RotationZ { get; init; }
+    public decimal? TargetX { get; init; }
+    public decimal? TargetY { get; init; }
+    public decimal? TargetZ { get; init; }
+    public float? AimDistance { get; init; }
+    public bool AimDistanceModified { get; init; }
+    public bool TargetEdited { get; init; }
+    public Quaternion? DirectRotation { get; init; }
     public required decimal? Red { get; init; }
     public required decimal? Green { get; init; }
     public required decimal? Blue { get; init; }
@@ -115,6 +122,7 @@ public sealed record EditorRecoveryNativeLightDraft
         "InlineLightRangeDirect", "InlineLightBeamWidth", "InlineLightEdgeSoftness",
         "InlineLightAreaWidth", "InlineLightAreaHeight",
         "InlineLightPositionX", "InlineLightPositionY", "InlineLightPositionZ",
+        "InlineLightTargetX", "InlineLightTargetY", "InlineLightTargetZ",
         "InlineLightRotationX", "InlineLightRotationY", "InlineLightRotationZ",
         "InlineLightRed", "InlineLightGreen", "InlineLightBlue"
     };

@@ -146,13 +146,13 @@ public sealed partial class SceneProjectSession
             var next = detached.Freeze(content.Composition.Objects.Select(o => o.Id).ToHashSet());
             cancellationToken.ThrowIfCancellationRequested();
             if (previous.SameAs(next)) return;
-            undo.Push(content); redo.Clear(); content = content with { RenderingStyles = new(next) };
+            undo.Push(content); redo.Clear(); content = content with { RenderingStyles = new(next) }; stateEpoch++;
         }
         finally { editing = false; }
     }
     private void RequireRenderingObject(Guid id)
     { if (!content.Composition.Objects.Any(o => o.Id == id)) throw new ArgumentException("Unknown scene object.", nameof(id)); }
     internal void AdoptPmaRenderingStyles(PmaRenderingStyleState styles)
-    { RequireIdle(); content = content with { RenderingStyles = styles }; }
+    { RequireIdle(); content = content with { RenderingStyles = styles }; stateEpoch++; }
     internal PmaRenderingStyleState PmaRenderingStyles { get { RequireIdle(); return content.RenderingStyles; } }
 }

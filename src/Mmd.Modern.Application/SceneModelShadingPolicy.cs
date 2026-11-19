@@ -30,6 +30,7 @@ public static class SceneModelShadingPolicy
         SceneLightingEditor.ValidatePurpose("render-purpose", role, purpose.EnvironmentIndoor);
         bool sceneLighting = role == ModelRole.Environment && purpose.EnvironmentIndoor == true;
         bool directPalette = role == ModelRole.Character;
+        bool useMipmaps = role is ModelRole.Environment or ModelRole.Prop;
         RayGiToonResponse? response = role switch
         {
             ModelRole.Character => RayGiToonResponse.PreservePaletteBands,
@@ -37,9 +38,15 @@ public static class SceneModelShadingPolicy
             _ => null,
         };
         if (response is null)
-            return !frame.UsesSceneLighting && !frame.Materials.Any(flags => flags.PreserveDirectLightPalette) ? frame
+            return !frame.UsesSceneLighting
+                && frame.Materials.All(flags => !flags.PreserveDirectLightPalette && flags.UseMipmaps == useMipmaps) ? frame
                 : new(frame.Surface, frame.Outline, frame.OutlineOptions, frame.Options,
-                    frame.Materials.Select(flags => flags with { UseSceneLighting = false, PreserveDirectLightPalette = false }),
+                    frame.Materials.Select(flags => flags with
+                    {
+                        UseSceneLighting = false,
+                        PreserveDirectLightPalette = false,
+                        UseMipmaps = useMipmaps,
+                    }),
                     frame.Lighting, frame.EditorOverlay);
         // Role governs GI treatment, while the selected rendering style owns main-light and outline overrides.
         CharacterToonResponse? MainLight(OriginalFrameMaterialFlags flags) => role == ModelRole.Character
@@ -48,10 +55,11 @@ public static class SceneModelShadingPolicy
             ? flags.CharacterOutlineStyle : null;
         if (frame.Materials.All(flags => flags.GiToonResponseOverride == response
             && flags.CharacterToonResponse == MainLight(flags) && flags.CharacterOutlineStyle == Outline(flags)
-            && flags.UseSceneLighting == sceneLighting && flags.PreserveDirectLightPalette == directPalette)) return frame;
+            && flags.UseSceneLighting == sceneLighting && flags.PreserveDirectLightPalette == directPalette
+            && flags.UseMipmaps == useMipmaps)) return frame;
         return new(frame.Surface, frame.Outline, frame.OutlineOptions, frame.Options,
             frame.Materials.Select(flags => flags with { GiToonResponseOverride = response, CharacterToonResponse = MainLight(flags),
                 CharacterOutlineStyle = Outline(flags), UseSceneLighting = sceneLighting,
-                PreserveDirectLightPalette = directPalette }), frame.Lighting, frame.EditorOverlay);
+                PreserveDirectLightPalette = directPalette, UseMipmaps = useMipmaps }), frame.Lighting, frame.EditorOverlay);
     }
 }

@@ -91,24 +91,59 @@ public sealed class SceneSnapshot
     private readonly uint[] indices;
     private sealed class VertexStorage
     {
-        internal readonly OwnedVertexChunks<SceneVertex> Chunks;
+        private readonly OwnedVertexChunks<SceneVertex>? eager;
+        private readonly Lazy<OwnedVertexChunks<SceneVertex>>? deferred;
         private readonly Lazy<SceneVertex[]> contiguous;
-        internal bool IsMaterialized => contiguous.IsValueCreated;
+        internal readonly int Count;
+        // Deferred storage only: the eager owner of every other range (placeholders inside Ranges)
+        // and the ranges whose values are produced on demand by their deformation's CPU reference.
+        internal readonly VertexStorage? Base;
+        internal readonly ReadOnlyCollection<SceneDeformationRange> Ranges = ReadOnlyCollection<SceneDeformationRange>.Empty;
+        internal bool IsMaterialized => deferred?.IsValueCreated ?? contiguous.IsValueCreated;
+        internal OwnedVertexChunks<SceneVertex> Chunks => eager ?? deferred!.Value;
+        internal int ChunkCount => Count / OwnedVertexChunks<SceneVertex>.ChunkSize + (Count % OwnedVertexChunks<SceneVertex>.ChunkSize == 0 ? 0 : 1);
         internal VertexStorage(SceneVertex[] owned)
-        { Chunks = new(owned); contiguous = new(() => owned, LazyThreadSafetyMode.ExecutionAndPublication); }
+        { eager = new(owned); Count = owned.Length; contiguous = new(() => owned, LazyThreadSafetyMode.ExecutionAndPublication); }
         internal VertexStorage(OwnedVertexChunks<SceneVertex> chunks)
         {
-            Chunks = chunks;
+            eager = chunks; Count = chunks.Count;
             contiguous = new(() => { var result = new SceneVertex[chunks.Count]; chunks.CopyTo(0, result); return result; },
                 LazyThreadSafetyMode.ExecutionAndPublication);
         }
+        internal VertexStorage(VertexStorage baseline, SceneDeformationRange[] ranges)
+        {
+            Base = baseline; Count = baseline.Count; Ranges = Array.AsReadOnly(ranges);
+            var bounds = ranges.Select(range => (range.Start, range.Count)).ToArray();
+            deferred = new(() => baseline.Chunks.WithRanges(bounds, (index, offset, destination) => WriteDeformed(ranges[index], offset, destination)),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            contiguous = new(() => { var result = new SceneVertex[Count]; Chunks.CopyTo(0, result); return result; },
+                LazyThreadSafetyMode.ExecutionAndPublication);
+        }
         internal SceneVertex[] Contiguous => contiguous.Value;
+        // Same placement arithmetic as project composition of CPU-deformed actor vertices.
+        private static void WriteDeformed(SceneDeformationRange range, int offset, Span<SceneVertex> destination)
+        {
+            var source = range.Deformation.Materialize().AsSpan(offset, destination.Length);
+            var world = range.World;
+            if (world == Matrix4x4.Identity) { source.CopyTo(destination); return; }
+            if (!Matrix4x4.Invert(world, out var inverse)) throw new ArgumentException("Deformation World must be invertible.");
+            var normalTransform = Matrix4x4.Transpose(inverse);
+            for (int index = 0; index < destination.Length; index++)
+            {
+                var vertex = source[index];
+                var normal = Vector3.TransformNormal(vertex.Normal, normalTransform);
+                var placed = vertex with { Position = Vector3.Transform(vertex.Position, world), Normal = normal.LengthSquared() > 1e-12f ? Vector3.Normalize(normal) : Vector3.Zero };
+                if (!Finite(placed.Position) || !Finite(placed.Normal) || !Finite(placed.Normal.LengthSquared()) || !Finite(placed.Uv.X) || !Finite(placed.Uv.Y))
+                    throw new ArgumentException("Composed vertices must be finite.");
+                destination[index] = placed;
+            }
+        }
     }
     /// <summary>Contiguous compatibility view. Composed frames materialize it once on demand;
     /// renderers can read immutable chunks without allocating this whole-scene copy.</summary>
     public ReadOnlySpan<SceneVertex> Vertices => vertexStorage.Contiguous;
-    public int VertexCount => vertexStorage.Chunks.Count;
-    public int VertexChunkCount => vertexStorage.Chunks.ChunkCount;
+    public int VertexCount => vertexStorage.Count;
+    public int VertexChunkCount => vertexStorage.ChunkCount;
     public SceneVertex GetVertex(int index) => vertexStorage.Chunks[index];
     public ReadOnlySpan<SceneVertex> GetVertexChunk(int chunkIndex) => vertexStorage.Chunks.GetChunk(chunkIndex);
     public void CopyVertices(int sourceIndex, Span<SceneVertex> destination) => vertexStorage.Chunks.CopyTo(sourceIndex, destination);
@@ -126,6 +161,49 @@ public sealed class SceneSnapshot
     public SceneRawRadialSeeds? RawRadialSeeds { get; }
     /// <summary>Deformed frames use a replaceable GPU vertex stream instead of a permanent content cache.</summary>
     public bool HasDynamicVertices { get; }
+    /// <summary>Ranges whose vertices are described by deformation inputs. Their values are still observable through
+    /// every vertex accessor (computed once by the CPU reference on first read); a GPU engine may instead deform
+    /// them itself and read the remaining ranges from StaticVertexView without evaluating the reference.</summary>
+    public IReadOnlyList<SceneDeformationRange> DeformationRanges => vertexStorage.Ranges;
+    public bool HasDeferredDeformation => vertexStorage.Base is not null;
+    /// <summary>True once a deferred deformation was evaluated on the CPU for this snapshot's vertices.</summary>
+    public bool IsDeferredDeformationMaterialized => vertexStorage.Base is not null && vertexStorage.IsMaterialized;
+    private SceneSnapshot? staticVertexView;
+    /// <summary>Same metadata over the eager owner: exact outside DeformationRanges, placeholders inside them.</summary>
+    public SceneSnapshot StaticVertexView => vertexStorage.Base is not { } baseline ? this
+        : Volatile.Read(ref staticVertexView) ?? Interlocked.CompareExchange(ref staticVertexView, new(this, baseline, HasDynamicVertices), null) ?? staticVertexView!;
+    /// <summary>The single actor-level deformation covering every vertex, if this snapshot is exactly that.</summary>
+    public SceneDeformation? WholeDeformation => vertexStorage.Ranges.Count == 1 && vertexStorage.Ranges[0] is { Start: 0 } range
+        && range.Count == VertexCount && range.World == Matrix4x4.Identity ? range.Deformation : null;
+
+    /// <summary>Publishes a deformation of these rest-topology vertices without evaluating it. Vertex reads produce the
+    /// deformation's CPU reference; the current vertices remain as placeholders for engines that deform on the GPU.</summary>
+    public SceneSnapshot WithDeferredDeformation(SceneDeformation deformation)
+    {
+        ArgumentNullException.ThrowIfNull(deformation);
+        if (deformation.Model.VertexCount != VertexCount) throw new ArgumentException("Deformation must preserve topology.", nameof(deformation));
+        return WithDeferredRanges([new(0, deformation, Matrix4x4.Identity)]);
+    }
+    /// <summary>Wraps the eager owner with ordered, disjoint deferred ranges. All deferred ranges are new lineage.</summary>
+    internal SceneSnapshot WithDeferredRanges(IReadOnlyList<SceneDeformationRange> ranges)
+    {
+        ArgumentNullException.ThrowIfNull(ranges);
+        var baseline = vertexStorage.Base ?? vertexStorage;
+        var owned = ranges.ToArray();
+        if (owned.Length == 0) return ReferenceEquals(baseline, vertexStorage) ? this : new(this, baseline, dynamicVertices: true);
+        int end = 0;
+        foreach (var range in owned)
+        {
+            if (range is null || range.Start < end || range.Count <= 0 || range.Count > VertexCount - range.Start)
+                throw new ArgumentException("Deformation ranges must be ordered, disjoint and within the baseline.", nameof(ranges));
+            ValidateWorld(range.World); end = range.Start + range.Count;
+        }
+        var storage = new VertexStorage(baseline, owned);
+        SceneVertexRevision.RegisterComposed(baseline, storage, VertexCount, owned.Select(range => (range.Start, range.Count)).ToArray());
+        return new(this, storage, dynamicVertices: true);
+    }
+    /// <summary>A composition source range: the actor's whole deformation placed at Start by World.</summary>
+    internal static SceneDeformationRange PlacedDeformation(int start, SceneDeformation deformation, Matrix4x4 world) => new(start, deformation, world);
     /// <summary>Explicitly empty render input: no geometry, materials or texture references to draw or trace.</summary>
     public bool IsEmpty => VertexCount == 0;
 
@@ -190,6 +268,11 @@ public sealed class SceneSnapshot
         return new(this,previous.vertexStorage,dynamicVertices:true);
     }
     internal bool SharesIndexStorage(SceneSnapshot other) => ReferenceEquals(indices, other.indices);
+    /// <summary>Deferred counterpart of ReuseUnchangedDeformation: equal deformation inputs keep the published storage.</summary>
+    internal SceneSnapshot? ReuseUnchangedDeferredDeformation(SceneSnapshot previous, SceneDeformation deformation)
+        => previous.VertexCount == VertexCount && previous.WholeDeformation is { } prior && prior.HasSameInputs(deformation)
+            && ReferenceEquals(previous.vertexStorage.Base, vertexStorage.Base ?? vertexStorage)
+            ? new(this, previous.vertexStorage, dynamicVertices: true) : null;
 
     /// <summary>Compatibility writer for callers that require a single span per changed range.
     /// The product composition path uses WithComposedVertexChunks and has no range temporary.</summary>
@@ -225,15 +308,17 @@ public sealed class SceneSnapshot
     {
         ArgumentNullException.ThrowIfNull(ranges); ArgumentNullException.ThrowIfNull(write);
         var ownedRanges = ranges.ToArray();
-        var chunks = vertexStorage.Chunks.WithRanges(ownedRanges, (range, offset, destination) =>
+        // A deferred baseline composes its eager owner; deferred ranges are re-attached by the caller.
+        var baseline = vertexStorage.Base ?? vertexStorage;
+        var chunks = baseline.Chunks.WithRanges(ownedRanges, (range, offset, destination) =>
         {
             write(range, offset, destination);
             foreach (var v in destination)
                 if (!Finite(v.Position) || !Finite(v.Normal) || !Finite(v.Normal.LengthSquared()) || !Finite(v.Uv.X) || !Finite(v.Uv.Y))
                     throw new ArgumentException("Composed vertices must be finite.", nameof(write));
         });
-        var storage = ReferenceEquals(chunks, vertexStorage.Chunks) ? vertexStorage : new VertexStorage(chunks);
-        SceneVertexRevision.RegisterComposed(vertexStorage, storage, VertexCount, ownedRanges);
+        var storage = ReferenceEquals(chunks, baseline.Chunks) ? baseline : new VertexStorage(chunks);
+        SceneVertexRevision.RegisterComposed(baseline, storage, VertexCount, ownedRanges);
         return new(this, storage, dynamicVertices: true);
     }
 
@@ -256,9 +341,10 @@ public sealed class SceneSnapshot
             sources[index] = (range.Start, range.Source.vertexStorage.Chunks);
             ranges[index] = (range.Start, range.Source.VertexCount);
         }
-        var chunks = vertexStorage.Chunks.WithCopiedRanges(sources);
-        var storage = ReferenceEquals(chunks, vertexStorage.Chunks) ? vertexStorage : new VertexStorage(chunks);
-        SceneVertexRevision.RegisterComposed(vertexStorage, storage, VertexCount, ranges);
+        var baseline = vertexStorage.Base ?? vertexStorage;
+        var chunks = baseline.Chunks.WithCopiedRanges(sources);
+        var storage = ReferenceEquals(chunks, baseline.Chunks) ? baseline : new VertexStorage(chunks);
+        SceneVertexRevision.RegisterComposed(baseline, storage, VertexCount, ranges);
         return new(this, storage, dynamicVertices: true);
     }
     private SceneSnapshot(SceneSnapshot source, VertexStorage storage, bool dynamicVertices)

@@ -14,6 +14,9 @@ internal interface IEditorViewportRenderer : IRealtimeViewRenderer
     EditorViewportPresentationStatistics Statistics { get; }
     IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     ValueTask WaitForNextFrameAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    /// <summary>True when WaitForNextFrameAsync is a real present-cadence permit (for example a
+    /// frame-latency waitable swapchain). Only then may playback be paced by this renderer.</summary>
+    bool PacesPresentation => false;
     bool SupportsRecordingAhead => false;
     ValueTask PresentAheadAsync(PreviewFrame frame, CancellationToken cancellationToken) => throw new NotSupportedException();
     ValueTask UpdateQualityAsync(ViewQualityOptions quality, CancellationToken cancellationToken = default);
@@ -31,6 +34,7 @@ internal sealed class EditorViewportRenderer(D3D12RealtimeViewRenderer native) :
     public ViewRendererCapabilities Capabilities => native.Capabilities;
     public ValueTask WaitForNextFrameAsync(CancellationToken cancellationToken = default)
         => native.WaitForNextFrameAsync(cancellationToken);
+    public bool PacesPresentation => true;
     public ValueTask PresentAsync(PreviewFrame frame, CancellationToken cancellationToken = default)
         => native.PresentAsync(frame, cancellationToken);
     public bool SupportsRecordingAhead => true;

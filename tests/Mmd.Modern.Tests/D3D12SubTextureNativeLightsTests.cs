@@ -80,8 +80,11 @@ public sealed class D3D12SubTextureNativeLightsTests
         var light=Light(kind);
         var opaque=WithLights(ShadowFixture(new(.75f,.25f),additive),[light]);
         var blocked=session.Capture(opaque,Width,Height);
-        Assert.Equal(faces,session.NativeLightStatistics!.ShadowFaces);
-        Assert.Equal(faces,session.NativeLightStatistics.ShadowDrawCalls);
+        var stats=session.NativeLightStatistics!;
+        Assert.Equal(faces,stats.ShadowFaces);
+        Assert.Equal(faces,stats.ShadowCasterDraws);
+        Assert.Equal(kind==SceneLightKind.Point?1:faces,stats.ShadowDrawCalls);
+        Assert.Equal(faces,stats.ShadowDrawCalls+stats.ShadowCulledDraws);
         // UV1 first quadrant is clear although base UV and normal projection both sample opaque texels.
         var hole=session.Capture(WithLights(ShadowFixture(new(.25f,.25f),additive),[light]),Width,Height);
         var noShadow=session.Capture(WithLights(opaque,[light with {CastShadows=false}]),Width,Height);

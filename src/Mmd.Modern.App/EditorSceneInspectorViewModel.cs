@@ -39,6 +39,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         RegisterCameraKeyframeCommand = new SceneCommand(RegisterCameraKeyframeAsync, () => CanRegisterCamera);
         RegisterLightKeyframeCommand = new SceneCommand(RegisterLightKeyframeAsync, () => CanRegisterLight);
         RevertDraftCommand = new SceneCommand(() => { RevertDraft(); return Task.CompletedTask; }, () => CanRevertDraft);
+        RevertLightDraftCommand = new SceneCommand(() => { RevertLightDraft(); return Task.CompletedTask; }, () => CanRevertLightDraft);
         LoadPoses();
         Observe(this, static model => model.RefreshLocalization());
     }
@@ -59,6 +60,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     public ICommand RegisterCameraKeyframeCommand { get; }
     public ICommand RegisterLightKeyframeCommand { get; }
     public ICommand RevertDraftCommand { get; }
+    public ICommand RevertLightDraftCommand { get; }
     public PmmCameraPose CameraPose => cameraPose;
     /// <summary>Color includes the UI intensity multiplier, as required by VMD's RGB-only light record.</summary>
     public PmmLightPose LightPose => lightPose;
@@ -71,6 +73,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     public bool HasLightDraft => lightDraft;
     public bool HasDraft => IsCameraInspector ? HasCameraDraft : IsLightInspector && HasLightDraft;
     public bool CanRevertDraft => !IsBusy && HasDraft;
+    public bool CanRevertLightDraft => !IsBusy && HasLightDraft;
     public bool CanRegisterCamera => !IsBusy && CameraIsValid && ValidateInput?.Invoke() != false;
     public bool CanRegisterLight => !IsBusy && LightIsValid && ValidateInput?.Invoke() != false;
     public string Status => Format(status, statusArguments);
@@ -214,6 +217,14 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         contextRevision++;
         if (IsCameraInspector) LoadCamera();
         else if (IsLightInspector) LoadLight();
+        DraftChanged(); SetStatus("已恢复当前帧的已登记参数");
+    }
+
+    public void RevertLightDraft()
+    {
+        if (!CanRevertLightDraft) return;
+        contextRevision++;
+        LoadLight();
         DraftChanged(); SetStatus("已恢复当前帧的已登记参数");
     }
 
@@ -362,7 +373,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         Changed(nameof(CameraParentBone)); Changed(nameof(CameraParentHint));
         if (CameraIsValid) CameraPoseChanged?.Invoke(cameraPose);
     }
-    private void PublishLight() { Changed(nameof(LightPose)); Changed(nameof(LightDirectionVector)); Changed(nameof(LightAzimuth)); Changed(nameof(LightElevation)); if (LightIsValid) LightPoseChanged?.Invoke(lightPose); }
+    private void PublishLight() { SyncMainLightHemisphere(); Changed(nameof(LightPose)); Changed(nameof(LightDirectionVector)); Changed(nameof(LightAzimuth)); Changed(nameof(LightElevation)); Changed(nameof(IsMainLightBacklit)); Changed(nameof(MainLightHemisphereLabel)); if (LightIsValid) LightPoseChanged?.Invoke(lightPose); }
     private void DraftChanged()
     {
         Changed(nameof(HasCameraDraft)); Changed(nameof(HasLightDraft)); Changed(nameof(HasDraft)); Changed(nameof(FrameSummary));
@@ -371,8 +382,12 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     }
     private void RefreshAvailability()
     {
-        Changed(nameof(IsBusy)); Changed(nameof(CanEdit)); Changed(nameof(CanRegisterCamera)); Changed(nameof(CanRegisterLight)); Changed(nameof(CanRevertDraft));
-        foreach (var command in new[] { RegisterCameraKeyframeCommand, RegisterLightKeyframeCommand, RevertDraftCommand }) ((SceneCommand)command).Refresh();
+        Changed(nameof(IsBusy)); Changed(nameof(CanEdit)); Changed(nameof(CanRegisterCamera)); Changed(nameof(CanRegisterLight)); Changed(nameof(CanRevertDraft)); Changed(nameof(CanRevertLightDraft));
+        if (!presentation.TryDeferCommands()) RaiseCommandAvailabilityChanged();
+    }
+    private void RaiseCommandAvailabilityChanged()
+    {
+        foreach (var command in new[] { RegisterCameraKeyframeCommand, RegisterLightKeyframeCommand, RevertDraftCommand, RevertLightDraftCommand }) ((SceneCommand)command).Refresh();
     }
     private void SetStatus(string value, params object?[] arguments)
     { status = value; statusArguments = arguments; Changed(nameof(Status)); ReportStatus?.Invoke(Status); }
@@ -402,7 +417,13 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         catch (OverflowException) { return null; }
     }
     private static bool Finite(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
-    private void Changed([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private readonly EditorDeferredPresentation presentation = new();
+    /// <summary>Playback presentation: notifications raised while deferred wait for FlushPresentation.</summary>
+    internal void DeferPresentation(bool defer) => presentation.IsDeferring = defer;
+    internal bool HasDeferredPresentation => presentation.HasPending;
+    internal void FlushPresentation() => presentation.Flush(name => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)), RaiseCommandAvailabilityChanged);
+    private void Changed([CallerMemberName] string? name = null)
+    { if (!presentation.TryDefer(name)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name)); }
     private sealed class SceneCommand(Func<Task> action, Func<bool> canExecute) : ICommand
     {
         public event EventHandler? CanExecuteChanged;

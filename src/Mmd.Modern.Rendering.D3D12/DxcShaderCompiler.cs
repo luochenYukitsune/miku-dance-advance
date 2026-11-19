@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -16,40 +18,30 @@ public sealed class DxcShaderCompiler
 {
     private static readonly string[] CompileFlags = ["-HV", "2021", "-Ges", "-Gis", "-O3", "-Qstrip_debug"];
     private static readonly UTF8Encoding SourceEncoding = new(false);
+    private static readonly byte[] DiskCacheMagic = "MDDXCC1\0"u8.ToArray();
+    private static readonly ConcurrentDictionary<string, DxcShaderCompiler> SharedCompilers = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, CompilerIdentity> Identities = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly object gate = new();
     private readonly Dictionary<string, DxcCompilationResult> compiled = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task<DxcCompilationResult>> inFlight = new(StringComparer.Ordinal);
     private int compileInvocationCount;
+    private int diskCacheHitCount;
+
+    public static int DefaultPrewarmParallelism => Math.Max(1, Environment.ProcessorCount / 2);
 
     public DxcShaderCompiler(string? compilerPath = null, string? cacheDirectory = null)
     {
         CompilerPath = ResolveCompilerPath(compilerPath);
-        string? environmentCache = cacheDirectory is null ? Environment.GetEnvironmentVariable("MMD_DXC_CACHE") : null;
-        string? workspace = cacheDirectory is null && environmentCache is null ? FindWorkspaceRoot() : null;
-        string? localData = cacheDirectory is null && environmentCache is null && workspace is null
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : null;
-        CacheDirectory = D3D12RuntimePaths.ResolveDxcCacheDirectory(cacheDirectory, environmentCache, workspace, localData);
+        CacheDirectory = ResolveCacheDirectory(cacheDirectory);
         Directory.CreateDirectory(CacheDirectory);
         Directory.CreateDirectory(Path.Combine(CacheDirectory, "tmp"));
 
-        var version = Run(["--version"], CacheDirectory);
-        if (version.ExitCode != 0)
-            throw new DxcShaderCompilationException("DXC version query failed.", version.Diagnostics, version.ExitCode);
-        CompilerVersion = version.Diagnostics.Trim();
-        if (string.IsNullOrWhiteSpace(CompilerVersion))
-            throw new DxcShaderCompilationException("DXC returned an empty compiler identity.", version.Diagnostics, version.ExitCode);
-
-        var compilerDirectory = Path.GetDirectoryName(CompilerPath)!;
-        CompilerFiles = Array.AsReadOnly(new[] { Path.GetFileName(CompilerPath), "dxcompiler.dll", "dxil.dll" }
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal)
-            .Select(name => new DxcCompilerFile(name, File.Exists(Path.Combine(compilerDirectory, name))
-                ? Hash(File.ReadAllBytes(Path.Combine(compilerDirectory, name))) : "missing"))
-            .ToArray());
-        CompilerHash = Hash(SourceEncoding.GetBytes(JsonSerializer.Serialize(new
-        {
-            Version = CompilerVersion,
-            Files = CompilerFiles,
-        })));
+        var identity = GetOrCreateIdentity(CompilerPath, CacheDirectory);
+        CompilerVersion = identity.Version;
+        CompilerFiles = identity.Files;
+        CompilerHash = identity.Hash;
     }
 
     public string CompilerPath { get; }
@@ -58,6 +50,59 @@ public sealed class DxcShaderCompiler
     public string CompilerHash { get; }
     public IReadOnlyList<DxcCompilerFile> CompilerFiles { get; }
     public int CompileInvocationCount => Volatile.Read(ref compileInvocationCount);
+    public int DiskCacheHitCount => Volatile.Read(ref diskCacheHitCount);
+
+    internal static DxcShaderCompiler GetOrCreateShared(string? compilerPath = null, string? cacheDirectory = null)
+    {
+        string resolvedCompiler = ResolveCompilerPath(compilerPath);
+        string resolvedCache = ResolveCacheDirectory(cacheDirectory);
+        string key = $"{resolvedCompiler}\n{resolvedCache}";
+        return SharedCompilers.GetOrAdd(key, _ => new DxcShaderCompiler(resolvedCompiler, resolvedCache));
+    }
+
+    private static string ResolveCacheDirectory(string? cacheDirectory)
+    {
+        string? environmentCache = cacheDirectory is null ? Environment.GetEnvironmentVariable("MMD_DXC_CACHE") : null;
+        string? workspace = cacheDirectory is null && environmentCache is null ? D3D12RuntimePaths.FindWorkspaceRoot() : null;
+        string? localData = cacheDirectory is null && environmentCache is null && workspace is null
+            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : null;
+        return D3D12RuntimePaths.ResolveDxcCacheDirectory(cacheDirectory, environmentCache, workspace, localData);
+    }
+
+    private static CompilerIdentity GetOrCreateIdentity(string compilerPath, string cacheDirectory)
+    {
+        string compilerDirectory = Path.GetDirectoryName(compilerPath)!;
+        string[] names = new[] { Path.GetFileName(compilerPath), "dxcompiler.dll", "dxil.dll" }
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string stamp = string.Join("|", names.Select(name =>
+        {
+            string full = Path.Combine(compilerDirectory, name);
+            var info = new FileInfo(full);
+            return info.Exists ? $"{name}:{info.Length}:{info.LastWriteTimeUtc.Ticks}" : $"{name}:missing";
+        }));
+        string cacheKey = $"{compilerPath}\n{stamp}";
+        if (Identities.TryGetValue(cacheKey, out var cached)) return cached;
+
+        var version = RunProcess(compilerPath, cacheDirectory, ["--version"], cacheDirectory, CancellationToken.None);
+        if (version.ExitCode != 0)
+            throw new DxcShaderCompilationException("DXC version query failed.", version.Diagnostics, version.ExitCode);
+        string compilerVersion = version.Diagnostics.Trim();
+        if (string.IsNullOrWhiteSpace(compilerVersion))
+            throw new DxcShaderCompilationException("DXC returned an empty compiler identity.", version.Diagnostics, version.ExitCode);
+
+        var files = Array.AsReadOnly(names
+            .Select(name => new DxcCompilerFile(name, File.Exists(Path.Combine(compilerDirectory, name))
+                ? Hash(File.ReadAllBytes(Path.Combine(compilerDirectory, name))) : "missing"))
+            .ToArray());
+        string hash = Hash(SourceEncoding.GetBytes(JsonSerializer.Serialize(new
+        {
+            Version = compilerVersion,
+            Files = files,
+        })));
+        return Identities.GetOrAdd(cacheKey, _ => new CompilerIdentity(compilerVersion, files, hash));
+    }
 
     /// <summary>
     /// Compiles self-contained compute HLSL. Include directives are deliberately rejected because
@@ -85,12 +130,69 @@ public sealed class DxcShaderCompiler
         IReadOnlyDictionary<string, string?>? defines = null)
         => CompileProgram(source, entryPoint, profile, defines, "vs");
 
+    public Task PrewarmAsync(
+        IEnumerable<DxcShaderWarmupRequest> requests,
+        int maxParallelism = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxParallelism);
+        var list = requests.ToArray();
+        if (list.Length == 0 || cancellationToken.IsCancellationRequested) return Task.CompletedTask;
+        int concurrency = Math.Min(list.Length, maxParallelism == 0 ? DefaultPrewarmParallelism : maxParallelism);
+        return Task.Run(async () =>
+        {
+            using var semaphore = new SemaphoreSlim(concurrency, concurrency);
+            var tasks = new Task[list.Length];
+            for (int i = 0; i < list.Length; i++)
+            {
+                var req = list[i];
+                tasks[i] = Task.Run(async () =>
+                {
+                    try { await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
+                    try
+                    {
+                        if (!cancellationToken.IsCancellationRequested && TryProfileKind(req.Profile, out string kind))
+                            CompileProgram(req.Source, req.EntryPoint, req.Profile, req.Defines, kind, cancellationToken);
+                    }
+                    catch (Exception) { }
+                    finally { semaphore.Release(); }
+                }, CancellationToken.None);
+            }
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }, CancellationToken.None);
+    }
+
+    internal void TryPrewarmSingle(DxcShaderWarmupRequest request, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!cancellationToken.IsCancellationRequested && TryProfileKind(request.Profile, out string kind))
+                CompileProgram(request.Source, request.EntryPoint, request.Profile, request.Defines, kind, cancellationToken);
+        }
+        catch (Exception) { }
+    }
+
+    private static bool TryProfileKind(string profile, out string kind)
+    {
+        if (!string.IsNullOrWhiteSpace(profile))
+        {
+            if (profile.StartsWith("cs_", StringComparison.Ordinal)) { kind = "cs"; return true; }
+            if (profile.StartsWith("ps_", StringComparison.Ordinal)) { kind = "ps"; return true; }
+            if (profile.StartsWith("vs_", StringComparison.Ordinal)) { kind = "vs"; return true; }
+        }
+        kind = "";
+        return false;
+    }
+
     private DxcCompilationResult CompileProgram(
         string source,
         string entryPoint,
         string profile,
         IReadOnlyDictionary<string, string?>? defines,
-        string shaderKind)
+        string shaderKind,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(entryPoint);
@@ -120,15 +222,141 @@ public sealed class DxcShaderCompiler
             Defines = macros,
         })));
 
-        lock (gate)
+        while (true)
         {
-            if (compiled.TryGetValue(key, out var cached))
-                return cached with { Dxil = cached.Dxil.ToArray(), CacheHit = true };
+            cancellationToken.ThrowIfCancellationRequested();
+            TaskCompletionSource<DxcCompilationResult>? ownerTcs = null;
+            Task<DxcCompilationResult>? joinTask = null;
+            lock (gate)
+            {
+                if (compiled.TryGetValue(key, out var cached))
+                    return cached with { Dxil = cached.Dxil.ToArray(), CacheHit = true };
+                if (inFlight.TryGetValue(key, out var existing))
+                    joinTask = existing;
+                else
+                {
+                    ownerTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    inFlight.Add(key, ownerTcs.Task);
+                }
+            }
 
-            // Separate instances/processes may initialize the same shader concurrently.
-            // A private attempt directory avoids sharing writable source/output files.
-            string workDirectory = Path.Combine(CacheDirectory, key, Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(workDirectory);
+            if (joinTask is not null)
+            {
+                DxcCompilationResult joined;
+                try
+                {
+                    joined = joinTask.WaitAsync(cancellationToken).GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Another caller's prewarm/request was cancelled; retry cleanly for this caller.
+                    continue;
+                }
+                return joined with { Dxil = joined.Dxil.ToArray(), CacheHit = true };
+            }
+
+            try
+            {
+                var result = TryLoadFromDisk(key, sourceHash, entryPoint, profile)
+                    ?? ExecuteAndCacheToDisk(key, sourceBytes, sourceHash, entryPoint, profile, macros, cancellationToken);
+                lock (gate)
+                {
+                    compiled[key] = result;
+                    inFlight.Remove(key);
+                }
+                ownerTcs!.TrySetResult(result);
+                return result with { Dxil = result.Dxil.ToArray() };
+            }
+            catch (OperationCanceledException canceled)
+            {
+                lock (gate) inFlight.Remove(key);
+                ownerTcs!.TrySetCanceled(canceled.CancellationToken.CanBeCanceled ? canceled.CancellationToken : CancellationToken.None);
+                throw;
+            }
+            catch (Exception error)
+            {
+                lock (gate) inFlight.Remove(key);
+                ownerTcs!.TrySetException(error);
+                _ = ownerTcs.Task.Exception;
+                throw;
+            }
+        }
+    }
+
+    private DxcCompilationResult? TryLoadFromDisk(string key, string sourceHash, string entryPoint, string profile)
+    {
+        string cachePath = Path.Combine(CacheDirectory, key, "cache.bin");
+        if (!File.Exists(cachePath)) return null;
+        try
+        {
+            byte[] bytes;
+            using (var stream = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+            {
+                if (stream.Length < DiskCacheMagic.Length + 4 + 4 + 32 || stream.Length > 64L * 1024 * 1024)
+                    return DeleteAndNull(cachePath);
+                bytes = new byte[stream.Length];
+                stream.ReadExactly(bytes);
+            }
+            if (!bytes.AsSpan(0, DiskCacheMagic.Length).SequenceEqual(DiskCacheMagic))
+                return DeleteAndNull(cachePath);
+            int payloadEnd = bytes.Length - 32;
+            byte[] actualDigest = SHA256.HashData(bytes.AsSpan(0, payloadEnd));
+            if (!actualDigest.AsSpan().SequenceEqual(bytes.AsSpan(payloadEnd, 32)))
+                return DeleteAndNull(cachePath);
+
+            int offset = DiskCacheMagic.Length;
+            int metaLen = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, 4));
+            offset += 4;
+            if (metaLen <= 0 || offset + metaLen + 4 > payloadEnd)
+                return DeleteAndNull(cachePath);
+            var meta = JsonSerializer.Deserialize<DiskCacheMetadata>(bytes.AsSpan(offset, metaLen));
+            offset += metaLen;
+            int dxilLen = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, 4));
+            offset += 4;
+            if (meta is null || dxilLen < 4 || offset + dxilLen != payloadEnd)
+                return DeleteAndNull(cachePath);
+            byte[] dxil = bytes.AsSpan(offset, dxilLen).ToArray();
+            if (!dxil.AsSpan(0, 4).SequenceEqual("DXBC"u8))
+                return DeleteAndNull(cachePath);
+            if (!string.Equals(meta.CacheKey, key, StringComparison.Ordinal)
+                || !string.Equals(meta.CompilerHash, CompilerHash, StringComparison.Ordinal)
+                || !string.Equals(meta.SourceHash, sourceHash, StringComparison.Ordinal)
+                || !string.Equals(meta.EntryPoint, entryPoint, StringComparison.Ordinal)
+                || !string.Equals(meta.Profile, profile, StringComparison.Ordinal)
+                || !string.Equals(Hash(dxil), meta.OutputHash, StringComparison.Ordinal))
+                return DeleteAndNull(cachePath);
+
+            Interlocked.Increment(ref diskCacheHitCount);
+            return new DxcCompilationResult(dxil, sourceHash, CompilerHash, CompilerVersion,
+                meta.OutputHash, key, meta.Diagnostics ?? "", entryPoint, profile, CacheHit: true);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return DeleteAndNull(cachePath);
+        }
+
+        static DxcCompilationResult? DeleteAndNull(string path)
+        {
+            try { File.Delete(path); } catch { }
+            return null;
+        }
+    }
+
+    private DxcCompilationResult ExecuteAndCacheToDisk(
+        string key,
+        byte[] sourceBytes,
+        string sourceHash,
+        string entryPoint,
+        string profile,
+        KeyValuePair<string, string?>[] macros,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string keyDirectory = Path.Combine(CacheDirectory, key);
+        string workDirectory = Path.Combine(CacheDirectory, "tmp", Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(workDirectory);
+        try
+        {
             File.WriteAllBytes(Path.Combine(workDirectory, "source.hlsl"), sourceBytes);
             var arguments = new List<string>(CompileFlags) { "-T", profile, "-E", entryPoint };
             foreach (var macro in macros)
@@ -139,7 +367,7 @@ public sealed class DxcShaderCompiler
             // Relative file names prevent the workspace path from affecting the DXIL identity.
             arguments.AddRange(["-Fo", "shader.dxil", "source.hlsl"]);
             Interlocked.Increment(ref compileInvocationCount);
-            var process = Run(arguments, workDirectory);
+            var process = RunProcess(CompilerPath, CacheDirectory, arguments, workDirectory, cancellationToken);
             string outputPath = Path.Combine(workDirectory, "shader.dxil");
             if (process.ExitCode != 0 || !File.Exists(outputPath))
                 throw new DxcShaderCompilationException(
@@ -149,27 +377,49 @@ public sealed class DxcShaderCompiler
             if (dxil.Length < 4 || !dxil.AsSpan(0, 4).SequenceEqual("DXBC"u8))
                 throw new DxcShaderCompilationException("DXC returned an invalid DXIL container.", process.Diagnostics, process.ExitCode);
 
+            string outputHash = Hash(dxil);
             var result = new DxcCompilationResult(dxil, sourceHash, CompilerHash, CompilerVersion,
-                Hash(dxil), key, process.Diagnostics, entryPoint, profile, false);
-            File.WriteAllText(Path.Combine(workDirectory, "compilation.json"), JsonSerializer.Serialize(new
-            {
-                result.SourceHash,
-                result.CompilerHash,
-                result.CompilerVersion,
-                result.OutputHash,
-                result.CacheKey,
-                result.EntryPoint,
-                result.Profile,
-                CompilerPath,
-                CompilerFiles,
-                Arguments = arguments,
-                Defines = macros,
-                result.Diagnostics,
-            }, new JsonSerializerOptions { WriteIndented = true }), SourceEncoding);
-            compiled.Add(key, result);
-            return result with { Dxil = result.Dxil.ToArray() };
+                outputHash, key, process.Diagnostics, entryPoint, profile, false);
+            TryWriteDiskCache(keyDirectory, workDirectory, result);
+            return result;
+        }
+        finally
+        {
+            try { if (Directory.Exists(workDirectory)) Directory.Delete(workDirectory, recursive: true); } catch { }
         }
     }
+
+    private static void TryWriteDiskCache(string keyDirectory, string workDirectory, DxcCompilationResult result)
+    {
+        try
+        {
+            byte[] metaBytes = SourceEncoding.GetBytes(JsonSerializer.Serialize(new DiskCacheMetadata(
+                result.CacheKey, result.SourceHash, result.CompilerHash, result.CompilerVersion,
+                result.OutputHash, result.EntryPoint, result.Profile, result.Diagnostics)));
+            int payloadLength = DiskCacheMagic.Length + 4 + metaBytes.Length + 4 + result.Dxil.Length;
+            byte[] buffer = new byte[payloadLength + 32];
+            DiskCacheMagic.CopyTo(buffer, 0);
+            int offset = DiskCacheMagic.Length;
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(offset, 4), metaBytes.Length);
+            offset += 4;
+            metaBytes.CopyTo(buffer, offset);
+            offset += metaBytes.Length;
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(offset, 4), result.Dxil.Length);
+            offset += 4;
+            result.Dxil.CopyTo(buffer, offset);
+            SHA256.HashData(buffer.AsSpan(0, payloadLength)).CopyTo(buffer.AsSpan(payloadLength, 32));
+
+            Directory.CreateDirectory(keyDirectory);
+            string tempPath = Path.Combine(workDirectory, "cache.tmp");
+            File.WriteAllBytes(tempPath, buffer);
+            File.Move(tempPath, Path.Combine(keyDirectory, "cache.bin"), overwrite: true);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
+    private sealed record CompilerIdentity(string Version, IReadOnlyList<DxcCompilerFile> Files, string Hash);
+    private sealed record DiskCacheMetadata(string CacheKey, string SourceHash, string CompilerHash, string CompilerVersion,
+        string OutputHash, string EntryPoint, string Profile, string? Diagnostics);
 
     public static string ResolveCompilerPath(string? compilerPath = null)
     {
@@ -184,7 +434,7 @@ public sealed class DxcShaderCompiler
 
         string bundled=Path.Combine(AppContext.BaseDirectory,"tools","dxc","dxc.exe");
         if(File.Exists(bundled))return Path.GetFullPath(bundled);
-        string? workspace = FindWorkspaceRoot();
+        string? workspace = D3D12RuntimePaths.FindWorkspaceRoot();
         if (workspace is not null)
         {
             foreach (string candidate in new[]
@@ -204,9 +454,11 @@ public sealed class DxcShaderCompiler
         throw new FileNotFoundException("DXC is unavailable. Run scripts/setup-dxc.ps1 or set MMD_DXC_PATH; optional SM6 features cannot initialize.");
     }
 
-    private (int ExitCode, string Diagnostics) Run(IEnumerable<string> arguments, string workingDirectory)
+    private static (int ExitCode, string Diagnostics) RunProcess(string compilerPath, string cacheDirectory,
+        IEnumerable<string> arguments, string workingDirectory, CancellationToken cancellationToken)
     {
-        var start = new ProcessStartInfo(CompilerPath)
+        cancellationToken.ThrowIfCancellationRequested();
+        var start = new ProcessStartInfo(compilerPath)
         {
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
@@ -216,15 +468,38 @@ public sealed class DxcShaderCompiler
             RedirectStandardError = true,
         };
         foreach (string argument in arguments) start.ArgumentList.Add(argument);
-        start.Environment["TEMP"] = Path.Combine(CacheDirectory, "tmp");
-        start.Environment["TMP"] = Path.Combine(CacheDirectory, "tmp");
+        start.Environment["TEMP"] = Path.Combine(cacheDirectory, "tmp");
+        start.Environment["TMP"] = Path.Combine(cacheDirectory, "tmp");
         try
         {
             using var process = Process.Start(start)
                 ?? throw new DxcShaderCompilationException("DXC process did not start.", "Process.Start returned null.", null);
-            Task<string> stdout = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderr = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(30_000))
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+            Task<string> stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
+            if (cancellationToken.CanBeCanceled)
+            {
+                using var timeout = new CancellationTokenSource(30_000);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+                try
+                {
+                    process.WaitForExitAsync(linked.Token).GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    try { process.WaitForExit(); } catch { }
+                    try { Task.WhenAll(stdout, stderr).GetAwaiter().GetResult(); } catch { }
+                    throw new OperationCanceledException(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    process.WaitForExit();
+                    string timedOutOutput = string.Join(Environment.NewLine, Task.WhenAll(stdout, stderr).GetAwaiter().GetResult());
+                    throw new DxcShaderCompilationException("DXC exceeded the 30-second compilation timeout.", timedOutOutput, null);
+                }
+            }
+            else if (!process.WaitForExit(30_000))
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit();
@@ -238,17 +513,6 @@ public sealed class DxcShaderCompiler
         {
             throw new DxcShaderCompilationException("DXC process could not start. Verify the compiler and adjacent native DLLs.", exception.Message, null, exception);
         }
-    }
-
-    private static string? FindWorkspaceRoot()
-    {
-        foreach (string start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
-        {
-            for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
-                if (File.Exists(Path.Combine(directory.FullName, "MMD932_modern", "AGENTS.md")))
-                    return directory.FullName;
-        }
-        return null;
     }
 
     private static bool ContainsIncludeDirective(string source)
@@ -302,6 +566,12 @@ public sealed class DxcShaderCompiler
 
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 }
+
+public sealed record DxcShaderWarmupRequest(
+    string Source,
+    string EntryPoint = "CSMain",
+    string Profile = "cs_6_5",
+    IReadOnlyDictionary<string, string?>? Defines = null);
 
 public sealed record DxcCompilerFile(string Name, string Sha256);
 

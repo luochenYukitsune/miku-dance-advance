@@ -28,7 +28,10 @@ internal sealed class D3D12VisibilityBoundsCache
         internal readonly byte[] Dirty=new byte[scene.Materials.Count];
         internal readonly MaterialMap Map=BuildMap(scene,blockMapByteLimit);
         internal readonly IndexLeaves? Leaves=IndexLeaves.TryCreate(scene,leafCacheByteLimit);
+        internal (int Start,int Count)[]? DeferredRanges;
+        internal bool[]? DeferredMask;
     }
+    private static readonly OriginalVisibilityBounds UnknownBounds=new(new(float.NaN),new(float.NaN));
 
     // Every leaf is a consecutive slice of ONE material's original index sequence. No vertex
     // payload, parent output, or previous-frame chain is retained by this mutable private cache.
@@ -230,6 +233,14 @@ internal sealed class D3D12VisibilityBoundsCache
     }
 
     internal OriginalVisibilityBounds[] GetSurface(SceneSnapshot scene)=>Get(scene,null);
+    internal bool[] GetDeferredMaterialMask(SceneSnapshot scene)
+    {
+        if(!scene.HasDeferredDeformation)return new bool[scene.Materials.Count];
+        if(EntryCount>0&&SameTopology(entries[0]!.Scene,scene)&&entries[0]!.DeferredMask is {} m&&SameDeferredRanges(entries[0]!.DeferredRanges,scene.DeformationRanges))
+            return m;
+        _ = Get(scene,null);
+        return entries[0]!.DeferredMask!;
+    }
     internal bool TryGetCurrent(SceneSnapshot scene,Vector4[]? positions,out OriginalVisibilityBounds[]? bounds)
         =>TryGetCurrentCore(scene,positions,out bounds);
     internal bool TryGetCurrentExpanded(SceneSnapshot scene,D3D12ExpandedPositions positions,out OriginalVisibilityBounds[]? bounds)
@@ -241,13 +252,15 @@ internal sealed class D3D12VisibilityBoundsCache
         LastFullScanMaterials=LastMarkedLeafIncidences=LastParallelMaterialCount=0;
         LastSparseScanMaterials=0;
         LastTopologyTicks=LastNewEntryTicks=LastInvalidationTicks=LastPreparationTicks=LastReductionTicks=0;
+        var vertexSource=positions is null&&scene.HasDeferredDeformation?scene.StaticVertexView:scene;
         for(int i=0;i<EntryCount;i++)
         {
             var entry=entries[i]!;
-            bool sameStream=positions is null?entry.Positions is null&&ReferenceEquals(entry.Scene.VertexRevision,scene.VertexRevision)
+            bool sameStream=positions is null?entry.Positions is null&&ReferenceEquals(entry.Scene.VertexRevision,vertexSource.VertexRevision)
+                &&(!scene.HasDeferredDeformation?entry.DeferredMask is null:entry.DeferredMask is not null&&SameDeferredRanges(entry.DeferredRanges,scene.DeformationRanges))
                 :ReferenceEquals(entry.Positions,positions);
-            if(!sameStream||!SameTopology(entry.Scene,scene))continue;
-            entry.Scene=scene;
+            if(!sameStream||!SameTopology(entry.Scene,vertexSource))continue;
+            entry.Scene=vertexSource;
             for(int j=i;j>0;j--)entries[j]=entries[j-1];
             entries[0]=entry;bounds=entry.Bounds;return true;
         }
@@ -276,12 +289,13 @@ internal sealed class D3D12VisibilityBoundsCache
         LastFullScanMaterials=LastMarkedLeafIncidences=LastParallelMaterialCount=0;
         LastSparseScanMaterials=0;
         LastTopologyTicks=LastNewEntryTicks=LastInvalidationTicks=LastPreparationTicks=LastReductionTicks=0;
+        var vertexSource=positions is null&&scene.HasDeferredDeformation?scene.StaticVertexView:scene;
         Entry? found=null;int foundIndex=-1;
         long topologyStarted=MeasureCpu?Stopwatch.GetTimestamp():0;
         for(int i=0;i<EntryCount;i++)
         {
             var candidate=entries[i]!;
-            if((candidate.Positions is null)!=(positions is null)||!SameTopology(candidate.Scene,scene))continue;
+            if((candidate.Positions is null)!=(positions is null)||!SameTopology(candidate.Scene,vertexSource))continue;
             found=candidate;foundIndex=i;break;
         }
         if(MeasureCpu)LastTopologyTicks=Stopwatch.GetTimestamp()-topologyStarted;
@@ -290,20 +304,24 @@ internal sealed class D3D12VisibilityBoundsCache
             if(found is null)
             {
                 long newEntryStarted=MeasureCpu?Stopwatch.GetTimestamp():0;
-                found=new(scene,positions,leafCacheByteLimit,invalidationBlockMapByteLimit);
+                found=new(vertexSource,positions,leafCacheByteLimit,invalidationBlockMapByteLimit);
+                UpdateDeferredMask(found,scene);
                 if(MeasureCpu)LastNewEntryTicks=Stopwatch.GetTimestamp()-newEntryStarted;
-                RebuildMaterials(found,scene,positions,initial:true);
+                RebuildMaterials(found,vertexSource,positions,initial:true);
                 LastTopologyRebuilt=true;
                 foundIndex=Math.Min(EntryCount,entries.Length-1);EntryCount=Math.Min(EntryCount+1,entries.Length);
             }
-            else if(positions is null?!ReferenceEquals(found.Scene.VertexRevision,scene.VertexRevision)
+            else if(positions is null?!ReferenceEquals(found.Scene.VertexRevision,vertexSource.VertexRevision)
+                ||(!scene.HasDeferredDeformation?found.DeferredMask is not null:found.DeferredMask is null||!SameDeferredRanges(found.DeferredRanges,scene.DeformationRanges))
                 :!ReferenceEquals(found.Positions,positions))
             {
+                bool deferredMaskChanged=positions is null&&UpdateDeferredMask(found,scene);
                 long invalidationStarted=MeasureCpu?Stopwatch.GetTimestamp():0;
                 if(positions is null)
                 {
+                    if(!ReferenceEquals(found.Scene.VertexRevision,vertexSource.VertexRevision))
                     // Compare with this topology entry's actual last input, including skipped or backward frames.
-                    foreach(var range in scene.VertexRevision.GetChangedRanges(found.Scene.VertexRevision))
+                    foreach(var range in vertexSource.VertexRevision.GetChangedRanges(found.Scene.VertexRevision))
                     {
                         LastComparedVertices+=range.Count;
                         int start=range.Start,end=start+range.Count;
@@ -312,7 +330,7 @@ internal sealed class D3D12VisibilityBoundsCache
                             int count=InvalidationSegmentLength(found,start,end);
                             if(!RequiresBlockPositionComparison(found,start)) {start+=count;continue;}
                             int chunkIndex=start/SurfaceChunkSize,chunkOffset=start%SurfaceChunkSize;
-                            var nextChunk=scene.GetVertexChunk(chunkIndex);
+                            var nextChunk=vertexSource.GetVertexChunk(chunkIndex);
                             count=Math.Min(count,nextChunk.Length-chunkOffset);
                             var previousSpan=found.Scene.GetVertexChunk(chunkIndex).Slice(chunkOffset,count);
                             var nextSpan=nextChunk.Slice(chunkOffset,count);
@@ -371,10 +389,11 @@ internal sealed class D3D12VisibilityBoundsCache
                     }
                 }
                 if(MeasureCpu)LastInvalidationTicks=Stopwatch.GetTimestamp()-invalidationStarted;
-                RebuildMaterials(found,scene,positions,initial:false);
+                if(deferredMaskChanged||!ReferenceEquals(found.Scene.VertexRevision,vertexSource.VertexRevision)||positions is not null)
+                    RebuildMaterials(found,vertexSource,positions,initial:false);
             }
             // Advance the comparison baseline even when only unused vertices, normals or UVs changed.
-            found.Scene=scene;found.Positions=positions;
+            found.Scene=vertexSource;found.Positions=positions;
             for(int i=foundIndex;i>0;i--)entries[i]=entries[i-1];
             entries[0]=found;return found.Bounds;
         }
@@ -422,9 +441,11 @@ internal sealed class D3D12VisibilityBoundsCache
     {
         int count=entry.Dirty.Length;
         var eligible=new List<int>();long eligibleIndices=0;bool any=initial;
+        var deferredMask=positions is null?entry.DeferredMask:null;
         for(int i=0;i<count;i++)
         {
             any|=entry.Dirty[i]!=0;
+            if(deferredMask is not null&&deferredMask[i])continue;
             // Gate on the complete batch so small dense ranges can share its workers.
             if((initial||entry.Dirty[i]==2)&&scene.Materials[i].IndexCount>0)
             {eligible.Add(i);eligibleIndices+=scene.Materials[i].IndexCount;}
@@ -441,6 +462,7 @@ internal sealed class D3D12VisibilityBoundsCache
         for(int i=0;i<count;i++)
         {
             if(!initial&&entry.Dirty[i]==0)continue;
+            if(deferredMask is not null&&deferredMask[i])continue;
             work[i]=true;
             if(entry.Leaves is {} leaves)
                 sparse[i]=leaves.PrepareMaterial(i,scene.Materials[i].IndexCount,out marked[i]);
@@ -450,11 +472,20 @@ internal sealed class D3D12VisibilityBoundsCache
         if(parallel)
         {
             LastParallelMaterialCount=eligible.Count;
-            Parallel.For(0,eligible.Count,new ParallelOptions
-            {MaxDegreeOfParallelism=parallelDegree,TaskScheduler=TaskScheduler.Default},index=>
+            eligible.Sort((a,b)=>
             {
-                int material=eligible[index];
-                results[material]=RebuildMaterial(entry,scene,positions,material,sparse[material],marked[material]);
+                int cmp=scene.Materials[b].IndexCount.CompareTo(scene.Materials[a].IndexCount);
+                return cmp!=0?cmp:a.CompareTo(b);
+            });
+            int workerCount=Math.Min(parallelDegree,eligible.Count),claimed=-1;
+            Parallel.For(0,workerCount,new ParallelOptions
+            {MaxDegreeOfParallelism=workerCount,TaskScheduler=TaskScheduler.Default},_=>
+            {
+                for(int index;(index=Interlocked.Increment(ref claimed))<eligible.Count;)
+                {
+                    int material=eligible[index];
+                    results[material]=RebuildMaterial(entry,scene,positions,material,sparse[material],marked[material]);
+                }
             });
         }
         for(int i=0;i<count;i++)
@@ -466,6 +497,12 @@ internal sealed class D3D12VisibilityBoundsCache
         OriginalVisibilityBounds[]? updated=initial?entry.Bounds:null;
         for(int i=0;i<count;i++)
         {
+            if(deferredMask is not null&&deferredMask[i]&&(initial||entry.Dirty[i]!=0))
+            {
+                updated??=entry.Bounds.ToArray();
+                updated[i]=UnknownBounds;
+                continue;
+            }
             if(!work[i])continue;
             updated??=entry.Bounds.ToArray();
             var result=results[i];updated[i]=result.Bounds;
@@ -644,4 +681,51 @@ internal sealed class D3D12VisibilityBoundsCache
     private static bool SameBits(Vector3 a,Vector3 b)=>SameBits(a.X,b.X)&&SameBits(a.Y,b.Y)&&SameBits(a.Z,b.Z);
     private static bool SameBits(Vector4 a,Vector4 b)=>SameBits(a.X,b.X)&&SameBits(a.Y,b.Y)&&SameBits(a.Z,b.Z)&&SameBits(a.W,b.W);
     private static bool SameBits(float a,float b)=>BitConverter.SingleToInt32Bits(a)==BitConverter.SingleToInt32Bits(b);
+    private static bool SameDeferredRanges((int Start,int Count)[]? a,IReadOnlyList<SceneDeformationRange> b)
+    {
+        if(a is null||a.Length!=b.Count)return false;
+        for(int i=0;i<a.Length;i++)if(a[i].Start!=b[i].Start||a[i].Count!=b[i].Count)return false;
+        return true;
+    }
+    private static bool UpdateDeferredMask(Entry entry,SceneSnapshot scene)
+    {
+        if(!scene.HasDeferredDeformation)
+        {
+            bool had=entry.DeferredMask is not null;
+            if(had)
+            {
+                for(int m=0;m<entry.DeferredMask!.Length;m++)if(entry.DeferredMask[m])entry.Dirty[m]=2;
+                entry.DeferredRanges=null;entry.DeferredMask=null;
+            }
+            return had;
+        }
+        if(entry.DeferredMask is not null&&SameDeferredRanges(entry.DeferredRanges,scene.DeformationRanges))return false;
+        var nextRanges=new (int Start,int Count)[scene.DeformationRanges.Count];
+        for(int i=0;i<nextRanges.Length;i++)nextRanges[i]=(scene.DeformationRanges[i].Start,scene.DeformationRanges[i].Count);
+        var nextMask=new bool[scene.Materials.Count];
+        if(nextRanges.Length==1&&nextRanges[0].Start==0&&nextRanges[0].Count==scene.VertexCount)
+            Array.Fill(nextMask,true);
+        else
+        {
+            foreach(var (start,count) in nextRanges)
+            {
+                int end=start+count;
+                for(int v=start;v<end;v++)
+                    for(int j=entry.Map.Offsets[v];j<entry.Map.Offsets[v+1];j++)
+                        nextMask[entry.Map.Materials[j]]=true;
+            }
+        }
+        var prior=entry.DeferredMask;
+        bool changed=prior is null;
+        for(int m=0;m<nextMask.Length;m++)
+        {
+            if((prior is not null&&prior[m]!=nextMask[m])||nextMask[m])
+            {
+                if(prior is not null&&prior[m]!=nextMask[m])entry.Dirty[m]=2;
+                changed=true;
+            }
+        }
+        entry.DeferredRanges=nextRanges;entry.DeferredMask=nextMask;
+        return changed;
+    }
 }

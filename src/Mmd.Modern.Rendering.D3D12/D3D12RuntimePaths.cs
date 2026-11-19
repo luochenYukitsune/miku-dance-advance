@@ -13,6 +13,27 @@ internal static class D3D12RuntimePaths
         return Path.Combine(LocalDataRoot(localApplicationData, "MMD_DXC_CACHE"), "Dxc");
     }
 
+    internal static string ResolveFxcCacheDirectory(string? cacheDirectory, string? environmentCacheDirectory,
+        string? workspaceRoot, string? localApplicationData)
+        => Path.Combine(ResolveDxcCacheDirectory(cacheDirectory, environmentCacheDirectory, workspaceRoot, localApplicationData), "Fxc");
+
+    internal static string ResolvePsoCacheDirectory(string? cacheDirectory, string? environmentCacheDirectory,
+        string? workspaceRoot, string? localApplicationData)
+        => Path.Combine(ResolveDxcCacheDirectory(cacheDirectory, environmentCacheDirectory, workspaceRoot, localApplicationData), "Pso");
+
+    internal static string? FindWorkspaceRoot()
+    {
+        foreach (string start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+        {
+            for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
+                if (File.Exists(Path.Combine(directory.FullName, "MMD932_modern", "AGENTS.md"))
+                    || (File.Exists(Path.Combine(directory.FullName, "mda", "AGENTS.md"))
+                        && Directory.Exists(Path.Combine(directory.FullName, ".dev-cache"))))
+                    return directory.FullName;
+        }
+        return null;
+    }
+
     internal static string ResolveDlssLogDirectory(string? environmentLogDirectory, string? localApplicationData)
     {
         if (environmentLogDirectory is not null) return Path.GetFullPath(environmentLogDirectory);

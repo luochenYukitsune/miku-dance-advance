@@ -43,19 +43,19 @@ internal static class FullscreenTriangleShaders
 
     public static (byte[] Vertex, byte[] Pixel) Compile()
     {
-        byte[] vertex = Compiler.Compile(
+        byte[] vertex = D3D12FxcShaderCache.Compile(
             Source,
             "VSMain",
             "D3D12FullscreenTriangle.hlsl",
             "vs_5_1",
-            ShaderFlags.OptimizationLevel3).ToArray();
+            ShaderFlags.OptimizationLevel3);
 
-        byte[] pixel = Compiler.Compile(
+        byte[] pixel = D3D12FxcShaderCache.Compile(
             Source,
             "PSMain",
             "D3D12FullscreenTriangle.hlsl",
             "ps_5_1",
-            ShaderFlags.OptimizationLevel3).ToArray();
+            ShaderFlags.OptimizationLevel3);
 
         return (vertex, pixel);
     }

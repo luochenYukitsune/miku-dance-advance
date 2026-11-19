@@ -26,6 +26,6 @@ internal static class OriginalOutlineShaders
         float4 PSMain():SV_Target { return Color; }
         """;
     public static (byte[] Vertex,byte[] Pixel) Compile()=>(
-        Compiler.Compile(Source,"VSMain","OriginalOutline.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray(),
-        Compiler.Compile(Source,"PSMain","OriginalOutline.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness).ToArray());
+        D3D12FxcShaderCache.Compile(Source,"VSMain","OriginalOutline.hlsl","vs_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness),
+        D3D12FxcShaderCache.Compile(Source,"PSMain","OriginalOutline.hlsl","ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness));
 }

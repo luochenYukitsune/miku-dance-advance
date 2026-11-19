@@ -16,6 +16,7 @@ internal sealed class FfmpegProcess : IAsyncDisposable
     private readonly Task<string> stdout;
     private readonly Task<long>? stdoutByteCount;
     public Stream Input => process.StandardInput.BaseStream;
+    public bool HasExited => process.HasExited;
     public Task<string> DiagnosticAsync() => stderr;
     private FfmpegProcess(Process process, bool countBinaryOutput)
     {
