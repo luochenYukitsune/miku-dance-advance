@@ -240,6 +240,7 @@ public partial class EditorWindow
         try
         {
             shell.StopPlayback();
+            shell.SynchronizePendingScrub();
             using (InteractionDiagnostics.Measure("lighting.workspace-edit")) shell.Workspace.EditLighting(draft);
             lightController?.SelectMany(draft.SelectedLightIds, draft.SelectedLightId);
             return true;

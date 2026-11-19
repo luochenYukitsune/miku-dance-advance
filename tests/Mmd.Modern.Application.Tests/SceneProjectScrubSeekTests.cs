@@ -174,6 +174,136 @@ public sealed class SceneProjectScrubSeekTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => aliasProject.TryPublishSeek(badPrepared));
     }
 
+    [Fact]
+    public void RequiresPhysicsPreRollReflectsSubstepsPolicyAndAliveState()
+    {
+        var f = Fixture();
+        var factory = new BackendFactory();
+        using var noPreRoll = new SceneProjectSession(f.Layout, new(), f.Motions, factory.Provider(0), cancellationToken: Token);
+        Assert.False(noPreRoll.RequiresPhysicsPreRoll);
+
+        var withPreRoll = new SceneProjectSession(f.Layout, new(), f.Motions, factory.Provider(120), cancellationToken: Token);
+        Assert.True(withPreRoll.RequiresPhysicsPreRoll);
+        withPreRoll.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => withPreRoll.RequiresPhysicsPreRoll);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SeekWithoutPhysicsPreRollEvaluatesBonesAndMorphsSkipsPreRollAndConvergesAfterFullSeek(bool shared)
+    {
+        const int substeps = 120;
+        var f = MorphAndBoneFixture();
+        var scrubFactory = new BackendFactory();
+        var noPreRollFactory = new BackendFactory();
+        var fullFactory = new BackendFactory();
+        using var scrubProject = new SceneProjectSession(
+            f.Layout, new(), f.Motions, scrubFactory.Provider(substeps), Settings(shared), cancellationToken: Token);
+        using var zeroSubstepProject = new SceneProjectSession(
+            f.Layout, new(), f.Motions, noPreRollFactory.Provider(0), Settings(shared), cancellationToken: Token);
+        using var syncProject = new SceneProjectSession(
+            f.Layout, new(), f.Motions, fullFactory.Provider(substeps), Settings(shared), cancellationToken: Token);
+
+        var initialWorld = Assert.Single(scrubFactory.Worlds);
+        Assert.Equal(substeps, initialWorld.StepSeconds.Count);
+
+        var previewFrame = scrubProject.SeekWithoutPhysicsPreRoll(15, Token);
+        Assert.Same(previewFrame, scrubProject.Frame);
+        Assert.Equal(15, scrubProject.CurrentFrame);
+        Assert.Single(scrubFactory.Worlds);
+        Assert.False(initialWorld.Disposed);
+        Assert.Equal(substeps, initialWorld.StepSeconds.Count);
+
+        // Bones (X=+6) and morphs (Z=+1 on vertex 0) match zero-substep Seek without 120 gravity steps.
+        zeroSubstepProject.Seek(15, Token);
+        AssertProjectEquivalent(zeroSubstepProject, scrubProject, expectedTexture: null);
+        Assert.Equal(6f, scrubProject.Frame.Surface.Snapshot.Vertices[0].Position.X, precision: 4);
+        Assert.Equal(1f, scrubProject.Frame.Surface.Snapshot.Vertices[0].Position.Z, precision: 4);
+
+        syncProject.Seek(15, Token);
+        Assert.NotEqual(syncProject.Frame.Surface.Snapshot.Vertices.ToArray(), scrubProject.Frame.Surface.Snapshot.Vertices.ToArray());
+
+        // A subsequent full Seek warms the stabilized physics pose and converges bit-for-bit.
+        scrubProject.Seek(15, Token);
+        Assert.Equal(2, scrubFactory.Worlds.Count);
+        Assert.True(initialWorld.Disposed);
+        Assert.Equal(substeps, scrubFactory.Worlds.Last().StepSeconds.Count);
+        AssertProjectEquivalent(syncProject, scrubProject, expectedTexture: null);
+    }
+
+    [Fact]
+    public async Task SeekWithoutPhysicsPreRollChecksValidationCancellationAndInvalidatesStaleSeekRequests()
+    {
+        var f = Fixture();
+        var factory = new BackendFactory();
+        using var project = new SceneProjectSession(
+            f.Layout, new(), f.Motions, factory.Provider(20), Settings(shared: false), cancellationToken: Token);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => project.SeekWithoutPhysicsPreRoll(-1, Token));
+        Assert.Throws<ArgumentOutOfRangeException>(() => project.SeekWithoutPhysicsPreRoll(1.5, Token));
+        Assert.Throws<ArgumentOutOfRangeException>(() => project.SeekWithoutPhysicsPreRoll(double.NaN, Token));
+
+        var requestBeforeCancelled = project.TryCaptureSeekRequest(10)!;
+        using var cancelledCts = new CancellationTokenSource();
+        cancelledCts.Cancel();
+        var frameBeforeCancel = project.Frame;
+        Assert.Throws<OperationCanceledException>(() => project.SeekWithoutPhysicsPreRoll(12, cancelledCts.Token));
+        Assert.Equal(0, project.CurrentFrame);
+        Assert.Same(frameBeforeCancel, project.Frame);
+        Assert.True(requestBeforeCancelled.IsCurrent(project));
+
+        // Performing SeekWithoutPhysicsPreRoll bumps stateEpoch and invalidates prior captured seek requests.
+        using var prepared = await Task.Run(() => requestBeforeCancelled.Prepare(Token), Token);
+        var staleWorld = factory.Worlds.Last();
+        project.SeekWithoutPhysicsPreRoll(18, Token);
+        Assert.False(requestBeforeCancelled.IsCurrent(project));
+        Assert.False(project.TryPublishSeek(prepared));
+        Assert.True(staleWorld.Disposed);
+        Assert.Equal(18, project.CurrentFrame);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            project.Edit(_ => project.SeekWithoutPhysicsPreRoll(5, Token), Token));
+
+        project.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => project.SeekWithoutPhysicsPreRoll(0, Token));
+    }
+
+    private (SceneCompositionEditor Layout, SceneActorMotion[] Motions) MorphAndBoneFixture()
+    {
+        var baseModel = SharedPhysicsFixture.Model();
+        var model = new PmxModel
+        {
+            Header = baseModel.Header, Name = baseModel.Name, EnglishName = "", Comment = "", EnglishComment = "",
+            Textures = baseModel.Textures, Faces = baseModel.Faces, Materials = baseModel.Materials,
+            Bones = baseModel.Bones, DisplayFrames = baseModel.DisplayFrames,
+            RigidBodies = baseModel.RigidBodies, Joints = baseModel.Joints, SoftBodies = baseModel.SoftBodies,
+            Vertices = baseModel.Vertices,
+            Morphs = [new() { Name = "push-z", EnglishName = "", ControlPanel = 1, Type = PmxMorphType.Position,
+                PositionOffsets = [new(0, new(0, 0, 2))] }]
+        };
+        string path = Path.Combine(directory, "morph-actor.pmx");
+        File.WriteAllBytes(path, PmxWriter.ToBytes(model));
+        var rest = SharedPhysicsFixture.Rest(model);
+        var layout = new SceneCompositionEditor();
+        var actor = layout.Add("morph-actor", path, ModelRole.Character, rest);
+        var motion = new VmdMotion
+        {
+            BoneKeyframes =
+            [
+                new() { BoneName = "root" },
+                new() { BoneName = "root", Frame = 30, Translation = new(12, 0, 0) }
+            ],
+            MorphKeyframes =
+            [
+                new() { MorphName = "push-z", Frame = 0, Weight = 0 },
+                new() { MorphName = "push-z", Frame = 30, Weight = 1 }
+            ]
+        };
+        var asset = SceneMotionAsset.FromMotion(motion);
+        return (layout, [new(actor.Id, model, asset.Motion, Asset: asset)]);
+    }
+
     private static void AssertProjectEquivalent(SceneProjectSession expected, SceneProjectSession actual, SceneTexture? expectedTexture)
     {
         Assert.Equal(expected.CurrentFrame, actual.CurrentFrame);
