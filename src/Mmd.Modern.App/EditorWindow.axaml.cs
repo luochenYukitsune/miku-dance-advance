@@ -448,18 +448,43 @@ public partial class EditorWindow : Window
             path = file?.TryGetLocalPath();
         }
         if (path is null) return;
+        var missing = await SaveProjectToAsync(shell, path, leaveMissingModelDependenciesEmpty: false);
+        if (missing is null) return;
+        // A texture inside a model's folder disappeared after loading. The default save stays strict (the previous
+        // project file is untouched); only this explicit manual choice keeps such textures as empty slots.
+        string message = EditorLocalization.Format("模型“{0}”使用的贴图“{1}”在模型文件夹中已找不到或无法读取，可能在载入后被移动、删除或暂时不可用。\n模型文件夹：{2}\n\n工程尚未保存，原有工程文件保持不变。你可以恢复该贴图后再保存；也可以仍然保存，此类缺失的贴图会在工程中留空，显示为缺失贴图。",
+            Path.GetFileName(missing.ModelPath), missing.TextureReference, Path.GetDirectoryName(missing.ModelPath));
+        int answer = await EditorDialogs.ChooseAsync(this, EditorLocalization.Text("贴图缺失"), message,
+            [EditorLocalization.Text("取消"), EditorLocalization.Text("仍然保存（贴图保持缺失）")]);
+        if (answer != 1) return;
+        await SaveProjectToAsync(shell, path, leaveMissingModelDependenciesEmpty: true);
+    }
+
+    /// <summary>Runs one manual save. Returns the missing in-folder texture that stopped a strict save, so the
+    /// caller can ask the user; any other failure goes through the regular error dialog.</summary>
+    private async Task<MissingModelDependencyException?> SaveProjectToAsync(EditorShellViewModel shell, string path,
+        bool leaveMissingModelDependenciesEmpty)
+    {
+        MissingModelDependencyException? missing = null;
         await ExecuteAsync(EditorLocalization.Text("正在保存工程…"), async token =>
         {
             try
             {
-                await Task.Run(() => shell.Workspace.Save(path, token), token);
-                shell.OperationStatus = EditorLocalization.Text("工程已保存。");
+                await Task.Run(() => shell.Workspace.Save(path, leaveMissingModelDependenciesEmpty, token), token);
+                shell.OperationStatus = EditorLocalization.Text(leaveMissingModelDependenciesEmpty ? "工程已保存，缺失的贴图已留空。" : "工程已保存。");
             }
             catch (PmaSaveCommittedException error)
             {
                 shell.OperationStatus = EditorLocalization.Format("Mda.Text.Project.SavedCleanupFailed", error.InnerException?.Message ?? error.Message);
             }
+            catch (IOException error) when (!leaveMissingModelDependenciesEmpty && MissingModelDependencyException.Find(error) is { } cause)
+            {
+                // Nothing was written; the caller asks whether to save anyway.
+                missing = cause;
+                shell.OperationStatus = EditorLocalization.Text("工程未保存：模型贴图缺失。");
+            }
         });
+        return missing;
     }
 
     private async Task NewProjectAsync()

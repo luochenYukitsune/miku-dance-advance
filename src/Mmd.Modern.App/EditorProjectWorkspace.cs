@@ -545,10 +545,15 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         PushUndo(new(session, null, false, before, [], beforeMetadata, null)); ClearRedo(); MarkChanged();
     }
 
-    public void Save(string path, CancellationToken token = default)
+    public void Save(string path, CancellationToken token = default) => Save(path, false, token);
+
+    /// <summary>Manual save. <paramref name="leaveMissingModelDependenciesEmpty"/> is the user's explicit
+    /// "save anyway" after a <see cref="MissingModelDependencyException"/>: such textures become empty slots.
+    /// Autosave and recovery copies never pass it.</summary>
+    public void Save(string path, bool leaveMissingModelDependenciesEmpty, CancellationToken token = default)
     {
         string destination = ProjectFormat.RequirePath(path);
-        try { SaveSnapshot(destination, token); }
+        try { SaveSnapshot(destination, leaveMissingModelDependenciesEmpty, token); }
         catch (PmaSaveCommittedException error)
         {
             // The neutral writer proves this operation committed; existence alone is not proof.
@@ -560,10 +565,14 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ProjectPath = destination; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SaveSnapshot(string path, CancellationToken token = default)
+    public void SaveSnapshot(string path, CancellationToken token = default) => SaveSnapshot(path, false, token);
+
+    private void SaveSnapshot(string path, bool leaveMissingModelDependenciesEmpty, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        persistence.Save(ProjectFormat.RequirePath(path), this, CreateSaveOptions(token), token);
+        var options = CreateSaveOptions(token);
+        if (leaveMissingModelDependenciesEmpty) options = options with { LeaveMissingModelDependenciesEmpty = true };
+        persistence.Save(ProjectFormat.RequirePath(path), this, options, token);
     }
 
     /// <summary>Capture on the document owner thread; only the detached package is written in the background.</summary>
