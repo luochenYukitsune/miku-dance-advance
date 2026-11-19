@@ -15,6 +15,8 @@ public sealed record SceneProjectSaveOptions
 {
     public bool CopyModelAssets { get; init; } = true;
     internal PortableModelAssets.Limits? PortableLimits { get; init; }
+    /// <summary>An already prepared capture to publish instead of preparing one here; the caller owns it.</summary>
+    internal PortableModelAssets.Capture? PreparedPortable { get; init; }
 }
 
 /// <summary>Content-addressed portable model bundles. Inputs are only read, copies are rewritten.
@@ -44,6 +46,10 @@ internal static class PortableModelAssets
         private string? temporary;
         internal readonly Dictionary<Guid, string> Paths = [];
         internal readonly Dictionary<string, Bundle> Bundles = new(StringComparer.Ordinal);
+        /// <summary>Dependency snapshots (length + SHA-256) by full path. Shared between the original and edited
+        /// captures of one save so each texture is read and hashed once; publishing still re-hashes what it copies.</summary>
+        internal Dictionary<string, Resource> Snapshots { get; init; } =
+            new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         internal string ModelTemporary()
         {
             temporary ??= Path.Combine(temporaryParent, "portable-" + Guid.NewGuid().ToString("N"));
@@ -52,11 +58,22 @@ internal static class PortableModelAssets
         }
         public void Dispose() { if (temporary is not null && Directory.Exists(temporary)) Directory.Delete(temporary, recursive: true); }
         internal string[] Hashes => Bundles.Keys.Order(StringComparer.Ordinal).ToArray();
-        internal void Publish(string parent, CancellationToken token)
+        private readonly List<string> skipped = [];
+        /// <summary>Texture references left empty in the packaged copies (see PrepareBundle).</summary>
+        internal IReadOnlyList<string> Skipped => skipped;
+        internal void Skip(string model, string reference, string reason)
+        {
+            string line = $"Model '{Path.GetFileName(model)}': texture '{reference}' not packaged ({reason}); it stays missing.";
+            if (!skipped.Contains(line)) skipped.Add(line);
+            System.Diagnostics.Trace.TraceWarning(line);
+        }
+        internal void Publish(string parent, CancellationToken token, IReadOnlySet<string>? alreadyPublished = null)
         {
             foreach (var (hash, bundle) in Bundles)
             {
                 token.ThrowIfCancellationRequested();
+                // Content-addressed: a bundle this save already published is identical; verifying it again re-read every file.
+                if (alreadyPublished?.Contains(hash) == true) continue;
                 string directory = Path.Combine(parent, "assets", "models", hash);
                 RejectRedirects(directory);
                 Directory.CreateDirectory(directory);
@@ -78,10 +95,11 @@ internal static class PortableModelAssets
     internal sealed record Bundle(byte[] Manifest, Dictionary<string, Resource> Files);
 
     internal static Capture Prepare(IReadOnlyList<EditableSceneObject> objects, CancellationToken token,
-        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null)
+        IReadOnlyDictionary<Guid, PmxModel>? modelOverrides = null, Limits? limits = null, Capture? shareSnapshotsWith = null)
     {
         limits ??= Limits.Default;
-        var capture = new Capture(limits.TemporaryDirectory ?? Path.GetTempPath());
+        var capture = shareSnapshotsWith is null ? new Capture(limits.TemporaryDirectory ?? Path.GetTempPath())
+            : new Capture(limits.TemporaryDirectory ?? Path.GetTempPath()) { Snapshots = shareSnapshotsWith.Snapshots };
         try
         {
             var loaded = new Dictionary<string, (string Hash, string Name)>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
@@ -119,17 +137,29 @@ internal static class PortableModelAssets
         var shared = new Dictionary<(string Hash, string Extension), string>();
         var dependencies = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         long total = 0;
+        // Loading degrades a texture reference it refuses to resolve (outside the model folder, absolute path) to the
+        // missing image (EditorTextureLoader). Saving matches that: such a reference becomes an empty slot in the
+        // packaged copy (rendered as missing, as it was when loaded) plus a diagnostic, instead of failing every manual
+        // save and recovery snapshot. The outside file is never read. A referenced file that is missing or unreadable
+        // still fails the save, as before.
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
-            string dependency = ContainedDependency(directory, reference);
+            string dependency;
+            try { dependency = ContainedDependency(directory, reference); }
+            catch (InvalidDataException error) { capture.Skip(path, reference, error.Message); return ""; }
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
-            Resource resource;
-            try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
-            catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
+            // The alias keeps an ASCII extension so the packaged name is canonical. A local file whose extension is not
+            // (for example "paint.画像" holding DDS data) is still packaged: decoders identify DDS by content, and other
+            // formats keep working because the extension was never a recognizable codec name in the first place.
             string extension = Path.GetExtension(dependency).ToLowerInvariant();
-            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c)))
-                throw new InvalidDataException($"Dependency '{reference}' has an unsupported extension for a portable alias.");
+            if (extension.Length > 8 || extension.Any(c => c != '.' && !char.IsAsciiLetterOrDigit(c))) extension = ".bin";
+            if (!capture.Snapshots.TryGetValue(dependency, out var resource))
+            {
+                try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
+                catch (IOException exception) { throw new IOException($"Cannot copy dependency '{reference}' for model '{path}'.", exception); }
+                capture.Snapshots.Add(dependency, resource);
+            }
             var key = (resource.Sha256, extension);
             if (shared.TryGetValue(key, out string? existing)) { dependencies.Add(dependency, existing); return existing; }
             string alias = files.Count.ToString("x", CultureInfo.InvariantCulture) + extension;
@@ -175,7 +205,8 @@ internal static class PortableModelAssets
             var model = PmdReader.Read(source);
             if (model.UnknownTailData.Length != 0 || model.UnparsedTailBytes != 0)
                 throw new NotSupportedException("Portable PMD copying cannot discover dependencies in an unknown trailer.");
-            var materials = model.Materials.Select(m => m with { Texture = string.Join('*', m.Texture.Split('*').Select(Copy)) }).ToArray();
+            // PMD "texture*sphere" pairs are classified by extension, so dropping a skipped half keeps the other valid.
+            var materials = model.Materials.Select(m => m with { Texture = string.Join('*', m.Texture.Split('*').Select(Copy).Where(part => part.Length != 0)) }).ToArray();
             var usedToons = model.Materials.Where(m => m.ToonIndex != 255).Select(m => (int)m.ToonIndex).ToHashSet();
             var toons = model.ToonTextures.Select((name, index) =>
             {
@@ -183,7 +214,14 @@ internal static class PortableModelAssets
                 bool common = Enumerable.Range(1, 10).Any(i => name.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase));
                 // Saba checks a model-local toon before the shared data directory. Preserve an
                 // authored local override, even if its name happens to equal a built-in toon.
-                string local = ContainedDependency(directory, name);
+                string local;
+                try { local = ContainedDependency(directory, name); }
+                catch (InvalidDataException error)
+                {
+                    // A common toon name still resolves to the shared data directory; anything else stays missing.
+                    if (common) return name;
+                    capture.Skip(path, name, error.Message); return "";
+                }
                 RejectRedirects(local);
                 if (common && !usedToons.Contains(index)) return name;
                 return common && !File.Exists(local) ? name : Copy(name);

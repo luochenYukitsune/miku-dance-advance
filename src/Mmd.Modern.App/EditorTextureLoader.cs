@@ -11,6 +11,52 @@ public static class EditorTextureLoader
 {
     // This is the existing SceneTexture contract, independent of PMX/PMA input byte budgets.
     private const int MaximumDimension = 4096;
+    /// <summary>Decoded RGBA allowed for one model's textures. One texture is capped at 4096² (64 MiB), but a model
+    /// could list hundreds; without a total, a crafted or oversized model exhausted memory while opening.</summary>
+    public const long MaximumModelTextureBytes = 1L << 30;
+
+    /// <summary>Wraps a per-model texture loader so the model's decoded textures stay within
+    /// <see cref="MaximumModelTextureBytes"/>. Each distinct returned texture is counted once.
+    /// One unusable texture (outside the model folder, absolute path, oversized, undecodable, unreadable, or past
+    /// the model budget) degrades to the missing-image fallback, like a missing file, instead of failing the whole
+    /// model; <paramref name="failures"/> receives the reason. Cancellation and out-of-memory still propagate.</summary>
+    public static Func<string, SceneTexture?> WithModelBudget(Func<string, SceneTexture?> load, long maximumBytes = MaximumModelTextureBytes,
+        Action<string>? failures = null, Action<string, SceneTexture?>? accepted = null)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+        long total = 0;
+        var counted = new HashSet<SceneTexture>(ReferenceEqualityComparer.Instance);
+        void Report(string message)
+        {
+            if (failures is not null) failures(message);
+            else System.Diagnostics.Trace.TraceWarning(message);
+        }
+        return relative =>
+        {
+            SceneTexture? texture;
+            try { texture = load(relative); }
+            catch (Exception error) when (error is InvalidDataException or NotSupportedException or IOException
+                or UnauthorizedAccessException or ArgumentException)
+            {
+                Report(EditorLocalization.Format("贴图“{0}”未载入，按缺图处理：{1}", relative, error.Message));
+                return null;
+            }
+            if (texture is not null && counted.Add(texture))
+            {
+                if (total + texture.Rgba.Length > maximumBytes)
+                {
+                    counted.Remove(texture);
+                    Report(EditorLocalization.Format("贴图“{0}”未载入，按缺图处理：{1}", relative,
+                        EditorLocalization.Format("模型贴图解码后的总大小超过 {0} MiB 上限。", maximumBytes / (1024 * 1024))));
+                    return null;
+                }
+                total += texture.Rgba.Length;
+            }
+            // Only results that passed the budget reach a caller-side cache; a rejected texture is not retained.
+            accepted?.Invoke(relative, texture);
+            return texture;
+        };
+    }
 
     public static SceneTexture? Load(string modelDirectory, string relative, CancellationToken token = default)
     {

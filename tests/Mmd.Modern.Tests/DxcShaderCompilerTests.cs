@@ -80,6 +80,27 @@ public sealed class DxcShaderCompilerTests
     }
 
     [Fact]
+    public void PublishedDxilIsReusedByANewCompilerOnTheSameCacheAndAttemptDirectoriesAreRemoved()
+    {
+        string cache = Path.Combine(CacheRoot(), Guid.NewGuid().ToString("N"));
+        var first = new DxcShaderCompiler(DxcShaderCompiler.ResolveCompilerPath(), cache);
+        var compiled = first.CompileCompute(Compute, profile: "cs_6_0");
+        Assert.False(Directory.Exists(Path.Combine(cache, compiled.CacheKey)));
+        Assert.True(File.Exists(Path.Combine(cache, compiled.CacheKey + ".json")));
+
+        var restarted = new DxcShaderCompiler(DxcShaderCompiler.ResolveCompilerPath(), cache);
+        var reused = restarted.CompileCompute(Compute, profile: "cs_6_0");
+        Assert.True(reused.CacheHit);
+        Assert.Equal(0, restarted.CompileInvocationCount);
+        Assert.Equal(compiled.Dxil, reused.Dxil);
+
+        File.WriteAllBytes(Path.Combine(cache, compiled.CacheKey + ".dxil"), "DXBCcorrupt"u8.ToArray());
+        var rebuilt = new DxcShaderCompiler(DxcShaderCompiler.ResolveCompilerPath(), cache);
+        Assert.False(rebuilt.CompileCompute(Compute, profile: "cs_6_0").CacheHit);
+        Assert.Equal(1, rebuilt.CompileInvocationCount);
+    }
+
+    [Fact]
     public void SourceMacroEntryAndProfileEachInvalidateTheRequest()
     {
         var compiler = CreateCompiler();

@@ -139,6 +139,19 @@ public static class PmxReader
                 $"unexpected trailing data after PMX {header.Version} sections");
         }
 
+        // Many files labelled 2.0 use 2.1-only content (QDEF, vertex color/point/line draw flags, flip/impulse
+        // morphs, extended joints). Reading them is deliberate compatibility; record them as 2.1 so the model can
+        // also be written back instead of loading fine and then failing every save.
+        if (!header.IsVersion21 && UsesVersion21Content(vertices, materials, morphs, joints))
+            header = new PmxHeader
+            {
+                Version = 2.1f, HeaderDataSize = header.HeaderDataSize, TextEncoding = header.TextEncoding,
+                AdditionalUvCount = header.AdditionalUvCount, VertexIndexSize = header.VertexIndexSize,
+                TextureIndexSize = header.TextureIndexSize, MaterialIndexSize = header.MaterialIndexSize,
+                BoneIndexSize = header.BoneIndexSize, MorphIndexSize = header.MorphIndexSize,
+                RigidBodyIndexSize = header.RigidBodyIndexSize,
+            };
+
         return new PmxModel
         {
             Header = header,
@@ -183,6 +196,9 @@ public static class PmxReader
                 versionOffset,
                 $"unsupported PMX version {version}; expected 2.0 or 2.1");
         }
+        // Normalize to the exact constant the tolerance matched. Keeping e.g. 2.0999997 made IsVersion21 false
+        // (soft bodies skipped, then "trailing data") and made the writer reject an otherwise readable model.
+        version = MathF.Abs(version - 2.1f) <= 1e-5f ? 2.1f : 2.0f;
 
         long dataSizeOffset = reader.Position;
         byte dataSize = reader.ReadByte("header.dataSize");
@@ -237,6 +253,13 @@ public static class PmxReader
             RigidBodyIndexSize = rigidBodyIndexSize,
         };
     }
+
+    private static bool UsesVersion21Content(IReadOnlyList<PmxVertex> vertices, IReadOnlyList<PmxMaterial> materials,
+        IReadOnlyList<PmxMorph> morphs, IReadOnlyList<PmxJoint> joints)
+        => vertices.Any(v => v.WeightType == PmxVertexWeightType.Qdef)
+            || materials.Any(m => ((byte)m.DrawMode & 0xE0) != 0)
+            || morphs.Any(m => m.Type >= PmxMorphType.Flip)
+            || joints.Any(j => j.Type != PmxJointType.SpringDof6);
 
     private static int ReadIndexSize(PmxBinaryReader reader, string field)
     {
@@ -789,7 +812,21 @@ public static class PmxReader
             }
 
             var type = (PmxMorphType)typeValue;
-            int count = reader.ReadCount(field, minimumElementBytes: 2);
+            // Each offset array is allocated before its elements are read, so bound the count by the real serialized
+            // size of one element of this type. A 2-byte floor let a 100 MB file request ~60x that in memory
+            // (MaterialOffset is ~120 bytes in memory, 113 bytes + index on disk).
+            int elementBytes = type switch
+            {
+                PmxMorphType.Group or PmxMorphType.Flip => header.MorphIndexSize + 4,
+                PmxMorphType.Position => header.VertexIndexSize + 12,
+                PmxMorphType.Bone => header.BoneIndexSize + 28,
+                PmxMorphType.Uv or PmxMorphType.AdditionalUv1 or PmxMorphType.AdditionalUv2
+                    or PmxMorphType.AdditionalUv3 or PmxMorphType.AdditionalUv4 => header.VertexIndexSize + 16,
+                PmxMorphType.Material => header.MaterialIndexSize + 113,
+                PmxMorphType.Impulse => header.RigidBodyIndexSize + 25,
+                _ => 2,
+            };
+            int count = reader.ReadCount(field, minimumElementBytes: elementBytes);
 
             IReadOnlyList<PmxMorph.GroupOffset> groupOffsets = Array.Empty<PmxMorph.GroupOffset>();
             IReadOnlyList<PmxMorph.PositionOffset> positionOffsets =
@@ -1478,17 +1515,28 @@ public static class PmxReader
             long offset = _position;
             Span<byte> buffer = stackalloc byte[4];
             ReadExact(buffer, field, offset);
-            return BinaryPrimitives.ReadSingleLittleEndian(buffer);
+            float value = BinaryPrimitives.ReadSingleLittleEndian(buffer);
+            // Like the VMD, PMD and PMM readers: NaN/Infinity would only be rejected later by the writer or a
+            // downstream validator without a field or offset (and break read-then-save round trips).
+            if (!float.IsFinite(value)) throw Error(field, offset, $"non-finite value {value}");
+            return value;
         }
+
+        private Vector2 Finite(Vector2 value, string field, long offset)
+        { if (!float.IsFinite(value.X) || !float.IsFinite(value.Y)) throw Error(field, offset, "non-finite vector component"); return value; }
+        private Vector3 Finite(Vector3 value, string field, long offset)
+        { if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z)) throw Error(field, offset, "non-finite vector component"); return value; }
+        private Vector4 Finite(Vector4 value, string field, long offset)
+        { if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z) || !float.IsFinite(value.W)) throw Error(field, offset, "non-finite vector component"); return value; }
 
         public Vector2 ReadVector2(string field)
         {
             long offset = _position;
             Span<byte> buffer = stackalloc byte[8];
             ReadExact(buffer, field, offset);
-            return new Vector2(
+            return Finite(new Vector2(
                 BinaryPrimitives.ReadSingleLittleEndian(buffer),
-                BinaryPrimitives.ReadSingleLittleEndian(buffer[4..]));
+                BinaryPrimitives.ReadSingleLittleEndian(buffer[4..])), field, offset);
         }
 
         public Vector3 ReadVector3(string field)
@@ -1496,10 +1544,10 @@ public static class PmxReader
             long offset = _position;
             Span<byte> buffer = stackalloc byte[12];
             ReadExact(buffer, field, offset);
-            return new Vector3(
+            return Finite(new Vector3(
                 BinaryPrimitives.ReadSingleLittleEndian(buffer),
                 BinaryPrimitives.ReadSingleLittleEndian(buffer[4..]),
-                BinaryPrimitives.ReadSingleLittleEndian(buffer[8..]));
+                BinaryPrimitives.ReadSingleLittleEndian(buffer[8..])), field, offset);
         }
 
         public Vector4 ReadVector4(string field)
@@ -1507,11 +1555,11 @@ public static class PmxReader
             long offset = _position;
             Span<byte> buffer = stackalloc byte[16];
             ReadExact(buffer, field, offset);
-            return new Vector4(
+            return Finite(new Vector4(
                 BinaryPrimitives.ReadSingleLittleEndian(buffer),
                 BinaryPrimitives.ReadSingleLittleEndian(buffer[4..]),
                 BinaryPrimitives.ReadSingleLittleEndian(buffer[8..]),
-                BinaryPrimitives.ReadSingleLittleEndian(buffer[12..]));
+                BinaryPrimitives.ReadSingleLittleEndian(buffer[12..])), field, offset);
         }
 
         // Only vertex indices use unsigned byte/ushort encodings. In particular,

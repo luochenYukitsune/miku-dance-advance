@@ -15,6 +15,9 @@ public static class PluginPackageInstaller
     private const int MaximumEntries = 2048;
     private const long MaximumEntryBytes = 64L * 1024 * 1024;
     private const long MaximumExpandedBytes = 512L * 1024 * 1024;
+    // ZipArchive materializes the whole central directory on open, before the entry-count check can run. Bounding
+    // the archive file first bounds that work (a ZIP64 directory could otherwise declare millions of entries).
+    private const long MaximumArchiveBytes = MaximumExpandedBytes;
     private const string StagingPrefix = ".mda-plugin-install-";
 
     public static Task<PluginInstallResult> InstallAsync(
@@ -55,6 +58,8 @@ public static class PluginPackageInstaller
 
             await using var source = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read,
                 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (source.Length > MaximumArchiveBytes)
+                throw new InvalidDataException("A plugin ZIP may be at most 512 MiB.");
             using var archive = new ZipArchive(source, ZipArchiveMode.Read, leaveOpen: true);
             var entries = ReadPackageEntries(archive, cancellationToken);
             Directory.CreateDirectory(stagingParent);
@@ -68,6 +73,11 @@ public static class PluginPackageInstaller
             RequirePortableComponent(manifest.Id);
             if (reserved.Contains(manifest.Id))
                 throw ExistingPlugin(manifest.Id);
+            // The plugin root also holds host files such as enabled.json. An id equal to one of them would either
+            // collide now or, if installed first, become a directory that breaks the host's later writes.
+            if (string.Equals(manifest.Id, "enabled.json", StringComparison.OrdinalIgnoreCase)
+                || File.Exists(Path.Combine(installation, manifest.Id)))
+                throw new InvalidDataException($"Plugin id '{manifest.Id}' is reserved by the plugin folder.");
             var target = PluginPaths.RequireContainedFile(installation, Path.Combine(installation, manifest.Id));
             RequireNoReparsePoints(target);
             if (PathExists(target) || await ContainsInstalledIdAsync(installation, manifest.Id, cancellationToken).ConfigureAwait(false))

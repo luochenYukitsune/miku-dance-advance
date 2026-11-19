@@ -751,5 +751,6 @@ public sealed class D3D12FrameRenderer : IDisposable
         temporalPass?.Dispose();temporalPass=null;xeSsTemporalPass?.Dispose();xeSsTemporalPass=null;
         dlssTemporalPass?.Dispose();dlssTemporalPass=null;
     }
-    public void Dispose(){if(disposed)return;runtime.WaitForIdleForTeardown();disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();rayGiRenderer?.Dispose();frameDescriptors.Dispose();cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}
+    // A teardown timeout keeps every GPU-reachable resource (see D3D12GpuRuntime.TeardownTimedOut).
+    public void Dispose(){if(disposed)return;if(!runtime.WaitForIdleForTeardown()){disposed=true;return;}disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();rayGiRenderer?.Dispose();frameDescriptors.Dispose();cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}
 }

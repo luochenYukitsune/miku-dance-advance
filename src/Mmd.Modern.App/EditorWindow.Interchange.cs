@@ -55,6 +55,15 @@ public partial class EditorWindow
                     physics, classicEngine, dialog.ImportOptions, token, displayNameOverrides: dialog.DisplayNameOverrides,
                     emmBytes: emmBytes, absoluteEmmPath: emmPath);
             }, token);
+            // Validate the saved camera before replacing the open project. The PMM reader only rejects non-finite
+            // floats, so a header FOV of 0, negative or >= 180 used to throw after Adopt and leave a half-restored
+            // project behind an error dialog.
+            try { _ = candidate.SavedCamera.CreateCamera().ViewProjection(1, 1); }
+            catch (ArgumentOutOfRangeException error)
+            {
+                candidate.Dispose();
+                throw new InvalidDataException(EditorLocalization.Text("PMM 工程的相机视角无效（视角必须在 0 到 180 度之间）。请保留原工程并在 MMD 中修复相机。"), error);
+            }
             shell.Workspace.Adopt(candidate);
             // Busy suppresses the usual viewport refresh. Adopt the new parent owner before
             // restoring its saved local camera draft, which can refer to a different parent

@@ -33,6 +33,9 @@ public sealed class PmmAssetPathResolver
         this.options = options ?? new();
     }
 
+    internal static bool IsNetworkOrDevicePath(string fullPath)
+        => fullPath.StartsWith(@"\\", StringComparison.Ordinal) || fullPath.StartsWith("//", StringComparison.Ordinal);
+
     public PmmAssetResolution Resolve(PmmString reference, string? overridePath = null)
         => Resolve(DecodeCandidates(reference), overridePath);
 
@@ -47,6 +50,13 @@ public sealed class PmmAssetPathResolver
             try
             {
                 string path = Path.GetFullPath(candidate);
+                // A crafted PMM can name \\attacker\share\x; probing it with File.Exists makes Windows open an SMB
+                // session and send the user's NTLM credentials. Only local drive paths are probed.
+                if (IsNetworkOrDevicePath(path))
+                {
+                    diagnostics.Add($"Skipped network or device path candidate '{candidate}'.");
+                    return;
+                }
                 if (File.Exists(path)) existing.Add(path);
             }
             catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)

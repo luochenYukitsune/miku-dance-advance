@@ -63,7 +63,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         .Concat(physicsCleanupDiagnostics).Distinct(StringComparer.Ordinal).ToArray();
     public bool SupportsPhysics=>model.RigidBodies.Count>0;
     public bool PhysicsEnabled=>physics is not null||sharedPhysicsStatus is not null||SoftBodiesEnabled;
-    public bool PhysicsFaulted=>sharedPhysicsStatus?.IsFaulted??physics?.IsFaulted??false;
+    public bool PhysicsFaulted=>(sharedPhysicsStatus?.IsFaulted??physics?.IsFaulted??false)||softBodies?.IsFaulted==true;
     public int PhysicsLastStepCount=>sharedPhysicsStatus?.LastStepCount??physics?.LastStepCount??0;
     public double PhysicsDiscardedSeconds=>sharedPhysicsStatus?.DiscardedSeconds??physics?.DiscardedSeconds??0;
     public string? PhysicsBackendName=>sharedPhysicsStatus?.BackendName??physics?.BackendName??softBackendName;
@@ -74,9 +74,10 @@ public sealed partial class CharacterAnimationController : IDisposable
         ArgumentNullException.ThrowIfNull(model);ArgumentNullException.ThrowIfNull(motion);
         this.model=model;
         restSurface=surface;restOutline=outline;
-        var rig=PmxCharacterRigAdapter.Convert(model,surface.Snapshot);
-        ikSwitches=new(model.Bones.Select((b,i)=>(b,i)).Where(p=>p.b.Flags.HasFlag(PmxBoneFlags.Ik))
-            .ToDictionary(p=>p.b.Name,p=>p.i,StringComparer.Ordinal),motion);
+        var rig=PmxCharacterRigAdapter.Convert(model,surface.Snapshot,out var rigRepairs);
+        // Same first-name-wins rule as the rig repair: a later IK bone with a duplicate name is unbindable.
+        ikSwitches=new(model.Bones.Select((b,i)=>(b,i)).DistinctBy(p=>p.b.Name,StringComparer.Ordinal)
+            .Where(p=>p.b.Flags.HasFlag(PmxBoneFlags.Ik)).ToDictionary(p=>p.b.Name,p=>p.i,StringComparer.Ordinal),motion);
         visibility=new(motion);IsVisible=visibility.Evaluate(0);
         morphs=new(model);materialMorphs=new(model);extendedMorphs=new(model);impulseMorphs=new(model);
         SupportedMorphCount=morphs.SupportedIndices.Concat(materialMorphs.SupportedIndices).Concat(extendedMorphs.SupportedMorphIndices.Values)
@@ -97,7 +98,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         timeInvariantBoneTracks=clip.Tracks.Where(track=>boneNames.Contains(track.BoneName))
             .All(track=>track.Keys.Count==1&&track.Keys[0].Frame==0);
         animator=new(rig,clip);DurationFrames=Math.Max(Math.Max(clip.DurationFrames,ikSwitches.DurationFrames),morphMotion.DurationFrames);
-        var diagnostics=new List<string>(motion.Diagnostics);diagnostics.AddRange(animator.Diagnostics);
+        var diagnostics=new List<string>(motion.Diagnostics);diagnostics.AddRange(rigRepairs);diagnostics.AddRange(animator.Diagnostics);
         diagnostics.AddRange(ikSwitches.Diagnostics.Where(d=>!d.StartsWith("VMD model visibility is retained",StringComparison.Ordinal)));
         diagnostics.AddRange(morphs.Diagnostics.Where(d=>!d.StartsWith("PMX morph type 'Material'",StringComparison.Ordinal)
             &&!d.StartsWith("PMX morph type 'Impulse'",StringComparison.Ordinal)));

@@ -98,7 +98,7 @@ public static class D3D12GeneratedMaterialRestore
             if (!sourceHashes.TryGetValue(sourceOrdinal, out string? sourceHash))
             {
                 sourceHash = sourceOrdinal < 0 ? Convert.ToHexString(SHA256.HashData(new byte[] { 255, 255, 255, 255 }))
-                    : Convert.ToHexString(SHA256.HashData(source.Textures[sourceOrdinal].Rgba));
+                    : source.Textures[sourceOrdinal].RgbaSha256.ToUpperInvariant();
                 sourceHashes.Add(sourceOrdinal, sourceHash);
             }
             if (entry.SourceRgbaSha256 != sourceHash)

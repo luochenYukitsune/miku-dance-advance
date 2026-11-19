@@ -13,6 +13,11 @@ public readonly record struct BezierCurve
     public float Y2 { get; }
     public static BezierCurve Linear { get; } = new(0, 0, 1, 1);
 
+    /// <summary>MMD control bytes are 0..127; some tools write up to 255. Clamped as MMD plays them instead of
+    /// letting one out-of-range byte fail the whole import or evaluation.</summary>
+    public static BezierCurve FromMmd(int x1, int y1, int x2, int y2) => new(Control(x1), Control(y1), Control(x2), Control(y2));
+    private static float Control(int value) => Math.Clamp(value, 0, 127) / 127f;
+
     public BezierCurve(float x1, float y1, float x2, float y2)
     {
         if (!float.IsFinite(x1) || !float.IsFinite(y1) || !float.IsFinite(x2) || !float.IsFinite(y2)

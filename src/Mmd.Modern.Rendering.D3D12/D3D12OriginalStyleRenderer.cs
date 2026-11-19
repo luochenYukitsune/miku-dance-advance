@@ -179,7 +179,10 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
     }
     public void Dispose()
     {
-        if(disposed)return;runtime.WaitForIdleForTeardown();disposed=true;captureRecorder?.Dispose();
+        if(disposed)return;
+        // The queue never reached its fence (no device removal): the GPU may still read these, so leak rather than free.
+        if(!runtime.WaitForIdleForTeardown()){disposed=true;return;}
+        disposed=true;captureRecorder?.Dispose();
         DisposeOutlinePipeline();DisposeFramePipelines();DisposeCharacterOutlinePipelines();
         DisposeGiGBufferPipelines();
         foreach(var value in pipelines.Values){value.DoubleSided.Dispose();value.CullBack.Dispose();value.Root.Dispose();}pipelines.Clear();

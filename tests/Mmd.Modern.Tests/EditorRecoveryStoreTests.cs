@@ -475,6 +475,47 @@ public sealed class EditorRecoveryStoreTests : IDisposable
         Assert.True(File.Exists(metadataPath));
     }
 
+    [Fact]
+    public async Task AbandonedStagingPackageInACleanSessionDoesNotBlockReclaimOrStayInTheBudget()
+    {
+        // A killed writer leaves <guid>.tmp.pma. It used to count toward the budget forever and made its clean
+        // session unreclaimable, so after a few crashes every new checkpoint failed.
+        var store = Store(new(MaxVersions: 5, MaxTotalBytes: 30));
+        var old = await store.CreateSessionAsync(null, "Old", Token);
+        var oldPoint = await Write(store, old, 1, new string('o', 10));
+        string residue = Path.Combine(Path.GetDirectoryName(oldPoint.PackagePath)!, Guid.NewGuid().ToString("N") + ".tmp.pma");
+        await File.WriteAllTextAsync(residue, new string('r', 10), Token);
+        await store.MarkCleanAsync(old, Token); old.Dispose();
+        using var current = await store.CreateSessionAsync(null, "Current", Token);
+        // 10 (old) + 10 (residue) + 15 (new) > 30: removing the residue frees 10 bytes, which already brings the total to
+        // 25, so the old clean history is kept rather than deleted to cover bytes that were never really in use.
+        var point = await Write(store, current, 1, new string('n', 15));
+        Assert.True(File.Exists(point.PackagePath));
+        Assert.False(File.Exists(residue));
+        Assert.True(File.Exists(oldPoint.PackagePath));
+    }
+
+    [Fact]
+    public async Task FreedStagingBytesInACleanSessionWithoutCheckpointsCountTowardTheNewSave()
+    {
+        // Budget 30, a clean session holding only a 20-byte staging residue, a 15-byte new package: once the residue
+        // is removed only 15 bytes remain, so the save must succeed without needing any checkpoint to delete.
+        var store = Store(new(MaxVersions: 5, MaxTotalBytes: 30));
+        var old = await store.CreateSessionAsync(null, "Old", Token);
+        var oldPoint = await Write(store, old, 1, new string('o', 1));
+        string folder = Path.GetDirectoryName(oldPoint.PackagePath)!;
+        await store.MarkCleanAsync(old, Token); old.Dispose();
+        // Leave the session clean but without checkpoints: only session.json and session.lock remain.
+        foreach (string file in Directory.EnumerateFiles(folder))
+            if (Path.GetFileName(file) is not ("session.json" or "session.lock")) File.Delete(file);
+        string residue = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp.pma");
+        await File.WriteAllTextAsync(residue, new string('r', 20), Token);
+        using var current = await store.CreateSessionAsync(null, "Current", Token);
+        var point = await Write(store, current, 1, new string('n', 15));
+        Assert.True(File.Exists(point.PackagePath));
+        Assert.False(File.Exists(residue));
+    }
+
     private EditorRecoveryStore Store(RecoveryRetentionPolicy? policy = null) => new(Path.Combine(directory, "recovery"), policy);
     private static EditorRecoveryCheckpointMetadata Metadata(long revision) => new(null, "Project", revision,
         JsonSerializer.SerializeToElement(new { frame = 12 }));

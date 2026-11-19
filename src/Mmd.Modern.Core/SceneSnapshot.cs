@@ -20,6 +20,11 @@ public sealed class SceneTexture
     public int Height { get; }
     public SceneTextureKind Kind { get; }
     public ReadOnlySpan<byte> Rgba => pixels;
+    private string? rgbaSha256;
+    /// <summary>Lowercase hex SHA-256 of <see cref="Rgba"/>. The pixels are a private copy and never change, so the
+    /// digest is computed once; recovery snapshots, PMA mapping capture and the GPU texture cache hashed the same
+    /// multi-megabyte RGBA again on every save or upload.</summary>
+    public string RgbaSha256 => rgbaSha256 ??= Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(pixels));
     public SceneTexture(string name, int width, int height, ReadOnlySpan<byte> rgba, SceneTextureKind kind = SceneTextureKind.Image)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

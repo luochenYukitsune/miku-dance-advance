@@ -16,6 +16,10 @@ public sealed class PmxSoftBodyPlayback : IDisposable
     private readonly Matrix4x4[] restRigids;
     private double remainder;
     private bool disposed, initialized;
+    /// <summary>True after a solver step or sample failed. A failure can leave the native world half-stepped
+    /// (predicted but unsolved), so further steps are refused until <see cref="Reset(ReadOnlySpan{SceneVertex}, ReadOnlySpan{Matrix4x4})"/>
+    /// rebuilds the state from an animated pose.</summary>
+    public bool IsFaulted { get; private set; }
     public IReadOnlyList<string> Diagnostics => backend.Diagnostics;
     public bool SupportsRigidProxyUpdates => backend is ISoftBodyRigidProxyUpdater;
     public PmxSoftBodyPlayback(PmxModel model, ISoftBodyBackend backend)
@@ -33,25 +37,37 @@ public sealed class PmxSoftBodyPlayback : IDisposable
     public void Reset(ReadOnlySpan<SceneVertex> skinned, ReadOnlySpan<Matrix4x4> rigidWorlds)
     {
         RequireAlive(); var positions = Targets(skinned);
-        backend.Reset(positions, rigidWorlds); remainder = 0; initialized = true;
+        try { backend.Reset(positions, rigidWorlds); remainder = 0; initialized = true; IsFaulted = false; }
+        catch { IsFaulted = true; throw; }
     }
     public void Reset(ReadOnlySpan<SceneVertex> skinned) => Reset(skinned, restRigids);
     public SceneVertex[] Advance(double seconds, ReadOnlySpan<SceneVertex> skinned, ReadOnlySpan<Matrix4x4> rigidWorlds)
     {
         RequireAlive();
         if (!double.IsFinite(seconds) || seconds < 0 || seconds > 10) throw new ArgumentOutOfRangeException(nameof(seconds));
+        if (IsFaulted) throw new InvalidOperationException("Soft-body playback failed; reset it before advancing again.");
         var positions = Targets(skinned);
-        if (!initialized) { backend.Reset(positions, rigidWorlds); initialized = true; }
+        if (!initialized) { Reset(skinned, rigidWorlds); }
         double remaining = remainder + seconds;
         int steps = (int)Math.Floor(remaining / FixedStepSeconds + 1e-9);
-        for (int i = 0; i < steps; i++) backend.Step((float)FixedStepSeconds, positions, rigidWorlds);
-        remainder = Math.Max(0, remaining - steps * FixedStepSeconds);
-        return Apply(skinned);
+        try
+        {
+            for (int i = 0; i < steps; i++) backend.Step((float)FixedStepSeconds, positions, rigidWorlds);
+            remainder = Math.Max(0, remaining - steps * FixedStepSeconds);
+            return Apply(skinned);
+        }
+        catch (Exception error) when (error is not ArgumentException)
+        {
+            IsFaulted = true;
+            throw;
+        }
     }
     public SceneVertex[] Advance(double seconds, ReadOnlySpan<SceneVertex> skinned) => Advance(seconds, skinned, restRigids);
     public SceneVertex[] Apply(ReadOnlySpan<SceneVertex> skinned)
     {
         RequireAlive(); if (!initialized) throw new InvalidOperationException("Reset the soft solver before sampling.");
+        // Sampling is read-only: it is also the non-mutating probe used to validate a candidate rigid replacement,
+        // whose failure must leave the soft history untouched. Faults are recorded where the solver is stepped (Advance).
         _ = Targets(skinned); var output = skinned.ToArray(); var claimed = new HashSet<int>();
         foreach (var sample in backend.Sample())
         {

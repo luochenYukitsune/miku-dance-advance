@@ -318,23 +318,45 @@ public sealed class PortableSceneProjectTests : IDisposable
     [InlineData("../secret.png")]
     [InlineData("sub/../../secret.png")]
     [InlineData("C:/secret.png")]
-    public void ReferencedTextureOutsideTheModelDirectoryIsRejectedBeforeAnyWrite(string reference)
+    public void ReferencedTextureOutsideTheModelDirectoryIsNeverPackagedButTheProjectStillSaves(string reference)
     {
+        // Such a model loads with the texture missing, so it must also save; the outside file is never copied.
         File.WriteAllBytes(Path.Combine(directory, "secret.png"), [1, 2, 3]);
         string path = WritePmx(diffuse: reference);
-        var error = Assert.Throws<InvalidDataException>(() => SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token));
-        Assert.Contains(reference, error.Message);
-        Assert.False(File.Exists(Project));
-        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models")));
+        SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token);
+        AssertSecretNotPackaged();
     }
 
     [Fact]
-    public void AbsoluteReferencedTextureIsRejected()
+    public void AbsoluteReferencedTextureIsNeverPackagedButTheProjectStillSaves()
     {
         string secret = Path.Combine(directory, "secret.png"); File.WriteAllBytes(secret, [1, 2, 3]);
         string path = WritePmx(diffuse: secret);
-        Assert.Throws<InvalidDataException>(() => SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token));
-        Assert.False(File.Exists(Project));
+        SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token);
+        AssertSecretNotPackaged();
+    }
+
+    [Fact]
+    public void LocalTextureWithANonAsciiExtensionIsPackagedUnderASafeAlias()
+    {
+        string local = Path.Combine(Source, "paint.画像"); File.WriteAllBytes(local, [4, 5, 6]);
+        string path = WritePmx(diffuse: "paint.画像");
+        SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token);
+        string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();
+        string bundle = Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models", hash);
+        var saved = PmxReader.Read(Path.Combine(bundle, "model.pmx"));
+        Assert.EndsWith(".bin", saved.Textures[0]);
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(bundle, saved.Textures[0])));
+    }
+
+    private void AssertSecretNotPackaged()
+    {
+        string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();
+        string bundle = Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models", hash);
+        var saved = PmxReader.Read(Path.Combine(bundle, "model.pmx"));
+        Assert.Equal("", saved.Textures[0]);
+        foreach (string file in Directory.EnumerateFiles(bundle))
+            Assert.NotEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(file));
     }
 
     private string WritePmx(bool commonToon = false, string[]? extraTextures = null, string diffuse = "paint.png",

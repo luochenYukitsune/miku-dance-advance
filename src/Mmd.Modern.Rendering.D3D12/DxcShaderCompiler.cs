@@ -125,6 +125,29 @@ public sealed class DxcShaderCompiler
             if (compiled.TryGetValue(key, out var cached))
                 return cached with { Dxil = cached.Dxil.ToArray(), CacheHit = true };
 
+            // Persistent cache: the key covers the source, entry point, profile, flags, macros and the exact compiler
+            // (version + binary hashes). A published DXIL with the recorded output hash is reused across runs instead
+            // of recompiling every start/export and leaving a new directory behind each time.
+            string published = Path.Combine(CacheDirectory, key + ".dxil");
+            string publishedHash = Path.Combine(CacheDirectory, key + ".sha256");
+            try
+            {
+                if (File.Exists(published) && File.Exists(publishedHash))
+                {
+                    byte[] cachedDxil = File.ReadAllBytes(published);
+                    string expected = File.ReadAllText(publishedHash).Trim();
+                    if (cachedDxil.Length >= 4 && cachedDxil.AsSpan(0, 4).SequenceEqual("DXBC"u8)
+                        && string.Equals(Hash(cachedDxil), expected, StringComparison.Ordinal))
+                    {
+                        var hit = new DxcCompilationResult(cachedDxil, sourceHash, CompilerHash, CompilerVersion,
+                            expected, key, "", entryPoint, profile, true);
+                        compiled.Add(key, hit with { CacheHit = false });
+                        return hit with { Dxil = cachedDxil.ToArray() };
+                    }
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+
             // Separate instances/processes may initialize the same shader concurrently.
             // A private attempt directory avoids sharing writable source/output files.
             string workDirectory = Path.Combine(CacheDirectory, key, Guid.NewGuid().ToString("N"));
@@ -167,6 +190,20 @@ public sealed class DxcShaderCompiler
                 result.Diagnostics,
             }, new JsonSerializerOptions { WriteIndented = true }), SourceEncoding);
             compiled.Add(key, result);
+            // Publish the output atomically (hash first, then DXIL via rename), then drop the private attempt
+            // directory. A concurrent process publishing the same key writes identical bytes.
+            try
+            {
+                string temporary = published + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(publishedHash, result.OutputHash);
+                File.WriteAllBytes(temporary, dxil);
+                File.Move(temporary, published, overwrite: true);
+                File.Copy(Path.Combine(workDirectory, "compilation.json"), Path.Combine(CacheDirectory, key + ".json"), overwrite: true);
+                Directory.Delete(workDirectory, recursive: true);
+                string keyDirectory = Path.Combine(CacheDirectory, key);
+                if (!Directory.EnumerateFileSystemEntries(keyDirectory).Any()) Directory.Delete(keyDirectory);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
             return result with { Dxil = result.Dxil.ToArray() };
         }
     }

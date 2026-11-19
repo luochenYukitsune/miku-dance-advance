@@ -109,15 +109,20 @@ internal sealed class EditorPluginService : IAsyncDisposable
 
     internal async Task<PluginCommandResult> RunCommandAsync(string pluginId, string registrationId, CancellationToken token = default)
     {
+        // Resolve the command under the gate, but run it outside: a command that never completes used to hold the
+        // exclusive gate, so refresh/enable/import hung and DisposeAsync (editor exit) waited forever.
+        IPluginCommand command;
         await gate.WaitAsync(token);
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            var command = Commands.SingleOrDefault(value => value.PluginId == pluginId && value.RegistrationId == registrationId)
-                ?? throw new InvalidOperationException(EditorLocalization.Text("Mda.Text.Plugins.CommandUnavailable"));
-            return await Task.Run(async () => await command.Value.ExecuteAsync(token), token);
+            command = (Commands.SingleOrDefault(value => value.PluginId == pluginId && value.RegistrationId == registrationId)
+                ?? throw new InvalidOperationException(EditorLocalization.Text("Mda.Text.Plugins.CommandUnavailable"))).Value;
         }
         finally { gate.Release(); }
+        var running = Task.Run(async () => await command.ExecuteAsync(token), token);
+        // A plugin that ignores cancellation still lets the caller stop waiting; the command keeps running detached.
+        return await running.WaitAsync(token);
     }
 
     private string[] ReadEnabled()

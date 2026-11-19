@@ -147,12 +147,17 @@ internal sealed record PluginManifest(
         return number;
     }
 
+    /// <summary>System.Version stores omitted components as -1, so "1.0" compared below "1.0.0" and a maximum of
+    /// "1.0" rejected version 1.0.0. Treat omitted components as zero for every comparison.</summary>
+    internal static Version Normalize(Version version)
+        => new(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
+
     private static Version RequireVersion(JsonElement element, string property)
     {
         var value = RequireString(element, property, 64);
         if (value.Any(c => c is not (>= '0' and <= '9') and not '.') || !Version.TryParse(value, out var version))
             throw new InvalidDataException($"Manifest property '{property}' must be a numeric .NET version with two to four components.");
-        return version;
+        return Normalize(version);
     }
 
     private static void RequireArray(JsonElement element, string property)

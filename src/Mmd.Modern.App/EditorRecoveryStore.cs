@@ -275,7 +275,7 @@ public sealed class EditorRecoveryStore
                 package.Flush(flushToDisk: true);
             }
 
-            var existing = await ReadCheckpointsAsync(directory, session.SessionId, cancellationToken).ConfigureAwait(false);
+            var existing = await ReadCheckpointsAsync(directory, session.SessionId, cancellationToken, verifyDigests: false).ConfigureAwait(false);
             plan = await PlanRetentionAsync(session.SessionId, existing,
                 CountStoredPackageBytes(temporaryPackage, cancellationToken), size, cancellationToken).ConfigureAwait(false);
             DateTimeOffset now = DateTimeOffset.UtcNow;
@@ -299,8 +299,10 @@ public sealed class EditorRecoveryStore
                 EnsureSafePath(old.PackagePath);
                 string oldMetadata = Path.ChangeExtension(old.PackagePath, ".json");
                 EnsureSafePath(oldMetadata);
-                File.Delete(oldMetadata);
+                // Same order as clean-history reclaim: never delete metadata first. If the package deletion is
+                // denied (antivirus, backup handle) a valid pair remains instead of an unreclaimable orphan package.
                 File.Delete(old.PackagePath);
+                File.Delete(oldMetadata);
             }
         }
         catch (Exception error) { failure = error; }
@@ -419,6 +421,15 @@ public sealed class EditorRecoveryStore
                         if (lease is null) continue;
                         var session = await ReadSessionAsync(directory, id, cancellationToken).ConfigureAwait(false);
                         if (session is null || !session.Clean) continue;
+                        // We hold this clean, inactive session's lease, so no writer can be staging in it. A staging
+                        // package left by a killed writer is never published; remove it so it stops counting toward the
+                        // byte budget and stops making the session unreclaimable. Unclean (interrupted) sessions and
+                        // published pairs are left untouched for recovery.
+                        // Freed bytes count against this save's projection directly; the session may have no
+                        // checkpoints to remove afterwards, so the deletion itself must lower the total.
+                        projected -= RemoveAbandonedStagingPackages(directory);
+                        // Other sessions' packages are verified before they may be deleted: a damaged package is never
+                        // reclaimed for someone else's budget. This runs only when the budget is actually exceeded.
                         var points = await ReadCheckpointsAsync(directory, id, cancellationToken).ConfigureAwait(false);
                         // ReadCheckpoints deliberately skips damaged entries. A clean session with
                         // any damaged, orphaned, staging, foreign, or reparse entry is not ours to prune.
@@ -459,6 +470,24 @@ public sealed class EditorRecoveryStore
             catch (Exception cleanup) { AttachCleanupFailure(error, cleanup); }
             throw;
         }
+    }
+
+    /// <summary>Returns the bytes actually freed.</summary>
+    private long RemoveAbandonedStagingPackages(string directory)
+    {
+        long freed = 0;
+        foreach (string path in Directory.EnumerateFiles(directory))
+        {
+            string filename = Path.GetFileName(path);
+            string extension = Path.GetExtension(filename);
+            if (!extension.Equals(".pma", PathComparison) && !extension.Equals(".pmc", PathComparison)) continue;
+            string stem = Path.GetFileNameWithoutExtension(filename);
+            if (!stem.EndsWith(".tmp", StringComparison.Ordinal) || !IsCanonicalGuid(stem[..^4], out _)) continue;
+            EnsureSafePath(path);
+            try { long length = new FileInfo(path).Length; File.Delete(path); freed += length; }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        }
+        return freed;
     }
 
     private bool HasOnlyValidatedCheckpointFiles(string directory, List<EditorRecoveryCheckpoint> checkpoints)
@@ -558,8 +587,11 @@ public sealed class EditorRecoveryStore
         return bytes;
     }
 
+    /// <param name="verifyDigests">Re-hash every package. Listing, restoring and reclaiming another session's history
+    /// do. Planning the current session's own retention, which runs on every autosave while holding the root lock,
+    /// needs only the recorded size of its own older checkpoints, so it skips re-reading each of them.</param>
     private async Task<List<EditorRecoveryCheckpoint>> ReadCheckpointsAsync(string directory, Guid sessionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool verifyDigests = true)
     {
         var points = new List<EditorRecoveryCheckpoint>();
         foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
@@ -582,8 +614,11 @@ public sealed class EditorRecoveryStore
                 using var package = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read,
                     64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 if (package.Length != document.PackageSizeBytes) continue;
-                string hash = Convert.ToHexString(await SHA256.HashDataAsync(package, cancellationToken).ConfigureAwait(false));
-                if (!string.Equals(hash, document.Sha256, StringComparison.OrdinalIgnoreCase)) continue;
+                if (verifyDigests)
+                {
+                    string hash = Convert.ToHexString(await SHA256.HashDataAsync(package, cancellationToken).ConfigureAwait(false));
+                    if (!string.Equals(hash, document.Sha256, StringComparison.OrdinalIgnoreCase)) continue;
+                }
                 points.Add(ToCheckpoint(document, packagePath));
             }
             catch (Exception exception) when (IsInvalidEntry(exception)) { }

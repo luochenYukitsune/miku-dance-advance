@@ -9,6 +9,11 @@ using Xunit;
 
 namespace Mmd.Modern.Application.Tests;
 
+[CollectionDefinition(PmaLargeBudgetCollection.Name, DisableParallelization = true)]
+public sealed class PmaLargeBudgetCollection { public const string Name = "PMA free-space seam"; }
+
+// LoadRefusesBeforeExtracting... replaces the process-wide free-space seam; no other PMA load may run in parallel.
+[Collection(PmaLargeBudgetCollection.Name)]
 public sealed class PmaLargeBudgetTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "pma-large-budget-" + Guid.NewGuid().ToString("N"));
@@ -123,7 +128,61 @@ public sealed class PmaLargeBudgetTests : IDisposable
         }
     }
 
-    private SceneProjectSession Fixture()
+    [Fact]
+    public void LoadRefusesBeforeExtractingWhenTheVolumeCannotHoldTheLogicalFiles()
+    {
+        using var project = Fixture();
+        string package = Path.Combine(directory, "space.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        var seam = typeof(PmaProjectStore).GetProperty("AvailableFreeSpace", BindingFlags.Static | BindingFlags.NonPublic)!;
+        long reserve = (long)typeof(PmaProjectStore).GetField("ExtractionFreeSpaceReserve", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var original = seam.GetValue(null);
+        try
+        {
+            seam.SetValue(null, (Func<string, long?>)(_ => reserve + 16));
+            string cache = Path.Combine(directory, "tight");
+            Assert.Throws<IOException>(() => PmaProjectStore.Load(package, cache, LoadModel, new NoPhysics(), cancellationToken: Token));
+            Assert.True(!Directory.Exists(cache) || !Directory.EnumerateFiles(cache, "*", SearchOption.AllDirectories).Any());
+            seam.SetValue(null, (Func<string, long?>)(_ => null));
+            using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "unknown"), LoadModel, new NoPhysics(), cancellationToken: Token);
+            Assert.Single(loaded.Session.Objects);
+        }
+        finally { seam.SetValue(null, original); }
+    }
+
+    [Fact]
+    public void SaveWritesOneBlobPerTextureForBothOriginalAndEditedBundlesAndLoadSharesIt()
+    {
+        using var project = Fixture();
+        string package = Path.Combine(directory, "shared.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        using (var zip = ZipFile.OpenRead(package))
+        {
+            JsonNode manifest; using (var reader = new StreamReader(zip.GetEntry("manifest.json")!.Open())) manifest = JsonNode.Parse(reader.ReadToEnd())!;
+            var files = manifest["files"]!.AsArray();
+            // The texture appears under the original and the edited bundle but is stored as one blob.
+            Assert.True(files.Count(f => f!["path"]!.GetValue<string>().EndsWith(".png", StringComparison.Ordinal)) >= 1);
+            Assert.Equal(files.Select(f => f!["sha256"]!.GetValue<string>()).Distinct().Count(), zip.Entries.Count - 1);
+        }
+        using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "load"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        Assert.Single(loaded.Session.Objects);
+    }
+
+    [Fact]
+    public void ModelWithATextureOutsideItsFolderLoadsAndStillSavesAsPma()
+    {
+        using var project = Fixture("../outside.png");
+        File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(directory)!, "outside.png"), [9, 9, 9]);
+        string package = Path.Combine(directory, "outside.pma");
+        PmaProjectStore.Save(package, project, new() { CacheDirectory = Path.Combine(directory, "stage") }, Token);
+        using var loaded = PmaProjectStore.Load(package, Path.Combine(directory, "load"), LoadModel, new NoPhysics(), cancellationToken: Token);
+        var saved = PmxReader.Read(loaded.Session.Objects[0].SourcePath);
+        Assert.Equal("", Assert.Single(saved.Textures));
+        // Resaving the loaded project (the recovery snapshot path) also succeeds.
+        PmaProjectStore.Save(Path.Combine(directory, "resave.pma"), loaded.Session, new() { CacheDirectory = Path.Combine(directory, "restage") }, Token);
+    }
+
+    private SceneProjectSession Fixture(string texture = "texture.png")
     {
         var m = PmmMotionAdapterTests.Pmx(["root"]);
         var model = new PmxModel { Header = m.Header, Name = m.Name, EnglishName = m.EnglishName, Comment = m.Comment,
@@ -131,7 +190,7 @@ public sealed class PmaLargeBudgetTests : IDisposable
             Vertices = new[] { Vector3.Zero, Vector3.UnitX, Vector3.UnitY }.Select(p => new PmxVertex
             { Position = p, Normal = Vector3.UnitZ, Uv = Vector2.Zero, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1,
                 BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 }).ToArray(),
-            Faces = [new(0, 1, 2)], Textures = ["texture.png"], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
+            Faces = [new(0, 1, 2)], Textures = [texture], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
                 Specular = Vector3.Zero, SpecularPower = 1, Ambient = Vector3.Zero, EdgeColor = Vector4.Zero, EdgeSize = 1,
                 DrawMode = PmxDrawModeFlags.None, TextureIndex = 0, SphereTextureIndex = -1, SphereMode = PmxSphereMode.None,
                 ToonMode = PmxToonMode.Separate, ToonTextureIndex = -1, Memo = "", FaceVertexCount = 3 }],

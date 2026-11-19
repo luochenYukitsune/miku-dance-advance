@@ -28,12 +28,20 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         return new ModernBinding(detached, false);
     }
 
+    private ModernBinding? lastBinding;
+
+    /// <summary>The viewport compares bindings by reference and rebuilds the D3D12 renderer on a change. Most edits
+    /// (motion keys, camera, lights) leave material bindings untouched, so an equal resolution returns the previous
+    /// instance and the renderer, its pipelines and temporal history survive.</summary>
     public IEditorRenderBinding Bind(EditorProjectWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        return workspace.Session is not { } source ? EmptyBinding
-            : new ModernBinding(ResolveBindings(source, workspace.MaterialBindings),
-                HasPaletteReceiver(source));
+        if (workspace.Session is not { } source) return EmptyBinding;
+        var candidate = new ModernBinding(ResolveBindings(source, workspace.MaterialBindings), HasPaletteReceiver(source));
+        var previous = Volatile.Read(ref lastBinding);
+        if (previous is not null && previous.ContentEquals(candidate)) return previous;
+        Volatile.Write(ref lastBinding, candidate);
+        return candidate;
     }
 
     // Resolve against every potential object, not just the current visible frame: animation can reveal
@@ -130,6 +138,17 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         public ExportRequest PrepareExport(ExportRequest request)
             => BuildExportRequest(request, hasPaletteReceiver);
 
+        /// <summary>Binding records are immutable value records; equal arrays produce an identical renderer.</summary>
+        internal bool ContentEquals(ModernBinding other)
+            => hasPaletteReceiver == other.hasPaletteReceiver && paths.FsrLoaderPath == other.paths.FsrLoaderPath
+                && paths.XessLibraryPath == other.paths.XessLibraryPath && paths.DlssBridgePath == other.paths.DlssBridgePath
+                && paths.DlssSdkDirectory == other.paths.DlssSdkDirectory
+                && characterMaterials.SequenceEqual(other.characterMaterials) && faces.SequenceEqual(other.faces)
+                && genshinHair.SequenceEqual(other.genshinHair) && starMcHair.SequenceEqual(other.starMcHair)
+                && endfieldHair.SequenceEqual(other.endfieldHair) && genshinHairAtlas.SequenceEqual(other.genshinHairAtlas)
+                && endfieldMatcap.SequenceEqual(other.endfieldMatcap) && genshinMetallic.SequenceEqual(other.genshinMetallic)
+                && starMcBody.SequenceEqual(other.starMcBody) && outlineWidths.SequenceEqual(other.outlineWidths);
+
         public IEditorViewportRenderer CreatePreview(nint window, ViewRenderRequest request)
             => new EditorViewportRenderer(new D3D12RealtimeViewRenderer(window, request,
                 fsrLoaderPath: paths.FsrLoaderPath, xessLibraryPath: paths.XessLibraryPath,
@@ -164,8 +183,15 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         public ValueTask DisposeAsync() => renderer.DisposeAsync();
         private OriginalFrameScene ApplyBackground(OriginalFrameScene scene)
         {
-            var options = (scene.Options ?? new(OriginalAlphaBlendMode.Normal, true, false)) with
-            { BackgroundColor = background, AlphaOutput = FrameAlphaOutput.Straight };
+            // Straight alpha only matters when the background is transparent. Forcing it for opaque exports made the
+            // renderer reject every spatial/temporal upscaler (FSR, XeSS, DLSS) on the first frame, although the
+            // same settings render in the preview. Keep the scene's own alpha mode for an opaque background.
+            var options = scene.Options ?? new(OriginalAlphaBlendMode.Normal, true, false);
+            options = options with
+            {
+                BackgroundColor = background,
+                AlphaOutput = background.W < 1 ? FrameAlphaOutput.Straight : options.AlphaOutput,
+            };
             return new(scene.Surface, scene.Outline, scene.OutlineOptions, options, scene.Materials, scene.Lighting, scene.EditorOverlay);
         }
     }

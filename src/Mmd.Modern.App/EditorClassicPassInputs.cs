@@ -91,7 +91,10 @@ internal sealed class EditorClassicPassInputs
         }
 
         var light = frame.Light;
-        var direction = light?.Direction ?? frame.Scene.Surface.Snapshot.LightDirection;
+        // PmmLightPose.Direction is the outgoing (propagation) direction the ground projection needs, while
+        // SceneSnapshot.LightDirection is the incoming L. Without a light track the fallback must be negated;
+        // using L as-is pointed the default light upward (Y > 0) and silently turned the ground shadow off.
+        var direction = light?.Direction ?? -frame.Scene.Surface.Snapshot.LightDirection;
         var ambient = light?.Color ?? frame.Scene.Surface.Profile.LightAmbient;
         OriginalSelfShadowOptions? shadow = null;
         bool effectFrame = selfShadow && (frame.SelfShadow?.Mode ?? (frame.Scene.Options?.SelfShadow is null ? 0 : 1)) != 0;

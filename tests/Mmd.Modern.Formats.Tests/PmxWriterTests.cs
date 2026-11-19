@@ -154,6 +154,70 @@ public sealed class PmxWriterTests
         Assert.Throws<PmxFormatException>(() => PmxWriter.ToBytes(Copy(empty, softBodies: rich.SoftBodies)));
     }
 
+    [Fact]
+    public void NearVersionFloatIsNormalizedAndVersion20WithQdefIsReadAsWritable21()
+    {
+        PmxModel empty = Read(EmptyLiteral);
+        // 2.0999997 used to load as a non-2.1 model (soft bodies skipped) that the writer then refused.
+        byte[] near = PmxWriter.ToBytes(Copy(empty, header: Header(version: 2.1f)));
+        BitConverter.TryWriteBytes(near.AsSpan(4, 4), BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(2.1f) - 1));
+        Assert.Equal(2.1f, Read(near).Header.Version);
+        // A file labelled 2.0 that uses QDEF is accepted for compatibility and recorded as 2.1, so it can be saved.
+        PmxModel rich = Read(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "rich-w1-uv4.pmx")));
+        byte[] labelled20 = PmxWriter.ToBytes(rich);
+        BitConverter.TryWriteBytes(labelled20.AsSpan(4, 4), 2.0f);
+        // The soft-body section (its trailing int32 count) exists only in 2.1, so remove it for a true 2.0 layout.
+        labelled20 = PmxWriter.ToBytes(Copy(rich, softBodies: []))[..^4];
+        BitConverter.TryWriteBytes(labelled20.AsSpan(4, 4), 2.0f);
+        PmxModel read = Read(labelled20);
+        Assert.Equal(2.1f, read.Header.Version);
+        Assert.NotEmpty(PmxWriter.ToBytes(read));
+    }
+
+    [Fact]
+    public void NonFiniteFloatsAreRejectedAtReadTimeWithTheirField()
+    {
+        PmxModel empty = Read(EmptyLiteral);
+        byte[] bytes = PmxWriter.ToBytes(Copy(empty, vertices: [Vertex(position: new(1.5f, 0, 0))]));
+        int x = -1;
+        for (int i = 0; i + 4 <= bytes.Length; i++) if (BitConverter.ToSingle(bytes, i) == 1.5f) { x = i; break; }
+        Assert.True(x > 0);
+        BitConverter.TryWriteBytes(bytes.AsSpan(x, 4), float.NaN);
+        var error = Assert.Throws<PmxFormatException>(() => Read(bytes));
+        Assert.Contains("vertices[0].position", error.Message);
+    }
+
+    [Fact]
+    public void MaterialMorphCountIsBoundedByItsRealElementSizeBeforeAllocating()
+    {
+        PmxModel empty = Read(EmptyLiteral);
+        var material = new PmxMaterial
+        {
+            Name = "", EnglishName = "", Diffuse = Vector4.One, Specular = default, SpecularPower = 0, Ambient = default,
+            DrawMode = default, EdgeColor = default, EdgeSize = 0, TextureIndex = -1, SphereTextureIndex = -1,
+            SphereMode = default, ToonMode = default, ToonTextureIndex = -1, Memo = "", FaceVertexCount = 3,
+        };
+        var morph = new PmxMorph
+        {
+            Name = "m", EnglishName = "", ControlPanel = 1, Type = PmxMorphType.Material,
+            MaterialOffsets = [new(0, PmxMaterialMorphOperation.Multiply, Vector4.One, Vector3.One, 1, Vector3.One,
+                Vector4.One, 1, Vector4.One, Vector4.One, Vector4.One)],
+        };
+        byte[] bytes = PmxWriter.ToBytes(Copy(empty, vertices: [Vertex(), Vertex(), Vertex()], faces: [new(0, 1, 2)],
+            materials: [material], morphs: [morph]));
+        Assert.Single(Read(bytes).Morphs[0].MaterialOffsets);
+        // The offset count is the int32 right after the type byte 8 that follows the "m" name and control panel.
+        int count = -1;
+        for (int i = 0; i + 4 < bytes.Length; i++)
+            if (bytes[i] == 1 && bytes[i + 1] == 8 && BitConverter.ToInt32(bytes, i + 2) == 1) { count = i + 2; break; }
+        Assert.True(count > 0);
+        // 20 offsets need ~2.3 KB; the remaining input holds one. The old 2-byte floor accepted this count.
+        BitConverter.TryWriteBytes(bytes.AsSpan(count, 4), 20);
+        var error = Assert.Throws<PmxFormatException>(() => Read(bytes));
+        // The count itself is rejected before allocating; the old 2-byte floor failed later on morphs[0] offsets.
+        Assert.Equal("morphs[0].count", error.Field);
+    }
+
     [Theory]
     [InlineData(0xFF, true)]
     [InlineData(0x0A, false)]

@@ -50,6 +50,15 @@ public sealed class FfmpegToolchain
         return result.Output + result.Diagnostic;
     }
 
+    /// <summary>Runs a tool whose stdout is machine-readable (ffprobe -of json). stderr is kept out of the result:
+    /// with `-v error` a single warning line (a damaged frame, an odd tag) made the concatenation unparseable.</summary>
+    internal static async Task<string> RunStdoutAsync(string executable, IEnumerable<string> args, CancellationToken cancellationToken)
+    {
+        await using var process = FfmpegProcess.Start(executable, args);
+        var result = await process.FinishAsync(cancellationToken).ConfigureAwait(false);
+        return result.Output;
+    }
+
     /// <summary>Executes each explicitly requested encoder with a real clip, probes and fully decodes it.
     /// Software uses 64x64; NVENC uses 192x192 to satisfy hardware minimum dimension constraints.
     /// A listed encoder is not considered available until this succeeds. Failures remain distinct per encoder.</summary>
@@ -93,7 +102,7 @@ public sealed class FfmpegToolchain
         CancellationToken cancellationToken = default)
     {
         options.Validate(plan);
-        string json = await RunTextAsync(FfprobePath, ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", path], cancellationToken).ConfigureAwait(false);
+        string json = await RunStdoutAsync(FfprobePath, ["-v", "error", "-count_frames", "-show_streams", "-show_format", "-of", "json", path], cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
         var streams = document.RootElement.GetProperty("streams").EnumerateArray().ToArray();
         var videoStreams = streams.Where(item => item.GetProperty("codec_type").GetString() == "video").ToArray();

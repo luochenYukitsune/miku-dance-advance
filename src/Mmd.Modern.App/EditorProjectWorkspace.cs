@@ -59,7 +59,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
         bool PreservePoseDrafts = false, bool PreserveRenderBinding = false);
-    private readonly Stack<HistoryStep> undo = [], redo = [];
+    // Same capacity as SceneProjectSession's own history, so every retained session-edit step can still undo.
+    private readonly BoundedHistory<HistoryStep> undo = new(), redo = new();
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
     public SceneProjectSession? Session { get; private set; }
@@ -104,7 +105,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     /// <summary>Builds a render source for the exact model already prepared by the PMM/core reader.
     /// The source path is used only to resolve read-only model-local textures.</summary>
     public static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path, CancellationToken token = default)
-        => CreateModelAsset(model, path, relative => LoadTexture(Path.GetDirectoryName(Path.GetFullPath(path))!, relative, token), token);
+        => CreateModelAsset(model, path, EditorTextureLoader.WithModelBudget(
+            relative => LoadTexture(Path.GetDirectoryName(Path.GetFullPath(path))!, relative, token)), token);
 
     internal static SceneAnimationModelAsset CreateModelAsset(PmxModel model, string path,
         Func<string, SceneTexture?> loadTexture, CancellationToken token = default,
@@ -174,13 +176,17 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             }, "scene.vmd");
             var candidate = new SceneProjectSession(composition, lighting, motions, CreatePhysicsProvider(),
                 new ProjectSettings { BackgroundRed = 1, BackgroundGreen = 1, BackgroundBlue = 1 }, sceneMotion: sceneMotion);
+            // Removing the last model of an opened package keeps that package (for Undo). A model added now starts a
+            // fresh session; continue the package's identity and retained content instead of silently saving a new
+            // project that drops unknown extensions and render resources.
+            if (package?.Session is { } opened) candidate.ContinuePackageFrom(opened);
             IEditorProjectMetadata? metadata;
             try { metadata = PrepareInitialModelMetadata(candidate); }
             catch { candidate.Dispose(); throw; }
             var beforeMetadata = ProjectMetadata;
             Session = candidate; ProjectMetadata = metadata;
             standaloneSessions.Add(Session);
-            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); redo.Clear();
+            PushUndo(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata)); ClearRedo();
         }
         else { Edit(edit => Add(edit.Composition, edit.Lighting, edit.Motions)); return id; }
         MarkChanged();
@@ -430,7 +436,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts, preserveRenderBinding)); redo.Clear();
+        PushUndo(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata, preservePoseDrafts, preserveRenderBinding)); ClearRedo();
         MarkChanged(preservePoseDrafts, preserveRenderBinding);
     }
 
@@ -500,6 +506,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
         var previous = session.RenderingStyles.DefaultStyle;
         if (previous == style) return false;
+        // The classic (D3D9) engine renders only the ordinary MMD preset. Reject here, before the session, undo
+        // history and dirty flag change; previously the edit committed and the next preview bind failed.
+        if (EditorRenderEngineOptions.UsesD3D9Surface(RenderEngine) && style != RenderingPresetReference.BuiltIn(RenderingStyleId.Mmd))
+            throw new NotSupportedException(EditorLocalization.Text("传统引擎只支持 MMD 画风。请切换到现代引擎后再选择其他画风。"));
         var catalog = Mmd.Modern.Rendering.D3D12.D3D12StylePresetCatalog.BuiltIn;
         var selected = catalog.Find(style.StableId);
         if (!selected.IsAvailable || selected.Definition is null)
@@ -516,7 +526,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var mappings = SnapshotMappings();
         session.SetDefaultRenderingStyle(style);
         // The metadata-only session transaction shares the owner's ordered history; bridge it like an ordinary edit.
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); redo.Clear();
+        PushUndo(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata)); ClearRedo();
         MarkChanged();
         return true;
     }
@@ -532,7 +542,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var before = SnapshotMappings();
         var beforeMetadata = ProjectMetadata;
         Session = null; MaterialBindings.Clear(); ProjectMetadata = null;
-        undo.Push(new(session, null, false, before, [], beforeMetadata, null)); redo.Clear(); MarkChanged();
+        PushUndo(new(session, null, false, before, [], beforeMetadata, null)); ClearRedo(); MarkChanged();
     }
 
     public void Save(string path, CancellationToken token = default)
@@ -702,7 +712,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         if (!redo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Redo() != true) return false;
-        redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
+        redo.Pop(); PushUndo(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
         RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
@@ -723,6 +733,34 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         CloseContent(); ProjectPath = null; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
+    /// <summary>Pushes an undo step; when the bounded history drops its oldest step, a standalone session only that
+    /// step referenced is released like a discarded redo branch.</summary>
+    private void PushUndo(HistoryStep step)
+    {
+        if (undo.Push(step, out _)) DisposeUnreachableSessions();
+    }
+    /// <summary>Discards the redo branch. A standalone session that is now unreachable (only the discarded branch
+    /// referenced it) is disposed here so its native physics worlds are freed, instead of living until the
+    /// document closes.</summary>
+    private void ClearRedo()
+    {
+        if (redo.Count == 0) return;
+        redo.Clear();
+        DisposeUnreachableSessions();
+    }
+    private void DisposeUnreachableSessions()
+    {
+        var reachable = new HashSet<SceneProjectSession>(ReferenceEqualityComparer.Instance);
+        if (Session is { } current) reachable.Add(current);
+        if (package?.Session is { } packaged) reachable.Add(packaged);
+        foreach (var step in undo.Concat(redo)) { if (step.Before is { } before) reachable.Add(before); if (step.After is { } after) reachable.Add(after); }
+        foreach (var orphan in standaloneSessions.Where(item => !reachable.Contains(item)).ToArray())
+        {
+            standaloneSessions.Remove(orphan);
+            orphan.Dispose();
+        }
+    }
+
     private void CloseContent()
     {
         foreach (var retained in standaloneSessions)

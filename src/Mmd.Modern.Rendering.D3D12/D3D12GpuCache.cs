@@ -217,7 +217,7 @@ internal sealed class D3D12GpuCache:IDisposable
             if(objects.TryGetValue(identity.Key,out var live)&&ReferenceEquals(live,identity.Resource))return identity.Resource;
             textureIdentities.Remove(texture);
         }
-        string key=$"texture:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        string key=$"texture:{texture.Width}:{texture.Height}:{texture.RgbaSha256}";
         if(objects.TryGetValue(key,out var found)){textureIdentities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;}
         var desc=ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm,(uint)texture.Width,(uint)texture.Height,mipLevels:1);
         var gpu=runtime.Device.CreateCommittedResource(HeapType.Default,desc,ResourceStates.CopyDest);
@@ -243,7 +243,7 @@ internal sealed class D3D12GpuCache:IDisposable
             if(objects.TryGetValue(identity.Key,out var live)&&ReferenceEquals(live,identity.Resource))return identity.Resource;
             srgbColorTextureIdentities.Remove(texture);
         }
-        string key=$"texture-color-srgb:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        string key=$"texture-color-srgb:{texture.Width}:{texture.Height}:{texture.RgbaSha256}";
         if(objects.TryGetValue(key,out var found))
         {
             srgbColorTextureIdentities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;

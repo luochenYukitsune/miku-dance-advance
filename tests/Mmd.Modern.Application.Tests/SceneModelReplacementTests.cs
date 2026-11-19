@@ -226,16 +226,18 @@ public sealed class SceneModelReplacementTests : IDisposable
     }
 
     [Fact]
-    public void DuplicateBoneTargetNeverBindsAndKeepsExistingProjectOnRuntimeRejection()
+    public void DuplicateBoneTargetNeverBindsButTheRepairedModelReplacesAndCanUndo()
     {
         var original = Asset(["root"], []); using var project = Project(original, out var id);
-        var before = project.Frame; var replacement = Asset(["root", "root"], []);
+        var replacement = Asset(["root", "root"], []);
         var plan = project.PrepareModelReplacement(id, Write("duplicate-bones", replacement), replacement, Token);
         Assert.Equal(-1, Assert.Single(plan.Mappings).TargetIndex);
         Assert.Contains(plan.Notices, notice => notice.Kind == SceneModelDataKind.Bone && !notice.CanRestore);
-        var error = Assert.Throws<SceneActorAnimationException>(() => project.ApplyModelReplacement(plan, cancellationToken: Token));
-        Assert.IsType<ArgumentException>(error.InnerException);
-        Assert.Same(before, project.Frame); Assert.False(project.CanUndo);
+        // The rig repairs the duplicate name (M-32) instead of rejecting the whole model; the ambiguous bone stays unbound.
+        project.ApplyModelReplacement(plan, cancellationToken: Token);
+        Assert.Same(replacement.Model, Assert.Single(project.CaptureAuthoredContent().Motions).Model);
+        Assert.True(project.CanUndo);
+        Assert.True(project.Undo(Token));
         Assert.Same(original.Model, Assert.Single(project.CaptureAuthoredContent().Motions).Model);
     }
 

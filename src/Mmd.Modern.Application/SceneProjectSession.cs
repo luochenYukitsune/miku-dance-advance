@@ -50,7 +50,7 @@ public sealed partial class SceneProjectSession : IDisposable
         public object AnimationIdentity { get; init; } = new();
     }
     private readonly IProjectPhysicsBackendProvider physics;
-    private readonly Stack<Content> undo = new(), redo = new();
+    private readonly BoundedHistory<Content> undo = new(), redo = new();
     private readonly List<string> cleanupDiagnostics = [];
     private Content content;
     private SceneAnimationSession animation;
@@ -158,7 +158,7 @@ public sealed partial class SceneProjectSession : IDisposable
     }
     public bool Undo(CancellationToken cancellationToken = default) => Restore(undo, redo, cancellationToken);
     public bool Redo(CancellationToken cancellationToken = default) => Restore(redo, undo, cancellationToken);
-    private bool Restore(Stack<Content> source, Stack<Content> destination, CancellationToken token)
+    private bool Restore(BoundedHistory<Content> source, BoundedHistory<Content> destination, CancellationToken token)
     {
         RequireIdle(); token.ThrowIfCancellationRequested(); if (!source.TryPeek(out var next)) return false;
         if (ReferenceEquals(next.AnimationIdentity, content.AnimationIdentity))

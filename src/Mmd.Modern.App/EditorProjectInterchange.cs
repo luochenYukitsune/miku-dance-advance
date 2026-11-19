@@ -397,12 +397,28 @@ public static class EditorProjectInterchange
             var path = resolver.Resolve(reference);
             if (path.Status != PmmAssetResolutionStatus.Resolved)
                 throw new InvalidDataException(EditorLocalization.Format("PMM 媒体“{0}”未能定位：{1}。请保留原工程并修复资源路径。", reference.Value, path.Status));
+            // The media bytes are embedded in the project and its recovery copies. Only accept files of the media type
+            // the PMM slot is for, so a crafted PMM cannot pull an arbitrary local file into a shareable package.
+            if (!IsAllowedMedia(kind, path.Path!))
+                throw new InvalidDataException(EditorLocalization.Format("PMM 媒体“{0}”不是受支持的媒体文件类型。请保留原工程并修复资源路径。", reference.Value));
             result.Add(new(Guid.NewGuid(), kind, SceneMediaAsset.Load(path.Path!, token), 0, enabled));
         }
         Add(source.AudioPath, SceneMediaKind.Audio, source.AudioEnabled);
         Add(source.VideoPath, SceneMediaKind.Video, source.VideoEnabledRaw != 0);
         Add(source.ImagePath, SceneMediaKind.BackgroundImage, source.ImageEnabled);
         return result.AsReadOnly();
+    }
+
+    internal static bool IsAllowedMedia(SceneMediaKind kind, string path)
+    {
+        string extension = Path.GetExtension(path).ToLowerInvariant();
+        return kind switch
+        {
+            SceneMediaKind.Audio => extension is ".wav",
+            SceneMediaKind.Video => extension is ".avi" or ".mp4" or ".mov" or ".mkv" or ".webm" or ".wmv" or ".mpg" or ".mpeg",
+            SceneMediaKind.BackgroundImage => extension is ".bmp" or ".png" or ".jpg" or ".jpeg" or ".tga" or ".gif",
+            _ => false,
+        };
     }
 
     public static SceneMotionAsset PrepareVmd(string path, PmxModel? targetModel = null, int ansiCodePage = 932,

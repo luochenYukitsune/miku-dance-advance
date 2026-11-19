@@ -101,12 +101,14 @@ public sealed class PmdCompletionTests
     }
 
     [Theory]
-    [InlineData(5, 1f)]
-    [InlineData(9, .25f)]
-    public void LegacyRotationInheritanceUsesTheCorrectSourceAndPercentage(byte type, float weight)
+    [InlineData(5, 1f, (ushort)1)]
+    [InlineData(9, .25f, (ushort)25)]
+    [InlineData(9, -.5f, unchecked((ushort)-50))]
+    public void LegacyRotationInheritanceUsesTheCorrectSourceAndPercentage(byte type, float weight, ushort raw)
     {
+        // The type-9 ratio is a signed int16 percentage; -50 % used to become 654.86.
         var source = PmdReader.Read(new MemoryStream(Fixture()));
-        var target = source.Bones[0] with { Type = type, TailIndex = 1, IkParent = type == 5 ? (ushort)1 : (ushort)25 };
+        var target = source.Bones[0] with { Type = type, TailIndex = 1, IkParent = raw };
         var model = PmdPmxAdapter.Convert(source with { Bones = [target, source.Bones[1]], IkChains = [] });
         Assert.True(model.Bones[0].Flags.HasFlag(PmxBoneFlags.AppendRotate));
         Assert.Equal(1, model.Bones[0].AppendBoneIndex);
@@ -115,6 +117,29 @@ public sealed class PmdCompletionTests
         Assert.Equal(type != 9, model.Bones[0].Flags.HasFlag(PmxBoneFlags.Visible));
         using var stream = new MemoryStream(PmxWriter.ToBytes(model));
         Assert.Equal(weight, PmxReader.Read(stream).Bones[0].AppendWeight);
+    }
+
+    [Fact]
+    public void TailIndexZeroMeansNoChildLikeFFFF()
+    {
+        // PMD tail 0 is "no child" (nanoem maps it to not-found); it must not link the bone to bone 0.
+        var source = PmdReader.Read(new MemoryStream(Fixture()));
+        var bones = new[] { source.Bones[0], source.Bones[1] with { Type = 0, TailIndex = 0 } };
+        var model = PmdPmxAdapter.Convert(source with { Bones = bones, IkChains = [] });
+        Assert.Equal(-1, model.Bones[1].LinkBoneIndex);
+        Assert.False(model.Bones[1].Flags.HasFlag(PmxBoneFlags.TargetShowMode));
+    }
+
+    [Theory]
+    [InlineData("ED40", "纊")]
+    [InlineData("82A082", "あ")]
+    public void HeaderTextDecodesDuplicateSpellingsAndDropsATruncatedLeadByte(string hex, string expected)
+    {
+        byte[] bytes = Fixture();
+        // The model name is the 20-byte field right after the 7-byte "Pmd" + version header.
+        var name = new byte[20]; Convert.FromHexString(hex).CopyTo(name, 0);
+        name.CopyTo(bytes, 7);
+        Assert.Equal(expected, PmdReader.Read(new MemoryStream(bytes)).Name);
     }
 
     [Fact]

@@ -120,9 +120,8 @@ public static class PmdReader
     {
         var data = reader.ReadBytes(count);
         if (data.Length != count) throw new EndOfStreamException();
-        int end = Array.IndexOf(data, (byte)0);
-        // PMD uses CP932. The provider ships in the .NET 10 shared runtime.
-        return CodePagesEncodingProvider.Instance.GetEncoding(932)!.GetString(data, 0, end < 0 ? count : end);
+        // PMD uses CP932. The provider ships in the .NET 10 shared runtime; the tail uses the same decoder.
+        return PmdText.Decode(data);
     }
 }
 

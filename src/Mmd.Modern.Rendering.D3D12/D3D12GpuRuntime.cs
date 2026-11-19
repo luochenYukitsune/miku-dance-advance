@@ -245,15 +245,43 @@ internal sealed class D3D12GpuRuntime:IDisposable
     }
     internal void Wait(ulong value)=>WaitForFence(value,CancellationToken.None);
 
+    /// <summary>Upper bound for one fence wait. Windows resets a GPU that does not respond within ~2 s (TDR), after
+    /// which the fence reports UINT64_MAX; this bound only catches a queue that never signals at all (for example
+    /// a driver that hangs without a reset) so the caller fails instead of blocking the UI or exporter forever.</summary>
+    internal static TimeSpan FenceTimeout{get;set;}=TimeSpan.FromSeconds(60);
+
     internal void WaitForFence(ulong value,CancellationToken cancellationToken)
     {
+        if(!WaitForFenceCore(value,FenceTimeout,cancellationToken))
+            throw new TimeoutException($"The D3D12 queue did not reach fence {value} within {FenceTimeout.TotalSeconds:0} s (completed {fence.CompletedValue}).");
+        cancellationToken.ThrowIfCancellationRequested();
+        if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
+    }
+
+    /// <summary>Blocks on a completion event instead of polling with Thread.Sleep(1), which costs a scheduler
+    /// quantum per check (up to ~15 ms on default timer resolution) and burns CPU while the GPU is busy.
+    /// Returns false on timeout. Cancellation is observed between short event slices.</summary>
+    /// <summary>D3D12 keeps a registered handle and signals it whenever the fence reaches the value, even after this
+    /// wait gave up (timeout, cancellation, device removal). A per-wait event closed on exit would let that late signal
+    /// hit a closed (possibly reused) handle, so one event lives as long as the fence and is released in Dispose after
+    /// the last wait. Stale signals only cause a spurious wake; the loop rechecks CompletedValue.</summary>
+    private readonly AutoResetEvent fenceEvent=new(false);
+    private bool WaitForFenceCore(ulong value,TimeSpan timeout,CancellationToken cancellationToken)
+    {
+        if(fence.CompletedValue>=value)return true;
+        var deadline=Environment.TickCount64+(long)timeout.TotalMilliseconds;
+        var completed=fenceEvent;
+        fence.SetEventOnCompletion(value,completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
+        var handles=cancellationToken.CanBeCanceled?new WaitHandle[]{completed,cancellationToken.WaitHandle}:new WaitHandle[]{completed};
         while(fence.CompletedValue<value)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(1);
+            long remaining=deadline-Environment.TickCount64;
+            if(remaining<=0)return false;
+            // Slices also cover device removal, which reports UINT64_MAX without necessarily firing the event.
+            WaitHandle.WaitAny(handles,(int)Math.Min(remaining,100));
         }
-        cancellationToken.ThrowIfCancellationRequested();
-        if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
+        return true;
     }
     internal void WaitForIdle()
     {
@@ -267,14 +295,26 @@ internal sealed class D3D12GpuRuntime:IDisposable
     /// <summary>Idle wait for Dispose paths. Device removal means no submitted work can still read a resource,
     /// so teardown treats it as idle and releases everything instead of throwing and leaking the device graph.
     /// Render paths keep using <see cref="WaitForIdle"/>, which reports device removal.</summary>
-    internal void WaitForIdleForTeardown()
+    /// <summary>True when teardown gave up on a queue that never reached its fence (no device removal). The GPU may
+    /// still read every submitted resource, so they are deliberately leaked instead of released.</summary>
+    internal bool TeardownTimedOut{get;private set;}
+    /// <returns>True when all submitted work is over (fence reached, or device removed); false after a timeout.</returns>
+    internal bool WaitForIdleForTeardown()
     {
-        if(disposed)return;
+        if(disposed)return !TeardownTimedOut;
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         // Device removal can also happen while waiting (a TDR during close). The fence then reports UINT64_MAX,
-        // which ends this loop as "complete"; unlike WaitForFence it is not turned into an exception here.
-        while(fence.CompletedValue<fenceValue)Thread.Sleep(1);
+        // which ends this wait as "complete"; unlike WaitForFence it is not turned into an exception here.
+        // A queue that never signals within the bound is NOT treated as stopped: waiting forever would hang shutdown,
+        // but releasing resources the GPU may still access is unsafe, so they are kept (leaked) instead.
+        if(!WaitForFenceCore(fenceValue,FenceTimeout,CancellationToken.None)&&!IsDeviceRemoved)
+        {
+            TeardownTimedOut=true;
+            System.Diagnostics.Trace.TraceWarning($"D3D12 teardown gave up waiting for fence {fenceValue} after {FenceTimeout.TotalSeconds:0} s; GPU resources are kept alive.");
+            return false;
+        }
         foreach(var slot in slots)Retire(slot);
+        return true;
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
     internal D3D12FrameStatistics Statistics(int scenes,int passes,int readbacks,int submissions)=>new(FrameId,submissions,readbacks,scenes,passes,
@@ -284,12 +324,19 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         if(disposed)return;
         // Wait for submitted work even if closing the open list fails: the GPU may still read every slot's resources.
-        try{try{Abort();}finally{WaitForIdleForTeardown();}}
+        bool idle=false;
+        try{try{Abort();}finally{idle=WaitForIdleForTeardown();}}
         finally
         {
             disposed=true;
-            foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+            // After a timeout the queue may still execute these command lists and read these pages, so nothing the GPU
+            // can reach is released; the leak is bounded to this one runtime and preferable to use-after-free.
+            if(idle)
+            {
+                foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
+                // Release the device (which owns outstanding event registrations) before the event they may still signal.
+                DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceEvent.Dispose();
+            }
         }
     }
 }

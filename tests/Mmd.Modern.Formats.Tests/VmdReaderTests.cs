@@ -144,14 +144,35 @@ public sealed class VmdReaderTests
     }
 
     [Fact]
-    public void RejectsZeroQuaternion()
+    public void ZeroQuaternionIsReadAsIdentityAndReported()
     {
         using MemoryStream fixture = Build(writer =>
         {
             writer.Write(1u);
             Bone(writer, "腕", 0, Vector3.Zero, new());
         });
-        AssertError(fixture, "bones[0].rotation", 85);
+        VmdMotion motion = VmdReader.Read(fixture);
+        Assert.Equal(Quaternion.Identity, Assert.Single(motion.BoneKeyframes).Rotation);
+        Assert.Contains(motion.Diagnostics, d => d.Contains("bones[0].rotation") && d.Contains("identity"));
+    }
+
+    [Fact]
+    public void NameTruncatedInsideADoubleByteCharacterKeepsTheCompletePrefix()
+    {
+        using MemoryStream fixture = Build(writer =>
+        {
+            writer.Write(1u);
+            Bone(writer, "腕", 0, Vector3.Zero, Quaternion.Identity);
+        });
+        byte[] buffer = fixture.GetBuffer();
+        // Fill the 15-byte bone name with seven full-width characters plus a dangling lead byte.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        byte[] seven = Encoding.GetEncoding(932).GetBytes("右腕捩り先端Ａ");
+        Assert.Equal(14, seven.Length);
+        seven.CopyTo(buffer, 54); buffer[68] = 0x81;
+        VmdMotion motion = VmdReader.Read(fixture);
+        Assert.Equal("右腕捩り先端Ａ", Assert.Single(motion.BoneKeyframes).BoneName);
+        Assert.Contains(motion.Diagnostics, d => d.Contains("bones[0].name"));
     }
 
     [Fact]
@@ -220,14 +241,34 @@ public sealed class VmdReaderTests
     }
 
     [Fact]
-    public void RejectsUnexpectedBytesAfterKnownSections()
+    public void AFieldFillingCandidateFromTheOtherCodePageIsMatchedBeforeTruncation()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        string name = "AAAAAAAAAAAAA你";
+        byte[] gbk = Encoding.GetEncoding(936).GetBytes(name);
+        Assert.Equal(15, gbk.Length);
+        using MemoryStream fixture = Build(writer =>
+        {
+            writer.Write(1u);
+            Bone(writer, "腕", 0, Vector3.Zero, Quaternion.Identity);
+        });
+        gbk.CopyTo(fixture.GetBuffer(), 54);
+        VmdMotion motion = VmdReader.Read(fixture, new VmdReadOptions { BoneNameCandidates = [name] });
+        Assert.Equal(name, Assert.Single(motion.BoneKeyframes).BoneName);
+        Assert.DoesNotContain(motion.Diagnostics, d => d.Contains("bones[0].name"));
+    }
+
+    [Fact]
+    public void TrailingBytesAfterKnownSectionsAreIgnoredAndReported()
     {
         using MemoryStream fixture = Build(writer =>
         {
             for (int i = 0; i < 6; i++) writer.Write(0u);
             writer.Write((byte)42);
         });
-        AssertError(fixture, "motion.end", 74);
+        VmdMotion motion = VmdReader.Read(fixture);
+        Assert.Contains(motion.Diagnostics, d => d.Contains("motion.end") && d.Contains("1 trailing byte"));
+        Assert.Equal(fixture.Length, fixture.Position);
     }
 
     [Fact]

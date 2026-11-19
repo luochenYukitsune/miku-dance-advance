@@ -79,7 +79,8 @@ public sealed class EditorRecoveryCleanRetentionTests : IDisposable
     [InlineData("foreign-file")]
     [InlineData("foreign-path")]
     [InlineData("missing-lease")]
-    [InlineData("staging")]
+    // "staging" is not here: an abandoned staging package in a clean, inactive session is removed (it can never be
+    // published) and its bytes are credited, so that session becomes reclaimable. See StagingResidueIsRemovedAndCredited.
     [InlineData("orphan-package")]
     [InlineData("orphan-metadata")]
     public async Task UnrecoveredDamagedAndForeignEntriesAreNeverDeletedForAnotherSessionsBudget(string kind)
@@ -114,6 +115,26 @@ public sealed class EditorRecoveryCleanRetentionTests : IDisposable
         Assert.True(File.Exists(second.PackagePath));
         Assert.True(File.Exists(Path.ChangeExtension(second.PackagePath, ".json")));
         Assert.Equal("original", await File.ReadAllTextAsync(outside, Token));
+    }
+
+    [Fact]
+    public async Task StagingResidueIsRemovedAndCreditedThenOnlyTheOldestCleanCheckpointIsReclaimed()
+    {
+        // Budget 8: old 4 + second 4 + residue 7 + new 4. Removing the residue frees 7 (12 left), reclaiming the oldest
+        // clean checkpoint reaches 8, and the newer clean checkpoint is kept.
+        var store = Store(8);
+        using var closed = await store.CreateSessionAsync(null, "Closed", Token);
+        var old = await Write(store, closed, 1, "four");
+        var second = await Write(store, closed, 2, "four");
+        await store.MarkCleanAsync(closed, Token); closed.Dispose();
+        string residue = Path.Combine(Path.GetDirectoryName(old.PackagePath)!, Guid.NewGuid().ToString("N") + ".tmp.pma");
+        await File.WriteAllTextAsync(residue, "partial", Token);
+        using var current = await store.CreateSessionAsync(null, "Current", Token);
+        var point = await Write(store, current, 1, "four");
+        Assert.True(File.Exists(point.PackagePath));
+        Assert.False(File.Exists(residue));
+        Assert.False(File.Exists(old.PackagePath));
+        Assert.True(File.Exists(second.PackagePath));
     }
 
     [Fact]

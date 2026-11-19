@@ -12,6 +12,11 @@ internal static class EditorRenderEngineOptions
     internal static bool UsesModernQualityPreferences(IEditorRenderEngine engine)
         => engine is not EditorClassicRenderEngine;
 
+    /// <summary>Engines that render through the D3D9 surface path (classic and the compatibility experiment):
+    /// only the ordinary MMD preset, and no GI/AA/supersampling/upscaling/diffusion.</summary>
+    internal static bool UsesD3D9Surface(IEditorRenderEngine engine)
+        => engine is EditorClassicRenderEngine or EditorCompatibilityRenderEngine;
+
     internal static ViewQualityOptions DefaultPreviewQuality(IEditorRenderEngine engine)
         => UsesModernQualityPreferences(engine) ? EditorPreferences.DefaultPreviewQuality : ClassicQuality;
 

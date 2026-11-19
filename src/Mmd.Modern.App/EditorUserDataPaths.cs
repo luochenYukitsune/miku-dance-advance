@@ -68,6 +68,36 @@ internal sealed class EditorUserDataPaths
             : throw new InvalidDataException(EditorLocalization.Text("Mda.Text.UserData.InvalidConfiguration"));
     }
 
+    // A second instance started at the same moment (double-click, file association) used to fail startup on the
+    // first sharing violation. Wait briefly for the other instance to finish its migration instead.
+    private static FileStream AcquireMigrationLock(string lockPath)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                    FileShare.None, 1, FileOptions.DeleteOnClose);
+            }
+            // Retry only lock contention. The holder opens the file DeleteOnClose, so it can disappear between our
+            // failed open and this filter; checking File.Exists here failed startup at exactly that moment.
+            catch (IOException error) when (DateTime.UtcNow <= deadline && IsLockContention(error))
+            {
+                Thread.Sleep(100);
+            }
+        }
+    }
+
+    /// <summary>ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33) on Windows; on Unix .NET reports FileShare.None
+    /// contention as an IOException with HResult EWOULDBLOCK/EAGAIN, so any non-file-system-missing IOException there.</summary>
+    internal static bool IsLockContention(IOException error)
+    {
+        if (error is FileNotFoundException or DirectoryNotFoundException or PathTooLongException) return false;
+        int code = error.HResult & 0xFFFF;
+        return !OperatingSystem.IsWindows() || code is 32 or 33;
+    }
+
     internal void Initialize()
     {
         if (!IsConfigured) return;
@@ -77,8 +107,7 @@ internal sealed class EditorUserDataPaths
             _ = ReadMarker(RootDirectory);
             string lockPath = Path.Combine(RootDirectory, ".mda-user-data.lock");
             EnsureNoReparse(lockPath);
-            using var migrationLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite,
-                FileShare.None, 1, FileOptions.DeleteOnClose);
+            using var migrationLock = AcquireMigrationLock(lockPath);
             bool initialized = ReadMarker(RootDirectory);
             foreach (string path in new[] { RootDirectory, ConfigDirectory, PluginDirectory, RecoveryDirectory,
                 ProjectCacheDirectory, UpdateDirectory, ExportLogDirectory }) EnsureWritableDirectory(path);

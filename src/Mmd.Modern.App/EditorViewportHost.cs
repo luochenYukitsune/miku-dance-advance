@@ -100,6 +100,13 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
 
     private bool HasCaptureSurface => childWindow != nint.Zero || captureSizeProvider is not null;
 
+    private static (int X, int Y) MapPointer(nint window, int x, int y)
+    {
+        if (!GetClientRect(window, out var bounds)) return (x, y);
+        var mapped = ToRenderSpace(x, y, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+        return (mapped.X, mapped.Y);
+    }
+
     private bool TryGetCaptureSize(out int width, out int height)
     {
         Dispatcher.UIThread.VerifyAccess();
@@ -107,7 +114,21 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         else if (childWindow != nint.Zero && GetClientRect(childWindow, out var bounds))
         { width = bounds.Right - bounds.Left; height = bounds.Bottom - bounds.Top; }
         else { width = height = 0; }
+        // The D3D12 renderer and swapchain accept 1..4096 per axis (the capability probe already clamps the same
+        // way). A 5K/8K or multi-monitor window used to fail on the first frame and latch the preview as failed.
+        width = Math.Min(width, MaximumRenderDimension); height = Math.Min(height, MaximumRenderDimension);
         return width > 0 && height > 0;
+    }
+
+    internal const int MaximumRenderDimension = 4096;
+
+    /// <summary>The swapchain stretches a capped frame (at most 4096 per axis) over the whole client area. Picking
+    /// compares against the captured frame, so pointer coordinates and size are mapped into render pixels the same way.</summary>
+    internal static (int X, int Y, int Width, int Height) ToRenderSpace(int x, int y, int clientWidth, int clientHeight)
+    {
+        int width = Math.Min(clientWidth, MaximumRenderDimension), height = Math.Min(clientHeight, MaximumRenderDimension);
+        if (width == clientWidth && height == clientHeight || clientWidth <= 0 || clientHeight <= 0) return (x, y, clientWidth, clientHeight);
+        return ((int)((long)x * width / clientWidth), (int)((long)y * height / clientHeight), width, height);
     }
 
     /// <summary>Borrowed UI-thread session. Replacing it releases GPU caches, never the session.</summary>
@@ -244,7 +265,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     {
         Dispatcher.UIThread.VerifyAccess();
         var selected = EditorRenderEngineBinding.Require(renderEngine, binding);
-        if (ReferenceEquals(renderBinding, selected)) return;
+        // An equal binding is reused across edits so a healthy renderer survives; after a failure the same binding
+        // must still restart it, or the preview could not recover through ordinary editing.
+        if (ReferenceEquals(renderBinding, selected) && !HasRendererError) return;
         renderBinding = selected;
         RestartRenderer();
     }
@@ -848,11 +871,28 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             frameWaitCancellation?.Cancel(); framePermitReady = false;
             running = workerTask;
         }
-        running.GetAwaiter().GetResult(); // Worker never awaits a UI callback.
-        ReleaseRendererAsync().AsTask().GetAwaiter().GetResult();
+        // Worker never awaits a UI callback. The release is chained after the worker before waiting, so it always runs
+        // even if the UI stops waiting: a GPU that hangs without a driver reset, or a stuck native call, used to freeze
+        // the window forever. The UI waits a bounded time; past it the release finishes in the background.
+        var release = running.ContinueWith(_ => ReleaseRendererAsync().AsTask(), CancellationToken.None,
+            TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+        lock (workerGate) workerTask = release.ContinueWith(_ => { }, TaskScheduler.Default);
+        if (!WaitBounded(release, "renderer release")) return;
+        release.GetAwaiter().GetResult();
         lock (workerGate) sceneInputRequests = [];
         AdapterName = null; Statistics = null;
         SetPreparingFrame(false);
+    }
+
+    internal static TimeSpan CloseWaitTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    private bool WaitBounded(Task task, string what)
+    {
+        try { if (task.Wait(CloseWaitTimeout)) return true; }
+        catch (AggregateException) { return true; } // Observed by the caller or already reported by the worker.
+        System.Diagnostics.Trace.TraceWarning($"Editor viewport {what} did not finish within {CloseWaitTimeout.TotalSeconds:0} s; continuing to close.");
+        AdapterName = null; Statistics = null; SetPreparingFrame(false);
+        return false;
     }
 
     public void Dispose()
@@ -973,22 +1013,24 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             {
                 if (dragButton != 0) return nint.Zero;
                 if (message == 0x201 && GetClientRect(window, out var lightBounds)
-                    && LightController?.TryBeginDrag(x, y, lightBounds.Right, lightBounds.Bottom, currentCamera, RotateLightHandle) == true)
+                    && ToRenderSpace(x, y, lightBounds.Right, lightBounds.Bottom) is var lp
+                    && LightController?.TryBeginDrag(lp.X, lp.Y, lp.Width, lp.Height, currentCamera, RotateLightHandle) == true)
                 { SetFocus(window); if (LightController.IsDragging) SetCapture(window); return nint.Zero; }
                 if (message == 0x201 && GetClientRect(window, out var boneBounds)
-                    && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera) == true)
+                    && ToRenderSpace(x, y, boneBounds.Right, boneBounds.Bottom) is var bp
+                    && BoneController?.TryBeginDrag(bp.X, bp.Y, bp.Width, bp.Height, currentCamera) == true)
                 { SetFocus(window); if (BoneController.IsDragging) SetCapture(window); return nint.Zero; }
                 SetFocus(window); cameraBeforeDrag = manualCameraPose; dragCamera = EditableLocalCamera();
                 dragButton = message; pointerX = x; pointerY = y; SetCapture(window); return nint.Zero;
             }
             if (message == 0x200 && LightController?.IsDragging == true)
-            { LightController.MoveDrag(x, y); return nint.Zero; }
+            { var p = MapPointer(window, x, y); LightController.MoveDrag(p.X, p.Y); return nint.Zero; }
             if (message == 0x200 && BoneController?.IsDragging == true)
             {
                 long input = InteractionDiagnostics.IsEnabled
                     ? EditorInteractionTrace.BeginInput("pointer.move", unchecked((long)(uint)GetMessageTime())) : 0;
                 using var moveMeasure = InteractionDiagnostics.Measure("pointer.move-handler", input);
-                BoneController.MoveDrag(x, y); return nint.Zero;
+                var p = MapPointer(window, x, y); BoneController.MoveDrag(p.X, p.Y); return nint.Zero;
             }
             if (message == 0x202 && LightController?.IsDragging == true)
             { LightController.EndDrag(); ReleaseCapture(); return nint.Zero; }

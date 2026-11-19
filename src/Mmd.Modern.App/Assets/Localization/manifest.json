@@ -23,6 +23,12 @@
     "src/Mmd.Modern.App/EditorStartupWindow.axaml"
   ],
   "literalToKey": {
+    "贴图“{0}”未载入，按缺图处理：{1}": "Mda.Text.d3230a73f4ed",
+    "传统引擎的预览不支持光照 GI、抗锯齿、超采样、超分辨率或扩散效果。请保持这些选项关闭，或切换到现代引擎。": "Mda.Text.7b6ff92e42ef",
+    "传统引擎只支持 MMD 画风。请切换到现代引擎后再选择其他画风。": "Mda.Text.898373142ac6",
+    "PMM 工程的相机视角无效（视角必须在 0 到 180 度之间）。请保留原工程并在 MMD 中修复相机。": "Mda.Text.7ba973697905",
+    "模型贴图解码后的总大小超过 {0} MiB 上限。": "Mda.Text.6193ad17602d",
+    "PMM 媒体“{0}”不是受支持的媒体文件类型。请保留原工程并修复资源路径。": "Mda.Text.3e75822b0a4a",
     "设置": "Mda.Text.df3d58c7d84b",
     "编辑器外观、语言、工具与容量设置": "Mda.Text.3adabe75a1eb",
     "文件": "Mda.Text.39932f24fe11",
@@ -1038,6 +1044,8 @@
     "Mda.Text.Context.Inspector.Lighting.MainLight": "Lighting page heading for the main light.",
     "Mda.Text.Context.Inspector.Lighting.AdditionalLights": "Lighting page heading for existing additional lights.",
     "Mda.Text.Context.Inspector.Lighting.NoProject": "Quiet Lighting page prompt when no model or project is loaded.",
+    "Mda.Text.Recovery.OpenCopies": "File menu command that reopens the recovery dialog, including interrupted sessions whose startup offer was deferred.",
+    "Mda.Text.Plugins.Cancelled": "Result after the user cancels a running plugin command from the plugins dialog.",
     "Mda.Text.Recovery.SavedCleanupFailed": "A recovery checkpoint was committed; {0} explains a subsequent resource cleanup failure.",
     "Mda.Text.Motion.NamesNotPersistable": "Warning after a keyframe edit is applied in memory but some channel names cannot be written into VMD-based project storage; {0} lists model: names.",
     "Mda.Text.Recovery.SavedWithoutNames": "A recovery checkpoint was committed without keyframes on channels whose names cannot be written into VMD-based storage; {0} lists them.",

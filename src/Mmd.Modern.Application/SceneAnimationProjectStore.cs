@@ -122,7 +122,9 @@ public static class SceneAnimationProjectStore
         if (unique.Sum(asset => (long)asset.Length) > MaxAssetBytes)
             throw new InvalidDataException("Copied motion assets exceed the supported total size.");
         string layoutJson = SceneProjectStore.Serialize(destination, composition, lighting);
-        using var portable = options.CopyModelAssets ? PortableModelAssets.Prepare(composition.Objects, cancellationToken, limits: options.PortableLimits) : null;
+        using var owned = options.PreparedPortable is null && options.CopyModelAssets
+            ? PortableModelAssets.Prepare(composition.Objects, cancellationToken, limits: options.PortableLimits) : null;
+        var portable = options.PreparedPortable ?? owned;
         if (portable is not null) layoutJson = SceneProjectStore.Serialize(destination, composition, lighting, portable);
         using var layout = JsonDocument.Parse(layoutJson);
         var document = new Document

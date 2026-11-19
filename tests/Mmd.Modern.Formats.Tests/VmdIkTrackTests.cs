@@ -19,10 +19,11 @@ public sealed class VmdIkTrackTests
         Assert.Equal(false,switches[0].GetType().GetProperty("Enabled")!.GetValue(switches[0]));
         Assert.Equal(10u,keys[1].GetType().GetProperty("Frame")!.GetValue(keys[1]));
     }
-    [Fact] public void RejectsMalformedIkToggleAndKeepsPreciseOffset()
+    [Fact] public void NonBinaryIkToggleReadsAsEnabledAndReportsThePreciseOffset()
     {
-        using var stream=Fixture(true);var error=Assert.Throws<VmdFormatException>(()=>VmdReader.Read(stream));
-        Assert.Equal("ik[0].bones[0].enabled",error.Field);Assert.Equal(103,error.Offset);
+        using var stream=Fixture(true);var motion=VmdReader.Read(stream);
+        Assert.True(motion.IkKeyframes[0].Switches[0].Enabled);
+        Assert.Contains(motion.Diagnostics,d=>d.Contains("ik[0].bones[0].enabled at byte 103"));
     }
     private static MemoryStream Fixture(bool invalid)
     {

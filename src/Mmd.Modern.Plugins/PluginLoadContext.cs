@@ -58,8 +58,16 @@ internal sealed class PluginLoadContext : AssemblyLoadContext
     protected override nint LoadUnmanagedDll(string unmanagedDllName)
     {
         var path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
-        if (path is null)
-            throw new DllNotFoundException($"Native plugin dependency '{unmanagedDllName}' was not resolved inside its plugin directory.");
+        if (path is null && unmanagedDllName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, ':']) < 0)
+        {
+            // Like managed dependencies: a plugin without deps.json may carry a private native DLL beside its entry.
+            string file = unmanagedDllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? unmanagedDllName : unmanagedDllName + ".dll";
+            var local = PluginPaths.RequireContainedFile(_directory, Path.Combine(_directory, file));
+            if (File.Exists(local)) path = local;
+        }
+        // Not a private dependency: return zero so the runtime's default probing loads system libraries
+        // (user32, kernel32, ...). Throwing here made every system P/Invoke in a plugin fail.
+        if (path is null) return nint.Zero;
         return LoadUnmanagedDllFromPath(PluginPaths.RequireContainedFile(_directory, path));
     }
 }

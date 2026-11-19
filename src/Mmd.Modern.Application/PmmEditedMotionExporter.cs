@@ -191,9 +191,8 @@ public static class PmmEditedMotionExporter
         var result = new byte[16];
         for (int c = 0; c < 4; c++) for (int i = 0; i < 4; i++)
         {
-            byte value = raw[16 * c + 4 * i];
-            if (value > 127) throw new InvalidDataException("Active VMD bone interpolation controls must be in [0,127].");
-            result[4 * c + i] = value;
+            // PMM stores 0..127; imported VMD bytes above that are clamped exactly as playback evaluates them.
+            result[4 * c + i] = Math.Min(raw[16 * c + 4 * i], (byte)127);
         }
         return result;
     }
@@ -254,7 +253,7 @@ public static class PmmEditedMotionExporter
     {
         var (a, b, t) = Segment(keys, frame);
         if (a == b) return (a.Translation, a.Rotation);
-        double Curve(int c) { var raw = b.Interpolation; int i = c * 4; return new BezierCurve(raw[i] / 127f, raw[i + 1] / 127f, raw[i + 2] / 127f, raw[i + 3] / 127f).Evaluate(t); }
+        double Curve(int c) { var raw = b.Interpolation; int i = c * 4; return BezierCurve.FromMmd(raw[i], raw[i + 1], raw[i + 2], raw[i + 3]).Evaluate(t); }
         float L(float x, float y, double weight) => (float)((1 - weight) * x + weight * y);
         return (new(L(a.Translation.X, b.Translation.X, Curve(0)), L(a.Translation.Y, b.Translation.Y, Curve(1)), L(a.Translation.Z, b.Translation.Z, Curve(2))),
             Quaternion.Slerp(Normalize(a.Rotation), Normalize(b.Rotation), (float)Curve(3)));

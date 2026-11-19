@@ -28,20 +28,39 @@ public partial class EditorWindow
             // A process interruption never reaches this hook and leaves its own sessions unclean.
             // Coordinator shutdown and store I/O never await the dispatcher; captures already
             // belong to their Task.Run worker, so this final drain cannot wait on this UI thread.
+            // Each wait is bounded: stuck I/O (a network share, an antivirus lock) used to freeze the closing window.
+            // A writer that does not finish is abandoned, not marked clean, so its session stays a recovery offer.
             foreach (var owner in recoveryOwners)
             {
-                try { owner.ShutdownCleanAsync().GetAwaiter().GetResult(); }
+                try
+                {
+                    var shutdown = owner.ShutdownCleanAsync();
+                    if (!shutdown.Wait(RecoveryCloseTimeout))
+                    {
+                        System.Diagnostics.Trace.TraceWarning("Recovery shutdown did not finish in time; the session stays recoverable.");
+                        owner.Abandon();
+                    }
+                    else shutdown.GetAwaiter().GetResult();
+                }
                 catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
                 finally { owner.Dispose(); }
             }
             foreach (var session in reviewedRecoverySessions.Values)
             {
-                try { session.Store.CompleteInactiveSessionStartupOfferAsync(session.SessionId).GetAwaiter().GetResult(); }
+                try
+                {
+                    using var timeout = new CancellationTokenSource(RecoveryCloseTimeout);
+                    var complete = session.Store.CompleteInactiveSessionStartupOfferAsync(session.SessionId, timeout.Token);
+                    if (complete.Wait(RecoveryCloseTimeout)) complete.GetAwaiter().GetResult();
+                    else System.Diagnostics.Trace.TraceWarning("Recovery offer completion did not finish in time; it is offered again next start.");
+                }
                 catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
             }
             reviewedRecoverySessions.Clear();
         };
     }
+
+    internal static TimeSpan RecoveryCloseTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     private void RefreshRecoveryTimer()
     {
@@ -172,7 +191,13 @@ public partial class EditorWindow
         }
     }
 
-    internal async Task ReviewRecoveryAsync()
+    private async void OpenRecoveryCopies(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+    {
+        try { await ReviewRecoveryAsync(includeDeferred: true); }
+        catch (Exception error) { EditorCrashLog.TryWrite("recovery-review", error); }
+    }
+
+    internal async Task ReviewRecoveryAsync(bool includeDeferred = false)
     {
         if (!_recoveryEnabled || _shell is not { IsBusy: false } shell || reviewingRecovery || closingRecovery || recoveryWindowClosed) return;
         reviewingRecovery = true;
@@ -180,9 +205,11 @@ public partial class EditorWindow
         {
             while (!recoveryWindowClosed)
             {
-                var found = await Task.Run(() => EditorRecoveryDiscovery.ScanAsync(_preferences));
+                var found = await Task.Run(() => EditorRecoveryDiscovery.ScanAsync(_preferences, includeDeferred: includeDeferred));
                 if (found.Errors.Count != 0)
                     shell.OperationStatus = EditorLocalization.Format("Mda.Text.Recovery.ScanFailed", found.Errors.Count);
+                if (found.Sessions.Count == 0 && includeDeferred && !closingRecovery && !recoveryWindowClosed)
+                    shell.OperationStatus = EditorLocalization.Text("Mda.Text.Recovery.Empty");
                 if (found.Sessions.Count == 0 || closingRecovery || recoveryWindowClosed) return;
                 var choiceTask = new EditorRecoveryWindow(this, found.Sessions).ShowDialog<EditorRecoveryChoice?>(this);
                 // Register after ShowDialog succeeds so a scan or a failed display does not

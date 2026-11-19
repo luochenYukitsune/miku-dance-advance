@@ -24,8 +24,8 @@ public sealed partial class EditorProjectWorkspace
             throw new InvalidOperationException("The project changed while effect dependencies were being prepared. Reopen the assignment window.");
         var candidate = before.WithEffects(session, prepared);
         var mappings = SnapshotMappings();
-        undo.Push(new(session, session, false, mappings, SnapshotMappings(), before, candidate, true));
-        redo.Clear(); ProjectMetadata = candidate; MarkChanged(true);
+        PushUndo(new(session, session, false, mappings, SnapshotMappings(), before, candidate, true));
+        ClearRedo(); ProjectMetadata = candidate; MarkChanged(true);
     }
 }
 

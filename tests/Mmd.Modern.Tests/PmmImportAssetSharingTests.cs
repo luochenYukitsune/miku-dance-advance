@@ -56,11 +56,13 @@ public sealed class PmmImportAssetSharingTests : IDisposable
         var second = loader.Load(other, TestContext.Current.CancellationToken);
         Assert.NotSame(first, second); Assert.Same(Texture(first), Texture(second));
         // This resolves to a file already cached by the first model, but escapes this
-        // model's subdirectory. A cache hit cannot authorize that invalid reference.
+        // model's subdirectory. A cache hit cannot authorize that invalid reference: the
+        // texture degrades to missing (the model still loads) and the cached image is not shared.
         string nested = Path.Combine(directory, "same", "nested"); Directory.CreateDirectory(nested);
         var invalid = prepared with { Path = Path.Combine(nested, "third.pmx"),
             Model = TexturedModel(prepared.Model, ["../color.png"]) };
-        Assert.Throws<InvalidDataException>(() => loader.Load(invalid, TestContext.Current.CancellationToken));
+        var degraded = loader.Load(invalid, TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(degraded.Source.Surface.Snapshot.Textures, texture => ReferenceEquals(texture, Texture(first)));
         Assert.Same(first, loader.Load(prepared, TestContext.Current.CancellationToken));
     }
 
@@ -89,7 +91,9 @@ public sealed class PmmImportAssetSharingTests : IDisposable
         var prepared = WritePrepared(fixture.Plan.Models[0], "repair", ["first.png", "second.png"]);
         string broken = Path.Combine(directory, "repair", "second.png"); File.WriteAllBytes(broken, [1, 2, 3]);
         var loader = new EditorPmmAssetLoader();
-        Assert.Throws<InvalidDataException>(() => loader.Load(prepared, TestContext.Current.CancellationToken));
+        // The broken texture degrades to missing instead of failing the model; that degraded asset is not cached.
+        var degraded = loader.Load(prepared, TestContext.Current.CancellationToken);
+        Assert.Single(degraded.Source.Surface.Snapshot.Textures);
         File.WriteAllBytes(broken, Png([220, 180, 60, 255]));
         var fixedAsset = loader.Load(prepared, TestContext.Current.CancellationToken);
         Assert.Equal(new byte[] { 220, 180, 60, 255 }, fixedAsset.Source.Surface.Snapshot.Textures[1].Rgba.ToArray());

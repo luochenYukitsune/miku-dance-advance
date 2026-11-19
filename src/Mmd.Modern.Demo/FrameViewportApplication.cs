@@ -76,7 +76,20 @@ internal sealed partial class FrameViewportApplication
                     using var candidate=await Task.Run(()=>viewModel.PrepareProject(projectPath));
                     viewModel.CommitProject(candidate);if(options.AutoPlayMotion)viewModel.PlayMotion();
                 }
-                else await Task.Run(() => viewModel.LoadModel(options.ModelPath!));
+                else
+                {
+                    // Only the file read/decode runs on the pool. Commit, motion load and Play mutate the animation
+                    // controller the UI render loop reads, so they stay on the UI thread like the PMM path above.
+                    using var candidate = await Task.Run(() => viewModel.PrepareModel(options.ModelPath!));
+                    viewModel.CommitModel(candidate);
+                    if (options.MotionPath is not null)
+                    {
+                        string motionPath = options.MotionPath;
+                        var motion = await Task.Run(() => FrameViewportViewModel.ReadMotion(motionPath));
+                        viewModel.LoadMotion(motion, motionPath);
+                        if (options.AutoPlayMotion) viewModel.PlayMotion();
+                    }
+                }
                 loadWallMilliseconds = loadWatch.Elapsed.TotalMilliseconds;
                 loadCpuMilliseconds = (Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds;
             }
