@@ -405,10 +405,12 @@ public sealed class D3D12FrameRenderer : IDisposable
             geometryMilliseconds=stageTimer.Elapsed.TotalMilliseconds;stageTimer.Restart();
             static Format ColorFormat(D3D12MatcapColorEncoding encoding)
                 =>encoding==D3D12MatcapColorEncoding.SrgbRgb?Format.R8G8B8A8_UNorm_SRgb:Format.R8G8B8A8_UNorm;
-            void UploadTexture(SceneTexture texture,int slot)=>Counted(heaps.WriteSrv(device,slot,cache.Texture(texture),srvStride,Format.R8G8B8A8_UNorm));
-            UploadTexture(WhiteTexture, textureSlots);
-            UploadTexture(WhiteSphereTexture, textureSlots + 1);
-            for (int i = 0; i < scene.Textures.Count; i++) UploadTexture(scene.Textures[i], textureSlots + i + 2);
+            bool[] mipmapTextures = ComputeMipmapTextures(frame, surfaceStyles);
+            void UploadTexture(SceneTexture texture, int slot, bool generateMipmaps)
+                => Counted(heaps.WriteSrv(device, slot, cache.Texture(texture, generateMipmaps), srvStride, Format.R8G8B8A8_UNorm));
+            UploadTexture(WhiteTexture, textureSlots, false);
+            UploadTexture(WhiteSphereTexture, textureSlots + 1, false);
+            for (int i = 0; i < scene.Textures.Count; i++) UploadTexture(scene.Textures[i], textureSlots + i + 2, mipmapTextures[i]);
             for(int i=0;i<matcapDescriptors;i++)
                 if(surfaceStyles!.EffectiveSurfaceMatcap(i) is {} matcap)
                     Counted(heaps.WriteSrv(device,matcapSlotBase+i,cache.TextureColor(scene.Textures[matcap.MatcapCombinedTextureIndex],matcap.MatcapEncoding),srvStride,ColorFormat(matcap.MatcapEncoding)));
@@ -673,6 +675,93 @@ public sealed class D3D12FrameRenderer : IDisposable
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
         }
+    }
+
+    internal static bool[] ComputeMipmapTextures(OriginalFrameScene frame, D3D12SurfaceStyleMap? surfaceStyles = null)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var scene = frame.Surface.Snapshot;
+        int textureCount = scene.Textures.Count;
+        if (textureCount == 0) return [];
+        var allow = new bool[textureCount];
+        var disallow = new bool[textureCount];
+        for (int i = 0; i < scene.Materials.Count; i++)
+        {
+            var material = scene.Materials[i];
+            var binding = frame.Surface.Materials[i];
+            bool useMipmaps = frame.Materials[i].UseMipmaps;
+            if (material.DiffuseTexture >= 0)
+            {
+                int t = material.DiffuseTexture;
+                if (useMipmaps && scene.Textures[t].Kind == SceneTextureKind.Image) allow[t] = true;
+                else disallow[t] = true;
+            }
+            if (material.ToonTexture >= 0) disallow[material.ToonTexture] = true;
+            if (binding.SphereTexture >= 0) disallow[binding.SphereTexture] = true;
+        }
+        if (surfaceStyles is not null)
+        {
+            void Disallow(int? index)
+            {
+                if (index is >= 0 and int t && t < textureCount) disallow[t] = true;
+            }
+            int styleCount = Math.Min(surfaceStyles.Count, scene.Materials.Count);
+            for (int i = 0; i < styleCount; i++)
+            {
+                if (surfaceStyles.Materials[i] != D3D12SurfaceStyle.Mmd)
+                    Disallow(scene.Materials[i].DiffuseTexture);
+                if (surfaceStyles.EffectiveFaceSdf(i) is { } sdf)
+                {
+                    Disallow(sdf.CombinedTextureIndex);
+                    if (sdf.HasSecondaryImage) Disallow(sdf.SecondaryCombinedTextureIndex);
+                }
+                if (surfaceStyles.EffectiveGenshinNonMetallicSpecular(i) is { } gHair) Disallow(gHair.CombinedTextureIndex);
+                if (surfaceStyles.EffectiveGenshinHairShadowAtlas(i) is { } gAtlas)
+                {
+                    Disallow(gAtlas.LightmapCombinedTextureIndex);
+                    Disallow(gAtlas.AtlasCombinedTextureIndex);
+                }
+                if (surfaceStyles.EffectiveStarMcHair(i) is { } sHair)
+                {
+                    Disallow(sHair.HighlightCombinedTextureIndex);
+                    Disallow(sHair.ShadowCombinedTextureIndex);
+                }
+                if (surfaceStyles.EffectiveEndfieldHair(i) is { } eHair) Disallow(eHair.CombinedTextureIndex);
+                if (surfaceStyles.EffectiveSurfaceMatcap(i) is { } eMatcap)
+                {
+                    Disallow(eMatcap.NormalCombinedTextureIndex);
+                    Disallow(eMatcap.PCombinedTextureIndex);
+                    Disallow(eMatcap.MatcapCombinedTextureIndex);
+                    if (eMatcap.Palette is { } palette)
+                    {
+                        if (palette.ConsumesEmissionTexture) Disallow(palette.EmissionCombinedTextureIndex);
+                        if (palette.ConsumesReceivedLightTexture) Disallow(palette.ReceivedLightCombinedTextureIndex);
+                        if (palette.BaseImage is { } baseImage)
+                        {
+                            if (baseImage.ConsumesBaseTexture) Disallow(baseImage.BaseCombinedTextureIndex);
+                            if (baseImage.ConsumesDetailTexture) Disallow(baseImage.DetailCombinedTextureIndex);
+                            if (baseImage.ConsumesShadowTexture) Disallow(baseImage.ShadowCombinedTextureIndex);
+                        }
+                    }
+                }
+                if (surfaceStyles.EffectiveGenshinMetallic(i) is { } gMetal)
+                {
+                    Disallow(gMetal.LightmapCombinedTextureIndex);
+                    Disallow(gMetal.MatcapCombinedTextureIndex);
+                    if (gMetal.Specular is { ConsumesRamp: true } spec) Disallow(spec.RampCombinedTextureIndex);
+                }
+                if (surfaceStyles.EffectiveStarMcBody(i) is { } sBody)
+                {
+                    Disallow(sBody.NormalCombinedTextureIndex);
+                    Disallow(sBody.DetailCombinedTextureIndex);
+                    Disallow(sBody.MaskCombinedTextureIndex);
+                    Disallow(sBody.MatcapCombinedTextureIndex);
+                }
+            }
+        }
+        for (int t = 0; t < textureCount; t++)
+            allow[t] &= !disallow[t];
+        return allow;
     }
 
     private sealed record GeometryIdentity(ID3D12Resource Vertex,ID3D12Resource Index);

@@ -563,7 +563,8 @@ public sealed partial class D3D12OriginalStyleRenderer
         StaticSamplerDescription Sampler(OriginalTextureSampling sampling,int register) =>new(ShaderVisibility.Pixel,register,0) {
             Filter=sampling is OriginalTextureSampling.LinearClamp or OriginalTextureSampling.LinearWrap?Filter.MinMagMipLinear:Filter.MinMagMipPoint,
             AddressU=sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp,
-            AddressV=sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp,AddressW=TextureAddressMode.Clamp };
+            AddressV=sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap?TextureAddressMode.Wrap:TextureAddressMode.Clamp,AddressW=TextureAddressMode.Clamp,
+            MinLOD=0f,MaxLOD=float.MaxValue };
         StaticSamplerDescription[] samplers=[Sampler(key.SurfaceSampling,0),Sampler(key.ShadowSampling,1)];
         if(key.FaceSdf)samplers=[..samplers,Sampler(OriginalTextureSampling.LinearWrap,2)];
         if(key.GenshinHair)samplers=[..samplers,Sampler(OriginalTextureSampling.LinearWrap,3)];
