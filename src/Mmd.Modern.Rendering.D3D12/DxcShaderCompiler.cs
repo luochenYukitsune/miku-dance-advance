@@ -184,6 +184,10 @@ public sealed class DxcShaderCompiler
 
         string bundled=Path.Combine(AppContext.BaseDirectory,"tools","dxc","dxc.exe");
         if(File.Exists(bundled))return Path.GetFullPath(bundled);
+        // The fallbacks below run an executable found outside the installation. An installed app (one that is
+        // not running from a source checkout) must not run a dxc found on PATH, and no build may search from the
+        // process's current directory, which an associated document can control. MMD_DXC_PATH stays explicit.
+        bool developmentBuild = RunsFromSourceTree();
         string? workspace = FindWorkspaceRoot();
         if (workspace is not null)
         {
@@ -195,6 +199,8 @@ public sealed class DxcShaderCompiler
                 if (File.Exists(candidate)) return Path.GetFullPath(candidate);
         }
 
+        if (!developmentBuild)
+            throw new FileNotFoundException("The bundled DXC is missing from this installation. Reinstall MDA or set MMD_DXC_PATH.", bundled);
         foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
         {
             if (string.IsNullOrWhiteSpace(directory)) continue;
@@ -240,9 +246,26 @@ public sealed class DxcShaderCompiler
         }
     }
 
+    // An installed copy is a published self-contained app: the installer and the CI publish both place the bundled
+    // tools/dxc next to it. Development and test builds come from MSBuild's output directory, which the repository
+    // redirects to <repo>/../.dev-cache/modern-dotnet/bin/<project>/<config>/<tfm>/ (Directory.Build.props), so no
+    // checkout is among its ancestors. Detect both layouts rather than inferring "installed" from the apphost.
+    private static bool RunsFromSourceTree()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Mmd.Modern.slnx"))) return true;
+            // <cache>/bin/<project>/...: a sibling obj/ tree and a checkout beside the cache's parent.
+            if (string.Equals(directory.Name, "bin", StringComparison.OrdinalIgnoreCase) && directory.Parent is { } cache
+                && Directory.Exists(Path.Combine(cache.FullName, "obj"))) return true;
+        }
+        return false;
+    }
+
     private static string? FindWorkspaceRoot()
     {
-        foreach (string start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+        // Only the application's own location is trusted, never the process's current directory.
+        foreach (string start in new[] { AppContext.BaseDirectory })
         {
             for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
                 if (File.Exists(Path.Combine(directory.FullName, "MMD932_modern", "AGENTS.md")))

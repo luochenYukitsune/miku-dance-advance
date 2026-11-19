@@ -197,6 +197,13 @@ english.associatepmm=MMD projects (.pmm)
 english.associatemodels=MMD models (.pmx / .pmd)
 english.associatemotions=MMD motions (.vmd)
 english.associateposes=MMD poses (.vpd)
+english.RelocationDriveMissing=The previous MDA installation is registered at %1, but that drive is not available. If it is a removable or network drive, choose No, reconnect it and run Setup again. Choose Yes only if that installation is gone for good: its uninstall entry will be removed.
+english.RelocationFolderMissing=The previous MDA installation is registered at %1, but that folder was not found. If it is on a removable or network drive that now uses a different letter, choose No, reconnect it and run Setup again. Choose Yes only if that installation is gone for good: its uninstall entry will be removed.
+english.RelocationRegistryLocked=The previous MDA uninstall entry could not be removed (access denied). Fix the permissions of the MDA entry under HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall and run Setup again.
+english.RelocationLocationUnknown=The previous MDA installation is registered, but its folder cannot be determined from the uninstall entry. Uninstall it from Settings > Apps first (or remove the MDA entry under HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall if it is gone for good), then run Setup again.
+english.RelocationDriveMissingKept=The previous MDA installation at %1 is on a drive that is not available. Reconnect it and run Setup again, or install to that same folder.
+english.RelocationFolderMissingKept=The drive letter of %1 is accessible, but the previous MDA installation folder was not found there. The original disk may be disconnected and its letter now used by another volume: if so, reconnect it and run Setup again. If the folder was moved or deleted on purpose, run Setup again without /SILENT or /VERYSILENT and confirm removing the old uninstall entry, or install to that same folder.
+english.RelocationReappeared=The previous MDA installation at %1 is available again. Its uninstall entry was kept; run Setup again to remove it properly.
 english.RelocationUninstallFailed=The previous MDA installation could not be removed. Close MDA and retry, or uninstall it before choosing a different folder.
 english.UserDataTitle=Settings, plugins, and autosave
 english.UserDataDescription=Choose a folder for MDA personal files, or keep the default.
@@ -234,6 +241,13 @@ chinesesimplified.associatepmm=MMD 工程（.pmm）
 chinesesimplified.associatemodels=MMD 模型（.pmx / .pmd）
 chinesesimplified.associatemotions=MMD 动作（.vmd）
 chinesesimplified.associateposes=MMD 姿势（.vpd）
+chinesesimplified.RelocationDriveMissing=原来的 MDA 安装登记在 %1，但该磁盘当前不可用。如果它是移动硬盘或网络驱动器，请选“否”，重新连接后再运行安装程序。只有确定原安装已经不存在时才选“是”：它的卸载登记将被删除。
+chinesesimplified.RelocationFolderMissing=原来的 MDA 安装登记在 %1，但没有找到该文件夹。如果它位于移动硬盘或网络驱动器上，而盘符已被其他磁盘占用，请选“否”，重新连接后再运行安装程序。只有确定原安装已经不存在时才选“是”：它的卸载登记将被删除。
+chinesesimplified.RelocationRegistryLocked=无法删除原来的 MDA 卸载登记（拒绝访问）。请修复 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall 下 MDA 项的权限后，再运行安装程序。
+chinesesimplified.RelocationLocationUnknown=已登记原来的 MDA 安装，但无法从卸载登记中确定其所在文件夹。请先在“设置 > 应用”中卸载它（如果确定它已不存在，可删除 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall 下的 MDA 项），然后再运行安装程序。
+chinesesimplified.RelocationDriveMissingKept=原来的 MDA 安装位于 %1，所在磁盘当前不可用。请重新连接该磁盘后再运行安装程序，或安装到同一文件夹。
+chinesesimplified.RelocationFolderMissingKept=%1 所在的盘符可以访问，但没有找到原来的 MDA 安装文件夹。原磁盘可能已断开、其盘符正被其他磁盘占用：如果是这样，请重新连接后再运行安装程序。如果该文件夹是有意移动或删除的，请不带 /SILENT 或 /VERYSILENT 重新运行安装程序并确认删除旧的卸载登记，或安装到同一文件夹。
+chinesesimplified.RelocationReappeared=位于 %1 的原 MDA 安装已重新可用。已保留它的卸载登记，请重新运行安装程序以正常移除它。
 chinesesimplified.RelocationUninstallFailed=无法移除原来的 MDA 安装。请关闭 MDA 后重试，或先卸载原安装，再选择其他文件夹。
 japanese.SharedComponent=エディターと共通ファイル（FFmpeg を含む）
 japanese.ModernComponent=モダンエンジン（Direct3D 12 とアップスケーリング）
@@ -247,6 +261,13 @@ japanese.associatepmm=MMD プロジェクト（.pmm）
 japanese.associatemodels=MMD モデル（.pmx / .pmd）
 japanese.associatemotions=MMD モーション（.vmd）
 japanese.associateposes=MMD ポーズ（.vpd）
+japanese.RelocationDriveMissing=以前の MDA は %1 に登録されていますが、そのドライブは現在使用できません。リムーバブルまたはネットワーク ドライブの場合は「いいえ」を選び、再接続してからセットアップを再実行してください。以前のインストールが完全に失われている場合のみ「はい」を選んでください。アンインストール情報が削除されます。
+japanese.RelocationFolderMissing=以前の MDA は %1 に登録されていますが、そのフォルダーが見つかりません。リムーバブルまたはネットワーク ドライブのドライブ文字が別のディスクに使われている場合は「いいえ」を選び、再接続してからセットアップを再実行してください。以前のインストールが完全に失われている場合のみ「はい」を選んでください。アンインストール情報が削除されます。
+japanese.RelocationRegistryLocked=以前の MDA のアンインストール情報を削除できませんでした (アクセス拒否)。HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall にある MDA の項目のアクセス許可を修正してから、セットアップを再実行してください。
+japanese.RelocationLocationUnknown=以前の MDA は登録されていますが、アンインストール情報からそのフォルダーを特定できません。先に「設定 > アプリ」からアンインストールしてください (完全に失われている場合は HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall にある MDA の項目を削除してください)。その後、セットアップを再実行してください。
+japanese.RelocationDriveMissingKept=以前の MDA (%1) のドライブは現在使用できません。ドライブを再接続してからセットアップを再実行するか、同じフォルダーにインストールしてください。
+japanese.RelocationFolderMissingKept=%1 のドライブ文字にはアクセスできますが、以前の MDA のインストール フォルダーが見つかりません。元のディスクが取り外され、そのドライブ文字が別のボリュームに使われている可能性があります。その場合は再接続してからセットアップを再実行してください。フォルダーを意図的に移動または削除した場合は、/SILENT や /VERYSILENT を付けずにセットアップを再実行して古いアンインストール情報の削除を確認するか、同じフォルダーにインストールしてください。
+japanese.RelocationReappeared=%1 の以前の MDA が再び使用できるようになりました。アンインストール情報は保持されています。正しく削除するには、セットアップを再実行してください。
 japanese.RelocationUninstallFailed=以前の MDA を削除できませんでした。MDA を終了して再試行するか、以前のインストールをアンインストールしてから別のフォルダーを選択してください。
 japanese.UserDataTitle=設定・プラグイン・自動保存
 japanese.UserDataDescription=MDA 個人ファイルの保存先です。既定の場所も使えます。
@@ -627,18 +648,81 @@ begin
     SaveUserDataLocation;
 end;
 
+{ Deletes the stale registration; a key that cannot be deleted would fail Setup after its files are written, so report
+  it now instead. }
+function DropUninstallRegistration(const UninstallKey: String): String;
+begin
+  Result := '';
+  if not RegDeleteKeyIncludingSubkeys(HKCU, UninstallKey) and RegKeyExists(HKCU, UninstallKey) then
+    Result := CustomMessage('RelocationRegistryLocked');
+end;
+
+{ The executable path at the start of an UninstallString, or ''. Inno writes it quoted ("C:\...\unins000.exe" /args).
+  An unquoted one (C:\...\unins000.exe /args, possibly with spaces in the folder) is accepted only when exactly one
+  "\unins*.exe" file name in it ends at the end of the command or before a space. A folder named like "tools.exe" is
+  not taken as the end, and a command that is still ambiguous yields '' so the caller keeps the registration. }
+function UninstallerFromCommand(const Command: String): String;
+var
+  QuoteEnd, I, Found: Integer;
+  Trimmed, Lower, Candidate: String;
+begin
+  Result := '';
+  Trimmed := Trim(Command);
+  if Copy(Trimmed, 1, 1) = '"' then
+  begin
+    QuoteEnd := Pos('"', Copy(Trimmed, 2, Length(Trimmed)));
+    if QuoteEnd > 0 then
+      Result := Copy(Trimmed, 2, QuoteEnd - 1);
+    Exit;
+  end;
+  Lower := Lowercase(Trimmed);
+  Found := 0;
+  for I := 1 to Length(Lower) - 3 do
+    if (Copy(Lower, I, 4) = '.exe') and ((I + 4 > Length(Lower)) or (Lower[I + 4] = ' ')) then
+    begin
+      Candidate := Copy(Trimmed, 1, I + 3);
+      if CompareText(Copy(ExtractFileName(Candidate), 1, 5), 'unins') = 0 then
+      begin
+        Found := Found + 1;
+        Result := Candidate;
+      end;
+    end;
+  if Found <> 1 then
+    Result := '';
+end;
+
 function RemoveRelocatedInstallation: String;
 var
-  UninstallKey, PreviousDir, PreviousCommand, PreviousUninstaller: String;
-  QuoteEnd, ResultCode: Integer;
+  UninstallKey, PreviousDir, PreviousCommand, PreviousUninstaller, KeptMessage: String;
+  ResultCode, Answer: Integer;
+  DriveMissing: Boolean;
 begin
   UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
   Result := '';
   if not RegKeyExists(HKCU, UninstallKey) then
     Exit;
   Result := CustomMessage('RelocationUninstallFailed');
-  if not RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', PreviousDir) or (PreviousDir = '') then
+  { Inno writes InstallLocation, "Inno Setup: App Path" and UninstallString separately. Recover the old folder from
+    any of them before treating the registration as empty; only one that names nothing at all is dropped. }
+  if not RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', PreviousDir) then
+    PreviousDir := '';
+  if PreviousDir = '' then
+    if not RegQueryStringValue(HKCU, UninstallKey, 'Inno Setup: App Path', PreviousDir) then
+      PreviousDir := '';
+  if (PreviousDir = '') and RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', PreviousCommand) then
+  begin
+    PreviousUninstaller := UninstallerFromCommand(PreviousCommand);
+    if PreviousUninstaller <> '' then
+      PreviousDir := ExtractFileDir(PreviousUninstaller);
+  end;
+  if PreviousDir = '' then
+  begin
+    { No location, app path or parseable uninstaller: the old installation cannot be located, so it can be neither
+      uninstalled nor shown to be gone. Keep the registration and stop rather than orphan files that may still exist. }
+    Log('Keeping MDA uninstall registration without a recoverable install location.');
+    Result := CustomMessage('RelocationLocationUnknown');
     Exit;
+  end;
   PreviousDir := AddBackslash(ExpandFileName(PreviousDir));
   if CompareText(PreviousDir, AddBackslash(ExpandFileName(WizardDirValue))) = 0 then
   begin
@@ -646,20 +730,56 @@ begin
     Result := '';
     Exit;
   end;
+  if not FileExists(PreviousDir + 'Mmd.Modern.App.exe') and not DirExists(PreviousDir) then
+  begin
+    { A missing folder does not prove the installation is gone: its drive may be disconnected, or the letter may now
+      belong to another volume while the original one is unplugged. Setup cannot confirm the volume, so it never
+      drops the registration on its own: a silent install keeps it and stops, an interactive one asks first. }
+    DriveMissing := not DirExists(AddBackslash(ExtractFileDrive(PreviousDir)));
+    if DriveMissing then
+      KeptMessage := FmtMessage(CustomMessage('RelocationDriveMissingKept'), [PreviousDir])
+    else
+      KeptMessage := FmtMessage(CustomMessage('RelocationFolderMissingKept'), [PreviousDir]);
+    if WizardSilent then
+    begin
+      Result := KeptMessage;
+      Exit;
+    end;
+    if DriveMissing then
+      Answer := SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationDriveMissing'), [PreviousDir]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO)
+    else
+      Answer := SuppressibleMsgBox(FmtMessage(CustomMessage('RelocationFolderMissing'), [PreviousDir]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO);
+    if Answer <> IDYES then
+    begin
+      Result := KeptMessage;
+      Exit;
+    end;
+    { The drive may have been reconnected while the question was open: drop the registration only if the old
+      installation is still not visible. }
+    if FileExists(PreviousDir + 'Mmd.Modern.App.exe') or DirExists(PreviousDir) then
+    begin
+      Log('Previous MDA installation became visible again before its registration was dropped: ' + PreviousDir);
+      Result := FmtMessage(CustomMessage('RelocationReappeared'), [PreviousDir]);
+      Exit;
+    end;
+    Log('User abandoned the MDA installation registered at: ' + PreviousDir);
+    Result := DropUninstallRegistration(UninstallKey);
+    Exit;
+  end;
   if not RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', PreviousCommand) then
     Exit;
-  PreviousUninstaller := '';
-  if Copy(PreviousCommand, 1, 1) = '"' then
-  begin
-    QuoteEnd := Pos('"', Copy(PreviousCommand, 2, Length(PreviousCommand)));
-    if QuoteEnd > 0 then
-      PreviousUninstaller := Copy(PreviousCommand, 2, QuoteEnd - 1);
-  end;
+  PreviousUninstaller := UninstallerFromCommand(PreviousCommand);
   if not FileExists(PreviousUninstaller) or
     (CompareText(AddBackslash(ExtractFileDir(ExpandFileName(PreviousUninstaller))), PreviousDir) <> 0) or
     (CompareText(Copy(ExtractFileName(PreviousUninstaller), 1, 5), 'unins') <> 0) or
     (CompareText(ExtractFileExt(PreviousUninstaller), '.exe') <> 0) then
     Exit;
+  { Run the validated executable quoted, so an unquoted path with spaces cannot be split by CreateProcess. }
+  PreviousCommand := Trim(PreviousCommand);
+  if Copy(PreviousCommand, 1, 1) <> '"' then
+    PreviousCommand := AddQuotes(PreviousUninstaller) + Copy(PreviousCommand, Length(PreviousUninstaller) + 1, Length(PreviousCommand));
   { Official Exec supports a registered command line via '>':
     https://jrsoftware.org/ishelp/topic_isxfunc_exec.htm
     Let the original uninstall log remove only its tracked payload; never delete

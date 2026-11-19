@@ -534,7 +534,23 @@ public static class PmxReader
             }
             else
             {
-                toonTextureIndex = reader.ReadByte(field + ".toonTextureIndex");
+                long toonOffset = reader.Position;
+                byte commonToon = reader.ReadByte(field + ".toonTextureIndex");
+                if (commonToon == 0xFF)
+                {
+                    // PMXEditor and mmd_tools write a signed -1 here for "no shared toon". It means
+                    // the same as PMD toon 255, so normalize it to the separate-mode "none" index.
+                    toonMode = PmxToonMode.Separate;
+                    toonTextureIndex = -1;
+                }
+                else if (commonToon > 9)
+                {
+                    throw reader.Error(
+                        field + ".toonTextureIndex",
+                        toonOffset,
+                        $"common toon index {commonToon}; expected 0-9 or 255 (none)");
+                }
+                else toonTextureIndex = commonToon;
             }
 
             string memo = reader.ReadString(header.TextEncoding, field + ".memo");

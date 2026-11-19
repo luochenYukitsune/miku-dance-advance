@@ -334,7 +334,11 @@ public partial class EditorPmmImportWindow : Window
             plan = candidate; ImportOptions = nextOptions; RenderRows();
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or ArgumentException or NotSupportedException)
+        // This is an async void handler: anything that escapes terminates the editor and loses the
+        // workspace behind the dialog. A relink target is user-chosen and may be any damaged model
+        // (PmxFormatException derives from Exception, InvalidDataException from SystemException),
+        // so every failure is reported in the dialog, as the initial import path already does.
+        catch (Exception error)
         { if (!closed) operationError = () => error.Message; }
         finally
         {

@@ -50,10 +50,32 @@ int main(){
   // Never dereferenced/AddRef'd: this only exercises adapter identity admission.
   // The separate real-host/GPU checks own borrowed-COM lifetime validation.
   s.gpu->vertices.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x1234));
+  s.geometryToken.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x5678));
+  // Declared after `s`, so it runs first on every exit, including a throwing check: the fake pointers must never reach
+  // ~Session's Release, which would crash before the UNEXPECTED handler reports the failure.
+  struct FakeComGuard{Session& s;~FakeComGuard(){if(s.gpu)s.gpu->vertices.p=nullptr;s.geometryToken.p=nullptr;}} fakeComGuard{s};
   MdaMmeGeometryV1 g{sizeof g,MDA_MME_BRIDGE_VERSION};
-  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==23&&g.borrowed_iunknown==s.gpu->vertices.p,"geometry callback returns exact generation and token");
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)!=0,"geometry callback rejects an object without a published identity");
+  // Identity is per object and stays stable across frames until that object's own layout changes, so the host
+  // keeps its cached object instead of rebuilding every model each frame. The non-null token above means the
+  // production refresh never touches the device here.
+  s.refreshObjectIdentities();const uint64_t first=s.objectIdentities.at(Accessory).token;
+  const uint64_t firstModel=s.objectIdentities.at(Model).token;
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==first&&g.borrowed_iunknown==s.geometryToken.p,"geometry callback returns the object identity and the stable session token");
+  s.generation=24;s.gpu->vertices.p=reinterpret_cast<IDirect3DVertexBuffer9*>(uintptr_t(0x9abc));
+  s.refreshObjectIdentities();
+  check(s.objectIdentities.at(Accessory).token==first&&s.objectIdentities.at(Model).token==firstModel,"refresh keeps every unchanged object's token on the next frame");
+  check(geometry(&s,MDA_MME_ACCESSORY,Accessory,&g)==0&&g.identity==first&&g.borrowed_iunknown==s.geometryToken.p,"a new frame and vertex buffer keep the same host identity");
+  auto& moved=s.scene.objects[1];const uint32_t originalStart=moved.vertexStart;++moved.vertexStart;s.refreshObjectIdentities();
+  const uint64_t relaid=s.objectIdentities.at(Accessory).token;
+  check(relaid!=first&&s.objectIdentities.at(Model).token==firstModel,"a layout change renews only that object's token");
+  moved.vertexStart=originalStart;
+  const auto removed=s.scene.objects[1];s.scene.objects.erase(s.scene.objects.begin()+1);s.refreshObjectIdentities();
+  check(!s.objectIdentities.count(Accessory),"a removed object loses its identity");
+  s.scene.objects.insert(s.scene.objects.begin()+1,removed);s.refreshObjectIdentities();
+  check(s.objectIdentities.at(Accessory).token!=first&&s.objectIdentities.at(Accessory).token!=relaid,"re-adding an object issues a new token");
   check(geometry(&s,MDA_MME_MODEL,Accessory,&g)!=0&&geometry(&s,9,Accessory,&g)!=0&&geometry(&s,MDA_MME_ACCESSORY,Accessory+1,&g)!=0,"geometry callback rejects ID-kind mismatch");
-  s.gpu->vertices.p=nullptr;
+  s.gpu->vertices.p=nullptr;s.geometryToken.p=nullptr;s.objectIdentities.clear();
   c.requiredFeatures=MDA9_FEATURE_SURFACE;try{freezeDraw(c,s);check(false,"missing accessory capability");}catch(const Failure& e){check(e.status==MDA9_UNSUPPORTED,"missing accessory capability");}
   c.requiredFeatures=MDA9_FEATURE_SURFACE|MDA9_FEATURE_ACCESSORY;c.renderOrder=MDA9_ORDER_OPAQUE_FIRST;try{freezeDraw(c,s);check(false,"opaque-first mixed scene");}catch(const Failure& e){check(e.status==MDA9_UNSUPPORTED,"opaque-first mixed scene");}
   callbacks=nullptr;

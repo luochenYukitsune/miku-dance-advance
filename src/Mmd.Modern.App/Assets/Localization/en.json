@@ -1313,6 +1313,8 @@
   "Mda.Text.Preview.LowFrameRateHint": "Lower preview quality for smoother playback. Export settings stay unchanged.",
   "Mda.Text.Preview.AdjustQuality": "Adjust preview quality…",
   "Mda.Text.Preview.DismissLowFrameRate": "Dismiss",
+  "Mda.Text.Motion.NamesNotPersistable": "Keyframes applied, but these names exceed the VMD name length or encoding limit and can’t be saved to the project file yet: {0}. Recovery copies leave out keyframes on these channels.",
+  "Mda.Text.Recovery.SavedWithoutNames": "Recovery copy saved, but keyframes that don’t fit the VMD name limits were left out: {0}",
   "Mda.Text.Mme.Assignment": "Effect Mapping…",
   "Mda.Text.Mme.AssignmentHelp": "Choose a target page, then a model or material. Apply validates dependencies before updating the scene.",
   "Mda.Text.Mme.Toon": "Toon Textures…",

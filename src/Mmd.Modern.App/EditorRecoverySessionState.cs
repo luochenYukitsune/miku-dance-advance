@@ -47,9 +47,10 @@ public sealed record EditorRecoverySessionState
         ArgumentNullException.ThrowIfNull(animation);
         ArgumentNullException.ThrowIfNull(scene);
         var available = MaterializeActors(actors);
+        var captured = animation.CaptureRecoveryState(available);
         var state = new EditorRecoverySessionState
         {
-            Animation = animation.CaptureRecoveryState(available),
+            Animation = captured with { SelectedKeyframes = ExistingSelection(captured, available) },
             Scene = scene.CaptureRecoveryState()
         };
         state.ValidateForActors(available);
@@ -89,6 +90,25 @@ public sealed record EditorRecoverySessionState
         { throw Invalid("Recovery editor state is malformed or uses an unsupported schema.", error); }
     }
 
+    /// <summary>Keeps only selected keyframes that exist in the motions being stored. The caller may pass a
+    /// projection of the live motion (a recovery copy without unwritable channels), whose keys are a subset.</summary>
+    private static ImmutableArray<KeyframeAddress> ExistingSelection(EditorRecoveryAnimationState animation, IReadOnlyList<SceneActorMotion> actors)
+    {
+        if (animation.ObjectId is not { } selected || animation.SelectedKeyframes.IsDefaultOrEmpty) return animation.SelectedKeyframes;
+        var actor = actors.FirstOrDefault(item => item.ObjectId == selected);
+        if (actor is null) return animation.SelectedKeyframes;
+        var addresses = KeyframeAddresses(actor);
+        return animation.SelectedKeyframes.Where(addresses.Contains).ToImmutableArray();
+    }
+
+    private static HashSet<KeyframeAddress> KeyframeAddresses(SceneActorMotion actor)
+    {
+        var effective = actor.Detachment?.Filter(actor.Motion) ?? actor.Motion;
+        return effective.BoneKeyframes.Select(key => KeyframeAddress.Bone(key.BoneName, key.Frame))
+            .Concat(effective.MorphKeyframes.Select(key => KeyframeAddress.Morph(key.MorphName, key.Frame)))
+            .Concat(actor.Motion.IkKeyframes.Select(key => KeyframeAddress.Ik(key.Frame))).ToHashSet();
+    }
+
     public void ValidateForActors(IEnumerable<SceneActorMotion> actors)
     {
         Validate();
@@ -104,11 +124,7 @@ public sealed record EditorRecoverySessionState
         }
         if (Animation.ObjectId is { } selected)
         {
-            var actor = available[selected];
-            var effective = actor.Detachment?.Filter(actor.Motion) ?? actor.Motion;
-            var addresses = effective.BoneKeyframes.Select(key => KeyframeAddress.Bone(key.BoneName, key.Frame))
-                .Concat(effective.MorphKeyframes.Select(key => KeyframeAddress.Morph(key.MorphName, key.Frame)))
-                .Concat(actor.Motion.IkKeyframes.Select(key => KeyframeAddress.Ik(key.Frame))).ToHashSet();
+            var addresses = KeyframeAddresses(available[selected]);
             if (Animation.SelectedKeyframes.Any(address => !addresses.Contains(address)))
                 throw Invalid("Recovery keyframe selection does not exist in the project.");
         }

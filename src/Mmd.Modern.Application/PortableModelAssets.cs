@@ -122,7 +122,7 @@ internal static class PortableModelAssets
         string Copy(string reference)
         {
             if (reference.Length == 0) return reference;
-            string dependency = Path.GetFullPath(reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar), directory);
+            string dependency = ContainedDependency(directory, reference);
             if (dependencies.TryGetValue(dependency, out string? samePath)) return samePath;
             Resource resource;
             try { resource = SnapshotFile(dependency, limits.FileBytes, token); }
@@ -142,7 +142,19 @@ internal static class PortableModelAssets
         if (replacement is not null || Path.GetExtension(path).Equals(".pmx", StringComparison.OrdinalIgnoreCase))
         {
             var model = replacement ?? PmxReader.Read(source, new() { MaxInputBytes = limits.FileBytes });
-            string[] textures = model.Textures.Select(Copy).ToArray();
+            // Only textures a material binds are dependencies. An unreferenced table entry is
+            // never loaded by the renderer, so it must not be copied into a shareable package
+            // either: blank it to keep every material's texture index unchanged.
+            var referenced = new HashSet<int>();
+            foreach (var material in model.Materials)
+            {
+                // The renderer ignores the sphere slot when sphere mapping is off; another material binding the same
+                // texture still keeps it.
+                referenced.Add(material.TextureIndex);
+                if (material.SphereMode != PmxSphereMode.None) referenced.Add(material.SphereTextureIndex);
+                if (material.ToonMode == PmxToonMode.Separate) referenced.Add(material.ToonTextureIndex);
+            }
+            string[] textures = model.Textures.Select((name, index) => referenced.Contains(index) ? Copy(name) : "").ToArray();
             var copy = new PmxModel
             {
                 Header = model.Header, Name = model.Name, EnglishName = model.EnglishName,
@@ -171,7 +183,7 @@ internal static class PortableModelAssets
                 bool common = Enumerable.Range(1, 10).Any(i => name.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase));
                 // Saba checks a model-local toon before the shared data directory. Preserve an
                 // authored local override, even if its name happens to equal a built-in toon.
-                string local = Path.GetFullPath(name.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar), directory);
+                string local = ContainedDependency(directory, name);
                 RejectRedirects(local);
                 if (common && !usedToons.Contains(index)) return name;
                 return common && !File.Exists(local) ? name : Copy(name);
@@ -346,6 +358,20 @@ internal static class PortableModelAssets
         RejectRedirects(path); token.ThrowIfCancellationRequested(); return output.ToArray();
     }
 
+    /// <summary>
+    /// Resolves a model-authored dependency the way the texture loader does: it must be a
+    /// relative path that stays inside the model directory. Rooted, drive-qualified and escaping
+    /// references are rejected so a crafted model cannot pull arbitrary local files into a package.
+    /// </summary>
+    internal static string ContainedDependency(string modelDirectory, string reference)
+    {
+        string normalized = reference.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
+            throw new InvalidDataException($"Model dependency '{reference}' must be a relative path inside the model directory.");
+        return ModelDirectoryPaths.ResolveContained(modelDirectory, normalized)
+            ?? throw new InvalidDataException($"Model dependency '{reference}' points outside the model directory.");
+    }
+
     private static void RejectRedirects(string path)
     {
         for (string? current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))
@@ -370,5 +396,69 @@ internal static class PortableModelAssets
         public required string Name { get; init; }
         public required long Length { get; init; }
         public required string Sha256 { get; init; }
+    }
+}
+
+/// <summary>Model-relative dependency paths, one rule for loading and saving.</summary>
+public static class ModelDirectoryPaths
+{
+    /// <summary>Containment rule shared by saving (PortableModelAssets.ContainedDependency) and the editor's texture loader, without file
+    /// I/O beyond reading directory names: the full path of <paramref name="relative"/> under the model folder, or null
+    /// when it leaves the folder. A plain relative reference keeps the folder's exact prefix. A reference that climbs
+    /// out and back in with different letter case ("../MOD/a.png" for folder "Mod") is inside only when the directory
+    /// that "MOD" names on disk is the model folder itself: on a case-insensitive volume the name resolves to the same
+    /// directory, while in a case-sensitive directory holding both "mod" and "Mod" it resolves to the sibling and is
+    /// rejected. Anything still ambiguous is rejected.</summary>
+    public static string? ResolveContained(string modelDirectory, string relative)
+    {
+        // A drive root such as "D:\" keeps its separator after trimming; append one only when it is missing.
+        string folder = Path.GetFullPath(modelDirectory);
+        if (!Path.EndsInDirectorySeparator(folder)) folder += Path.DirectorySeparatorChar;
+        string path = Path.GetFullPath(Path.Combine(folder, relative));
+        if (path.StartsWith(folder, StringComparison.Ordinal)) return path;
+        if (!path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) return null;
+        // Same letters, different case: the prefix names the model folder only if that spelling resolves to it.
+        string spelled = path[..folder.Length];
+        return SameDirectory(spelled, folder) ? folder + path[folder.Length..] : null;
+    }
+
+    private static bool SameDirectory(string spelled, string folder)
+    {
+        // Walk both paths from the deepest component: at each level where the spellings differ, both names must resolve
+        // to the same on-disk entry of the shared parent (the directory's identity there), so "MOD" and "Mod" match on a
+        // case-insensitive volume whichever one the caller used, while "mod" next to "Mod" in a case-sensitive directory
+        // are two entries and do not.
+        string a = Path.TrimEndingDirectorySeparator(spelled), b = Path.TrimEndingDirectorySeparator(folder);
+        while (!string.Equals(a, b, StringComparison.Ordinal))
+        {
+            string? parentA = Path.GetDirectoryName(a), parentB = Path.GetDirectoryName(b);
+            if (parentA is null || parentB is null) return false;
+            string nameA = Path.GetFileName(a), nameB = Path.GetFileName(b);
+            if (!string.Equals(nameA, nameB, StringComparison.Ordinal))
+            {
+                try
+                {
+                    var entries = new DirectoryInfo(parentB).GetDirectories().Select(entry => entry.Name).ToList();
+                    string? first = OnDiskName(parentB, nameA, entries), second = OnDiskName(parentB, nameB, entries);
+                    if (first is null || !string.Equals(first, second, StringComparison.Ordinal)) return false;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    return false;
+                }
+            }
+            a = parentA; b = parentB;
+        }
+        return true;
+    }
+
+    /// <summary>The entry of <paramref name="parent"/> that <paramref name="name"/> opens: the exact entry when one exists,
+    /// otherwise the only entry equal ignoring case, provided the name actually opens a directory there (the volume
+    /// folds case). Null when it opens nothing or is ambiguous.</summary>
+    private static string? OnDiskName(string parent, string name, IReadOnlyList<string> entries)
+    {
+        if (entries.Contains(name, StringComparer.Ordinal)) return name;
+        var folded = entries.Where(entry => string.Equals(entry, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return folded.Count == 1 && Directory.Exists(Path.Combine(parent, name)) ? folded[0] : null;
     }
 }

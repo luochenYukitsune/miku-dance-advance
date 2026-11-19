@@ -36,12 +36,10 @@ public static class EditorTextureLoader
         string normalized = relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
         if (Path.IsPathRooted(normalized) || normalized.Contains(':'))
             throw new InvalidDataException(EditorLocalization.Format("贴图路径必须是模型目录内的相对路径：{0}", relative));
-        string folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(modelDirectory)) + Path.DirectorySeparatorChar;
-        string path = Path.GetFullPath(Path.Combine(folder, normalized));
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!path.StartsWith(folder, comparison))
-            throw new InvalidDataException(EditorLocalization.Format("贴图路径超出模型目录：{0}", relative));
-        return path;
+        // The same rule as PortableModelAssets.ContainedDependency (one shared implementation), so a texture that loads
+        // is also one a save may package.
+        return Mmd.Modern.Application.ModelDirectoryPaths.ResolveContained(modelDirectory, normalized)
+            ?? throw new InvalidDataException(EditorLocalization.Format("贴图路径超出模型目录：{0}", relative));
     }
 
     private static SceneTexture Decode(Stream input, string relative, CancellationToken token)

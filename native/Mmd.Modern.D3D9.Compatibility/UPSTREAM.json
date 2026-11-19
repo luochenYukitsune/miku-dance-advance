@@ -6,7 +6,7 @@
   "sourceOwnership": "Project-authored bridge, parsers, shader and build entry. This metadata does not relicense the project.",
   "host": {
     "directory": "../../compatibility/d3d9-mme-host",
-    "manifestSha256": "31326c0df052d1f7da8f21e8560ee647bc1627da4c482cd51f65a292e26655c9",
+    "manifestSha256": "9df6e1a56c0b3f272aa3e1084cc160ca04f0064cb6070901aec4275432236f00",
     "upstreamRepository": "https://github.com/jstzwj/MikuDanceStudio",
     "upstreamRevision": "bfb6297aa63a37770efcd3f7a599de5dd39be12b",
     "upstreamLicense": "MIT; original notice preserved by the host bundle",

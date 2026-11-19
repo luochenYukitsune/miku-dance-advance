@@ -268,18 +268,90 @@ public sealed class PortableSceneProjectTests : IDisposable
         Assert.Equal(0, loads);
     }
 
-    private string WritePmx(bool commonToon = false)
+    [Fact]
+    public void SphereSlotIsPackagedOnlyWhileSphereMappingIsOnOrAnotherMaterialBindsTheTexture()
+    {
+        // Sphere mapping off: the renderer never reads slot 1, so shine.spa must not reach the shareable package.
+        SceneProjectStore.Save(Project, Composition(WritePmx(sphereMode: PmxSphereMode.None)), new(), Portable, Token);
+        var saved = PmxReader.Read(Path.Combine(Bundle(), "model.pmx"));
+        Assert.Equal("", saved.Textures[1]);
+        Assert.DoesNotContain(Directory.EnumerateFiles(Bundle()), file => File.ReadAllBytes(file).SequenceEqual(ExpectedTexture(".spa")));
+
+        // The same texture bound as another material's diffuse map stays packaged, even with sphere mapping off.
+        var source = PmdPmxAdapter.Convert(Pmd()).Materials[0];
+        var sharing = new PmxMaterial { Name = "sharing", EnglishName = "", Diffuse = source.Diffuse, Specular = source.Specular,
+            SpecularPower = source.SpecularPower, Ambient = source.Ambient, DrawMode = source.DrawMode, EdgeColor = source.EdgeColor,
+            EdgeSize = source.EdgeSize, TextureIndex = 1, SphereTextureIndex = -1, SphereMode = PmxSphereMode.None,
+            ToonMode = PmxToonMode.Common, ToonTextureIndex = 0, Memo = "", FaceVertexCount = 0 };
+        SceneProjectStore.Save(Project, Composition(WritePmx(sphereMode: PmxSphereMode.None, extraMaterials: [sharing])), new(), Portable, Token);
+        var shared = PmxReader.Read(Path.Combine(Bundle(), "model.pmx"));
+        Assert.NotEqual("", shared.Textures[1]);
+        Assert.Equal(ExpectedTexture(".spa"), File.ReadAllBytes(Path.Combine(Bundle(), shared.Textures[1])));
+    }
+
+    private string Bundle()
+    {
+        string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();
+        return Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models", hash);
+    }
+
+    [Fact]
+    public void UnreferencedTextureTableEntriesAreNotCopiedIntoThePackage()
+    {
+        // A crafted model can list extra texture-table entries that no material binds. They are
+        // never loaded, so saving must not pull those files into a shareable package.
+        string secret = Path.Combine(directory, "secret.txt"); File.WriteAllText(secret, "private");
+        WriteTexture("unused.png");
+        string path = WritePmx(extraTextures: ["unused.png", "../secret.txt", secret]);
+        SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token);
+        string hash = JsonNode.Parse(File.ReadAllText(Project))!["portableModels"]![0]!.GetValue<string>();
+        string bundle = Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models", hash);
+        var saved = PmxReader.Read(Path.Combine(bundle, "model.pmx"));
+        Assert.Equal(6, saved.Textures.Count);
+        Assert.All(saved.Textures.Skip(3), name => Assert.Equal("", name));
+        Assert.Equal(2, saved.Materials[0].ToonTextureIndex);
+        foreach (string file in Directory.EnumerateFiles(bundle))
+            Assert.NotEqual("private", File.ReadAllText(file));
+    }
+
+    [Theory]
+    [InlineData("../secret.png")]
+    [InlineData("sub/../../secret.png")]
+    [InlineData("C:/secret.png")]
+    public void ReferencedTextureOutsideTheModelDirectoryIsRejectedBeforeAnyWrite(string reference)
+    {
+        File.WriteAllBytes(Path.Combine(directory, "secret.png"), [1, 2, 3]);
+        string path = WritePmx(diffuse: reference);
+        var error = Assert.Throws<InvalidDataException>(() => SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token));
+        Assert.Contains(reference, error.Message);
+        Assert.False(File.Exists(Project));
+        Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName(Project)!, "assets", "models")));
+    }
+
+    [Fact]
+    public void AbsoluteReferencedTextureIsRejected()
+    {
+        string secret = Path.Combine(directory, "secret.png"); File.WriteAllBytes(secret, [1, 2, 3]);
+        string path = WritePmx(diffuse: secret);
+        Assert.Throws<InvalidDataException>(() => SceneProjectStore.Save(Project, Composition(path), new(), Portable, Token));
+        Assert.False(File.Exists(Project));
+    }
+
+    private string WritePmx(bool commonToon = false, string[]? extraTextures = null, string diffuse = "paint.png",
+        PmxSphereMode sphereMode = PmxSphereMode.Add, IReadOnlyList<PmxMaterial>? extraMaterials = null)
     {
         WriteTexture("paint.png"); WriteTexture("shine.spa"); if (!commonToon) WriteTexture("shade.bmp");
         var source = PmdPmxAdapter.Convert(Pmd()); var first = source.Materials[0];
         var model = new PmxModel
         {
             Header = source.Header, Name = source.Name, EnglishName = source.EnglishName, Comment = source.Comment, EnglishComment = source.EnglishComment,
-            Vertices = source.Vertices, Faces = source.Faces, Textures = commonToon ? ["paint.png", "shine.spa"] : ["paint.png", "shine.spa", "shade.bmp"],
+            Vertices = source.Vertices, Faces = source.Faces,
+            Textures = [.. (commonToon ? new[] { diffuse, "shine.spa" } : new[] { diffuse, "shine.spa", "shade.bmp" }), .. extraTextures ?? []],
             Materials = [new() { Name = "material", EnglishName = "", Diffuse = first.Diffuse, Specular = first.Specular,
                 SpecularPower = first.SpecularPower, Ambient = first.Ambient, DrawMode = first.DrawMode, EdgeColor = first.EdgeColor,
-                EdgeSize = first.EdgeSize, TextureIndex = 0, SphereTextureIndex = 1, SphereMode = PmxSphereMode.Add,
-                ToonMode = commonToon ? PmxToonMode.Common : PmxToonMode.Separate, ToonTextureIndex = commonToon ? 0 : 2, Memo = "", FaceVertexCount = 3 }],
+                EdgeSize = first.EdgeSize, TextureIndex = 0, SphereTextureIndex = 1, SphereMode = sphereMode,
+                ToonMode = commonToon ? PmxToonMode.Common : PmxToonMode.Separate, ToonTextureIndex = commonToon ? 0 : 2, Memo = "", FaceVertexCount = 3 },
+                .. extraMaterials ?? []],
             Bones = source.Bones, Morphs = source.Morphs, DisplayFrames = source.DisplayFrames, RigidBodies = source.RigidBodies, Joints = source.Joints, SoftBodies = source.SoftBodies,
         };
         string path = Path.Combine(Source, "model.pmx"); File.WriteAllBytes(path, PmxWriter.ToBytes(model)); return path;

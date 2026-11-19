@@ -105,6 +105,8 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     public Func<bool>? CanMutateProject { get; set; }
     public void RefreshInputValidation() => RefreshCommands();
     public Action<string>? ReportStatus { get; set; }
+    /// <summary>Returns channel names in the committed motion that project storage cannot write losslessly.</summary>
+    public Func<Guid, IReadOnlyList<string>>? UnpersistableNames { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? PoseDraftChanged;
 
@@ -473,7 +475,10 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             }
             finally { preservingRegisterDrafts = false; }
             if (objectId == actor) SelectedKeyframes = selection;
-            SetStatus(success);
+            // Warn when the edit can't be stored losslessly, instead of letting the user find out at save time.
+            if (UnpersistableNames?.Invoke(actor) is { Count: > 0 } names)
+                SetStatus("Mda.Text.Motion.NamesNotPersistable", string.Join(", ", names));
+            else SetStatus(success);
         }
         catch (Exception ex) { SetFailure("关键帧编辑失败：", ex); }
         finally { isBusy = false; Changed(nameof(IsBusy)); RefreshCommands(); }

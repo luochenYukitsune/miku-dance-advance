@@ -49,6 +49,35 @@ public sealed class PmxSoftBodyTests
         Assert.True(sample.Positions[2].Y < 5);
     }
 
+    [Theory]
+    [InlineData(2e9f)]
+    [InlineData(-1.5e6f)]
+    public void HugeFiniteVertexCoordinatesFailBeforeNativeAllocation(float coordinate)
+        // Finite coordinates near 1.6e9 overflowed the native sparse-SDF cell index and crashed the process.
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("huge", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, new(coordinate, 0, 0)], [], [], [], new()));
+
+    [Fact]
+    public void TinyMassWhosePerNodeInverseOverflowsFailsBeforeNativeAllocation()
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("light", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, Vector3.One], [], [], [], new() { Mass = 1e-45f }));
+
+    [Fact]
+    public void PositiveNodeMassWhoseInverseOverflowsFloat32IsRejected()
+        // 1e-39 / 2 is a positive subnormal float whose reciprocal is infinite.
+        => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("light", SoftBodyShape.Rope,
+            [4, 8], [Vector3.Zero, Vector3.One], [], [], [], new() { Mass = 1e-39f }));
+
+    [Fact]
+    public void MassThatPassesThePerNodeCheckButOverflowsBulletsSetTotalMassIsRejected()
+    {
+        // Replays btSoftBody::setTotalMass (itm = 1 / count; m_im /= itm * mass) for a 31-node rope.
+        float mass = 31f * MathF.ScaleB(1f, -128) + MathF.ScaleB(1f, -145);
+        var points = Enumerable.Range(0, 31).Select(i => new Vector3(i, 0, 0)).ToArray();
+        Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("rope", SoftBodyShape.Rope,
+            Enumerable.Range(0, 31), points, [], [], [], new() { Mass = mass }));
+    }
+
     [Fact]
     public void InvalidGlobalPinFailsBeforeNativeAllocation()
         => Assert.Throws<ArgumentException>(() => new SoftBodyDefinition("bad", SoftBodyShape.Rope,

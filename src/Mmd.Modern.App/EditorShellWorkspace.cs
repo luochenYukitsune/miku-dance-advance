@@ -87,6 +87,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         Browser.ImportModelCommand = ImportModelCommand;
         Browser.SelectionChanged += (_, _) => RefreshSelection();
         Animation.CommitMotion = Workspace.CommitMotion;
+        Animation.UnpersistableNames = Workspace.GetUnpersistableMotionNames;
         Animation.CanMutateProject = () => !IsBusy;
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };
         Animation.PoseDraftChanged += (_, _) =>
@@ -281,6 +282,18 @@ public sealed partial class EditorShellViewModel : IDisposable
     public void Dispose()
     {
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
-        DisposeAudioPlayback(); PosePreview.Dispose(); Workspace.Dispose();
+        // An audio device that was unplugged can fail cleanup. The owner is then left undisposed and the close path does
+        // not retry it; the pose preview and the workspace, which owns native physics worlds, are still released.
+        // Every step runs; the first failure is rethrown so a later cleanup error cannot hide the original cause,
+        // and later failures travel with it in Data["CleanupErrors"].
+        List<Exception>? failures = null;
+        foreach (var step in new Action[] { DisposeAudioPlayback, PosePreview.Dispose, Workspace.Dispose })
+        {
+            try { step(); }
+            catch (Exception error) { (failures ??= []).Add(error); }
+        }
+        if (failures is null) return;
+        if (failures.Count > 1) failures[0].Data["CleanupErrors"] = failures.Skip(1).ToArray();
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
     }
 }

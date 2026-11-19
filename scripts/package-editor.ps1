@@ -195,7 +195,7 @@ if ($ClassicNativeBuildDirectory) {
         $seenNativeSources[$name] = $true
         $sourceIdentities.Add([pscustomobject]@{ path = 'native/Mmd.Modern.D3D9.Compatibility/' + $name; sha256 = $identity.sha256 })
     }
-    foreach ($name in @('mda_d3d9_session.h', 'session.cpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py')) {
+    foreach ($name in @('mda_d3d9_session.h', 'session.cpp', 'emm_configuration.hpp', 'frame_packet.hpp', 'visual_packet.hpp', 'surface.fx', 'build.py')) {
         if (-not $seenNativeSources.ContainsKey($name)) { throw "Classic build summary lacks current source identity: $name" }
     }
     $classicFiles.Add([pscustomobject]@{ source = $classicNative; path = 'Mmd.Modern.D3D9.Compatibility.dll'; sha256 = $classicNativeIdentity })
@@ -447,7 +447,13 @@ Write-JsonFile ([ordered]@{ inventorySource = 'published directory'; collectedFi
     missingPublishedRuntimeNotice = (@($runtimeNotices | Where-Object { $_.Name -match '^THIRD-PARTY-NOTICES(\.|$)' }).Count -eq 0);
     missingPublishedRuntimeLicense = (@($runtimeNotices | Where-Object { $_.Name -match '^LICENSE(\.|$)' }).Count -eq 0);
     complianceReviewComplete = $false }) (Join-Path $payload 'licenses/dotnet-runtime/collection.json')
-Copy-One (Join-Path $projectRoot 'docs/RELEASE_NOTES_V1.md') (Join-Path $payload 'RELEASE_NOTES.md')
+# Release notes are maintained in the repository's CHANGELOG.md (docs/RELEASE_NOTES_V1.md never existed).
+Copy-One (Join-Path $projectRoot 'CHANGELOG.md') (Join-Path $payload 'RELEASE_NOTES.md')
+# The application's own AGPL license and licensing summary must accompany every distributed build.
+foreach ($name in 'LICENSE', 'LICENSING.md') {
+    $destination = Join-Path $payload ('licenses/MDA/' + $name)
+    if (-not (Test-Path -LiteralPath $destination)) { Copy-One (Join-Path $projectRoot $name) $destination }
+}
 if ($CompileInstaller) { Copy-One (Resolve-Path -LiteralPath $ReleaseEvidence).Path (Join-Path $payload 'release-acceptance.json') }
 $files = @(Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object FullName | ForEach-Object {
     [pscustomobject]@{ path = $_.FullName.Substring($payload.Length + 1).Replace('\', '/'); bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }

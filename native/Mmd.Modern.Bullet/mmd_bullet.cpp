@@ -76,7 +76,10 @@ struct Context {
             ground->shape.reset(new btStaticPlaneShape(btVector3(0, 1, 0), 0));
             ground->motion.reset(new btDefaultMotionState(btTransform(btQuaternion::getIdentity(), btVector3(0, ground_y, 0))));
             btRigidBody::btRigidBodyConstructionInfo info(0, ground->motion.get(), ground->shape.get(), btVector3(0, 0, 0));
-            ground->body.reset(new btRigidBody(info)); world->addRigidBody(ground->body.get());
+            // The two-argument overload gives a static body Bullet's StaticFilter group (bit 1) with a mask that
+            // clears bit 1, so PMX collision group 1 (1<<1) never met the ground. MMD's ground collides with every
+            // group: give it all 16 group bits and a full mask, so any body whose mask is non-zero hits it.
+            ground->body.reset(new btRigidBody(info)); world->addRigidBody(ground->body.get(), short(-1), short(-1));
         }
     }
     ~Context() {

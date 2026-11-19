@@ -117,7 +117,8 @@ public sealed partial class EditorShellViewModel
         if (audioPlayback is { } owner)
         {
             // Device operations run on the owner's worker and never need this UI thread.
-            // Preserve the owner on failure so Dispose can be retried, like renderer cleanup.
+            // On failure the owner is kept (not nulled) so a later Dispose call could retry; the window close path
+            // calls Dispose once and does not.
             owner.DisposeAsync().AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
             audioPlayback = null;
         }

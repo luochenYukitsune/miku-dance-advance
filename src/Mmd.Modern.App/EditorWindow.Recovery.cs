@@ -104,7 +104,11 @@ public partial class EditorWindow
                 || shell.IsPlaying || document != capturedDocument || shell.Workspace.DocumentId != capturedDocument) return null;
             // Both captures happen synchronously on the UI owner, without committing pose drafts.
             // The detached package writer never reads the live workspace or these view models.
-            var state = EditorRecoverySessionState.Capture(shell.Animation, shell.SceneInspector, shell.Workspace.Motions) with
+            // Validate editor state against the motions the copy will actually store. A selected keyframe on a channel
+            // whose name exceeds the VMD limits is left out of that copy, so drop it from the saved selection too;
+            // otherwise reopening the copy fails on a selection that no longer exists.
+            var recoveryMotions = shell.Workspace.RecoveryMotions();
+            var state = EditorRecoverySessionState.Capture(shell.Animation, shell.SceneInspector, recoveryMotions) with
             {
                 SceneSelectionIndex = shell.SceneSelectionIndex, HierarchyTab = shell.HierarchyTab,
                 PixelsPerFrame = shell.PixelsPerFrame, FirstVisibleFrame = shell.FirstVisibleFrame,
@@ -122,11 +126,14 @@ public partial class EditorWindow
             var metadata = new EditorRecoveryCheckpointMetadata(shell.Workspace.ProjectPath,
                 shell.Workspace.ProjectPath is { } path ? Path.GetFileName(path) : EditorLocalization.Text("Mda.Text.Recovery.Unnamed"),
                 shell.ContentRevision, json.RootElement, projectFormat: shell.Workspace.ProjectFormat);
+            IReadOnlyList<string> omitted = [];
             var result = await recoveryOwner.CheckpointAsync(document, EditorAutoSaveSnapshot.GetFingerprint(metadata),
-                () => new EditorAutoSaveSnapshot(metadata, shell.Workspace.CaptureRecoverySnapshot()));
+                () => new EditorAutoSaveSnapshot(metadata, shell.Workspace.CaptureRecoverySnapshot(out omitted)));
             if (result.Error is { } error && !recoveryWindowClosed && ReferenceEquals(shell, _shell))
                 shell.OperationStatus = EditorLocalization.Format(result.Checkpoint is null
                     ? "Mda.Text.Recovery.SaveFailed" : "Mda.Text.Recovery.SavedCleanupFailed", error.Message);
+            else if (result.Checkpoint is not null && omitted.Count != 0 && !recoveryWindowClosed && ReferenceEquals(shell, _shell))
+                shell.OperationStatus = EditorLocalization.Format("Mda.Text.Recovery.SavedWithoutNames", string.Join("; ", omitted));
             return result;
         }
         catch (Exception error)

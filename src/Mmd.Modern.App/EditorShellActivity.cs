@@ -15,6 +15,8 @@ public sealed partial class EditorShellViewModel
         : IsPreparingPreview && activityState is (EditorActivityState.Idle or EditorActivityState.Completed)
             ? EditorActivityState.Busy : activityState;
     public bool HasActivityDetails => activityError is not null;
+    /// <summary>The failure the status bar shows now (the object passed to ReportActivityFailure), or null.</summary>
+    internal Exception? DisplayedFailure => activityState == EditorActivityState.Failed ? activityError : null;
     public string ActivityDetails => activityError?.ToString() ?? "";
     public string ActivityFailureSummary => activityError is Mmd.Modern.Rendering.D3D12.D3D12GiMemoryBudgetExceededException budget
         ? EditorPreviewFeedback.BudgetSummary(budget)

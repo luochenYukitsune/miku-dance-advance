@@ -134,8 +134,13 @@ public sealed class EditorPluginImportTests : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token); timeout.CancelAfter(TimeSpan.FromSeconds(8));
         while (!ready()) { await Task.Delay(10, timeout.Token); Dispatcher.UIThread.RunJobs(); }
     }
+    // Interactive debugging aid only: nothing asserts on these files. Opt in with MMD_PLUGIN_UI_ARTIFACTS.
     private static void SaveScreenshot(Window window, string destination)
     {
+        string? artifacts = Environment.GetEnvironmentVariable("MMD_PLUGIN_UI_ARTIFACTS");
+        if (string.IsNullOrWhiteSpace(artifacts)) return;
+        destination = Path.Combine(Path.GetFullPath(artifacts), Path.GetFileName(destination));
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var frame = new DispatcherFrame(); var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         timer.Tick += (_, _) => frame.Continue = false;
         timer.Start(); try { Dispatcher.UIThread.PushFrame(frame); } finally { timer.Stop(); }

@@ -9,7 +9,13 @@ if(Test-Path -LiteralPath $staging){throw 'Source staging directory already exis
 New-Item -ItemType Directory -Force -Path $staging,$sourceOutput|Out-Null
 Push-Location $projectRoot
 try{
- $files=@(& rg --files src tests fixtures scripts docs third_party tools native installer .github compatibility/d3d9-mme-host)+@('AGENTS.md','README.md','PRODUCT.md','DESIGN.md','Directory.Build.props','global.json','Mmd.Modern.slnx','NuGet.Config','THIRD_PARTY_NOTICES.md','.gitignore','.gitattributes')
+ # Every root listed by the solution must be packaged, and an AGPL source package must carry its license texts.
+ $roots=@('src','tests','fixtures','scripts','docs','third_party','tools','native','installer','examples','.github','compatibility/d3d9-mme-host')|Where-Object{Test-Path -LiteralPath (Join-Path $projectRoot $_)}
+ $listed=@(& rg --files @roots)
+ if($LASTEXITCODE -ne 0){throw "rg failed to list source files (exit $LASTEXITCODE)."}
+ $rootFiles=@('LICENSE','LICENSING.md','THIRD_PARTY_NOTICES.md','CHANGELOG.md','README.md','Directory.Build.props','global.json','Mmd.Modern.slnx','NuGet.Config','.gitignore','.gitattributes')
+ foreach($required in 'LICENSE','LICENSING.md','THIRD_PARTY_NOTICES.md','Mmd.Modern.slnx'){if(-not (Test-Path -LiteralPath (Join-Path $projectRoot $required))){throw "Required source file missing: $required"}}
+ $files=$listed+@($rootFiles|Where-Object{Test-Path -LiteralPath (Join-Path $projectRoot $_)})
  $manifest=@()
  foreach($relative in $files|Sort-Object -Unique){
   $source=[IO.Path]::GetFullPath((Join-Path $projectRoot $relative))

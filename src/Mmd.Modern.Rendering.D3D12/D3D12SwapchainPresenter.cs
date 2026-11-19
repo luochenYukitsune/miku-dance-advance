@@ -201,7 +201,8 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     {
         if (disposed) return;
         framePermit.Dispose();
-        try { WaitForIdle(); }
+        // Teardown wait: a removed device has no work in flight, so release instead of throwing.
+        try { session.WaitForIdleForTeardown(); }
         finally { disposed = true; ReleaseBackbuffers(); swapchain.Dispose(); session.Dispose(); }
     }
 }

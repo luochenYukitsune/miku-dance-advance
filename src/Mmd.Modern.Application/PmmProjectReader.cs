@@ -66,7 +66,7 @@ public static class PmmProjectReader
                 return new(pmx.Bones.Select(bone => bone.Name), pmx.Morphs.Select(morph => morph.Name),
                     pmx.Bones.Select((bone, index) => (bone, index)).Where(pair => pair.bone.Flags.HasFlag(PmxBoneFlags.Ik)).Select(pair => pair.index));
             }
-            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or NotSupportedException or ArgumentException)
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or NotSupportedException or ArgumentException or PmxFormatException)
             {
                 throw new InvalidDataException($"PMM 0001 model #{reference.StoredModelIndex} (position {reference.ModelPosition}) '{reference.Path.Value}' resolved to '{resolution.Path}': {error.Message}", error);
             }

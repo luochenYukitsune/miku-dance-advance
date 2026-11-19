@@ -261,15 +261,36 @@ internal sealed class D3D12GpuRuntime:IDisposable
         if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
         Wait(fenceValue);foreach(var slot in slots)Retire(slot);
     }
+    /// <summary>True once the device was removed (TDR, driver reset, adapter switch). A removed device executes no
+    /// further work and its fence reports UINT64_MAX, so all submitted GPU work is over.</summary>
+    internal bool IsDeviceRemoved=>fence.CompletedValue==ulong.MaxValue;
+    /// <summary>Idle wait for Dispose paths. Device removal means no submitted work can still read a resource,
+    /// so teardown treats it as idle and releases everything instead of throwing and leaking the device graph.
+    /// Render paths keep using <see cref="WaitForIdle"/>, which reports device removal.</summary>
+    internal void WaitForIdleForTeardown()
+    {
+        if(disposed)return;
+        if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
+        // Device removal can also happen while waiting (a TDR during close). The fence then reports UINT64_MAX,
+        // which ends this loop as "complete"; unlike WaitForFence it is not turned into an exception here.
+        while(fence.CompletedValue<fenceValue)Thread.Sleep(1);
+        foreach(var slot in slots)Retire(slot);
+    }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
     internal D3D12FrameStatistics Statistics(int scenes,int passes,int readbacks,int submissions)=>new(FrameId,submissions,readbacks,scenes,passes,
         Submissions,Readbacks,BufferUploads,TextureUploads,ShaderCompilations,PipelineCreations,fenceValue,CompletedFence,PendingFrames,DescriptorHighWater,
         DeviceIdentity,CommandListIdentity){LiveFrameResources=LiveFrameResources,LastSlotWaitMilliseconds=LastSlotWaitMilliseconds,ConstantAllocations=ConstantAllocations,ConstantBytes=ConstantBytes,FrameOwnedAllocations=FrameOwnedAllocations};
     public void Dispose()
     {
-        if(disposed)return;Abort();WaitForIdle();disposed=true;
-        foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
-        DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        if(disposed)return;
+        // Wait for submitted work even if closing the open list fails: the GPU may still read every slot's resources.
+        try{try{Abort();}finally{WaitForIdleForTeardown();}}
+        finally
+        {
+            disposed=true;
+            foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
+            DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();
+        }
     }
 }
 

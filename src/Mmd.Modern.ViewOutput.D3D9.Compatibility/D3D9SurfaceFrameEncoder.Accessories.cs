@@ -246,15 +246,12 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             || frame.MixedDrawOrder.Any(value => !objects.TryGetValue(value.ObjectId, out var binding) || binding.Kind != value.Kind))
             throw new InvalidDataException("Traditional rendering requires a complete same-sample mixed object table.");
         int split = frame.AccessoryIndexAfterModels!.Value;
-        int modelCount = frame.RenderingStyles.Count;
-        var result = new Dictionary<Guid, int>();
+        // Packet row order (models in rendering-style order, then accessories in table order) is what the native stable
+        // draw sort falls back to on equal orders, so renumbering breaks ties the same way.
+        var packetOrder = frame.RenderingStyles.Select(row => row.ObjectId).Concat(frame.Accessories.Select(item => item.ObjectId)).ToList();
+        var result = ComputeHostOrders(frame.MixedDrawOrder, frame.Accessories.Count, split, frame.RenderingStyles.Count, packetOrder);
         foreach (var value in frame.MixedDrawOrder)
         {
-            // The original PMM loader copies the raw model/accessory byte without renumbering.
-            // Its native getters use different formulas from the core's neutral sorted keys.
-            int raw = value.SourceDrawOrderIndex;
-            int order = value.Kind == PmmDrawableKind.Model ? checked(raw + Math.Min(frame.Accessories.Count, split))
-                : raw < split ? checked(-raw - 1) : checked(raw + modelCount + 1);
             if (value.Kind == PmmDrawableKind.Accessory)
             {
                 var item = frame.Accessories.Single(item => item.ObjectId == value.ObjectId);
@@ -263,8 +260,65 @@ internal sealed partial class D3D9SurfaceFrameEncoder
             }
             else if (value.Visible != frame.SceneInputs[value.ObjectId].Visible)
                 throw new InvalidDataException("Mixed model visibility differs from the same frozen sample.");
-            result.Add(value.ObjectId, order);
         }
+        return result;
+    }
+
+    /// <summary>Host (MME) orders, one signed value per object that no other object shares. The host keys its
+    /// order-to-object map by the signed value (ExpGetCurrentObject returns it), so a shared value would hand one
+    /// object's effects to another; the value is the object's identity as far as that map can tell. (Equal absolute
+    /// values, such as model raw 0 and the last pre-split accessory, are what the original loader produces and are
+    /// kept.)
+    /// Imported objects use the original PMM loader's formulas on their raw bytes. Models added after the import have no
+    /// byte and get the next values above every assigned one, in DrawOrderIndex order (never 0, MME's "no current
+    /// object"; not limited by the byte range). When that still yields a shared value (non-canonical, sparse bytes, or
+    /// a post-split accessory shifted onto an imported model by the larger model count), every object is renumbered
+    /// densely in the native draw order instead, in the original loader's layout: pre-split accessories -1..-b, then
+    /// models b+1.., then post-split accessories. Each object keeps its group and its position within it, so the
+    /// drawn order is unchanged: equal orders within a group keep the order of <paramref name="packetOrder"/>, the
+    /// object rows of the native packet, which is the tie-break of the native stable sort. Imported models at order 0
+    /// (no current object) are neither a collision nor renumbered.</summary>
+    internal static Dictionary<Guid, int> ComputeHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, int accessoryCount, int split, int modelCount,
+        IReadOnlyList<Guid> packetOrder)
+    {
+        var result = new Dictionary<Guid, int>();
+        foreach (var value in drawOrder.Where(value => !value.IsAddedAfterImport))
+        {
+            // The original PMM loader copies the raw model/accessory byte without renumbering.
+            // Its native getters use different formulas from the core's neutral sorted keys.
+            int raw = value.SourceDrawOrderIndex;
+            result.Add(value.ObjectId, value.Kind == PmmDrawableKind.Model ? checked(raw + Math.Min(accessoryCount, split))
+                : raw < split ? checked(-raw - 1) : checked(raw + modelCount + 1));
+        }
+        int next = Math.Max(1, result.Values.DefaultIfEmpty(0).Max() + 1);
+        foreach (var value in drawOrder.Where(value => value.IsAddedAfterImport).OrderBy(value => value.DrawOrderIndex))
+            result.Add(value.ObjectId, next++);
+        // Order 0 is MME's "no current object": the host never looks it up, so imported models sharing it do not collide.
+        var nonZero = result.Values.Where(value => value != 0).ToList();
+        return nonZero.Distinct().Count() == nonZero.Count ? result : DenseHostOrders(drawOrder, result, packetOrder);
+    }
+
+    private static Dictionary<Guid, int> DenseHostOrders(IReadOnlyList<SceneProjectDrawItem> drawOrder, Dictionary<Guid, int> original,
+        IReadOnlyList<Guid> packetOrder)
+    {
+        // Native draw groups (session.cpp originalDrawBefore): accessories with a negative order first, by descending
+        // order; then models; then the remaining accessories, both by ascending order. The sort is a std::stable_sort
+        // over packet rows, so ties keep packet row order, not the PMM draw table's.
+        var row = packetOrder.Select((id, index) => (id, index)).ToDictionary(pair => pair.id, pair => pair.index);
+        if (row.Count != drawOrder.Count || drawOrder.Any(value => !row.ContainsKey(value.ObjectId)))
+            throw new InvalidDataException("Host order renumbering requires the packet row of every drawn object.");
+        int Group(SceneProjectDrawItem value) => value.Kind == PmmDrawableKind.Model ? 1 : original[value.ObjectId] < 0 ? 0 : 2;
+        var sorted = drawOrder.OrderBy(Group)
+            .ThenBy(value => Group(value) == 0 ? -original[value.ObjectId] : original[value.ObjectId])
+            .ThenBy(value => row[value.ObjectId]).ToList();
+        var result = new Dictionary<Guid, int>();
+        int before = 0, after = sorted.Count(value => Group(value) == 0);
+        // An imported model whose original order is 0 keeps it: the original loader drew it with no current object, and
+        // renumbering only has to separate the objects that actually collide. It sorts first among the models (orders
+        // are never negative there), so the models after it still follow in order; an added model is never 0.
+        foreach (var value in sorted)
+            result.Add(value.ObjectId, Group(value) == 0 ? -++before
+                : Group(value) == 1 && !value.IsAddedAfterImport && original[value.ObjectId] == 0 ? 0 : ++after);
         return result;
     }
 

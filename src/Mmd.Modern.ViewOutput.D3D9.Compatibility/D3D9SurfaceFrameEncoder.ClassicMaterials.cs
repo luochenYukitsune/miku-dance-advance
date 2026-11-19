@@ -36,6 +36,9 @@ internal sealed partial class D3D9SurfaceFrameEncoder
                 };
                 var withoutPurpose = composed with
                 {
+                    // The animation session stamps each composed material with its owning object for modern
+                    // additional-light receiver selection. Classic has no such lights, so this scene identity is
+                    // removed like the other modern purpose channels instead of counting as a material mismatch.
                     LightReceiverObjectId = authored.LightReceiverObjectId,
                     GiToonResponseOverride = authored.GiToonResponseOverride,
                     UseSceneLighting = authored.UseSceneLighting,

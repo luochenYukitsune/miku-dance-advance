@@ -13,9 +13,14 @@ public sealed record SceneProjectAccessoryFrame(Guid ObjectId, PreparedPmmAccess
         ?? throw new InvalidOperationException("A project accessory frame requires its retained sample inputs.");
 }
 
-/// <summary>Same-frame mixed draw metadata. SourceDrawOrderIndex and StoredIndex retain original PMM values.</summary>
+/// <summary>Same-frame mixed draw metadata. SourceDrawOrderIndex and StoredIndex retain original PMM values. A model added
+/// after the import has no PMM record: <see cref="IsAddedAfterImport"/> is true, its StoredIndex is -1 and its
+/// SourceDrawOrderIndex is 0 and meaningless; place it by DrawOrderIndex, after every imported model.</summary>
 public sealed record SceneProjectDrawItem(Guid ObjectId, PmmDrawableKind Kind, int StoredIndex,
-    byte SourceDrawOrderIndex, int DrawOrderIndex, bool Visible, bool AddBlendEnabled);
+    byte SourceDrawOrderIndex, int DrawOrderIndex, bool Visible, bool AddBlendEnabled)
+{
+    public bool IsAddedAfterImport => Kind == PmmDrawableKind.Model && StoredIndex < 0;
+}
 
 public sealed partial class SceneProjectSession
 {
@@ -128,6 +133,16 @@ public sealed partial class SceneProjectSession
                 draw.Add(new(id, item.Kind, item.StoredIndex, item.SourceDrawOrderIndex, item.DrawOrderIndex, byActor[id].Visible, false));
             }
         }
+        // Models added after the PMM import have no PMM draw-order record. They are marked (StoredIndex -1) and placed by
+        // a neutral DrawOrderIndex after everything imported, in scene order, so the traditional renderer still receives
+        // a complete object table. Their source byte is not a PMM value and is not allocated from the 0..255 range, so
+        // neither a sparse imported order nor the byte range limits how many models a project can add; the Classic
+        // encoder assigns their host orders.
+        var mapped = controls.ModelIndices.Keys.ToHashSet();
+        int nextOrder = draw.Select(value => value.DrawOrderIndex).DefaultIfEmpty(-1).Max() + 1;
+        foreach (var obj in content.Composition.Objects.Where(value => !mapped.Contains(value.Id) && !content.Accessories.Any(a => a.ObjectId == value.Id)))
+            draw.Add(new(obj.Id, PmmDrawableKind.Model, -1, 0, nextOrder++,
+                byActor.TryGetValue(obj.Id, out var actor) ? actor.Visible : true, false));
         return (frames.AsReadOnly(), new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, Matrix4x4>>(bones),
             draw.AsReadOnly(), document.Settings.AccessoryIndexAfterModels, order.Diagnostics);
     }

@@ -1,0 +1,293 @@
+--- /dev/null
++++ ALTERED/third_party/mmeffect/src/mmeffect/mda_effect_dependency.hpp
+@@ -0,0 +1,290 @@
++// ALTERED MDA: pure metadata decisions shared by the fixed MIT SAS host and
++// CPU dependency discovery. This neither parses FX source nor resolves files.
++// Strings retain source bytes. Budgets, compiler profiles, origin resolution
++// and recursive graph closure belong to the caller.
++#pragma once
++
++#include "mda_effect_dependency_semantics.hpp"
++
++#include <string>
++#include <vector>
++
++namespace mme {
++
++struct MdaEffectDependencyAnnotation {
++    bool present = false;
++    bool valid = false;  // GetString succeeded with a non-null value
++    std::string value;
++};
++
++enum class MdaDefaultEffectKind { Path, None, Hide, MainDefault };
++enum class MdaDefaultEffectTokenStatus { End, Blank, Row, SyntaxError };
++
++struct MdaDefaultEffectRow {
++    size_t ordinal = 0;  // semicolon-token ordinal, including blank tokens
++    size_t offset = 0;   // byte offset in the original annotation
++    std::string rawToken;
++    std::string key;
++    std::string value;   // trimmed path, or canonical symbolic keyword
++    MdaDefaultEffectKind kind = MdaDefaultEffectKind::Path;
++};
++
++struct MdaDefaultEffectCursor {
++    size_t offset = 0;
++    size_t ordinal = 0;
++    bool finished = false;
++};
++
++// sub_180011800 trims exactly space/tab/vertical-tab/CR/LF, not form feed.
++inline std::string MdaEffectDependencyTrim(const std::string& text) {
++    const std::string whitespace(" \t\v\r\n");
++    const size_t begin = text.find_first_not_of(whitespace);
++    if (begin == std::string::npos) return std::string();
++    return text.substr(begin, text.find_last_not_of(whitespace) - begin + 1);
++}
++
++// One token at a time preserves host resolution/logging order: syntax errors
++// after an earlier path must not preempt that path's failed-open diagnostic.
++inline MdaDefaultEffectTokenStatus MdaParseDefaultEffectRow(
++    const std::string& text, MdaDefaultEffectCursor& cursor,
++    MdaDefaultEffectRow& row) {
++    if (cursor.finished || cursor.offset > text.size()) {
++        cursor.finished = true;
++        return MdaDefaultEffectTokenStatus::End;
++    }
++    row = MdaDefaultEffectRow();
++    row.ordinal = cursor.ordinal++;
++    row.offset = cursor.offset;
++    const size_t semi = text.find(';', cursor.offset);
++    const size_t end = semi == std::string::npos ? text.size() : semi;
++    row.rawToken = text.substr(cursor.offset, end - cursor.offset);
++    if (semi == std::string::npos) cursor.finished = true;
++    else cursor.offset = semi + 1;
++    const size_t equals = row.rawToken.find('=');
++    if (equals == std::string::npos &&
++        MdaEffectDependencyTrim(row.rawToken).empty()) {
++        return MdaDefaultEffectTokenStatus::Blank;
++    }
++    row.key = MdaEffectDependencyTrim(row.rawToken.substr(0, equals));
++    if (equals == std::string::npos || row.key.empty()) {
++        return MdaDefaultEffectTokenStatus::SyntaxError;
++    }
++    row.value = MdaEffectDependencyTrim(row.rawToken.substr(equals + 1));
++    if (row.value.empty() || MdaEffectDependencyAsciiEqual(row.value, "none")) {
++        row.value = "none";
++        row.kind = MdaDefaultEffectKind::None;
++    } else if (MdaEffectDependencyAsciiEqual(row.value, "hide")) {
++        row.value = "hide";
++        row.kind = MdaDefaultEffectKind::Hide;
++    } else if (MdaEffectDependencyAsciiEqual(row.value, "main_default")) {
++        row.value = "main_default";
++        row.kind = MdaDefaultEffectKind::MainDefault;
++    }
++    return MdaDefaultEffectTokenStatus::Row;
++}
++
++inline bool MdaEffectDependencyBuildsResource(int semanticId) {
++    return semanticId == 0x26 || semanticId == 0x27 || semanticId == 0x2C ||
++           semanticId == 0x2D || semanticId == 0x2E;
++}
++
++inline bool MdaEffectDependencyConsumesResourceName(int semanticId) {
++    return semanticId == 0x26 || semanticId == 0x27 || semanticId == 0x2C ||
++           semanticId == 0x2E;
++}
++
++inline bool MdaEffectDependencySkipsUnannotatedLiteral(
++    unsigned int annotations, unsigned int flags) {
++    return annotations == 0 && (flags & 1) != 0;
++}
++
++inline bool MdaEffectDependencySkipsAnimatedLiteral(
++    bool resourceNamePresent, unsigned int flags) {
++    return !resourceNamePresent && (flags & 1) != 0;
++}
++
++inline bool MdaEffectDependencyTextureTypeAllowed(int semanticId,
++                                                 int textureType) {
++    if (semanticId == 0x26 && textureType == 8) return false;
++    return !((semanticId == 0x27 || semanticId == 0x2E) &&
++             (textureType == 8 || textureType == 9));
++}
++
++enum class MdaEffectDependencyResourceTypeStatus { Ok, InvalidValue, Conflict };
++
++inline MdaEffectDependencyResourceTypeStatus MdaResolveEffectDependencyTextureType(
++    int declaredType, const std::string& resourceType, int& resolvedType) {
++    resolvedType = declaredType;
++    int requested = declaredType;
++    if (MdaEffectDependencyAsciiEqual(resourceType, "2d")) requested = 7;
++    else if (MdaEffectDependencyAsciiEqual(resourceType, "3d")) requested = 8;
++    else if (MdaEffectDependencyAsciiEqual(resourceType, "cube")) requested = 9;
++    else return MdaEffectDependencyResourceTypeStatus::InvalidValue;
++    if (declaredType != 5 && declaredType != requested) {
++        return MdaEffectDependencyResourceTypeStatus::Conflict;
++    }
++    resolvedType = requested;
++    return MdaEffectDependencyResourceTypeStatus::Ok;
++}
++
++enum class MdaEffectDependencyAnimatedType { None, Png, Gif };
++
++inline MdaEffectDependencyAnimatedType MdaClassifyEffectAnimatedDependency(
++    const std::string& resourceName) {
++    if (resourceName.size() < 4) return MdaEffectDependencyAnimatedType::None;
++    const std::string suffix = resourceName.substr(resourceName.size() - 4);
++    if (MdaEffectDependencyAsciiEqual(suffix, ".png")) {
++        return MdaEffectDependencyAnimatedType::Png;
++    }
++    if (MdaEffectDependencyAsciiEqual(suffix, ".gif")) {
++        return MdaEffectDependencyAnimatedType::Gif;
++    }
++    return MdaEffectDependencyAnimatedType::None;
++}
++
++inline bool MdaEffectTextureFunctionDependencyRequired(
++    int semanticId, bool hasResourceName, const std::string& functionName) {
++    return semanticId == 0x2C && !hasResourceName && !functionName.empty();
++}
++
++inline std::string MdaEffectDependencyFunctionTarget(
++    bool targetValid, const std::string& target) {
++    return targetValid ? target : std::string("tx_1_0");
++}
++
++struct MdaEffectDependencyInput {
++    int semanticId = -1;  // resolve descriptor with the shared helper first
++    unsigned int parameterType = 0;
++    unsigned int parameterFlags = 0;
++    unsigned int annotationCount = 0;
++    MdaEffectDependencyAnnotation resourceName;
++    MdaEffectDependencyAnnotation resourceType;
++    MdaEffectDependencyAnnotation function;
++    MdaEffectDependencyAnnotation target;
++    MdaEffectDependencyAnnotation defaultEffect;
++};
++
++struct MdaEffectDependencyDiagnostic {
++    std::string annotation;
++    std::string code;
++    bool hasRow = false;
++    size_t rowOrdinal = 0;
++};
++
++struct MdaEffectDependencyResult {
++    bool skipped = false;
++    bool resourceNameRequired = false;
++    bool textureFunctionRequired = false;
++    int textureType = 0;
++    MdaEffectDependencyAnimatedType animatedType = MdaEffectDependencyAnimatedType::None;
++    std::string functionName;
++    std::string functionTarget;
++    std::vector<MdaDefaultEffectRow> defaultEffectRows;
++    std::vector<MdaEffectDependencyDiagnostic> diagnostics;
++};
++
++inline void MdaAddEffectDependencyDiagnostic(MdaEffectDependencyResult& result,
++                                           const char* annotation,
++                                           const char* code) {
++    MdaEffectDependencyDiagnostic diagnostic;
++    diagnostic.annotation = annotation;
++    diagnostic.code = code;
++    result.diagnostics.push_back(diagnostic);
++}
++
++// This classifies file/symbol/function requests only. It does not validate
++// dimensions, formats, scripts, techniques, image decoding or GPU support.
++// A nonempty diagnostic list must prevent a complete dependency result.
++inline MdaEffectDependencyResult MdaClassifyEffectDependencies(
++    const MdaEffectDependencyInput& input) {
++    MdaEffectDependencyResult result;
++    result.textureType = static_cast<int>(input.parameterType);
++    if (!MdaEffectDependencyBuildsResource(input.semanticId) ||
++        MdaEffectDependencySkipsUnannotatedLiteral(input.annotationCount,
++                                                 input.parameterFlags)) {
++        result.skipped = true;
++        return result;
++    }
++    if (input.semanticId == 0x2D) {
++        if (MdaEffectDependencySkipsAnimatedLiteral(input.resourceName.present,
++                                                  input.parameterFlags)) {
++            result.skipped = true;
++            return result;
++        }
++        if (!input.resourceName.present || !input.resourceName.valid) {
++            MdaAddEffectDependencyDiagnostic(result, "ResourceName",
++                input.resourceName.present ? "invalid-string" : "missing");
++            return result;
++        }
++        result.resourceNameRequired = true;
++        result.animatedType = MdaClassifyEffectAnimatedDependency(input.resourceName.value);
++        if (result.animatedType == MdaEffectDependencyAnimatedType::None) {
++            MdaAddEffectDependencyDiagnostic(result, "ResourceName", "unsupported-animated-type");
++        }
++        return result;
++    }
++    if (input.resourceType.present) {
++        if (!input.resourceType.valid) {
++            MdaAddEffectDependencyDiagnostic(result, "ResourceType", "invalid-string");
++        } else {
++            const MdaEffectDependencyResourceTypeStatus status =
++                MdaResolveEffectDependencyTextureType(result.textureType,
++                    input.resourceType.value, result.textureType);
++            if (status != MdaEffectDependencyResourceTypeStatus::Ok) {
++                MdaAddEffectDependencyDiagnostic(result, "ResourceType",
++                    status == MdaEffectDependencyResourceTypeStatus::Conflict
++                        ? "conflicting-type" : "invalid-value");
++                return result;
++            }
++        }
++    }
++    if (!MdaEffectDependencyTextureTypeAllowed(input.semanticId, result.textureType)) {
++        MdaAddEffectDependencyDiagnostic(result, "ResourceType", "unsupported-texture-type");
++        return result;
++    }
++    if (input.semanticId == 0x2E && input.defaultEffect.present) {
++        if (!input.defaultEffect.valid) {
++            MdaAddEffectDependencyDiagnostic(result, "DefaultEffect", "invalid-string");
++        } else {
++            MdaDefaultEffectCursor cursor;
++            MdaDefaultEffectRow row;
++            for (;;) {
++                const MdaDefaultEffectTokenStatus status =
++                    MdaParseDefaultEffectRow(input.defaultEffect.value, cursor, row);
++                if (status == MdaDefaultEffectTokenStatus::End) break;
++                if (status == MdaDefaultEffectTokenStatus::Blank) continue;
++                if (status == MdaDefaultEffectTokenStatus::SyntaxError) {
++                    MdaAddEffectDependencyDiagnostic(result, "DefaultEffect", "syntax-error");
++                    result.diagnostics.back().hasRow = true;
++                    result.diagnostics.back().rowOrdinal = row.ordinal;
++                    return result;
++                }
++                result.defaultEffectRows.push_back(row);
++            }
++        }
++    }
++    if (MdaEffectDependencyConsumesResourceName(input.semanticId) &&
++        input.resourceName.present) {
++        if (!input.resourceName.valid) {
++            MdaAddEffectDependencyDiagnostic(result, "ResourceName", "invalid-string");
++        } else {
++            result.resourceNameRequired = true;
++        }
++    }
++    if (input.function.present && !input.function.valid) {
++        MdaAddEffectDependencyDiagnostic(result, "Function", "invalid-string");
++    }
++    if (input.target.present && !input.target.valid) {
++        MdaAddEffectDependencyDiagnostic(result, "Target", "invalid-string");
++    }
++    if (input.function.present && input.function.valid) result.functionName = input.function.value;
++    result.functionTarget = MdaEffectDependencyFunctionTarget(
++        input.target.present && input.target.valid, input.target.value);
++    result.textureFunctionRequired = MdaEffectTextureFunctionDependencyRequired(
++        input.semanticId, result.resourceNameRequired, result.functionName);
++    if (input.semanticId == 0x2C && !result.resourceNameRequired &&
++        !result.textureFunctionRequired) result.skipped = true;
++    return result;
++}
++
++}  // namespace mme

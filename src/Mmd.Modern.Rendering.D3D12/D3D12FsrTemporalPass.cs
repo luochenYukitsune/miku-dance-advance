@@ -123,7 +123,7 @@ internal sealed class D3D12FsrTemporalPass : IDisposable
     {
         if (disposed) return;
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open GPU frame before destroying FSR history.");
-        runtime.WaitForIdle(); // Native history/resources and loaded shader code can still be referenced by submitted work.
+        runtime.WaitForIdleForTeardown(); // Native history/resources and loaded shader code can still be referenced by submitted work.
         lock (D3D12FsrNativeLifetime.Gate)
         {
             if (disposed) return;

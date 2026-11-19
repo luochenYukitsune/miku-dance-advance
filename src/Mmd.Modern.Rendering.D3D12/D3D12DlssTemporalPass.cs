@@ -106,7 +106,7 @@ internal sealed class D3D12DlssTemporalPass : IDisposable
         }
         catch
         {
-            if (nativeContext != 0 && close is not null) { runtime.WaitForIdle(); close(nativeContext); nativeContext = 0; }
+            if (nativeContext != 0 && close is not null) { runtime.WaitForIdleForTeardown(); close(nativeContext); nativeContext = 0; }
             FreeLibrary(); throw;
         }
     }
@@ -168,7 +168,7 @@ internal sealed class D3D12DlssTemporalPass : IDisposable
     {
         if (disposed) return;
         if (runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open frame before destroying DLSS history.");
-        runtime.WaitForIdle(); if (nativeContext != 0) { close(nativeContext); nativeContext = 0; }
+        runtime.WaitForIdleForTeardown(); if (nativeContext != 0) { close(nativeContext); nativeContext = 0; }
         FreeLibrary(); disposed = true;
     }
     private void FreeLibrary() { if (library != 0) { NativeLibrary.Free(library); library = 0; } }

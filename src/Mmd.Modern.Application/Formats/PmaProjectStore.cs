@@ -43,11 +43,25 @@ public static class PmaProjectStore
         CancellationToken cancellationToken = default)
         => CaptureSnapshot(project, options, cancellationToken, PmaPackageKind.Modern);
 
+    private static PmaProjectInputs ApplyMotionOverrides(PmaProjectInputs captured, IReadOnlyDictionary<Guid, SceneMotionAsset> overrides)
+    {
+        var bound = captured.Animation.Motions.Select(binding => binding.ObjectId).ToHashSet();
+        foreach (var pair in overrides)
+        {
+            if (pair.Value is null) throw new ArgumentException("Motion override cannot be null.");
+            if (!bound.Contains(pair.Key)) throw new ArgumentException("Motion override refers to an actor without a bound motion.");
+        }
+        var motions = captured.Animation.Motions.Select(binding => overrides.TryGetValue(binding.ObjectId, out var asset)
+            ? binding with { Motion = asset.Motion, Asset = asset } : binding).ToArray();
+        return captured with { Animation = captured.Animation with { Motions = Array.AsReadOnly(motions) } };
+    }
+
     internal static PmaSaveSnapshot CaptureSnapshot(SceneProjectSession project, PmaSaveOptions? options,
         CancellationToken cancellationToken, PmaPackageKind kind)
     {
         ArgumentNullException.ThrowIfNull(project); options ??= new();
         ArgumentNullException.ThrowIfNull(options.ModelOverrides); ArgumentNullException.ThrowIfNull(options.OptionalExtensions);
+        ArgumentNullException.ThrowIfNull(options.MotionOverrides);
         ArgumentNullException.ThrowIfNull(options.ValidationOptions); options.ValidationOptions.Validate();
         cancellationToken.ThrowIfCancellationRequested();
         if (kind != PmaPackageKind.Classic && options.AccessoryPersistence is not null)
@@ -56,6 +70,7 @@ public static class PmaProjectStore
         IDisposable? lease = captured.Retained?.AcquireLease();
         try
         {
+            if (options.MotionOverrides.Count != 0) captured = ApplyMotionOverrides(captured, options.MotionOverrides);
             var selection = options.ContentSelection?.Copy();
             if (selection is not null) captured = selection.Project(captured);
             var modelOverrides = options.ModelOverrides.ToDictionary(p => p.Key,
@@ -65,6 +80,7 @@ public static class PmaProjectStore
             var frozenOptions = options with
             {
                 ModelOverrides = modelOverrides,
+                MotionOverrides = new Dictionary<Guid, SceneMotionAsset>(),
                 ContentSelection = selection,
                 ValidationOptions = options.ValidationOptions with { ContentSelection = options.ValidationOptions.ContentSelection?.Copy() },
                 OptionalExtensions = new Dictionary<string, JsonElement>(),

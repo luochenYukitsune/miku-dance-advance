@@ -41,14 +41,36 @@ public partial class EditorWindow : Window
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
+        // An exception that escaped a UI handler is logged and swallowed so the workspace survives; tell the user, so
+        // they do not keep editing (and save) an operation that stopped halfway. Repeats are throttled by the log.
+        // ReportActivityFailure puts the status bar into its failed state ("操作失败 · …") with the technical details
+        // (and the log path) one click away.
+        // Deduplicated per window and only after delivery: a fault raised before the shell is attached is shown the
+        // next time it happens, instead of having its one notice spent while no window could display it. A repeat is
+        // suppressed only while the status bar still shows the failure reported for it; once anything replaced that
+        // (a later status, or another failure), the next occurrence is reported again.
+        var shownCrash = new EditorCrashLog.NoticeGate();
+        Action<Exception, string, string?> crashNotice = (error, signature, path) =>
+        {
+            if (!IsVisible || _shell is not { } shell || !shownCrash.ShouldShow(signature, shell.DisplayedFailure)) return;
+            var reported = path is null ? error : new InvalidOperationException("Unhandled UI exception; log: " + path, error);
+            shell.ReportActivityFailure(reported);
+            shownCrash.Shown(signature, reported);
+        };
+        EditorCrashLog.UiExceptionRecorded += crashNotice;
+        Closed += (_, _) => EditorCrashLog.UiExceptionRecorded -= crashNotice;
         Closed += async (_, _) =>
         {
+            // Async void: every step is isolated so one failed cleanup (for example a viewport whose GPU device was
+            // removed) neither skips plugin and workspace release nor terminates the process.
             var old = _shell;
             AttachShell(null);
-            this.FindControl<EditorViewportHost>("SceneViewport")!.Dispose();
+            try { this.FindControl<EditorViewportHost>("SceneViewport")!.Dispose(); }
+            catch (Exception error) { EditorCrashLog.TryWrite("close-viewport", error); }
             try { await ReleasePluginsAsync(); }
             catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
-            finally { old?.Dispose(); }
+            try { old?.Dispose(); }
+            catch (Exception error) { EditorCrashLog.TryWrite("close-workspace", error); }
         };
         Closing += CheckClosing;
         KeyDown += OnEditorKeyDown;
@@ -145,7 +167,9 @@ public partial class EditorWindow : Window
             && args.PropertyName is nameof(EditorShellViewModel.SelectedThemeIndex) or nameof(EditorShellViewModel.ShowWorldGuides))
         {
             _preferences = _preferences with { ThemeIndex = active.SelectedThemeIndex, ShowWorldGuides = active.ShowWorldGuides };
-            try { _preferences.Save(); } catch (IOException error) { active.ReportActivityFailure(error); }
+            try { _preferences.Save(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+            { active.ReportActivityFailure(error); }
         }
     }
 

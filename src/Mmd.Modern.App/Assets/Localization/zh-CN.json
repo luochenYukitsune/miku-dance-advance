@@ -1313,6 +1313,8 @@
   "Mda.Text.Preview.LowFrameRateHint": "可调低预览画质，导出画质不变。",
   "Mda.Text.Preview.AdjustQuality": "调整预览画质…",
   "Mda.Text.Preview.DismissLowFrameRate": "本次不再提醒",
+  "Mda.Text.Motion.NamesNotPersistable": "关键帧已应用，但以下名称超出 VMD 名称长度或编码限制，当前无法保存到工程文件：{0}。自动恢复副本会省略这些通道的关键帧。",
+  "Mda.Text.Recovery.SavedWithoutNames": "恢复副本已保存，但省略了无法按 VMD 名称限制写入的关键帧：{0}",
   "Mda.Text.Mme.Assignment": "特效分配…",
   "Mda.Text.Mme.AssignmentHelp": "选择分配页，再选择模型或材质。修改后点“应用”，检查通过后才会更新画面。",
   "Mda.Text.Mme.Toon": "Toon 贴图设置…",

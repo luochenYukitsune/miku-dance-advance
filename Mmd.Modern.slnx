@@ -33,6 +33,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Mmd.Modern.ViewOutput.Stage/Mmd.Modern.ViewOutput.Stage.csproj" />
+    <Project Path="tools/Mmd.Modern.PmxScan/Mmd.Modern.PmxScan.csproj" />
     <Project Path="src/Mmd.Modern.Smoke/Mmd.Modern.Smoke.csproj" />
     <Project Path="src/Mmd.Modern.Demo/Mmd.Modern.Demo.csproj" />
     <Project Path="src/Mmd.Modern.Rendering.Veldrid/Mmd.Modern.Rendering.Veldrid.csproj" />

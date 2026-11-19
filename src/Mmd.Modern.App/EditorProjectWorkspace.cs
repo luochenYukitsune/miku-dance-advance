@@ -263,10 +263,75 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         catch (ArgumentException) { return false; }
     }
 
-    public IReadOnlyList<string> GetMotionPersistenceErrors()
+    /// <summary>Channel names on one actor that the VMD-based project storage cannot write losslessly
+    /// (field width or code page). Empty when the motion is persistable.</summary>
+    public IReadOnlyList<string> GetUnpersistableMotionNames(Guid objectId)
+    {
+        var actor = Motions.SingleOrDefault(item => item.ObjectId == objectId);
+        if (actor is null || actor.Asset is not null) return [];
+        return UnpersistableNames(actor.Motion, MotionCodePage(actor));
+    }
+
+    /// <summary>Channels whose names the VMD-based storage cannot write, judged per channel kind against that kind's
+    /// own field width (bone/morph 15 bytes, IK 20 bytes). A name dropped on one kind does not affect another.</summary>
+    private sealed record DroppedChannels(IReadOnlySet<string> Bones, IReadOnlySet<string> Morphs, IReadOnlySet<string> IkBones)
+    {
+        internal bool IsEmpty => Bones.Count == 0 && Morphs.Count == 0 && IkBones.Count == 0;
+        internal IReadOnlyList<string> Names => Bones.Concat(Morphs).Concat(IkBones).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> UnpersistableNames(VmdMotion motion, int codePage) => DroppedChannelsOf(motion, codePage).Names;
+
+    private static DroppedChannels DroppedChannelsOf(VmdMotion motion, int codePage)
+    {
+        var encoding = LegacyAnsiEncoding.Create(codePage);
+        var bones = new HashSet<string>(StringComparer.Ordinal);
+        var morphs = new HashSet<string>(StringComparer.Ordinal);
+        var ik = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in motion.BoneKeyframes) if (!Fits(key.BoneName, key.OriginalName, 15)) bones.Add(key.BoneName);
+        foreach (var key in motion.MorphKeyframes) if (!Fits(key.MorphName, key.OriginalName, 15)) morphs.Add(key.MorphName);
+        foreach (var key in motion.IkKeyframes)
+            foreach (var item in key.Switches) if (!Fits(item.BoneName, item.OriginalName, 20)) ik.Add(item.BoneName);
+        return new(bones, morphs, ik);
+
+        bool Fits(string name, VmdEncodedName? original, int width)
+        {
+            if (original is not null && string.Equals(original.Value, name, StringComparison.Ordinal)) return original.Bytes.Count <= width;
+            try { return encoding.GetByteCount(name) <= width; }
+            catch (System.Text.EncoderFallbackException) { return false; }
+        }
+    }
+
+    /// <summary>A VMD-representable copy of an unpersistable motion: keyframes on channels whose names cannot be
+    /// written are left out, every other track is kept. Used only for recovery copies; null if still unwritable.</summary>
+    private static SceneMotionAsset? RecoveryProjection(SceneActorMotion actor, int codePage, DroppedChannels dropped)
+    {
+        var motion = actor.Motion;
+        var projected = new VmdMotion
+        {
+            ModelName = motion.ModelName, OriginalModelName = motion.OriginalModelName,
+            BoneKeyframes = motion.BoneKeyframes.Where(key => !dropped.Bones.Contains(key.BoneName)).ToArray(),
+            MorphKeyframes = motion.MorphKeyframes.Where(key => !dropped.Morphs.Contains(key.MorphName)).ToArray(),
+            CameraKeyframes = motion.CameraKeyframes, LightKeyframes = motion.LightKeyframes,
+            SelfShadowKeyframes = motion.SelfShadowKeyframes,
+            IkKeyframes = motion.IkKeyframes.Select(key => new VmdIkKeyframe
+            {
+                Frame = key.Frame, Visible = key.Visible,
+                Switches = key.Switches.Where(item => !dropped.IkBones.Contains(item.BoneName)).ToArray()
+            }).ToArray(),
+            Diagnostics = motion.Diagnostics,
+        };
+        try { return SceneMotionAsset.FromMotion(projected, "motion.vmd", new() { AnsiCodePage = codePage }); }
+        catch (ArgumentException) { return null; }
+    }
+
+    public IReadOnlyList<string> GetMotionPersistenceErrors() => GetMotionPersistenceErrors(null);
+
+    private IReadOnlyList<string> GetMotionPersistenceErrors(IReadOnlySet<Guid>? projectedActors)
     {
         var errors = new List<string>();
-        foreach (var actor in Motions.Where(actor => actor.Asset is null))
+        foreach (var actor in Motions.Where(actor => actor.Asset is null && projectedActors?.Contains(actor.ObjectId) != true))
         {
             try { _ = VmdWriter.ToBytes(actor.Motion, new() { AnsiCodePage = MotionCodePage(actor) }); }
             catch (ArgumentException error) when (error.ParamName != "header.modelName")
@@ -493,9 +558,44 @@ public sealed partial class EditorProjectWorkspace : IDisposable
 
     /// <summary>Capture on the document owner thread; only the detached package is written in the background.</summary>
     internal PmaSaveSnapshot CaptureRecoverySnapshot(CancellationToken token = default)
+        => CaptureRecoverySnapshot(out _, token);
+
+    /// <summary>The actor motions exactly as the next recovery copy stores them: actors with unwritable channel
+    /// names get the projected motion (those channels left out), every other actor its live motion. Recovery
+    /// editor state must be validated against this, not the live motion, or the copy cannot be reopened.</summary>
+    internal IReadOnlyList<SceneActorMotion> RecoveryMotions()
+        => Motions.Select(actor =>
+        {
+            if (actor.Asset is not null || IsHeaderFailure(actor)) return actor;
+            int codePage = MotionCodePage(actor);
+            var dropped = DroppedChannelsOf(actor.Motion, codePage);
+            if (dropped.IsEmpty || RecoveryProjection(actor, codePage, dropped) is not { } asset) return actor;
+            return actor with { Motion = asset.Motion, Asset = asset };
+        }).ToArray();
+
+    /// <summary>
+    /// Unlike a manual save, a recovery copy must not be blocked by channel names that exceed the VMD-based
+    /// storage limits; otherwise a crash loses all work. Such motions are stored without the unwritable channels
+    /// and <paramref name="omitted"/> lists what was left out so the host can say so.
+    /// </summary>
+    internal PmaSaveSnapshot CaptureRecoverySnapshot(out IReadOnlyList<string> omitted, CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        return persistence.CaptureSnapshot(this, CreateSaveOptions(token), token);
+        var overrides = new Dictionary<Guid, SceneMotionAsset>();
+        var notes = new List<string>();
+        foreach (var actor in Motions.Where(actor => actor.Asset is null && !IsHeaderFailure(actor)))
+        {
+            int codePage = MotionCodePage(actor);
+            var dropped = DroppedChannelsOf(actor.Motion, codePage);
+            if (dropped.IsEmpty) continue;
+            if (RecoveryProjection(actor, codePage, dropped) is not { } asset) continue;
+            overrides.Add(actor.ObjectId, asset);
+            notes.Add(actor.Model.Name + ": " + string.Join(", ", dropped.Names));
+        }
+        omitted = notes.AsReadOnly();
+        var options = CreateSaveOptions(token, overrides.Keys.ToHashSet());
+        if (overrides.Count != 0) options = options with { MotionOverrides = overrides };
+        return persistence.CaptureSnapshot(this, options, token);
     }
 
     internal EditorRecoverySessionState ProjectRecoveryState(EditorRecoverySessionState state)
@@ -504,12 +604,12 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         return persistence.ProjectRecoveryState(state);
     }
 
-    private PmaSaveOptions CreateSaveOptions(CancellationToken token)
+    private PmaSaveOptions CreateSaveOptions(CancellationToken token, IReadOnlySet<Guid>? projectedActors = null)
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         token.ThrowIfCancellationRequested();
         var missingHeaders = GetMotionHeaderRequirements();
-        var unsupportedNames = GetMotionPersistenceErrors();
+        var unsupportedNames = GetMotionPersistenceErrors(projectedActors);
         if (unsupportedNames.Count != 0) throw new NotSupportedException(EditorLocalization.Text("当前 PMA 动作存储遵守 VMD 的名称字段限制。请保留 PMM 原工程；以下名称不能无损写入，未改名或截断：\n") + string.Join("\n", unsupportedNames));
         if (missingHeaders.Count != 0)
             throw new InvalidOperationException(EditorLocalization.Text("以下模型的动作需要明确填写可编码且不超过 20 字节的 VMD 模型头，才可保存或导出：")

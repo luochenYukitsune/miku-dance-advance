@@ -320,8 +320,10 @@ public sealed record EditorPreferences
         }
     }
 
+    // InvalidDataException covers empty (e.g. power-loss truncated), oversized and null-content
+    // files. They are local damage like any other unreadable file: recover with defaults.
     private static bool IsStorageFailure(Exception error) => error is IOException or UnauthorizedAccessException
-        or ArgumentException or NotSupportedException or JsonException or OverflowException;
+        or ArgumentException or NotSupportedException or JsonException or OverflowException or InvalidDataException;
 
     private sealed record LocalColor(float R, float G, float B, float A);
     private sealed record LocalOutputSnapshot(int SchemaVersion, string PresetJson, string RequestPresetJson,

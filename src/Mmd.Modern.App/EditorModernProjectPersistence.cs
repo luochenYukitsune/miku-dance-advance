@@ -11,8 +11,11 @@ internal sealed class EditorModernProjectPersistence(IEditorRenderEngine engine)
     private PmaSaveOptions Prepare(EditorProjectWorkspace workspace, PmaSaveOptions options)
     {
         var session = EditorProjectPersistence.RequireSession(this, workspace);
-        // Preserve the existing empty-mapping behavior, including retained opaque material data.
-        return workspace.MaterialBindings.Count == 0 ? options : D3D12MaterialBindingPma.CreateSaveOptions(session,
+        // Always write the complete current mapping set. An empty set writes an empty index, which deactivates
+        // mappings retained from the opened package (their opaque resources are kept). Skipping the codec when
+        // the set was empty carried the old index forward: a cleared mapping came back on reopen, and one that
+        // named a removed model made the saved project impossible to open.
+        return D3D12MaterialBindingPma.CreateSaveOptions(session,
             workspace.MaterialBindings.Select(pair => new D3D12MaterialBindingPmaEntry(pair.Key, pair.Value,
                 session.Objects.Single(item => item.Id == pair.Key).Source)), options);
     }

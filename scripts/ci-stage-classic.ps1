@@ -77,9 +77,9 @@ zig = pathlib.Path(sys.argv[2]).resolve()
 host_build = pathlib.Path(sys.argv[3]).resolve()
 out_dir = pathlib.Path(sys.argv[4]).resolve()
 
-pinned_manifest = '31326c0df052d1f7da8f21e8560ee647bc1627da4c482cd51f65a292e26655c9'
 host_dir = repo / 'compatibility' / 'd3d9-mme-host'
 native_dir = repo / 'native' / 'Mmd.Modern.D3D9.Compatibility'
+pinned_manifest = json.loads((native_dir / 'UPSTREAM.json').read_text(encoding='utf-8'))['host']['manifestSha256']
 
 def sha256(p: pathlib.Path) -> str:
     h = hashlib.sha256()

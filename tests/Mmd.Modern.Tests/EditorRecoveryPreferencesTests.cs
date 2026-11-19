@@ -67,6 +67,29 @@ public sealed class EditorRecoveryPreferencesTests : IAsyncDisposable
         Assert.False(Directory.Exists(first)); Assert.False(Directory.Exists(second)); Assert.False(Directory.Exists(third));
     }
 
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("null")]
+    [InlineData("oversized")]
+    public void DamagedSettingsFileRecoversWithDefaultsInsteadOfFailingStartup(string kind)
+    {
+        // A power-loss truncated (zero-byte) settings file used to throw InvalidDataException out
+        // of Load and stop the editor from starting.
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "preferences.json");
+        byte[] bytes = kind switch
+        {
+            "empty" => [],
+            "null" => "null"u8.ToArray(),
+            _ => new byte[2 * 1024 * 1024],
+        };
+        File.WriteAllBytes(path, bytes);
+        var loaded = EditorPreferences.Load(out var diagnostic, path);
+        Assert.NotNull(diagnostic);
+        Assert.Equal(new EditorPreferences().ThemeIndex, loaded.ThemeIndex);
+        Assert.Equal(bytes, File.ReadAllBytes(path));
+    }
+
     [Fact]
     public void InvalidOrOversizedDirectoryHistoryCannotReplaceSavedPreferences()
     {
