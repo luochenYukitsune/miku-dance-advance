@@ -37,6 +37,7 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
     private Dictionary<int,History> pending=[];
     private int submittedSampleCount,pendingSampleCount;
     private int preparedSampleIndex=-1;
+    private uint pendingHistoryCap=32;
     private ID3D12RootSignature? root;
     private ID3D12PipelineState? pipeline;
     private string invalidationReason="FirstFrame";
@@ -44,6 +45,7 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
     internal string LastResetReason {get;private set;}="FirstFrame";
     internal ulong LastHistoryFrames {get;private set;}
     internal uint LastSeed {get;private set;}
+    internal uint LastHistoryCap {get;private set;}=32;
     internal ID3D12Resource? RecordedSignal=>pending.TryGetValue(preparedSampleIndex,out var value)?value.Gpu.Signal:null;
     internal ID3D12Resource? RecordedMoments=>pending.TryGetValue(preparedSampleIndex,out var value)?value.Gpu.Moments:null;
     internal bool HasPendingHistory=>pending.Count>0;
@@ -63,24 +65,42 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         if(pending.ContainsKey(sampleIndex))throw new InvalidOperationException("A temporal GI spatial sample can be recorded only once per submitted frame.");
         pendingSampleCount=sampleCount;preparedSampleIndex=sampleIndex;
         previous.TryGetValue(sampleIndex,out var history);
+        bool shadingChanged=false;
         string? reason=submittedSampleCount!=0&&submittedSampleCount!=sampleCount?"SampleCountChanged"
-            :ResetReason(history,frame,scene,options,width,height);
+            :ResetReason(history,frame,scene,options,width,height,out shadingChanged);
         LastReset=reason is not null;LastResetReason=reason??"None";
+        LastHistoryCap=!LastReset&&options.PreviewAcceleration&&shadingChanged?6u:32u;
+        pendingHistoryCap=LastHistoryCap;
         ulong phase=LastReset?0:history!.Frames;
         LastHistoryFrames=phase+1;
         // Independent samples across successful frames. Aborted recordings leave both phase and seed unchanged.
         LastSeed=unchecked(options.Seed+(uint)phase*0x9e3779b9u);return LastSeed;
     }
 
-    private string? ResetReason(History? previous,OriginalFrameScene frame,RayGiScene scene,RayGiOptions options,int width,int height)
+    private string? ResetReason(History? previous,OriginalFrameScene frame,RayGiScene scene,RayGiOptions options,int width,int height,out bool shadingChanged)
     {
+        shadingChanged=false;
         if(previous is null)return invalidationReason;
         if(options.ResetTemporalHistory)return "ExplicitReset";
         if(previous.Width!=width||previous.Height!=height)return "Resized";
         if(previous.Options.TemporalHistoryGeneration!=options.TemporalHistoryGeneration)return "GenerationChanged";
         if(previous.Options.TemporalCameraCutKey!=options.TemporalCameraCutKey)return "CameraCut";
-        static RayGiOptions Settings(RayGiOptions value)=>value with {ResetTemporalHistory=false,TemporalHistoryGeneration=0,TemporalCameraCutKey=0};
-        if(Settings(previous.Options)!=Settings(options))return "SettingsChanged";
+        bool preview=options.PreviewAcceleration;
+        if(preview)
+        {
+            static RayGiOptions StructuralSettings(RayGiOptions value)=>value with {ResetTemporalHistory=false,TemporalHistoryGeneration=0,TemporalCameraCutKey=0,
+                DirectionalLightDirection=null,DirectionalIrradiance=null,DirectScale=1};
+            if(StructuralSettings(previous.Options)!=StructuralSettings(options))return "SettingsChanged";
+            if(previous.Options.DirectionalLightDirection!=options.DirectionalLightDirection
+                ||previous.Options.DirectionalIrradiance!=options.DirectionalIrradiance
+                ||previous.Options.DirectScale!=options.DirectScale)
+                shadingChanged=true;
+        }
+        else
+        {
+            static RayGiOptions Settings(RayGiOptions value)=>value with {ResetTemporalHistory=false,TemporalHistoryGeneration=0,TemporalCameraCutKey=0};
+            if(Settings(previous.Options)!=Settings(options))return "SettingsChanged";
+        }
         var a=frame.Surface.Snapshot;var b=previous.Frame.Surface.Snapshot;
         if(!frame.Materials.Select(value=>value.GiToonResponseOverride)
             .SequenceEqual(previous.Frame.Materials.Select(value=>value.GiToonResponseOverride)))return "ReceiverResponseChanged";
@@ -99,25 +119,35 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         for(int i=0;i<uvs.Length;i++)
             if(uvs[i].Uv01!=oldUvs[i].Uv01||uvs[i].Uv2.X!=oldUvs[i].Uv2.X||uvs[i].Uv2.Y!=oldUvs[i].Uv2.Y)return "TextureCoordinatesChanged";
         var camera=frame.Options?.CameraOverride??a.Camera;var oldCamera=previous.Frame.Options?.CameraOverride??b.Camera;
-        if(camera.LeftHanded!=oldCamera.LeftHanded||camera.Near!=oldCamera.Near||camera.Far!=oldCamera.Far
+        if(camera.LeftHanded!=oldCamera.LeftHanded)return "ProjectionChanged";
+        if(!preview&&(camera.Near!=oldCamera.Near||camera.Far!=oldCamera.Far
             ||camera.VerticalFovDegrees!=oldCamera.VerticalFovDegrees
-            ||(camera.VerticalFovDegrees is null&&camera.OrthographicHeight!=oldCamera.OrthographicHeight))return "ProjectionChanged";
-        if(!MemoryMarshal.AsBytes(scene.Materials).SequenceEqual(MemoryMarshal.AsBytes(previous.Scene.Materials))
-            ||!MemoryMarshal.AsBytes(scene.DiffuseTextureFactors).SequenceEqual(MemoryMarshal.AsBytes(previous.Scene.DiffuseTextureFactors)))return "MaterialChanged";
-        static (bool Additive,float ToonW) SubTextureState(OriginalStyleScene style,int index)
+            ||(camera.VerticalFovDegrees is null&&camera.OrthographicHeight!=oldCamera.OrthographicHeight)))return "ProjectionChanged";
+        bool materialChanged=!MemoryMarshal.AsBytes(scene.Materials).SequenceEqual(MemoryMarshal.AsBytes(previous.Scene.Materials))
+            ||!MemoryMarshal.AsBytes(scene.DiffuseTextureFactors).SequenceEqual(MemoryMarshal.AsBytes(previous.Scene.DiffuseTextureFactors));
+        if(!materialChanged)
         {
-            var binding=style.Materials[index];
-            // The no-diffuse technique always multiplies and restores raw alpha.
-            if(binding.SphereMode!=OriginalSphereMode.SubTexture||style.Snapshot.Materials[index].DiffuseTexture<0)return(false,1);
-            return(binding.SubTextureAdditive,binding.TextureFactors.Toon.Multiply.W+binding.TextureFactors.Toon.Add.W);
+            static (bool Additive,float ToonW) SubTextureState(OriginalStyleScene style,int index)
+            {
+                var binding=style.Materials[index];
+                // The no-diffuse technique always multiplies and restores raw alpha.
+                if(binding.SphereMode!=OriginalSphereMode.SubTexture||style.Snapshot.Materials[index].DiffuseTexture<0)return(false,1);
+                return(binding.SubTextureAdditive,binding.TextureFactors.Toon.Multiply.W+binding.TextureFactors.Toon.Add.W);
+            }
+            for(int i=0;i<a.Materials.Count;i++)
+                if(SubTextureState(frame.Surface,i)!=SubTextureState(previous.Frame.Surface,i)){materialChanged=true;break;}
         }
-        for(int i=0;i<a.Materials.Count;i++)
-            if(SubTextureState(frame.Surface,i)!=SubTextureState(previous.Frame.Surface,i))return "MaterialChanged";
-        if(a.Textures.Count!=b.Textures.Count)return "TexturesChanged";
-        for(int i=0;i<a.Textures.Count;i++)if(!ReferenceEquals(a.Textures[i],b.Textures[i]))return "TexturesChanged";
-        if((frame.Lighting?.Settings.EnvironmentStrength??0)!=(previous.Frame.Lighting?.Settings.EnvironmentStrength??0)
+        if(materialChanged){if(!preview)return "MaterialChanged";shadingChanged=true;}
+        bool texturesChanged=a.Textures.Count!=b.Textures.Count;
+        if(!texturesChanged)
+        {
+            for(int i=0;i<a.Textures.Count;i++)if(!ReferenceEquals(a.Textures[i],b.Textures[i])){texturesChanged=true;break;}
+        }
+        if(texturesChanged){if(!preview)return "TexturesChanged";shadingChanged=true;}
+        bool lightingChanged=(frame.Lighting?.Settings.EnvironmentStrength??0)!=(previous.Frame.Lighting?.Settings.EnvironmentStrength??0)
             ||a.LightDirection!=b.LightDirection||!MemoryMarshal.AsBytes(NativeRayGiLights.From(frame).UploadRows.AsSpan()).SequenceEqual(
-            MemoryMarshal.AsBytes(NativeRayGiLights.From(previous.Frame).UploadRows.AsSpan())))return "LightingChanged";
+            MemoryMarshal.AsBytes(NativeRayGiLights.From(previous.Frame).UploadRows.AsSpan()));
+        if(lightingChanged){if(!preview)return "LightingChanged";shadingChanged=true;}
         return null;
     }
 
@@ -140,7 +170,7 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
         var commands=context.Commands;
         commands.SetComputeRootSignature(root!);commands.SetPipelineState(pipeline!);
         commands.SetComputeRootConstantBufferView(0,context.UploadConstants(new Constants(new((uint)width,(uint)height,(uint)scene.TriangleCount,(uint)scene.Materials.Length),
-            new(LastReset?0u:1u,camera.VerticalFovDegrees is null?0u:1u,0,0),camera.ViewProjection(width,height),new(camera.Eye,0),new(forward,pixel))));
+            new(LastReset?0u:1u,camera.VerticalFovDegrees is null?0u:1u,pendingHistoryCap,0),camera.ViewProjection(width,height),new(camera.Eye,0),new(forward,pixel))));
         commands.SetComputeRootShaderResourceView(1,triangles.GPUVirtualAddress);
         commands.SetComputeRootShaderResourceView(2,oldTriangles.GPUVirtualAddress);
         commands.SetComputeRootShaderResourceView(3,input.GPUVirtualAddress);

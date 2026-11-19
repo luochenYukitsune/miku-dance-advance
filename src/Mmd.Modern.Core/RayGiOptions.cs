@@ -37,6 +37,8 @@ public sealed record RayGiOptions(
     public long TemporalCameraCutKey {get;init;}
     /// <summary>Explicitly reject history for this submitted frame.</summary>
     public bool ResetTemporalHistory {get;init;}
+    /// <summary>Realtime-preview-only acceleration using half-resolution ray tracing with joint-bilateral upsample and short temporal history. Never enabled during offline export/capture.</summary>
+    public bool PreviewAcceleration {get;init;}
     public static RayGiOptions Off {get;}=new();
     public Vector3 LightDirection=>DirectionalLightDirection??Vector3.Normalize(new Vector3(-.5f,1,-.5f));
     public Vector3 LightIrradiance=>DirectionalIrradiance??new Vector3(3);

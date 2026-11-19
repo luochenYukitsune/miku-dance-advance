@@ -1475,6 +1475,8 @@
   "Mda.Text.Context.Lighting.AreaHint": "Emits from the front. A larger softbox gives softer light and shadows. Its size does not inherit parent model scaling.",
   "Mda.Text.Context.Lighting.AreaSizeInvalid": "{0}: Softbox width and height must both be greater than 0.",
   "Mda.Text.Context.Lighting.HelpersVisible": "Light helpers",
+  "Mda.Text.Preview.GiAccelerationLabel": "GI preview acceleration",
+  "Mda.Text.Preview.GiAccelerationHint": "Applies to real-time preview only, using half-resolution tracing and short-history reprojection for higher frame rates. Off by default; offline exports always keep full-resolution accuracy.",
   "Mda.Text.Context.Lighting.HelpersHelp": "Show or hide all light icons, directions, ranges and handles. The lights continue to illuminate the scene.",
   "Mda.Text.Context.Lighting.DirectionalPositionHint": "Directional lights shine evenly across the scene; position only moves the viewport gizmo.",
   "Mda.Text.Context.Lighting.DirectionSection": "Aim & Direction",

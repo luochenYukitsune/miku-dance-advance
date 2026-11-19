@@ -87,6 +87,7 @@ internal static class D3D12ViewShaderPrewarm
             GiComposition = gi.Composition,
             IncludeGiDenoiser = giEnabled && gi.Denoiser != RayGiDenoiser.Off,
             IncludeGiTemporal = giEnabled && gi.Denoiser == RayGiDenoiser.TemporalSpatial,
+            IncludeGiHalfRes = giEnabled && gi.PreviewAcceleration,
             IncludePositionGather = giEnabled && gi.Mode == LightingMode.HardwareRayTracing && hasDynamicVertices,
             NativeLights = hasNativeLights,
             TextureMorph = hasTextureMorph,

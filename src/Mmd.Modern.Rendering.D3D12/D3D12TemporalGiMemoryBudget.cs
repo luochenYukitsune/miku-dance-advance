@@ -118,7 +118,10 @@ internal static class D3D12TemporalGiMemoryBudget
             return bytes;
         }
         ulong Buffer(ulong bytes, ResourceFlags flags = ResourceFlags.None) => Allocation(ResourceDescription.Buffer(bytes, flags));
-        ulong signalBytes = checked((ulong)width * (ulong)height * (HistoryBytesPerPixel / HistoryBufferCount));
+        bool halfRes = options.PreviewAcceleration && width >= 2 && height >= 2;
+        int traceWidth = halfRes ? (width + 1) / 2 : width;
+        int traceHeight = halfRes ? (height + 1) / 2 : height;
+        ulong signalBytes = checked((ulong)traceWidth * (ulong)traceHeight * (HistoryBytesPerPixel / HistoryBufferCount));
         ulong historyBuffer = Buffer(signalBytes, ResourceFlags.AllowUnorderedAccess);
         bool smaa = frame?.Options?.Antialiasing == FrameAntialiasing.Smaa1X;
         bool spatialUpscaling = !temporalUpscaling && (width != displayWidth || height != displayHeight);

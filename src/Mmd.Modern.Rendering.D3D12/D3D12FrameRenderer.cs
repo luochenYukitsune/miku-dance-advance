@@ -143,6 +143,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool diffusionActive=diffusion?.IsActive==true;
         float exposureEv=frame.Lighting?.Settings.ExposureEv??0;
         rayGiOptions??=frame.Options?.RayGi;
+        if(capture&&rayGiOptions is {PreviewAcceleration:true})
+            rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
         rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
         surfaceStyles?.Validate(frame,rayGiOptions);
         surfaceStyles=surfaceStyles?.CaptureFaceTextures(frame);

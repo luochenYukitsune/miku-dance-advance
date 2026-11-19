@@ -32,8 +32,8 @@ public sealed class ViewOutputPresetJsonTests
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, 6.25f, 23, 987, 900, .003f,
             new Vector3(-.25f, 2, .75f), new Vector3(1, 2.5f, 3), .75f, .35f, 2.75f,
             RayGiComposition.ToonPalette, RayGiDenoiser.TemporalSpatial)
-        { ToonResponse = RayGiToonResponse.PreservePaletteBands, TemporalHistoryGeneration = 15,
-            TemporalCameraCutKey = 28, ResetTemporalHistory = true };
+        { ToonResponse = RayGiToonResponse.PreservePaletteBands, PreviewAcceleration = true,
+            TemporalHistoryGeneration = 15, TemporalCameraCutKey = 28, ResetTemporalHistory = true };
         var source = new ViewOutputPresetDefinition("all-gi", "GI", new(1920, 1080, new(gi)),
             new(2560, 1440, new(30000, 1001), new(gi with { DirectionalLightDirection = null, DirectionalIrradiance = null })));
         var copy = RoundTrip(source);
@@ -42,6 +42,15 @@ public sealed class ViewOutputPresetJsonTests
         Assert.Equal(normalized with { DirectionalLightDirection = null, DirectionalIrradiance = null }, copy.Export.Quality!.Gi);
         Assert.Equal(normalized, source.Preview.Quality!.Gi);
         Assert.Equal(15, gi.TemporalHistoryGeneration); Assert.True(gi.ResetTemporalHistory);
+        var root = JsonNode.Parse(ViewOutputPresetJson.Serialize(source))!.AsObject();
+        Assert.True(root["preview"]!["quality"]!["gi"]!["previewAcceleration"]!.GetValue<bool>());
+        root["preview"]!["quality"]!["gi"]!.AsObject().Remove("previewAcceleration");
+        root["export"]!["quality"]!["gi"]!.AsObject().Remove("previewAcceleration");
+        var legacy = ViewOutputPresetJson.Deserialize(Encoding.UTF8.GetBytes(root.ToJsonString()));
+        Assert.False(legacy.Preview.EffectiveQuality.EffectiveGi.PreviewAcceleration);
+        Assert.False(legacy.Export.Quality!.EffectiveGi.PreviewAcceleration);
+        root["preview"]!["quality"]!["gi"]!["previewAcceleration"] = 1;
+        Assert.Throws<InvalidDataException>(() => ViewOutputPresetJson.Deserialize(Encoding.UTF8.GetBytes(root.ToJsonString())));
         string json = Encoding.UTF8.GetString(ViewOutputPresetJson.Serialize(source));
         foreach (string transient in new[] { "temporalHistoryGeneration", "temporalCameraCutKey", "resetTemporalHistory",
             "lightDirection", "lightIrradiance", "effective", "startFrame", "endFrame", "physicsPreRollFrames",

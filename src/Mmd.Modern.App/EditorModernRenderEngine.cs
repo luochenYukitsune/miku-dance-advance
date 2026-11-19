@@ -57,9 +57,12 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
         var render = request.Render;
         var quality = render.EffectiveQuality;
         var gi = quality.EffectiveGi;
-        return hasPaletteReceiver && gi.Enabled && gi.Strength > 0 && gi.Composition == RayGiComposition.Additive
-            ? render with { Quality = quality with { Gi = gi with { Composition = RayGiComposition.ToonPalette } } }
-            : render;
+        var nextGi = gi;
+        if (hasPaletteReceiver && nextGi.Enabled && nextGi.Strength > 0 && nextGi.Composition == RayGiComposition.Additive)
+            nextGi = nextGi with { Composition = RayGiComposition.ToonPalette };
+        if (nextGi.PreviewAcceleration)
+            nextGi = nextGi with { PreviewAcceleration = false };
+        return nextGi == gi ? render : render with { Quality = quality with { Gi = nextGi } };
     }
 
     internal static ExportRequest BuildExportRequest(ExportRequest request, bool hasPaletteReceiver)
@@ -207,6 +210,7 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                     GiComposition = giOpts.Composition,
                     IncludeGiDenoiser = giEnabled && giOpts.Denoiser != RayGiDenoiser.Off,
                     IncludeGiTemporal = giEnabled && giOpts.Denoiser == RayGiDenoiser.TemporalSpatial,
+                    IncludeGiHalfRes = giEnabled && giOpts.PreviewAcceleration,
                     IncludePositionGather = giEnabled && giOpts.Mode == LightingMode.HardwareRayTracing && dynamicVerts,
                     NativeLights = snapshot.NativeLights,
                     TextureMorph = textureMorph,

@@ -167,15 +167,15 @@ public static class ViewOutputPresetJson
     private sealed record GiDto(LightingMode Mode, float Strength, int SamplesPerPixel, uint Seed, float MaxRayDistance,
         float RayEpsilon, VectorDto? DirectionalLightDirection, VectorDto? DirectionalIrradiance, float DirectScale,
         float OcclusionStrength, float OcclusionRadius, RayGiComposition Composition, RayGiDenoiser Denoiser,
-        RayGiToonResponse ToonResponse)
+        RayGiToonResponse ToonResponse, bool PreviewAcceleration = false)
     {
         internal static GiDto? From(RayGiOptions? value) => value is null ? null : new(value.Mode, value.Strength,
             value.SamplesPerPixel, value.Seed, value.MaxRayDistance, value.RayEpsilon, VectorDto.From(value.DirectionalLightDirection),
             VectorDto.From(value.DirectionalIrradiance), value.DirectScale, value.OcclusionStrength, value.OcclusionRadius,
-            value.Composition, value.Denoiser, value.ToonResponse);
+            value.Composition, value.Denoiser, value.ToonResponse, value.PreviewAcceleration);
         internal RayGiOptions ToOptions() => new(Mode, Strength, SamplesPerPixel, Seed, MaxRayDistance, RayEpsilon,
             DirectionalLightDirection?.ToVector(), DirectionalIrradiance?.ToVector(), DirectScale, OcclusionStrength,
-            OcclusionRadius, Composition, Denoiser) { ToonResponse = ToonResponse };
+            OcclusionRadius, Composition, Denoiser) { ToonResponse = ToonResponse, PreviewAcceleration = PreviewAcceleration };
     }
 
     private sealed record VectorDto(float X, float Y, float Z)

@@ -34,7 +34,45 @@ internal sealed class D3D12RayGiWorkspace
     internal CpuDescriptorHandle NormalRtv { get; }
     internal CpuDescriptorHandle Dsv { get; }
     internal ulong AllocationBytes { get; private set; }
+    internal sealed class HalfResWorkspace
+    {
+        private readonly D3D12RayGiWorkspace owner;
+        internal int Width { get; }
+        internal int Height { get; }
+        internal D3D12GiWorkspaceResource Position { get; }
+        internal D3D12GiWorkspaceResource Normal { get; }
+        internal D3D12GiWorkspaceResource Indirect { get; }
+        private D3D12GiWorkspaceResource? spatialOutput;
+
+        internal HalfResWorkspace(D3D12RayGiWorkspace owner, D3D12RecordingContext context, int width, int height)
+        {
+            this.owner = owner; Width = width; Height = height;
+            Position = new(owner.Allocate(context, HeapType.Default,
+                ResourceDescription.Texture2D(Format.R32G32B32A32_Float, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowUnorderedAccess),
+                ResourceStates.UnorderedAccess), ResourceStates.UnorderedAccess);
+            Normal = new(owner.Allocate(context, HeapType.Default,
+                ResourceDescription.Texture2D(Format.R32G32B32A32_Float, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowUnorderedAccess),
+                ResourceStates.UnorderedAccess), ResourceStates.UnorderedAccess);
+            Indirect = new(owner.Allocate(context, HeapType.Default,
+                ResourceDescription.Buffer(checked((ulong)width * (ulong)height * 16), ResourceFlags.AllowUnorderedAccess),
+                ResourceStates.UnorderedAccess), ResourceStates.UnorderedAccess);
+        }
+
+        internal void BeginSample(D3D12RecordingContext context)
+        {
+            Position.Transition(context, ResourceStates.UnorderedAccess);
+            Normal.Transition(context, ResourceStates.UnorderedAccess);
+            Indirect.Transition(context, ResourceStates.UnorderedAccess);
+        }
+
+        internal D3D12GiWorkspaceResource SpatialOutput(D3D12RecordingContext context)
+            => spatialOutput ??= new(owner.Allocate(context, HeapType.Default,
+                ResourceDescription.Buffer(checked((ulong)Width * (ulong)Height * 16), ResourceFlags.AllowUnorderedAccess),
+                ResourceStates.UnorderedAccess), ResourceStates.UnorderedAccess);
+    }
+
     private D3D12GiWorkspaceResource? spatialOutput;
+    private HalfResWorkspace? halfRes;
 
     internal D3D12RayGiWorkspace(D3D12RecordingContext context, int width, int height)
     {
@@ -92,4 +130,16 @@ internal sealed class D3D12RayGiWorkspace
         => spatialOutput ??= new(Allocate(context, HeapType.Default,
             ResourceDescription.Buffer(checked((ulong)width * (ulong)height * 16), ResourceFlags.AllowUnorderedAccess),
             ResourceStates.UnorderedAccess), ResourceStates.UnorderedAccess);
+
+    internal HalfResWorkspace AcquireHalfRes(D3D12RecordingContext context, int halfWidth, int halfHeight)
+    {
+        if (halfRes is null) halfRes = new(this, context, halfWidth, halfHeight);
+        else
+        {
+            if (halfRes.Width != halfWidth || halfRes.Height != halfHeight)
+                throw new InvalidOperationException("Half-res GI workspace reuse requires matching half dimensions.");
+            halfRes.BeginSample(context);
+        }
+        return halfRes;
+    }
 }

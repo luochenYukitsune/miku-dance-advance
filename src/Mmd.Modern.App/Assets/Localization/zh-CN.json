@@ -1475,6 +1475,8 @@
   "Mda.Text.Context.Lighting.AreaHint": "正面发光。增大柔光箱可让光线和阴影更柔和；大小不随父模型缩放。",
   "Mda.Text.Context.Lighting.AreaSizeInvalid": "{0}：柔光箱宽度和高度都要大于 0。",
   "Mda.Text.Context.Lighting.HelpersVisible": "灯光辅助",
+  "Mda.Text.Preview.GiAccelerationLabel": "GI 预览加速",
+  "Mda.Text.Preview.GiAccelerationHint": "仅实时预览生效，采用半分辨率降采样与短历史重投影提速；默认关闭，离线导出始终保持完整全分辨率精度。",
   "Mda.Text.Context.Lighting.HelpersHelp": "显示或隐藏所有灯光图标、方向、范围和手柄。灯光仍正常照明。",
   "Mda.Text.Context.Lighting.DirectionalPositionHint": "平行光没有空间衰减，此处位置仅用于视口中灯光图标的摆放。",
   "Mda.Text.Context.Lighting.DirectionSection": "照射方向与目标",
