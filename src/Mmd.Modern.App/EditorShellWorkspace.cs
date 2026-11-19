@@ -388,5 +388,6 @@ public sealed partial class EditorShellViewModel : IDisposable
         StopPlayback(); playbackTimer.Tick -= PlaybackTick;
         scrubSeek.Dispose();
         DisposeAudioPlayback(); PosePreview.Dispose(); Workspace.Dispose();
+        StyleInspector.Detach();
     }
 }

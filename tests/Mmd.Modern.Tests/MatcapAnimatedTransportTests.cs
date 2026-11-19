@@ -31,7 +31,7 @@ public sealed class MatcapAnimatedTransportTests
         var beforeSource = before.SceneInputs[item.Id].SourceGeometry!;
         var beforeVertices = beforeSource.Vertices.ToArray();
         var beforeUvs = beforeSource.AdditionalUvs!.Vertices.ToArray();
-        var beforeGeometry = D3D12EndfieldMatcapGeometry.Build(beforeSource, 0, 0);
+        var beforeGeometry = D3D12TangentCornerGeometry.Build(beforeSource, 0, 0);
 
         project.Seek(30, Token);
         var sampledFrame = project.Frame;
@@ -53,7 +53,7 @@ public sealed class MatcapAnimatedTransportTests
         project.Seek(0, Token);
         Assert.Equal(beforeVertices, beforeSource.Vertices.ToArray());
         Assert.Equal(beforeUvs, beforeSource.AdditionalUvs!.Vertices.ToArray());
-        Assert.Same(beforeGeometry, D3D12EndfieldMatcapGeometry.Build(beforeSource, 0, 0));
+        Assert.Same(beforeGeometry, D3D12TangentCornerGeometry.Build(beforeSource, 0, 0));
         Assert.Equal(restVertices, rest.Surface.Snapshot.Vertices.ToArray());
         Assert.Equal(restUvs, rest.Surface.Snapshot.AdditionalUvs!.Vertices.ToArray());
         for (int i = 0; i < model.Vertices.Count; i++)
@@ -109,15 +109,15 @@ public sealed class MatcapAnimatedTransportTests
         }
     }
 
-    private static D3D12EndfieldMatcapGeometryData AssertDrawMatches(SceneProjectRenderSnapshot capture,
+    private static D3D12TangentCornerGeometryData AssertDrawMatches(SceneProjectRenderSnapshot capture,
         Guid objectId, int localMaterialIndex, int uvChannel)
     {
         var source = capture.SceneInputs[objectId].SourceGeometry!;
         var instance = capture.RenderingStyles.Single(value => value.ObjectId == objectId);
         var combined = capture.Scene.Surface.Snapshot;
         var draw = combined.Materials[instance.MaterialStart + localMaterialIndex];
-        var descriptor = new D3D12EndfieldMatcapGeometry(source, localMaterialIndex);
-        var data = D3D12EndfieldMatcapGeometry.Build(descriptor.Source, descriptor.LocalMaterialIndex, uvChannel);
+        var descriptor = new D3D12TangentCornerGeometry(source, localMaterialIndex);
+        var data = D3D12TangentCornerGeometry.Build(descriptor.Source, descriptor.LocalMaterialIndex, uvChannel);
         Assert.Equal(draw.IndexCount, data.Corners.Length);
         for (int i = 0; i < data.Corners.Length; i++)
         {

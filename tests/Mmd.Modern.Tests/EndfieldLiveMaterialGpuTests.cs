@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -12,9 +13,9 @@ public sealed class EndfieldLiveMaterialGpuTests
 {
     private const int W=97,H=97;
     private static readonly Vector3 C=new(.20f,.14f,.10f);
-    private static readonly D3D12EndfieldPaletteBinding Live=new(Vector3.Zero,LightInfluence:.8f,
-        ReceivedLightInputMode:D3D12EndfieldPaletteInputMode.RendererDiffuse);
-    private static readonly D3D12EndfieldMatcapBinding Matcap=new(0,1,2,D3D12MatcapColorEncoding.LinearRgb,0,C,Vector3.One,
+    private static readonly EndfieldPaletteSpec Live=new(Vector3.Zero,LightInfluence:.8f,
+        ReceivedLightInputMode:T8dTestHelpers.ModeRendererDiffuse);
+    private static readonly EndfieldMatcapSpec Matcap=new(0,1,2,T8dTestHelpers.EncodingLinearRgb,0,C,Vector3.One,
         NormalStrength:0,HighlightCoefficient:0,BaselineStrength:1,CoupleEndfieldPalette:true);
 
     [Fact,Trait("Category","Gpu")]
@@ -24,16 +25,16 @@ public sealed class EndfieldLiveMaterialGpuTests
         foreach(byte red in new byte[]{160,217}) foreach(Vector3 direction in new[]{Vector3.UnitX,-Vector3.UnitX})
         {
             var frame=Frame(direction,red:red);
-            var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0}));
-            var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live));
+            var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},frame:frame));
+            var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live,frame:frame));
             Vector3 n=Normal(frame.Surface.Snapshot,red);
             Vector3 delta=C*(Live.LightInfluence*Math.Max(Vector3.Dot(n,direction),0));
             AssertDelta(old,actual,delta);
-            Assert.Equal(actual.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(Live,Matcap with {NormalStrength=2.4f})).Rgba);
+            Assert.Equal(actual.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(Live,Matcap with {NormalStrength=2.4f},frame:frame)).Rgba);
             var changedRadiance=new OriginalFrameScene(new(frame.Surface.Snapshot,frame.Surface.Materials,
                 frame.Surface.Profile with {LightAmbient=new(.5f,.8f,.3f)}),options:frame.Options);
-            AssertDelta(session.Capture(changedRadiance,W,H,surfaceStyles:Map(Live with {LightInfluence=0})),
-                session.Capture(changedRadiance,W,H,surfaceStyles:Map(Live)),delta*new Vector3(.5f,.8f,.3f));
+            AssertDelta(session.Capture(changedRadiance,W,H,surfaceStyles:Map(Live with {LightInfluence=0},frame:changedRadiance)),
+                session.Capture(changedRadiance,W,H,surfaceStyles:Map(Live,frame:changedRadiance)),delta*new Vector3(.5f,.8f,.3f));
             AssertCoverage(old,actual);
         }
     }
@@ -46,11 +47,11 @@ public sealed class EndfieldLiveMaterialGpuTests
         var deformed=source.Surface.Snapshot.WithDeformedVertices(source.Surface.Snapshot.Vertices.ToArray()
             .Select(v=>v with {Position=v.Position+new Vector3(.08f,0,0),Normal=Vector3.Normalize(new(-.2f,0,1))}).ToArray());
         var frame=new OriginalFrameScene(new(deformed,source.Surface.Materials,source.Surface.Profile),options:source.Options);
-        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0}));
-        var live=session.Capture(frame,W,H,surfaceStyles:Map(Live));
+        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},frame:frame));
+        var live=session.Capture(frame,W,H,surfaceStyles:Map(Live,frame:frame));
         AssertDelta(old,live,C*(Live.LightInfluence*Math.Max(Vector3.Dot(Normal(deformed,217),Vector3.UnitX),0)));
-        Assert.NotEqual(session.Capture(source,W,H,surfaceStyles:Map(Live)).Rgba,live.Rgba);
-        Assert.Equal(old.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(new(Vector3.Zero))).Rgba);
+        Assert.NotEqual(session.Capture(source,W,H,surfaceStyles:Map(Live,frame:source)).Rgba,live.Rgba);
+        Assert.Equal(old.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(new EndfieldPaletteSpec(Vector3.Zero),frame:frame)).Rgba);
     }
 
     [Theory,InlineData(SceneLightKind.Directional,false),InlineData(SceneLightKind.Directional,true),
@@ -65,8 +66,8 @@ public sealed class EndfieldLiveMaterialGpuTests
             Quaternion.CreateFromAxisAngle(Vector3.UnitY,MathF.PI/2),new(.8f,.6f,.4f),kind==SceneLightKind.Directional?.1f:.4f,10,CastShadows:false);
         var frame=new OriginalFrameScene(input.Surface,options:input.Options,lighting:new([light]));
         var options=gi?new RayGiOptions(LightingMode.SoftwareRayTracing,SamplesPerPixel:4,Seed:17,Composition:RayGiComposition.ToonPalette):null;
-        var old=session.Capture(frame,W,H,options,surfaceStyles:Map(Live with {LightInfluence=0}));
-        var actual=session.Capture(frame,W,H,options,surfaceStyles:Map(Live));
+        var old=session.Capture(frame,W,H,options,surfaceStyles:Map(Live with {LightInfluence=0},frame:frame));
+        var actual=session.Capture(frame,W,H,options,surfaceStyles:Map(Live,frame:frame));
         var incoming=kind==SceneLightKind.Directional?-light.Direction:Vector3.UnitX;
         // The shared aim-normalized falloff at the receiver distance 2 (SceneLightFalloff).
         float attenuation=kind==SceneLightKind.Directional?1:SceneLightFalloff.RenderScale(light)*SceneLightFalloff.Window(2,light.Range);
@@ -75,8 +76,8 @@ public sealed class EndfieldLiveMaterialGpuTests
         var strong=light with {Intensity=100};
         var bright=new OriginalFrameScene(input.Surface,options:input.Options,lighting:new([strong]));
         // Native light has already consumed every available PMX contrast channel.
-        var brightOld=session.Capture(bright,W,H,options,surfaceStyles:Map(Live with {LightInfluence=0}));
-        var brightLive=session.Capture(bright,W,H,options,surfaceStyles:Map(Live));
+        var brightOld=session.Capture(bright,W,H,options,surfaceStyles:Map(Live with {LightInfluence=0},frame:bright));
+        var brightLive=session.Capture(bright,W,H,options,surfaceStyles:Map(Live,frame:bright));
         AssertDelta(brightOld,brightLive,Vector3.Zero);
         AssertCoverage(old,actual);
     }
@@ -89,13 +90,13 @@ public sealed class EndfieldLiveMaterialGpuTests
         var light=new NativeSceneLight(Guid.NewGuid(),"shadowed live",SceneLightKind.Directional,Vector3.Zero,
             Quaternion.CreateFromAxisAngle(Vector3.UnitY,MathF.PI),Vector3.One,.2f,10);
         var frame=new OriginalFrameScene(input.Surface,options:input.Options,materials:input.Materials,lighting:new([light]));
-        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2));
-        var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live,count:2));
+        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2,frame:frame));
+        var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live,count:2,frame:frame));
         AssertDelta(old,actual,Vector3.Zero);
         var lit=new OriginalFrameScene(input.Surface,options:input.Options,materials:input.Materials,
             lighting:new([light with {CastShadows=false}]));
-        var litOld=session.Capture(lit,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2));
-        var litLive=session.Capture(lit,W,H,surfaceStyles:Map(Live,count:2));
+        var litOld=session.Capture(lit,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2,frame:lit));
+        var litLive=session.Capture(lit,W,H,surfaceStyles:Map(Live,count:2,frame:lit));
         AssertDelta(litOld,litLive,C*(.8f*.2f*Math.Max(Vector3.Dot(Normal(input.Surface.Snapshot,128),-light.Direction),0)));
         Assert.True(litLive.Rgba[At]-litOld.Rgba[At]>4,"Fixture must receive visible native live light when the caster is disabled.");
         AssertCoverage(old,actual);
@@ -110,13 +111,13 @@ public sealed class EndfieldLiveMaterialGpuTests
         var projection=ModernDirectionalShadowProjection.Fit(input.Surface.Snapshot);
         var options=input.Options! with {SelfShadow=new(projection,256,256,true,false,OriginalTextureSampling.LinearClamp,OriginalDepthComparison.LessEqual)};
         var frame=new OriginalFrameScene(input.Surface,options:options,materials:input.Materials);
-        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2));
-        var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live,count:2));
+        var old=session.Capture(frame,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2,frame:frame));
+        var actual=session.Capture(frame,W,H,surfaceStyles:Map(Live,count:2,frame:frame));
         AssertDelta(old,actual,Vector3.Zero);
         var noCaster=new OriginalFrameScene(input.Surface,options:options,
             materials:[input.Materials[0],input.Materials[1] with {CastSelfShadow=false}]);
-        var litOld=session.Capture(noCaster,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2));
-        var litLive=session.Capture(noCaster,W,H,surfaceStyles:Map(Live,count:2));
+        var litOld=session.Capture(noCaster,W,H,surfaceStyles:Map(Live with {LightInfluence=0},count:2,frame:noCaster));
+        var litLive=session.Capture(noCaster,W,H,surfaceStyles:Map(Live,count:2,frame:noCaster));
         AssertDelta(litOld,litLive,C*(.8f*Math.Max(Vector3.Dot(Normal(input.Surface.Snapshot,217),incoming),0)));
         Assert.True(litLive.Rgba[At]-litOld.Rgba[At]>4);
     }
@@ -128,20 +129,20 @@ public sealed class EndfieldLiveMaterialGpuTests
         using var session=new D3D12FrameSession();
         var frame=Frame(Vector3.UnitX);
         var baseline=Matcap with {CoupleEndfieldPalette=coupled,BaselineStrength=.4f};
-        var palette=coupled?new D3D12EndfieldPaletteBinding(Vector3.Zero):null;
-        var old=session.Capture(frame,W,H,surfaceStyles:Map(palette,baseline));
+        var palette=coupled?new EndfieldPaletteSpec(Vector3.Zero):null;
+        var old=session.Capture(frame,W,H,surfaceStyles:Map(palette,baseline,frame:frame));
         foreach(float coefficient in new[]{-.1f,.15f}) foreach(Vector3 direction in new[]{Vector3.UnitX,-Vector3.UnitX})
         {
-            var range=new D3D12EndfieldHighlightRangeBinding(.3f,.7f,new(direction,.4f,1));
+            var range=new EndfieldHighlightRangeSpec(.3f,.7f,new(direction,.4f,1));
             var binding=baseline with {HighlightCoefficient=coefficient,HighlightRange=range};
-            var actual=session.Capture(frame,W,H,surfaceStyles:Map(palette,binding));
+            var actual=session.Capture(frame,W,H,surfaceStyles:Map(palette,binding,frame:frame));
             float k=Math.Clamp(coefficient+Math.Clamp((64+32)/255f,0,1),0,1);
             float q=Q(Normal(frame.Surface.Snapshot,217),direction,.4f);
             float strength=.3f+(.7f*k)*Math.Clamp(q*k,0,1);
             AssertDelta(old,actual,C*(strength-.4f));
             AssertCoverage(old,actual);
         }
-        Assert.Equal(old.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(palette,baseline with {HighlightRange=null})).Rgba);
+        Assert.Equal(old.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(palette,baseline with {HighlightRange=null},frame:frame)).Rgba);
     }
 
     [Fact,Trait("Category","Gpu")]
@@ -149,10 +150,11 @@ public sealed class EndfieldLiveMaterialGpuTests
     {
         using var session=new D3D12FrameSession();
         var frame=Frame(Vector3.UnitX);
-        var rim=new D3D12EndfieldRimBinding(C,new(.8f,.7f,.6f),EdgeSize:4,EdgeStrength:.16f,RangeStrength:.4f);
-        var range=new D3D12EndfieldHighlightRangeBinding(.3f,.7f,new(Vector3.UnitX,.4f,1));
-        D3D12SurfaceStyleMap Styles(bool enabled)=>new([D3D12SurfaceStyle.EndfieldPmx],
-            [new(EndfieldMatcap:Matcap with {BaselineStrength=.4f,Palette=new(Vector3.Zero),HighlightRange=enabled?range:null},EndfieldRim:rim)]);
+        var rim=new EndfieldRimSpec(C,new(.8f,.7f,.6f),EdgeSize:4,EdgeStrength:.16f,RangeStrength:.4f);
+        var range=new EndfieldHighlightRangeSpec(.3f,.7f,new(Vector3.UnitX,.4f,1));
+        D3D12SurfaceStyleMap Styles(bool enabled)=>T8dTestHelpers.CreateDirectSurfaceStyleMap(
+            frame,["endfield"],[new()],
+            [[rim.ToBinding(),(Matcap with {BaselineStrength=.4f,Palette=new EndfieldPaletteSpec(Vector3.Zero),HighlightRange=enabled?range:null}).ToBinding()]]);
         var old=session.Capture(frame,W,H,surfaceStyles:Styles(false));
         var actual=session.Capture(frame,W,H,surfaceStyles:Styles(true));
         float k=(64+32)/255f,q=Q(Normal(frame.Surface.Snapshot,217),Vector3.UnitX,.4f);
@@ -169,13 +171,15 @@ public sealed class EndfieldLiveMaterialGpuTests
     }
     private static Vector3 Normal(SceneSnapshot scene,byte red)
     {
-        var corner=D3D12EndfieldMatcapGeometry.Build(scene,0,0).Corners[0];
+        var corner=D3D12TangentCornerGeometry.Build(scene,0,0).Corners[0];
         return MatcapOracle.PackedNormal(new(red/255f,128/255f),new(corner.WorldNormal.X,corner.WorldNormal.Y,corner.WorldNormal.Z),
             corner.Tangent,corner.UvParity.Z,true,1);
     }
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldPaletteBinding? palette,D3D12EndfieldMatcapBinding? binding=null,int count=1)
-        =>new(Enumerable.Repeat(D3D12SurfaceStyle.EndfieldPmx,count),Enumerable.Range(0,count)
-            .Select(i=>new D3D12CharacterMaterialStyle(EndfieldMatcap:i==0?(binding??Matcap) with {Palette=palette}:null)));
+    private static D3D12SurfaceStyleMap Map(EndfieldPaletteSpec? palette,EndfieldMatcapSpec? binding=null,int count=1,OriginalFrameScene? frame=null)
+        =>T8dTestHelpers.CreateDirectSurfaceStyleMap(frame??Frame(Vector3.UnitX),
+            Enumerable.Repeat("endfield",count).ToArray(),
+            Enumerable.Repeat(new D3D12CharacterMaterialStyle(),count).ToArray(),
+            Enumerable.Range(0,count).Select(i=>i==0?(IReadOnlyList<StyleMaterialBindingData>)[((binding??Matcap) with {Palette=palette}).ToBinding()]:null).ToArray());
 
     private static OriginalFrameScene Frame(Vector3 incoming,byte red=217,Vector3? normal=null,Vector3? casterPosition=null)
     {

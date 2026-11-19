@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -14,25 +15,22 @@ public sealed class D3D12EndfieldHairSurfaceTests
     private static readonly Vector2 Uv=new(1.23f,-.58f);
     private static readonly byte[] Mask=[255,18,0,0, 0,239,255,255, 37,91,43,13, 127,178,91,213];
 
-    public static IEnumerable<object[]> Variants()
-    {
-        foreach(var variant in D3D12GenshinSurfaceTests.SurfaceVariants())yield return variant;
-    }
+    public static IEnumerable<object[]> Variants()=>T8dTestHelpers.SurfaceVariants();
     [Theory,MemberData(nameof(Variants))]
     public void AllPixelAndVertexVariantsCompileWithOptionalIndependentSideStream(string entry,bool native,bool gi,bool morph,bool sub)
     {
-        foreach(bool vertex in new[]{false,true})
-        {
-            var bytes=OriginalFrameShaders.CompileEndfieldHairSurface(vertex?"VSSurface":entry,vertex,native,gi,morph,sub);
-            Assert.Equal(new byte[]{68,88,66,67},bytes[..4]);
-        }
-        string source=OriginalFrameShaders.EndfieldHairSurfaceSource(native,gi,morph,sub);
-        Assert.Contains("float3 RawSeed:RAW_RADIAL",source);
-        Assert.Contains("o.RawSeed=mul(float4(v.RawSeed,0),World).xyz",source);
-        Assert.Contains("register(b7)",source);Assert.Contains("register(t12)",source);Assert.Contains("register(s5)",source);
-        Assert.Contains("SampleLevel(EndfieldHairSampler,v.Uv,0).g",source);
-        Assert.Contains("color.rgb+=EndfieldRadialIncrement(v);",source);
-        Assert.Equal(1,source.Split("color.rgb+=EndfieldRadialIncrement(v);",StringSplitOptions.None).Length-1);
+        var ps=T8dTestHelpers.CompileEndfieldPixel("hair",entry,native,gi,morph,sub);
+        var vs=T8dTestHelpers.CompileEndfieldVertex("hair",native,gi,sub);
+        Assert.Equal(new byte[]{68,88,66,67},ps[..4]);
+        Assert.Equal(new byte[]{68,88,66,67},vs[..4]);
+        string source=T8dTestHelpers.AssembleEndfieldPixelSource("hair",entry,native,gi,morph,sub);
+        Assert.Contains("float3 RawSeed : RAW_RADIAL;",source);
+        Assert.Contains("o.RawSeed = mul(float4(v.RawSeed, 0), World).xyz;",source);
+        Assert.Contains("register(b0, space2)",source);Assert.Contains("register(t0, space2)",source);Assert.Contains("register(s0, space2)",source);
+        Assert.Contains("EndfieldGreenMap.SampleLevel(MdaLinearWrapSampler, v.Uv, 0).g",source);
+        Assert.Contains("color = MdaStylePrimarySurfacePost(v, color);",source);
+        Assert.Equal(1,source.Split("color = MdaStylePrimarySurfacePost(v, color);",StringSplitOptions.None).Length-1);
+        Assert.DoesNotContain("SpecularPower.rgb * p",source);
         Assert.DoesNotContain("SpecularPower.rgb*p",source);
         Assert.Equal(32,Marshal.SizeOf<SceneVertex>());
     }
@@ -47,8 +45,8 @@ public sealed class D3D12EndfieldHairSurfaceTests
             Matrix4x4.CreateScale(-1.1f,1.2f,.9f)*Matrix4x4.CreateRotationX(-.18f)})
         {
             var frame=Frame(world,perspective,vary:true);
-            var zero=session.Capture(frame,W,H,surfaceStyles:Map(new(0,Vector3.Zero,.4f)));
-            var actual=session.Capture(frame,W,H,surfaceStyles:Map(new(0,Palette,.4f)));
+            var zero=session.Capture(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Vector3.Zero,.4f),frame));
+            var actual=session.Capture(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Palette,.4f),frame));
             int tested=0;float min=float.MaxValue,max=0;
             for(int y=H/2-12;y<=H/2+12;y+=8)for(int x=W/2-12;x<=W/2+12;x+=8)
             {
@@ -76,8 +74,8 @@ public sealed class D3D12EndfieldHairSurfaceTests
             float alpha=brightness==7?1:.6f;
             var frame=Frame(Matrix4x4.Identity,false,mask:new byte[]{255,green,71,0},alpha:alpha);
             var palette=brightness==7?new Vector3(2,.15f,.05f):Palette;
-            var zero=session.Capture(frame,W,H,surfaceStyles:Map(new(0,Vector3.Zero,brightness)));
-            var actual=session.Capture(frame,W,H,surfaceStyles:Map(new(0,palette,brightness)));
+            var zero=session.Capture(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Vector3.Zero,brightness),frame));
+            var actual=session.Capture(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,palette,brightness),frame));
             var p=LocalAtPixel(frame.Surface.Snapshot,W/2,H/2);
             float scalar=Oracle(frame.Surface.Snapshot,p,Normal(p,false),Seed(p,false),brightness)*(green/255f);
             AssertPixel(zero,actual,W/2,H/2,palette*scalar*alpha);
@@ -91,21 +89,21 @@ public sealed class D3D12EndfieldHairSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var empty=Frame(Matrix4x4.Identity,false,zeroSeed:true);
-        Assert.Equal(session.Capture(empty,W,H,surfaceStyles:Map(null)).Rgba,
-            session.Capture(empty,W,H,surfaceStyles:Map(new(0,Palette))).Rgba);
+        Assert.Equal(session.Capture(empty,W,H,surfaceStyles:Map(null,empty)).Rgba,
+            session.Capture(empty,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Palette),empty)).Rgba);
         var frame=Frame(Matrix4x4.Identity,false);
-        var ordinary=session.Capture(frame,W,H,surfaceStyles:Map(null));
-        session.Render(frame,W,H,surfaceStyles:Map(new(0,Palette)));
+        var ordinary=session.Capture(frame,W,H,surfaceStyles:Map(null,frame));
+        session.Render(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Palette),frame));
         var warm=session.Statistics!;long reads=session.Runtime.Readbacks;
         for(int i=0;i<8;i++)
         {
-            session.Render(frame,W,H,surfaceStyles:Map(new(0,Palette,.1f*i)));
+            session.Render(frame,W,H,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Palette,.1f*i),frame));
             Assert.Equal(warm.PipelineCreations,session.Statistics!.PipelineCreations);
             Assert.Equal(warm.ShaderCompilations,session.Statistics.ShaderCompilations);
             Assert.InRange(session.Statistics.CachedResources,0,warm.CachedResources+2);
         }
         Assert.Equal(reads,session.Runtime.Readbacks);
-        Assert.Equal(ordinary.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(null)).Rgba);
+        Assert.Equal(ordinary.Rgba,session.Capture(frame,W,H,surfaceStyles:Map(null,frame)).Rgba);
     }
 
     [Theory,InlineData(false,false),InlineData(true,false),InlineData(false,true),InlineData(true,true)]
@@ -115,15 +113,16 @@ public sealed class D3D12EndfieldHairSurfaceTests
         using var session=new D3D12FrameSession();
         var frame=Frame(Matrix4x4.Identity,false,native:native);
         var options=gi?new RayGiOptions(LightingMode.SoftwareRayTracing,SamplesPerPixel:4,Seed:19,Composition:RayGiComposition.ToonPalette):null;
-        var zero=session.Capture(frame,W,H,options,surfaceStyles:Map(new(0,Vector3.Zero)));
-        var actual=session.Capture(frame,W,H,options,surfaceStyles:Map(new(0,Palette)));
+        var zero=session.Capture(frame,W,H,options,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Vector3.Zero),frame));
+        var actual=session.Capture(frame,W,H,options,surfaceStyles:Map(T8dTestHelpers.EndfieldHair(0,Palette),frame));
         var p=LocalAtPixel(frame.Surface.Snapshot,W/2,H/2);
         AssertPixel(zero,actual,W/2,H/2,Palette*(Oracle(frame.Surface.Snapshot,p,Normal(p,false),Seed(p,false),0)*LinearGreen(Mask,Uv)));
         AssertAlpha(zero,actual);
     }
 
-    internal static D3D12SurfaceStyleMap Map(D3D12EndfieldHairBinding? binding)
-        =>new([D3D12SurfaceStyle.EndfieldPmx],[new(D3D12CharacterMaterialRole.Hair,EndfieldHair:binding)]);
+    internal static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding,OriginalFrameScene? frame=null)
+        =>T8dTestHelpers.CreateDirectSurfaceStyleMap(frame??Frame(Matrix4x4.Identity,false),["endfield"],
+            [new(D3D12CharacterMaterialRole.Hair)],[binding is null?null:[binding]]);
     private static Vector3 Normal(Vector3 p,bool vary)=>new(.15f+(vary?.11f*p.X:0),.045f+(vary?.02f*p.Y:0),-1);
     private static Vector3 Seed(Vector3 p,bool vary)=>new(vary?.12f*p.Y:0,1+(vary?.15f*p.X:0),vary?.07f*p.X:0);
     private static OriginalFrameScene Frame(Matrix4x4 world,bool perspective,bool vary=false,byte[]? mask=null,float alpha=1,bool zeroSeed=false,bool native=false)

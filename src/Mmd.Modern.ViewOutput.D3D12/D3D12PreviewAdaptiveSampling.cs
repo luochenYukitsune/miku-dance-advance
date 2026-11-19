@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
 using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;
 
@@ -58,20 +61,22 @@ internal sealed class D3D12PreviewAdaptiveSampling
 
     internal void Reset() => resources = null;
 
-    /// <summary>Only allocation-driving layout/asset identity, never per-frame geometry contents.
-    /// New textures, topology, native shadow atlas layout or dedicated resource families reattempt
+    /// <summary>Only allocation-driving layout/asset identity, never per-frame geometry or pose contents.
+    /// New textures, topology, native shadow atlas layout or plugin shader/resource layouts reattempt
     /// the requested count; any later memory pressure can still reject and lower the cached count.</summary>
     private sealed class ResourceContext
     {
         private readonly ResourceShape shape;
         private readonly IReadOnlyList<SceneTexture> textures;
-        private readonly int[] materialResources;
+        private readonly MaterialSamplingKey[] materialResources;
 
         internal ResourceContext(OriginalFrameScene scene, D3D12SurfaceStyleMap? styles)
         {
             shape = ResourceShape.Create(scene);
             textures = scene.Surface.Snapshot.Textures;
-            materialResources = Enumerable.Range(0, scene.Materials.Count).Select(index => ResourceKind(styles, index)).ToArray();
+            materialResources = new MaterialSamplingKey[scene.Materials.Count];
+            for (int index = 0; index < materialResources.Length; index++)
+                materialResources[index] = CreateMaterialKey(styles, index);
         }
 
         internal bool Matches(OriginalFrameScene scene, D3D12SurfaceStyleMap? styles)
@@ -81,28 +86,141 @@ internal sealed class D3D12PreviewAdaptiveSampling
             for (int index = 0; index < textures.Count; index++)
                 if (!ReferenceEquals(textures[index], nextTextures[index])) return false;
             for (int index = 0; index < materialResources.Length; index++)
-                if (materialResources[index] != ResourceKind(styles, index)) return false;
+                if (materialResources[index] != CreateMaterialKey(styles, index)) return false;
             return true;
         }
 
-        private static int ResourceKind(D3D12SurfaceStyleMap? styles, int index)
+        private static MaterialSamplingKey CreateMaterialKey(D3D12SurfaceStyleMap? styles, int index)
         {
-            if (styles is null || styles.IsDefault) return 0;
+            if (styles is null || styles.IsDefault || styles.IsDefaultStyle(index))
+                return default;
+
+            string styleId = styles.StyleIds[index];
             var material = styles.CharacterMaterials[index];
-            return ((int)styles.Materials[index] << 16)
-                | (material.FaceSdf is not null ? 1 : 0)
-                | (material.FaceSdf?.Encoding is D3D12FaceSdfEncoding.EndfieldRgbCmM or D3D12FaceSdfEncoding.GenshinSoftFace ? 2 : 0)
-                | (material.GenshinNonMetallicSpecular is not null ? 4 : 0)
-                | (material.StarMcHair is not null ? 8 : 0)
-                | (material.EndfieldHair is not null ? 16 : 0)
-                | (material.GenshinHairShadowAtlas is not null ? 32 : 0)
-                | (material.EndfieldMatcap is not null ? 64 : 0)
-                | (material.EndfieldMatcap?.Palette?.BaseImage is not null ? 128 : 0)
-                | (material.GenshinMetallic is not null ? 256 : 0)
-                | (material.GenshinMetallic?.Specular is not null ? 512 : 0)
-                | (material.StarMcBody is not null ? 1024 : 0);
+            var draw = styles.GetPluginDraw(index);
+
+            string? moduleId = draw?.ShaderModuleId;
+            string? moduleHash = null;
+            D3D12StyleShaderHookMask hooks = draw?.HookMaskOverride ?? D3D12StyleShaderHookMask.None;
+            D3D12StyleGeometryRequirements geom = D3D12StyleGeometryRequirements.None;
+
+            if (draw is null || (styles.RegisteredStyles.TryGetValue(styleId, out var reg)
+                && reg.ShaderModules is not null && reg.ShaderModules.ContainsKey(draw.ShaderModuleId)))
+            {
+                var module = styles.ResolveShaderModule(index);
+                if (module is not null)
+                {
+                    moduleId = module.ModuleId;
+                    moduleHash = module.EffectiveContentHash;
+                    hooks = styles.EffectiveHookMask(index);
+                    geom = styles.EffectiveGeometryRequirements(index);
+                }
+            }
+
+            string drawLayoutFingerprint = ComputeDrawLayoutFingerprint(draw);
+            bool hasTreatment = styles.EffectivePmxMaterialTreatment(index) is not null;
+            bool hasStylized = styles.EffectiveStylizedShading(index) is not null;
+            bool hasToon = styles.EffectiveToonResponse(index, null) is not null;
+            bool preserveDirect = styles.EffectivePreserveDirectLightPalette(index, false);
+
+            return new MaterialSamplingKey(
+                Active: true,
+                StyleId: styleId,
+                Role: material.Role,
+                ModuleId: moduleId,
+                ModuleHash: moduleHash,
+                Hooks: hooks,
+                Geometry: geom,
+                DrawLayoutFingerprint: drawLayoutFingerprint,
+                HasTreatment: hasTreatment,
+                HasStylized: hasStylized,
+                HasToon: hasToon,
+                PreserveDirectPalette: preserveDirect);
+        }
+
+        private static string ComputeDrawLayoutFingerprint(D3D12PluginDrawData? draw)
+        {
+            if (draw is null)
+                return string.Empty;
+
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            static void FeedInt(IncrementalHash h, int value)
+            {
+                Span<byte> buf = stackalloc byte[4];
+                BinaryPrimitives.WriteInt32LittleEndian(buf, value);
+                h.AppendData(buf);
+            }
+            static void FeedString(IncrementalHash h, string? s)
+            {
+                byte[] bytes = s is null ? [] : Encoding.UTF8.GetBytes(s);
+                FeedInt(h, s is null ? -1 : bytes.Length);
+                if (bytes.Length > 0) h.AppendData(bytes);
+            }
+
+            // Capture structural CBV length and binding slots/keys (not animated camera/bone floats).
+            FeedInt(hash, draw.ConstantBufferData.Length);
+            FeedInt(hash, draw.DisableStylizedSphereMaps.HasValue ? (draw.DisableStylizedSphereMaps.Value ? 2 : 1) : 0);
+            FeedInt(hash, draw.ExtraSurfaceParams.HasValue ? 1 : 0);
+            FeedInt(hash, draw.PreserveDirectLightPalette.HasValue ? (draw.PreserveDirectLightPalette.Value ? 2 : 1) : 0);
+
+            int texCount = draw.TextureBindings?.Count ?? 0;
+            FeedInt(hash, texCount);
+            if (texCount > 0)
+            {
+                foreach (var tex in draw.TextureBindings!)
+                {
+                    FeedInt(hash, tex.SlotIndex);
+                    FeedInt(hash, tex.SceneTextureIndex >= 0 ? 1 : 0);
+                    FeedInt(hash, (int)tex.Encoding);
+                    FeedInt(hash, (int)tex.MipRule);
+                    if (tex.InlineTexture is { } inline)
+                    {
+                        FeedInt(hash, 1);
+                        FeedString(hash, inline.AssetKey);
+                        FeedInt(hash, inline.Width);
+                        FeedInt(hash, inline.Height);
+                        FeedInt(hash, (int)inline.Format);
+                        FeedInt(hash, (int)inline.MipRule);
+                    }
+                    else
+                    {
+                        FeedInt(hash, 0);
+                    }
+                }
+            }
+
+            int bufCount = draw.BufferBindings?.Count ?? 0;
+            FeedInt(hash, bufCount);
+            if (bufCount > 0)
+            {
+                foreach (var buf in draw.BufferBindings!)
+                {
+                    FeedInt(hash, buf.SlotIndex);
+                    FeedInt(hash, (int)buf.Kind);
+                    FeedString(hash, buf.DataKey);
+                    FeedInt(hash, buf.ElementStrideBytes);
+                    FeedInt(hash, buf.ElementCount);
+                    FeedInt(hash, buf.Data.Length);
+                }
+            }
+
+            return Convert.ToHexStringLower(hash.GetHashAndReset());
         }
     }
+
+    private readonly record struct MaterialSamplingKey(
+        bool Active,
+        string? StyleId,
+        D3D12CharacterMaterialRole Role,
+        string? ModuleId,
+        string? ModuleHash,
+        D3D12StyleShaderHookMask Hooks,
+        D3D12StyleGeometryRequirements Geometry,
+        string? DrawLayoutFingerprint,
+        bool HasTreatment,
+        bool HasStylized,
+        bool HasToon,
+        bool PreserveDirectPalette);
 
     private readonly record struct ResourceShape(int Vertices, int Indices, int Materials, int Textures,
         int OutlineVertices, bool DynamicVertices, bool AdditionalUvs, bool RawRadialSeeds,

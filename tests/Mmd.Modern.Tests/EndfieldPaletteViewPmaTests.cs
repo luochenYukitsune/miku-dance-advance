@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -6,6 +7,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.Smoke;
 using Mmd.Modern.ViewOutput;
@@ -26,19 +28,21 @@ public sealed class EndfieldPaletteViewPmaTests
     [Fact]
     public void RequestsUnionBothLocalPaletteImagesAndSourceGeometryAtZeroConsumption()
     {
-        var id = Guid.NewGuid(); var value = View(id);
-        D3D12ViewEndfieldMatcapBinding[] input = [value];
-        var detached = D3D12ViewEndfieldMatcapBindings.Detach(input);
-        input[0] = value with { Palette = null };
-        Assert.Equal(value, Assert.Single(detached));
-        Assert.Same(detached, D3D12ViewEndfieldMatcapBindings.Detach(detached));
-        var request = Assert.Single(D3D12ViewEndfieldMatcapBindings.CreateRequests(detached, [new(id, [4], [6], [9])]));
-        Assert.True(request.IncludeSourceGeometry);
-        Assert.Equal(new[] { 4 }, request.BoneIndices);
-        Assert.Equal(new[] { 6 }, request.LocalTextureIndices);
-        Assert.Equal(new[] { 0, 2, 3, 5, 7, 9 }, request.OptionalLocalTextureIndices.Order());
-        Assert.Equal(request.OptionalLocalTextureIndices,
-            Assert.Single(D3D12ViewGenshinHairAtlasBindings.CreateRequests([], [request])).OptionalLocalTextureIndices);
+        var id = Guid.NewGuid();
+        var binding = TestStylePlugins.Bind(id, 0, ViewSpec().ToBinding());
+        D3D12ViewPluginMaterialBinding[] input = [binding];
+        var detached = D3D12ViewPluginMaterialBindings.Detach(input);
+        input[0] = input[0] with { LocalMaterialIndex = 99 };
+        Assert.Equal(0, Assert.Single(detached).LocalMaterialIndex);
+        Assert.Same(detached, D3D12ViewPluginMaterialBindings.Detach(detached));
+
+        var baseReq = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests(detached, TestStylePlugins.AllViewCatalog));
+        Assert.Equal(new[] { 0, 2, 3, 5, 7 }, baseReq.OptionalLocalTextureIndices.Order());
+        var merged = new SceneObjectRenderRequest(id, [4], [6], [..baseReq.OptionalLocalTextureIndices, 9], includeSourceGeometry: true);
+        Assert.True(merged.IncludeSourceGeometry);
+        Assert.Equal(new[] { 4 }, merged.BoneIndices);
+        Assert.Equal(new[] { 6 }, merged.LocalTextureIndices);
+        Assert.Equal(new[] { 0, 2, 3, 5, 7, 9 }, merged.OptionalLocalTextureIndices.Order());
     }
 
     [Fact]
@@ -52,22 +56,25 @@ public sealed class EndfieldPaletteViewPmaTests
         var b = editor.Add("second", Path.Combine(Path.GetTempPath(), "palette-b.pmx"), ModelRole.Character, Source(secondImages));
         using var project = new SceneProjectSession(editor, new(), [], new NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new("endfield"), Token);
-        D3D12ViewEndfieldMatcapBinding[] values = [View(a.Id), View(b.Id)];
-        var capture = project.CaptureRenderSnapshot(D3D12ViewEndfieldMatcapBindings.CreateRequests(values));
-        var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, sceneInputs: capture.SceneInputs, endfieldMatcapDataBindings: values);
+        D3D12ViewPluginMaterialBinding[] values =
+        [
+            TestStylePlugins.Bind(a.Id, 0, ViewSpec().ToBinding()),
+            TestStylePlugins.Bind(b.Id, 0, ViewSpec().ToBinding()),
+        ];
+        var capture = project.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(values, TestStylePlugins.AllViewCatalog));
+        var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, pluginBindings: values, sceneInputs: capture.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog);
         foreach (var obj in capture.RenderingStyles)
         {
-            var active = Assert.IsType<D3D12EndfieldMatcapBinding>(result.SurfaceStyles.CharacterMaterials[obj.MaterialStart].EndfieldMatcap);
+            var draw = result.SurfaceStyles.CharacterMaterials[obj.MaterialStart].PluginDraw;
+            Assert.NotNull(draw);
+            Assert.Equal("matcap-palette", draw.ShaderModuleId);
+            var texBySlot = draw.TextureBindings!.ToDictionary(static t => t.SlotIndex, static t => t.SceneTextureIndex);
             var images = capture.SceneInputs[obj.ObjectId].TextureIndices;
-            Assert.Equal(images[0], active.NormalCombinedTextureIndex);
-            Assert.Equal(images[2], active.PCombinedTextureIndex);
-            Assert.Equal(images[3], active.MatcapCombinedTextureIndex);
-            Assert.Equal(images[5], active.Palette!.EmissionCombinedTextureIndex);
-            Assert.Equal(images[7], active.Palette.ReceivedLightCombinedTextureIndex);
-            Assert.Equal(View(obj.ObjectId).Palette! with { EmissionCombinedTextureIndex = images[5], ReceivedLightCombinedTextureIndex = images[7] }, active.Palette);
-            Assert.Same(capture.SceneInputs[obj.ObjectId].SourceGeometry, active.Geometry!.Source);
-            Assert.Equal(0, active.UvChannel);
+            Assert.Equal(images[0], texBySlot[1]);
+            Assert.Equal(images[2], texBySlot[2]);
+            Assert.Equal(images[3], texBySlot[3]);
+            Assert.Contains(draw.BufferBindings!, static buf => buf.Kind == D3D12PluginBufferKind.MikkTangentCorners && buf.DataKey == "uv0");
         }
         // Identical parent images are deduplicated, but object-specific palette images retain separate slots.
         Assert.Equal(capture.SceneInputs[a.Id].TextureIndices[0], capture.SceneInputs[b.Id].TextureIndices[0]);
@@ -83,92 +90,181 @@ public sealed class EndfieldPaletteViewPmaTests
     [InlineData(7, true)]
     public void SelectedNumericalImagesAreRequiredAtZeroStrengthAndInfluence(int selected, bool procedural)
     {
-        var images = Source().Surface.Snapshot.Textures.ToArray();
+        var baseSource = Source();
+        var images = baseSource.Surface.Snapshot.Textures.ToArray();
         if (procedural) images[selected] = SceneTexture.ProceduralToon();
         var source = Source(images); var editor = new SceneCompositionEditor();
         var item = editor.Add("required", Path.Combine(Path.GetTempPath(), "palette-required.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new(), [], new NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new("endfield"), Token);
-        var value = View(item.Id);
-        var request = Assert.Single(D3D12ViewEndfieldMatcapBindings.CreateRequests([value]));
-        if (!procedural) request = new(item.Id, optionalLocalTextureIndices: request.OptionalLocalTextureIndices.Where(v => v != selected), includeSourceGeometry: true);
-        var capture = project.CaptureRenderSnapshot([request]);
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, sceneInputs: capture.SceneInputs, endfieldMatcapDataBindings: [value]));
+        var binding = TestStylePlugins.Bind(item.Id, 0, ViewSpec().ToBinding());
+        if (!procedural)
+        {
+            var request = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests([binding], TestStylePlugins.AllViewCatalog));
+            request = new(item.Id, optionalLocalTextureIndices: request.OptionalLocalTextureIndices.Where(v => v != selected));
+            var capture = project.CaptureRenderSnapshot([request]);
+            Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+                capture.RenderingStyles, pluginBindings: [binding], sceneInputs: capture.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog));
+        }
+        else
+        {
+            var profile = Profile(baseSource);
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                profile, source, item.Id, "endfield", TestStylePlugins.AllViewCatalog));
+        }
     }
 
     [Fact]
     public void ViewAndProfileRejectMissingModeImagesInvalidEnumsNumbersAndUncoupledOwnership()
     {
-        var value = View(Guid.NewGuid()); var palette = value.Palette!;
-        foreach (var invalid in new[]
+        var spec = ViewSpec();
+        var palette = spec.Palette!;
+        foreach (var bad in new[]
         {
-            palette with { EmissionInputMode = (D3D12EndfieldPaletteInputMode)99 },
-            palette with { ReceivedLightInputMode = (D3D12EndfieldPaletteInputMode)99 },
-            palette with { EmissionCombinedTextureIndex = null }, palette with { ReceivedLightCombinedTextureIndex = null },
-            palette with { EmissionCombinedTextureIndex = -1 }, palette with { ReceivedLightCombinedTextureIndex = -1 },
-            palette with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Uniform },
-            palette with { ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Uniform },
-            palette with { ReceivedLightLinearRgb = new(float.NaN) }, palette with { ReceivedLightLinearRgb = new(16.01f) },
-            palette with { UniformEmissionBlue = -16.01f }, palette with { Density = 32.01f },
-            palette with { EmissionStrength = float.PositiveInfinity }, palette with { LightInfluence = -32.01f }
-        }) Assert.ThrowsAny<ArgumentException>(() => D3D12ViewEndfieldMatcapBindings.Detach([value with { Palette = invalid }]));
-        Assert.ThrowsAny<ArgumentException>(() => D3D12ViewEndfieldMatcapBindings.Detach([value with { CoupleEndfieldPalette = false }]));
-        var row = Profile(Source()).Materials[0];
-        Assert.ThrowsAny<ArgumentException>(() => (row with { Role = D3D12CharacterMaterialRole.Eye }).Validate());
-        Assert.ThrowsAny<ArgumentException>(() => (row.EndfieldMatcap! with { CoupleEndfieldPalette = false }).Validate());
+            spec with { Palette = palette with { EmissionInputMode = "InvalidMode" } },
+            spec with { Palette = palette with { ReceivedLightInputMode = "InvalidMode" } },
+            spec with { Palette = palette with { EmissionSlot = null } },
+            spec with { Palette = palette with { ReceivedLightSlot = null } },
+            spec with { Palette = palette with { EmissionSlot = -1 } },
+            spec with { Palette = palette with { ReceivedLightSlot = -1 } },
+            spec with { Palette = palette with { EmissionInputMode = T8dTestHelpers.ModeUniform } },
+            spec with { Palette = palette with { ReceivedLightInputMode = T8dTestHelpers.ModeUniform } },
+            spec with { Palette = palette with { ReceivedLightLinearRgb = new(float.NaN) } },
+            spec with { Palette = palette with { ReceivedLightLinearRgb = new(16.01f) } },
+            spec with { Palette = palette with { UniformEmissionBlue = -16.01f } },
+            spec with { Palette = palette with { Density = 32.01f } },
+            spec with { Palette = palette with { EmissionStrength = float.PositiveInfinity } },
+            spec with { Palette = palette with { LightInfluence = -32.01f } },
+        })
+        {
+            var binding = TestStylePlugins.Bind(Guid.NewGuid(), 0, bad.ToBinding());
+            if (!float.IsFinite(bad.Palette!.ReceivedLightLinearRgb.X) || !float.IsFinite(bad.Palette.EmissionStrength))
+                Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Detach([binding]));
+            else
+                Assert.False(T8dTestHelpers.ValidateEndfield(binding.Binding, StyleMaterialRole.Body, 16).IsValid);
+        }
+
+        Assert.False(T8dTestHelpers.ValidateEndfield([spec.ToBinding() with { StyleId = "endfield" }, T8dTestHelpers.EndfieldRim()], StyleMaterialRole.Body).IsValid);
+        var source = Source();
+        var row = Profile(source).Materials[0];
+        var profileWithEye = new D3D12MaterialBindingProfile("bad-eye", "Bad Eye", Profile(source).LayoutFingerprint,
+            [row with { Role = D3D12CharacterMaterialRole.Eye }]);
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+            profileWithEye, source, Guid.NewGuid(), "endfield", TestStylePlugins.AllViewCatalog));
+
         foreach (bool emission in new[] { true, false })
         {
-            var data = row.EndfieldMatcap!.Palette!;
-            var bad = emission ? data with { EmissionTexture = data.EmissionTexture! with { Kind = SceneTextureKind.IndexedProceduralToon } }
-                : data with { ReceivedLightTexture = data.ReceivedLightTexture! with { Kind = SceneTextureKind.IndexedProceduralToon } };
-            Assert.ThrowsAny<ArgumentException>(() => bad.Validate());
+            int slot = emission ? 5 : 7;
+            var guards = row.TextureGuards.Select(g => g.SourceSceneTextureOrdinal == slot
+                ? g with { Kind = SceneTextureKind.IndexedProceduralToon } : g).ToArray();
+            var badGuard = new D3D12MaterialBindingProfile("bad-kind", "Bad Kind", Profile(source).LayoutFingerprint,
+                [row with { TextureGuards = guards }]);
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                badGuard, source, Guid.NewGuid(), "endfield", TestStylePlugins.AllViewCatalog));
         }
     }
 
     [Fact]
-    public void SchemaEightStrictlyRoundtripsAndRequiresEveryNestedField()
+    public void SchemaFourteenAndLegacySchemaEightAreStrictAndValidateNestedFields()
     {
-        var profile = Profile(Source()); var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(8, profile.SchemaVersion);
+        var source = Source();
+        var profile = Profile(source);
+        var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profile.SchemaVersion);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
+
+        // Legacy schema 8 JSON wire strictness.
+        var layout = D3D12MaterialBindingLayout.Capture(source);
+        JsonObject Tex(int ordinal) => Texture(layout.CaptureTexture(ordinal));
+        var legacyDoc = new JsonObject
+        {
+            ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 8,
+            ["stableId"] = "endfield-palette", ["name"] = "Explicit palette", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint,
+            ["materials"] = new JsonArray(new JsonObject
+            {
+                ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
+                ["faceGeometricShadowStrength"] = 1f, ["eyeGeometricShadowStrength"] = .2f,
+                ["pmxMaterialTreatment"] = null, ["face"] = null, ["genshinHair"] = null, ["starMcHair"] = null,
+                ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null,
+                ["endfieldMatcap"] = new JsonObject
+                {
+                    ["normal"] = Tex(0), ["p"] = Tex(2), ["matcap"] = Tex(3),
+                    ["matcapEncoding"] = "SrgbRgb", ["uvChannel"] = 0,
+                    ["baseColor"] = new JsonArray(.2f, .3f, .4f), ["highlightColor"] = new JsonArray(.1f, .4f, .2f),
+                    ["normalStrength"] = 2f, ["rotationRadians"] = 0f, ["highlightCoefficient"] = 0f,
+                    ["shadowHardness"] = .5f, ["lightControlDirection"] = null,
+                    ["baselineStrength"] = 1f, ["coupleEndfieldPalette"] = true, ["generatorRevision"] = "mikk-v1",
+                    ["palette"] = new JsonObject
+                    {
+                        ["receivedLightLinearRgb"] = new JsonArray(.2f, .3f, 1.1f), ["emissionStrength"] = 0f,
+                        ["uniformEmissionBlue"] = 0f, ["lightInfluence"] = 0f, ["density"] = .7f,
+                        ["emissionInputMode"] = "Texture", ["emissionTexture"] = Tex(5),
+                        ["receivedLightInputMode"] = "Texture", ["receivedLightTexture"] = Tex(7)
+                    }
+                },
+                ["genshinMetallic"] = null
+            })
+        };
+        var legacyDecoded = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacyDoc.ToJsonString()));
+        Assert.Equal("matcap", Assert.Single(legacyDecoded.Materials[0].PluginBindings).ModeId);
+        Assert.Equal(5, legacyDecoded.Materials[0].TextureGuards.Count);
+
         foreach (string damage in new[] { "missing-palette", "missing-mode", "missing-image", "unknown", "encoding", "mode", "numeric-enum", "old-schema", "image-null", "uniform-image", "scalar", "color" })
         {
-            var doc = JsonNode.Parse(bytes)!; var matcap = doc["materials"]![0]!["endfieldMatcap"]!.AsObject();
-            var palette = matcap["palette"]!.AsObject();
+            var doc = JsonNode.Parse(legacyDoc.ToJsonString())!; var matcap = doc["materials"]![0]!["endfieldMatcap"]!.AsObject();
+            var pal = matcap["palette"]!.AsObject();
             if (damage == "missing-palette") matcap.Remove("palette");
-            if (damage == "missing-mode") palette.Remove("emissionInputMode");
-            if (damage == "missing-image") palette.Remove("receivedLightTexture");
-            if (damage == "unknown") palette["time"] = 1;
-            if (damage == "encoding") palette["receivedLightEncoding"] = "SrgbRgb";
-            if (damage == "mode") palette["emissionInputMode"] = "Guess";
-            if (damage == "numeric-enum") palette["receivedLightInputMode"] = "1";
+            if (damage == "missing-mode") pal.Remove("emissionInputMode");
+            if (damage == "missing-image") pal.Remove("receivedLightTexture");
+            if (damage == "unknown") pal["time"] = 1;
+            if (damage == "encoding") pal["receivedLightEncoding"] = "SrgbRgb";
+            if (damage == "mode") pal["emissionInputMode"] = "Guess";
+            if (damage == "numeric-enum") pal["receivedLightInputMode"] = "1";
             if (damage == "old-schema") doc["schemaVersion"] = 7;
-            if (damage == "image-null") palette["emissionTexture"] = null;
-            if (damage == "uniform-image") palette["receivedLightInputMode"] = "Uniform";
-            if (damage == "scalar") palette["density"] = 33;
-            if (damage == "color") palette["receivedLightLinearRgb"] = new JsonArray(0, 0, 17);
-            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
+            if (damage == "image-null") pal["emissionTexture"] = null;
+            if (damage == "uniform-image") pal["receivedLightInputMode"] = "Uniform";
+            if (damage == "scalar") pal["density"] = 33;
+            if (damage == "color") pal["receivedLightLinearRgb"] = new JsonArray(0, 0, 17);
+            if (damage is "uniform-image" or "scalar" or "color")
+            {
+                var decodedDamage = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString()));
+                Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                    decodedDamage, source, Guid.NewGuid(), "endfield", TestStylePlugins.AllViewCatalog));
+            }
+            else
+                Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
         }
+
         var future = JsonNode.Parse(bytes)!; future["schemaVersion"] = D3D12MaterialBindingProfile.CurrentSchemaVersion + 1;
         Assert.Throws<NotSupportedException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(future.ToJsonString())));
     }
 
     [Fact]
-    public void SchemaEightMixedMatcapsRequireNullablePaletteAndUniformModeNeedsNoImages()
+    public void UniformPaletteNeedsNoImagesAndMixedRowsRoundtripCleanly()
     {
-        var profile = Profile(Source()); var row = profile.Materials[0];
-        var uniform = row.EndfieldMatcap!.Palette! with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Uniform,
-            ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Uniform, EmissionTexture = null, ReceivedLightTexture = null };
-        profile = new(profile.StableId, profile.Name, profile.LayoutFingerprint,
-            [row with { EndfieldMatcap = row.EndfieldMatcap with { Palette = uniform } }, row with { LocalMaterialIndex = 1, EndfieldMatcap = row.EndfieldMatcap with { Palette = null } }]);
+        var source = Source();
+        var layout = D3D12MaterialBindingLayout.Capture(source);
+        var uniformSpec = ViewSpec() with
+        {
+            Palette = new(new(.2f, -.3f, 1.1f), Density: .7f,
+                EmissionInputMode: T8dTestHelpers.ModeUniform, EmissionSlot: null,
+                ReceivedLightInputMode: T8dTestHelpers.ModeUniform, ReceivedLightSlot: null)
+        };
+        var withoutPaletteSpec = ViewSpec() with { Palette = null };
+        var profile = new D3D12MaterialBindingProfile("endfield-palette", "Mixed palette", layout.Fingerprint,
+            [
+                new(0, D3D12CharacterMaterialRole.Body, pluginBindings: [uniformSpec.ToBinding()],
+                    textureGuards: [layout.CaptureTexture(0), layout.CaptureTexture(2), layout.CaptureTexture(3)]),
+                new(1, D3D12CharacterMaterialRole.Body, pluginBindings: [withoutPaletteSpec.ToBinding()],
+                    textureGuards: [layout.CaptureTexture(0), layout.CaptureTexture(2), layout.CaptureTexture(3)]),
+            ]);
         var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
         var restored = D3D12MaterialBindingProfileJson.Decode(bytes);
-        Assert.Null(restored.Materials[1].EndfieldMatcap!.Palette);
-        Assert.Null(restored.Materials[0].EndfieldMatcap!.Palette!.EmissionTexture);
+        Assert.False(restored.Materials[1].PluginBindings[0].BoolValues!.ContainsKey("hasPalette"));
+        Assert.False(restored.Materials[0].PluginBindings[0].TextureSlots!.ContainsKey("paletteEmission"));
+        Assert.False(restored.Materials[0].PluginBindings[0].TextureSlots!.ContainsKey("paletteReceivedLight"));
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(restored));
-        var doc = JsonNode.Parse(bytes)!; doc["materials"]![1]!["endfieldMatcap"]!.AsObject().Remove("palette");
-        Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
     }
 
     [Theory]
@@ -179,29 +275,20 @@ public sealed class EndfieldPaletteViewPmaTests
     public void DormantProfilesStillGuardBothUnusedImages(string pipeline)
     {
         var source = Source(); var profile = Profile(source); var id = Guid.NewGuid();
-        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline).EndfieldMatcapBindings);
+        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog).PluginBindings);
         foreach (int index in new[] { 5, 7 })
         {
             var images = source.Surface.Snapshot.Textures.ToArray(); images[index] = new("changed", 1, 1, [0, 0, 0, 0]);
-            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(images), id, pipeline));
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(images), id, pipeline, TestStylePlugins.AllViewCatalog));
         }
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void LegacySchemaFiveAndSevenRetainExactWireWithoutPalettePlaceholder(bool metallic)
+    public void LegacySchemaFiveAndSevenDecodeCleanlyToPluginBindings(bool metallic)
     {
         var source = Source(); var layout = D3D12MaterialBindingLayout.Capture(source);
-        var row = Profile(source).Materials[0];
-        row = row with { EndfieldMatcap = row.EndfieldMatcap! with { Palette = null } };
-        if (metallic) row = row with { EndfieldMatcap = null, GenshinMetallic = new(layout.CaptureTexture(0), layout.CaptureTexture(2),
-            D3D12MatcapColorEncoding.SrgbRgb, new(.1f), new(.8f), new(.6f), Specular: new(new(.7f), new(.2f))) };
-        var profile = new D3D12MaterialBindingProfile("legacy", "Legacy", layout.Fingerprint, [row]);
-        var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(metallic ? 7 : 5, profile.SchemaVersion);
-        Assert.DoesNotContain("\"palette\"", Encoding.UTF8.GetString(bytes));
-        Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
         var expectedRow = new JsonObject
         {
             ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
@@ -209,35 +296,49 @@ public sealed class EndfieldPaletteViewPmaTests
             ["pmxMaterialTreatment"] = null, ["face"] = null, ["genshinHair"] = null, ["starMcHair"] = null,
             ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null, ["endfieldMatcap"] = null
         };
-        if (row.EndfieldMatcap is { } matcap) expectedRow["endfieldMatcap"] = new JsonObject
+        if (!metallic)
         {
-            ["normal"] = Texture(matcap.Normal), ["p"] = Texture(matcap.P), ["matcap"] = Texture(matcap.Matcap),
-            ["matcapEncoding"] = "SrgbRgb", ["uvChannel"] = 0, ["baseColor"] = Vector(matcap.BaseColor),
-            ["highlightColor"] = Vector(matcap.HighlightColor), ["normalStrength"] = 2f, ["rotationRadians"] = 0f,
-            ["highlightCoefficient"] = 0f, ["shadowHardness"] = .5f, ["lightControlDirection"] = null,
-            ["baselineStrength"] = 1f, ["coupleEndfieldPalette"] = true, ["generatorRevision"] = "mikk-v1"
-        };
-        if (row.GenshinMetallic is { } metal) expectedRow["genshinMetallic"] = new JsonObject
-        {
-            ["lightmap"] = Texture(metal.Lightmap), ["matcap"] = Texture(metal.Matcap), ["matcapEncoding"] = "SrgbRgb",
-            ["darkColor"] = Vector(metal.DarkColor), ["lightColor"] = Vector(metal.LightColor), ["shadowMultiplyColor"] = Vector(metal.ShadowMultiplyColor),
-            ["enableMetallics"] = 1f, ["tileScale"] = 1f, ["brightness"] = 1f, ["litMode"] = "PrimaryResponse", ["uniformLitFactor"] = 1f,
-            ["specular"] = new JsonObject
+            expectedRow["endfieldMatcap"] = new JsonObject
             {
-                ["color"] = Vector(metal.Specular!.Color), ["sharpColor"] = Vector(metal.Specular.SharpColor),
-                ["shininess"] = 16f, ["scale"] = 1f, ["attenuation"] = .5f, ["sharpOffset"] = 1f, ["ramp"] = null, ["rampMix"] = 0f
-            }
-        };
-        var expected = new JsonObject
+                ["normal"] = Texture(layout.CaptureTexture(0)), ["p"] = Texture(layout.CaptureTexture(2)), ["matcap"] = Texture(layout.CaptureTexture(3)),
+                ["matcapEncoding"] = "SrgbRgb", ["uvChannel"] = 0, ["baseColor"] = Vector(new(.2f, .3f, .4f)),
+                ["highlightColor"] = Vector(new(.1f, .4f, .2f)), ["normalStrength"] = 2f, ["rotationRadians"] = 0f,
+                ["highlightCoefficient"] = 0f, ["shadowHardness"] = .5f, ["lightControlDirection"] = null,
+                ["baselineStrength"] = 1f, ["coupleEndfieldPalette"] = true, ["generatorRevision"] = "mikk-v1"
+            };
+        }
+        else
+        {
+            expectedRow["genshinMetallic"] = new JsonObject
+            {
+                ["lightmap"] = Texture(layout.CaptureTexture(0)), ["matcap"] = Texture(layout.CaptureTexture(2)), ["matcapEncoding"] = "SrgbRgb",
+                ["darkColor"] = Vector(new(.1f)), ["lightColor"] = Vector(new(.8f)), ["shadowMultiplyColor"] = Vector(new(.6f)),
+                ["enableMetallics"] = 1f, ["tileScale"] = 1f, ["brightness"] = 1f, ["litMode"] = "PrimaryResponse", ["uniformLitFactor"] = 1f,
+                ["specular"] = new JsonObject
+                {
+                    ["color"] = Vector(new(.7f)), ["sharpColor"] = Vector(new(.2f)),
+                    ["shininess"] = 16f, ["scale"] = 1f, ["attenuation"] = .5f, ["sharpOffset"] = 1f, ["ramp"] = null, ["rampMix"] = 0f
+                }
+            };
+        }
+        var legacy = new JsonObject
         {
             ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = metallic ? 7 : 5,
             ["stableId"] = "legacy", ["name"] = "Legacy", ["layoutVersion"] = 1,
             ["layoutFingerprint"] = layout.Fingerprint, ["materials"] = new JsonArray(expectedRow)
         };
-        Assert.Equal(bytes, Encoding.UTF8.GetBytes(expected.ToJsonString(new JsonSerializerOptions { WriteIndented = true })));
+        var decoded = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacy.ToJsonString()));
+        var b = Assert.Single(decoded.Materials[0].PluginBindings);
+        Assert.Equal(metallic ? "genshin" : "endfield", b.StyleId);
+        Assert.Equal(metallic ? "metallic" : "matcap", b.ModeId);
+        Assert.False(b.BoolValues?.GetValueOrDefault("hasPalette", false) ?? false);
+        byte[] reencoded = D3D12MaterialBindingProfileJson.Encode(decoded);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, JsonNode.Parse(reencoded)!["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(reencoded, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(reencoded)));
     }
+
     [Fact, Trait("Category", "Gpu")]
-    public async Task PortableSchemaEightRetainsFullTextureTableAfterMoveSourceDeletionAndDefaultResave()
+    public async Task PortableSchemaFourteenRetainsFullTextureTableAfterMoveSourceDeletionAndDefaultResave()
     {
         string directory = Path.Combine(Path.GetTempPath(), "endfield-palette-portable-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -262,16 +363,28 @@ public sealed class EndfieldPaletteViewPmaTests
             var editor = new SceneCompositionEditor(); var item = editor.Add("portable MatCap", originalPath, ModelRole.Character, source);
             using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
             project.SetDefaultRenderingStyle(new("endfield"), Token);
-            var inactiveProfile = Profile(source, offset);
-            var row = inactiveProfile.Materials[0];
-            var matcap = row.EndfieldMatcap!;
-            var profile = new D3D12MaterialBindingProfile(inactiveProfile.StableId, inactiveProfile.Name,
-                inactiveProfile.LayoutFingerprint, [row with { EndfieldMatcap = matcap with
-                { Palette = matcap.Palette! with { EmissionStrength = .45f, LightInfluence = .35f, Density = .013f } } }]);
-            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield");
+
+            var activeSpec = ViewSpec(offset) with
+            {
+                Palette = ViewSpec(offset).Palette! with { EmissionStrength = .45f, LightInfluence = .35f, Density = .013f }
+            };
+            var layout = D3D12MaterialBindingLayout.Capture(source);
+            var profile = new D3D12MaterialBindingProfile("endfield-palette", "Explicit palette", layout.Fingerprint,
+                [new(0, D3D12CharacterMaterialRole.Body,
+                    pluginBindings: [activeSpec.ToBinding()],
+                    textureGuards:
+                    [
+                        layout.CaptureTexture(offset),
+                        layout.CaptureTexture(offset + 2),
+                        layout.CaptureTexture(offset + 3),
+                        layout.CaptureTexture(offset + 5),
+                        layout.CaptureTexture(offset + 7),
+                    ])]);
+            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
             byte[] expected = await Capture(project, mapping);
             byte[] old = await Capture(project, mapping, palette: false);
             AssertVisibleChange(old, expected);
+
             string first = Path.Combine(directory, "first.pma");
             PmaProjectStore.Save(first, project, D3D12MaterialBindingPma.CreateSaveOptions(project,
                 [new(item.Id, profile, source)]), Token);
@@ -284,43 +397,52 @@ public sealed class EndfieldPaletteViewPmaTests
             {
                 var restored = loaded.Session.Objects.Single().Source;
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(profiles[item.Id]));
-                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "endfield");
-                var selection = Assert.Single(mapped.EndfieldMatcapBindings);
-                Assert.Equal(offset, selection.NormalLocalTextureIndex);
-                Assert.Equal(offset + 2, selection.PLocalTextureIndex); Assert.Equal(offset + 3, selection.MatcapLocalTextureIndex);
-                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewEndfieldMatcapBindings.CreateRequests(mapped.EndfieldMatcapBindings));
-                Assert.NotNull(capture.SceneInputs[item.Id].SourceGeometry);
+                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
+                var selection = Assert.Single(mapped.PluginBindings);
+                Assert.Equal(offset, selection.Binding.TextureSlots!["normal"]);
+                Assert.Equal(offset + 2, selection.Binding.TextureSlots!["p"]);
+                Assert.Equal(offset + 3, selection.Binding.TextureSlots!["matcap"]);
+                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(mapped.PluginBindings, TestStylePlugins.AllViewCatalog));
                 Assert.Equal(extended.Textures.Count, restored.Surface.Snapshot.Textures.Count);
                 for (int i = 0; i < extended.Textures.Count; i++)
                     Assert.Equal(extended.Textures[i].Rgba.ToArray(), restored.Surface.Snapshot.Textures[i].Rgba.ToArray());
-                Assert.Equal(offset + 5, selection.Palette!.EmissionCombinedTextureIndex);
-                Assert.Equal(offset + 7, selection.Palette.ReceivedLightCombinedTextureIndex);
-                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-                    capture.RenderingStyles, mapped.CharacterMaterials, sceneInputs: capture.SceneInputs, endfieldMatcapDataBindings: mapped.EndfieldMatcapBindings);
-                var active = Assert.Single(result.SurfaceStyles.CharacterMaterials).EndfieldMatcap!.Palette!;
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 5], active.EmissionCombinedTextureIndex);
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 7], active.ReceivedLightCombinedTextureIndex);
+                Assert.Equal(offset + 5, selection.Binding.TextureSlots!["paletteEmission"]);
+                Assert.Equal(offset + 7, selection.Binding.TextureSlots!["paletteReceivedLight"]);
+                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+                    capture.RenderingStyles, mapped.CharacterMaterials, mapped.PluginBindings,
+                    sceneInputs: capture.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog);
+                var draw = Assert.Single(result.SurfaceStyles.CharacterMaterials).PluginDraw!;
+                var texBySlot = draw.TextureBindings!.ToDictionary(static t => t.SlotIndex, static t => t.SceneTextureIndex);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 5], texBySlot[4]);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 7], texBySlot[5]);
                 Assert.Equal(expected, await Capture(loaded.Session, mapped));
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
             using var reopened = D3D12MaterialBindingPma.Load(resaved, Path.Combine(directory, "cache2"), Load, new NoPhysics(),
                 out var again, cancellationToken: Token);
-            Assert.Equal(8, again[item.Id].SchemaVersion);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, again[item.Id].SchemaVersion);
             Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(again[item.Id]));
             Assert.DoesNotContain(reopened.ResourcePaths, p => p.Contains("tangent", StringComparison.OrdinalIgnoreCase));
             var reopenedObject = Assert.Single(reopened.Session.Objects);
-            var reopenedMapping = D3D12MaterialBindingProfileResolver.Resolve(again[item.Id], reopenedObject.Source, item.Id, "endfield");
+            var reopenedMapping = D3D12MaterialBindingProfileResolver.Resolve(again[item.Id], reopenedObject.Source, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
             Assert.Equal(expected, await Capture(reopened.Session, reopenedMapping));
         }
         finally { Directory.Delete(directory, true); }
     }
 
-
     private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool palette = true)
     {
-        await using var renderer = new D3D12ViewRenderer(new(W, H), characterMaterials: mapping.CharacterMaterials,
-            endfieldMatcapDataBindings: palette ? mapping.EndfieldMatcapBindings
-                : mapping.EndfieldMatcapBindings.Select(v => v with { Palette = null }));
+        var bindings = palette
+            ? mapping.PluginBindings
+            : mapping.PluginBindings.Select(v => v with
+            {
+                Binding = (ViewSpec(v.Binding.TextureSlots!["normal"]) with { Palette = null }).ToBinding()
+            });
+        await using var renderer = new D3D12ViewRenderer(new(W, H),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: bindings,
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var modern = new OriginalFrameScene(snapshot.Scene.Surface, snapshot.Scene.Outline, snapshot.Scene.OutlineOptions,
@@ -380,20 +502,25 @@ public sealed class EndfieldPaletteViewPmaTests
         ["sourceSceneTextureOrdinal"] = image.SourceSceneTextureOrdinal, ["width"] = image.Width,
         ["height"] = image.Height, ["kind"] = image.Kind.ToString(), ["rgbaSha256"] = image.RgbaSha256
     };
-    private static D3D12ViewEndfieldMatcapBinding View(Guid id) => new(id, 0, 0, 2, 3,
-        D3D12MatcapColorEncoding.SrgbRgb, 0, new(.2f, .3f, .4f), new(.1f, .4f, .2f),
-        CoupleEndfieldPalette: true, Palette: new(new(.2f, -.3f, 1.1f), Density: .7f,
-            EmissionInputMode: D3D12EndfieldPaletteInputMode.Texture, EmissionCombinedTextureIndex: 5,
-            ReceivedLightInputMode: D3D12EndfieldPaletteInputMode.Texture, ReceivedLightCombinedTextureIndex: 7));
+    private static EndfieldMatcapSpec ViewSpec(int offset = 0) => new(
+        offset, offset + 2, offset + 3, T8dTestHelpers.EncodingSrgbRgb, 0,
+        new(.2f, .3f, .4f), new(.1f, .4f, .2f), CoupleEndfieldPalette: true,
+        Palette: new(new(.2f, -.3f, 1.1f), Density: .7f,
+            EmissionInputMode: T8dTestHelpers.ModeTexture, EmissionSlot: offset + 5,
+            ReceivedLightInputMode: T8dTestHelpers.ModeTexture, ReceivedLightSlot: offset + 7));
     private static D3D12MaterialBindingProfile Profile(OriginalFrameScene source, int offset = 0)
     {
-        var layout = D3D12MaterialBindingLayout.Capture(source); var value = View(Guid.NewGuid()); var palette = value.Palette!;
+        var layout = D3D12MaterialBindingLayout.Capture(source);
         return new("endfield-palette", "Explicit palette", layout.Fingerprint, [new(0, D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap: new(layout.CaptureTexture(offset), layout.CaptureTexture(offset + 2), layout.CaptureTexture(offset + 3),
-                value.MatcapEncoding, value.UvChannel, value.BaseColor, value.HighlightColor, CoupleEndfieldPalette: true,
-                Palette: new(palette.ReceivedLightLinearRgb, palette.EmissionStrength, palette.UniformEmissionBlue,
-                    palette.LightInfluence, palette.Density, palette.EmissionInputMode, layout.CaptureTexture(offset + 5),
-                    palette.ReceivedLightInputMode, layout.CaptureTexture(offset + 7))))]);
+            pluginBindings: [ViewSpec(offset).ToBinding()],
+            textureGuards:
+            [
+                layout.CaptureTexture(offset),
+                layout.CaptureTexture(offset + 2),
+                layout.CaptureTexture(offset + 3),
+                layout.CaptureTexture(offset + 5),
+                layout.CaptureTexture(offset + 7),
+            ])]);
     }
     private static OriginalFrameScene Source(SceneTexture[]? textures = null)
     {

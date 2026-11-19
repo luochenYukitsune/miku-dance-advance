@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -24,16 +25,16 @@ public sealed class GenshinHairAtlasHistoryTests
         frame=new(frame.Surface,frame.Outline,frame.OutlineOptions,frame.Options! with {
             BackgroundColor=Vector4.One,CameraOverride=frame.Surface.Snapshot.Camera with {VerticalFovDegrees=45}},
             frame.Materials,frame.Lighting,frame.EditorOverlay);
-        var baseline=GenshinHairAtlasSurfaceTests.Binding;
+        var baseline=GenshinHairAtlasSurfaceTests.AtlasBinding();
         long readbacks=session.Runtime.Readbacks;
         Render(baseline,1,"FirstFrame","FirstFrame");
-        Render(baseline with {},2,"None","None");
-        var edited=baseline with {DayNight=.75f};
+        Render(GenshinHairAtlasSurfaceTests.AtlasBinding(),2,"None","None");
+        var edited=GenshinHairAtlasSurfaceTests.AtlasBinding(dayNight:.75f);
         Render(edited,1,"ExplicitReset","ExplicitRequest");
         Render(edited,2,"None","None");
         long submissions=session.Runtime.Submissions;
         Assert.Throws<ArgumentOutOfRangeException>(()=>session.Render(frame,96,72,gi,temporalUpscaling:temporal,
-            surfaceStyles:GenshinHairAtlasSurfaceTests.Map(edited with {AtlasCombinedTextureIndex=4})));
+            surfaceStyles:GenshinHairAtlasSurfaceTests.Map(GenshinHairAtlasSurfaceTests.AtlasBinding(atlasSlot:4,dayNight:.75f))));
         Assert.Equal(submissions,session.Runtime.Submissions);
         Render(edited,3,"None","None");
         Assert.Throws<OperationCanceledException>(()=>session.RenderForPresent(frame,96,72,gi,
@@ -44,14 +45,14 @@ public sealed class GenshinHairAtlasHistoryTests
         var warm=session.Statistics!;
         foreach(float row in new[]{2f,3f,4f})
         {
-            Render(edited with {ExplicitRowId=row},1,"ExplicitReset","ExplicitRequest");
+            Render(GenshinHairAtlasSurfaceTests.AtlasBinding(explicitRowId:row,dayNight:.75f),1,"ExplicitReset","ExplicitRequest");
             Assert.Equal(warm.ShaderCompilations,session.Statistics!.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations,session.Statistics.PipelineCreations);
             Assert.InRange(session.Statistics.CachedResources,0,warm.CachedResources+2);
         }
         Assert.Equal(readbacks,session.Runtime.Readbacks);
 
-        void Render(D3D12GenshinHairShadowAtlasBinding binding,ulong frames,string giReason,string aaReason)
+        void Render(StyleMaterialBindingData binding,ulong frames,string giReason,string aaReason)
         {
             using var output=session.Render(frame,96,72,gi,temporalUpscaling:temporal,
                 surfaceStyles:GenshinHairAtlasSurfaceTests.Map(binding));

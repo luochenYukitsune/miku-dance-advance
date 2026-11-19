@@ -29,7 +29,7 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
         using var project = Project(out var entries);
         project.SetDefaultRenderingStyle(new(pipeline), Token);
         var before = entries.Select(entry => D3D12MaterialBindingProfileResolver.Resolve(
-            entry.Profile, entry.SourceRest, entry.ObjectId, pipeline)).ToArray();
+            entry.Profile, entry.SourceRest, entry.ObjectId, pipeline, TestStylePlugins.AllViewCatalog)).ToArray();
         byte[] expected = await CaptureAsync(project, before);
         byte[] withoutHair = await CaptureAsync(project, pipeline == "endfield" ? before : [], dedicated: false);
         int changed = 0;
@@ -43,7 +43,7 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
         else
         {
             Assert.Equal(withoutHair, expected);
-            Assert.All(before, mapping => Assert.Empty(mapping.EndfieldHairBindings));
+            Assert.All(before, mapping => Assert.Empty(mapping.PluginBindings));
         }
         Assert.Contains(expected.Where((_, index) => index % 4 == 3), alpha => alpha != 0);
 
@@ -87,7 +87,7 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
         {
             var source = project.Objects.Single(value => value.Id == entry.ObjectId).Source;
             var expected = entry.SourceRest.Surface.Snapshot; var actual = source.Surface.Snapshot;
-            Assert.Equal(4, profiles[entry.ObjectId].SchemaVersion);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profiles[entry.ObjectId].SchemaVersion);
             Assert.Equal(D3D12MaterialBindingProfileJson.Encode(entry.Profile), D3D12MaterialBindingProfileJson.Encode(profiles[entry.ObjectId]));
             Assert.Equal(D3D12MaterialBindingLayout.Capture(entry.SourceRest).Fingerprint,
                 D3D12MaterialBindingLayout.Capture(source).Fingerprint);
@@ -96,8 +96,8 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
             Assert.Equal(expected.Textures.Count, actual.Textures.Count);
             for (int index = 0; index < expected.Textures.Count; index++)
                 Assert.Equal(expected.Textures[index].Rgba.ToArray(), actual.Textures[index].Rgba.ToArray());
-            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], source, entry.ObjectId, pipeline);
-            Assert.Equal(pipeline == "endfield" ? 1 : 0, mapping.EndfieldHairBindings.Count);
+            var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], source, entry.ObjectId, pipeline, TestStylePlugins.AllViewCatalog);
+            Assert.Equal(pipeline == "endfield" ? 1 : 0, mapping.PluginBindings.Count);
             mappings.Add(mapping);
         }
         Assert.NotEqual(SeedBits(project.Objects[0].Source.Surface.Snapshot.RawRadialSeeds!),
@@ -114,8 +114,10 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
         D3D12ResolvedMaterialBindingProfile[] mappings, bool dedicated = true)
     {
         await using var renderer = new D3D12ViewRenderer(new(Width, Height),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
             characterMaterials: mappings.SelectMany(value => value.CharacterMaterials),
-            endfieldHairDataBindings: dedicated ? mappings.SelectMany(value => value.EndfieldHairBindings) : []);
+            pluginBindings: dedicated ? mappings.SelectMany(value => value.PluginBindings) : [],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         if (dedicated) AssertComposedInputs(project, mappings, snapshot);
@@ -129,12 +131,12 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
     private static void AssertComposedInputs(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile[] mappings,
         SceneProjectRenderSnapshot snapshot)
     {
-        var bindings = mappings.SelectMany(value => value.EndfieldHairBindings).ToArray();
+        var bindings = mappings.SelectMany(value => value.PluginBindings).ToArray();
         if (bindings.Length == 0) return;
         var styles = D3D12ViewRenderingStyles.Resolve(D3D12ViewScene.Resolve(snapshot.Scene, null, null, null,
-            new Dictionary<Guid, CharacterMorphChannels>(), new(), Camera), D3D12StylePresetCatalog.BuiltIn,
+            new Dictionary<Guid, CharacterMorphChannels>(), new(), Camera), TestStylePlugins.AllPresetCatalog,
             snapshot.RenderingStyles, mappings.SelectMany(value => value.CharacterMaterials).ToArray(),
-            sceneInputs: snapshot.SceneInputs, endfieldHairDataBindings: bindings);
+            bindings, sceneInputs: snapshot.SceneInputs, styleCatalog: TestStylePlugins.AllViewCatalog);
         var combinedSeeds = snapshot.Scene.Surface.Snapshot.RawRadialSeeds!;
         int vertexStart = 0;
         var usedTextures = new HashSet<int>();
@@ -145,13 +147,17 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
             Assert.Equal(source.RawRadialSeeds!.Vertices.ToArray(), combinedSeeds.Vertices.Slice(vertexStart, source.Vertices.Length).ToArray());
             vertexStart += source.Vertices.Length;
             var binding = bindings.Single(value => value.ObjectId == instance.ObjectId);
-            int texture = snapshot.SceneInputs[instance.ObjectId].TextureIndices[binding.LocalTextureIndex];
+            int localTexture = binding.Binding.TextureSlots!["texture"];
+            int texture = snapshot.SceneInputs[instance.ObjectId].TextureIndices[localTexture];
             Assert.True(usedTextures.Add(texture), "Each instance must retain its distinct Green image.");
-            Assert.Equal(source.Textures[binding.LocalTextureIndex].Rgba.ToArray(), snapshot.Scene.Surface.Snapshot.Textures[texture].Rgba.ToArray());
-            var hair = Assert.IsType<D3D12EndfieldHairBinding>(styles.SurfaceStyles.CharacterMaterials[instance.MaterialStart].EndfieldHair);
-            Assert.Equal(texture, hair.CombinedTextureIndex);
-            Assert.Equal(binding.PaletteColor, hair.PaletteColor);
-            Assert.Equal(binding.Brightness, hair.Brightness);
+            Assert.Equal(source.Textures[localTexture].Rgba.ToArray(), snapshot.Scene.Surface.Snapshot.Textures[texture].Rgba.ToArray());
+            var draw = styles.SurfaceStyles.CharacterMaterials[instance.MaterialStart].PluginDraw;
+            Assert.NotNull(draw);
+            Assert.Equal("hair", draw.ShaderModuleId);
+            Assert.Equal(texture, Assert.Single(draw.TextureBindings!).SceneTextureIndex);
+            var cb = MemoryMarshal.Cast<byte, Vector4>(draw.ConstantBufferData.Span)[0];
+            var expectedColor = binding.Binding.VectorValues!["paletteColor"];
+            Assert.Equal(new Vector4(expectedColor[0], expectedColor[1], expectedColor[2], (float)binding.Binding.NumberValues!["brightness"]), cb);
         }
     }
 
@@ -162,8 +168,10 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
         try
         {
             await using var renderer = new D3D12RealtimeViewRenderer(window, new(Width, Height),
+                stylePresets: TestStylePlugins.AllPresetCatalog,
                 characterMaterials: mappings.SelectMany(value => value.CharacterMaterials),
-                endfieldHairDataBindings: mappings.SelectMany(value => value.EndfieldHairBindings));
+                pluginBindings: mappings.SelectMany(value => value.PluginBindings),
+                styleCatalog: TestStylePlugins.AllViewCatalog);
             var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
             var frame = new PreviewFrame(Width, Height, 0, snapshot.Scene, null, null, null)
             { RenderingStyles = snapshot.RenderingStyles, SceneInputs = snapshot.SceneInputs, ResolvedCamera = Camera };
@@ -214,9 +222,12 @@ public sealed class EndfieldHairPmaSeedGpuTests : IDisposable
             var item = composition.Add("explicit instance " + index, path, ModelRole.Character, frame);
             composition.SetTransform(item.Id, new((index - .5f) * 2.3f, 0, 0), Quaternion.Identity, 1);
             var layout = D3D12MaterialBindingLayout.Capture(frame);
+            int texOrdinal = snapshot.Textures.Count - 1;
+            var paletteColor = index == 0 ? new Vector3(.22f, .12f, .08f) : new Vector3(.08f, .2f, .3f);
             list.Add(new(item.Id, new("radial-" + index, "radial mapping " + index, layout.Fingerprint,
-                [new(0, D3D12CharacterMaterialRole.Hair, EndfieldHair: new(layout.CaptureTexture(snapshot.Textures.Count - 1),
-                    index == 0 ? new(.22f, .12f, .08f) : new(.08f, .2f, .3f), .3f + index * .3f))]), frame));
+                [new(0, D3D12CharacterMaterialRole.Hair,
+                    pluginBindings: [T8dTestHelpers.EndfieldHair(texOrdinal, paletteColor, .3f + index * .3f)],
+                    textureGuards: [layout.CaptureTexture(texOrdinal)])]), frame));
         }
         entries = list.ToArray();
         return new(composition, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);

@@ -32,18 +32,18 @@ public sealed class D3D12AreaLightTests
 {
     private static NativeSceneLight Area => D3D12NativeLightTests.Light(SceneLightKind.Area);
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void RectangleIsOneSidedAndItsDimensionsAndRollChangeTheIllumination(D3D12SurfaceStyle style)
+    [InlineData("mmd")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void RectangleIsOneSidedAndItsDimensionsAndRollChangeTheIllumination(string styleId)
     {
         using var session = new D3D12FrameSession(); var f = D3D12NativeLightTests.Fixture();
         // Keep the receiver away from its toon ceiling, leaving room for additional light.
         var mesh=f.Surface.Snapshot; mesh=new(mesh.Vertices.ToArray(),mesh.Indices,mesh.Materials,mesh.Textures,mesh.World,mesh.Camera,Vector3.UnitZ);
         f=new(new(mesh,f.Surface.Materials,f.Surface.Profile),options:f.Options,materials:f.Materials);
-        var map=new D3D12SurfaceStyleMap([style,D3D12SurfaceStyle.Mmd]);
+        var map=new D3D12SurfaceStyleMap([styleId,"mmd"],null,TestStylePlugins.AllPresetCatalog);
         var baseline=session.Capture(f,129,97,surfaceStyles:map);
         // A sub-saturating fill leaves room in every style's deliberate palette budget;
         // clipping the full remaining budget would erase any emitter-shape differences.

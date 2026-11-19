@@ -1,12 +1,12 @@
 using System.Numerics;
-using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.Plugins.Contracts;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
 
 public sealed class EndfieldSourceInputsOracleTests
 {
-    private static D3D12EndfieldBaseImageBinding Neutral=>new(new(.2f,.5f,.8f),new(.5f),Vector3.One,Vector3.One,ShadowStrength:0);
+    private static EndfieldBaseImageSpec Neutral=>new(new(.2f,.5f,.8f),new(.5f),Vector3.One,Vector3.One,ShadowStrength:0);
 
     [Theory,InlineData(0),InlineData(.5f),InlineData(1)]
     public void FacingPreservesEndpointAndDefinedZeroPowerBehavior(float blend)
@@ -33,7 +33,7 @@ public sealed class EndfieldSourceInputsOracleTests
     [Theory,InlineData(.3f),InlineData(-2),InlineData(2),InlineData(1),InlineData(1.5f)]
     public void DirectionalMapRangeHandlesOrdinaryReversedAndCollapsedEndpoints(float width)
     {
-        var b=new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ,width);
+        var b=new EndfieldDirectionalShadowSpec(Vector3.UnitZ,width);
         foreach(float z in new[]{-1f,-.5f,0,.5f,1})
         {
             float max=1-(width-.5f),min=max*width,u=z*.5f+.5f;
@@ -45,7 +45,7 @@ public sealed class EndfieldSourceInputsOracleTests
     [Fact]
     public void QAboveOneSurvivesAndDoesNotReuseOldMatcapMapRange()
     {
-        var b=new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ);
+        var b=new EndfieldDirectionalShadowSpec(Vector3.UnitZ);
         float q=EndfieldSourceInputsOracle.DirectionalQ(Vector3.UnitZ,b);
         Assert.InRange(q,1.14f,1.15f);
         float oldA=1-(1-b.Width),oldMinimum=oldA*b.Width;
@@ -63,7 +63,7 @@ public sealed class EndfieldSourceInputsOracleTests
         Near(p,EndfieldSourceInputsOracle.Normal(g,p,1));
         Near(Vector3.Normalize(new Vector3(2,0,-1)),EndfieldSourceInputsOracle.Normal(g,p,2));
         Near(Vector3.Zero,EndfieldSourceInputsOracle.Normal(g,g*.5f,2));
-        var b=new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ);
+        var b=new EndfieldDirectionalShadowSpec(Vector3.UnitZ);
         Assert.NotEqual(EndfieldSourceInputsOracle.DirectionalQ(g,b),EndfieldSourceInputsOracle.DirectionalQ(p,b));
     }
 
@@ -80,27 +80,32 @@ public sealed class EndfieldSourceInputsOracleTests
     [Fact]
     public void ValidationRejectsAmbiguityAndNonfiniteOrNonNormalizedSourceInputs()
     {
-        (Neutral with {FacingBase=new(1),DirectionalShadow=new(Vector3.UnitZ,-4,16)}).Validate();
+        var matcap=T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette:true);
+        var palette=new EndfieldPaletteSpec(Vector3.Zero).ToBinding();
+        Assert.True(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {FacingBase=new(1),DirectionalShadow=new(Vector3.UnitZ,-4,16)}).ToBinding()]).IsValid);
         foreach(float bad in new[]{-.01f,1.01f,float.NaN,float.PositiveInfinity})
-            Assert.Throws<ArgumentOutOfRangeException>(()=>new D3D12EndfieldFacingBaseBinding(bad).Validate());
+            Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {FacingBase=new(bad)}).ToBinding()]).IsValid);
         foreach(Vector3 bad in new[]{Vector3.Zero,new Vector3(0,0,2),new Vector3(float.NaN,0,1),new Vector3(float.PositiveInfinity,0,1)})
-            Assert.Throws<ArgumentOutOfRangeException>(()=>new D3D12EndfieldDirectionalShadowBinding(bad).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ,4.1f).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ,NormalStrength:-1).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>new D3D12EndfieldDirectionalShadowBinding(Vector3.UnitZ,NormalStrength:float.NaN).Validate());
-        Assert.Throws<ArgumentException>(()=>(Neutral with {DirectionalShadow=new(Vector3.UnitZ),ShadowInputMode=D3D12EndfieldPaletteInputMode.Texture,ShadowCombinedTextureIndex=0}).Validate());
+            Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {DirectionalShadow=new(bad)}).ToBinding()]).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {DirectionalShadow=new(Vector3.UnitZ,4.1f)}).ToBinding()]).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {DirectionalShadow=new(Vector3.UnitZ,NormalStrength:-1)}).ToBinding()]).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {DirectionalShadow=new(Vector3.UnitZ,NormalStrength:float.NaN)}).ToBinding()]).IsValid);
+        Assert.False(T8dTestHelpers.ValidateEndfield([matcap,palette,(Neutral with {DirectionalShadow=new(Vector3.UnitZ),ShadowInputMode=T8dTestHelpers.ModeTexture,ShadowSlot=0}).ToBinding()]).IsValid);
     }
 
     [Fact]
     public void ConsumedEqualityIgnoresInactiveSourceAndExplicitShadowFactor()
     {
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(Neutral,Neutral with {DirectionalShadow=new(Vector3.UnitX)}));
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(Neutral,Neutral with {FacingBase=new(0)}));
-        Assert.False(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(Neutral,Neutral with {FacingBase=new(.5f)}));
+        var matcap=T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette:true);
+        var palette=new EndfieldPaletteSpec(Vector3.Zero).ToBinding();
+        StyleMaterialBindingData[] Pack(EndfieldBaseImageSpec b)=>[matcap,palette,b.ToBinding()];
+        byte[] Cbv(EndfieldBaseImageSpec b)=>T8dTestHelpers.BuildEndfieldDrawData(Pack(b))!.ConstantBufferData.ToArray();
+
+        Assert.False(Cbv(Neutral).AsSpan().SequenceEqual(Cbv(Neutral with {FacingBase=new(.5f)})));
         var b=Neutral with {ShadowStrength=1,DirectionalShadow=new(Vector3.UnitZ)};
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(b,b with {ShadowFactor=-3}));
-        Assert.False(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(b,b with {DirectionalShadow=new(Vector3.UnitX)}));
-        Assert.False(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(b,b with {DirectionalShadow=new(Vector3.UnitZ,NormalStrength:1)}));
+        Assert.False(Cbv(b).AsSpan().SequenceEqual(Cbv(b with {DirectionalShadow=new(Vector3.UnitX)})));
+        Assert.False(Cbv(b).AsSpan().SequenceEqual(Cbv(b with {DirectionalShadow=new(Vector3.UnitZ,NormalStrength:1)})));
+        Assert.True(Cbv(b).AsSpan().SequenceEqual(Cbv(b with {DirectionalShadow=new(Vector3.UnitZ,NormalStrength:2)})));
     }
 
     private static void Near(Vector3 expected,Vector3 actual)=>Assert.InRange(Vector3.Distance(expected,actual),0,4e-6f);

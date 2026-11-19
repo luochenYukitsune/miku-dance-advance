@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.style.custom-ink-cel",
+  "name": "水墨赛璐璐（示例）",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.CustomStylePlugin.dll",
+  "entryType": "Mda.CustomStylePlugin.CustomInkCelPlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": ["rendering.styles"],
+  "providesStyles": ["custom-ink-cel"],
+  "description": "Official example third-party rendering style plugin demonstrating inline LUT textures, global parameters, per-material modes, and custom HLSL hooks using Mmd.Modern.Plugins.Contracts only.",
+  "author": "MDA",
+  "localizedNames": {
+    "zh-CN": "水墨赛璐璐（示例）",
+    "en": "Ink Cel (Example)",
+    "ja": "水墨セル（例）"
+  },
+  "localizedDescriptions": {
+    "zh-CN": "官方第三方风格插件示例：基于纯契约 API 演示程序化 LUT 纹理、全局参数、材质附加模式与自定义 HLSL 钩子（二阶赛璐璐明暗、掠射水墨描边与强调边缘高光）。",
+    "en": "Official third-party rendering style example built solely against Mmd.Modern.Plugins.Contracts, demonstrating procedural LUT textures, global parameters, per-material accent modes, and custom HLSL hooks.",
+    "ja": "公式サードパーティ製スタイルプラグイン例：Mmd.Modern.Plugins.Contracts のみを使用し、プロシージャル LUT テクスチャ、グローバルパラメータ、マテリアルモード、カスタム HLSL フックを実装します。"
+  }
+}

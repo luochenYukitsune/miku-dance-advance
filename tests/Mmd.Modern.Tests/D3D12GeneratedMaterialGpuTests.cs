@@ -59,9 +59,9 @@ public sealed class D3D12GeneratedMaterialGpuTests : IDisposable
         var source = CreateSource(out string path);
         byte[] sourceFile = File.ReadAllBytes(path);
         var generated = Prepare(source);
-        var maps = Assert.Single(generated.Profile.Materials).EndfieldMatcap!;
+        var maps = Assert.Single(generated.Profile.Materials).PluginBindings[0].TextureSlots!;
         var slot = generated.SourceRest.Surface.Snapshot.Textures[
-            selected == "matcap" ? maps.Matcap.SourceSceneTextureOrdinal : maps.P.SourceSceneTextureOrdinal];
+            selected == "matcap" ? maps["matcap"] : maps["p"]];
         var replacement = Solid(slot, selected == "matcap" ? (byte)255 : (byte)0);
         var edited = selected == "matcap" ? generated.WithEditedMaps(0, matcap: replacement)
             : generated.WithEditedMaps(0, p: replacement);
@@ -85,8 +85,8 @@ public sealed class D3D12GeneratedMaterialGpuTests : IDisposable
     {
         var source = CreateSource(out string sourcePath);
         var generated = Prepare(source);
-        var matcap = Assert.Single(generated.Profile.Materials).EndfieldMatcap!.Matcap;
-        var texture = generated.SourceRest.Surface.Snapshot.Textures[matcap.SourceSceneTextureOrdinal];
+        int matcapOrdinal = Assert.Single(generated.Profile.Materials).PluginBindings[0].TextureSlots!["matcap"];
+        var texture = generated.SourceRest.Surface.Snapshot.Textures[matcapOrdinal];
         byte[] editedPixels = texture.Rgba.ToArray();
         for (int i = 0; i < editedPixels.Length; i += 4) editedPixels[i + 1] = (byte)(editedPixels[i + 1] / 2);
         generated = generated.WithEditedMaps(0, matcap: new("user edited generated MatCap", texture.Width, texture.Height, editedPixels));
@@ -119,9 +119,9 @@ public sealed class D3D12GeneratedMaterialGpuTests : IDisposable
         Assert.Equal(expected, await Capture(reopened.Session, id, final.Source, again[id], "endfield"));
         // Reopening must restore editable state, not only enough opaque pixels to display.
         var resumable = D3D12GeneratedMaterialRestore.Restore(final.Source, again[id], reopened.ReadResource(manifestPath));
-        var resumedMap = resumable.Profile.Materials[0].EndfieldMatcap!.Matcap;
+        int resumedMatcap = resumable.Profile.Materials[0].PluginBindings[0].TextureSlots!["matcap"];
         var revised = resumable.WithEditedMaps(0, matcap: Solid(
-            resumable.SourceRest.Surface.Snapshot.Textures[resumedMap.SourceSceneTextureOrdinal], 255));
+            resumable.SourceRest.Surface.Snapshot.Textures[resumedMatcap], 255));
         using var revisedProject = Project(revised.SourceRest, final.SourcePath, out Guid revisedId);
         byte[] revisedFrame = await Capture(revisedProject, revisedId, revised.SourceRest, revised.Profile, "endfield");
         Assert.True(BodySamples.Count(point => Math.Abs(RedDelta(expected, revisedFrame, point, Camera)) >= 3) >= 2);
@@ -149,7 +149,7 @@ public sealed class D3D12GeneratedMaterialGpuTests : IDisposable
     {
         var body = Assert.Single(generated.Profile.Materials);
         return new(generated.Profile.StableId, generated.Profile.Name, generated.Profile.LayoutFingerprint,
-            [enabled ? body : body with { EndfieldMatcap = null },
+            [enabled ? body : body with { PluginBindings = [], TextureGuards = [] },
                 new(1, D3D12CharacterMaterialRole.Face), new(2, D3D12CharacterMaterialRole.Eye)]);
     }
 
@@ -157,9 +157,12 @@ public sealed class D3D12GeneratedMaterialGpuTests : IDisposable
         D3D12MaterialBindingProfile profile, string pipeline, SceneCamera? camera = null)
     {
         project.SetDefaultRenderingStyle(new(pipeline), Token);
-        var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline);
-        await using var renderer = new D3D12ViewRenderer(new(W, H), characterMaterials: mapping.CharacterMaterials,
-            endfieldMatcapDataBindings: mapping.EndfieldMatcapBindings);
+        var mapping = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog);
+        await using var renderer = new D3D12ViewRenderer(new(W, H),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: mapping.PluginBindings,
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
         var scene = new OriginalFrameScene(snapshot.Scene.Surface, snapshot.Scene.Outline, snapshot.Scene.OutlineOptions,

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -11,9 +12,14 @@ namespace Mmd.Modern.Tests;
 public sealed class D3D12PackedFaceIntegrationTests
 {
     private const int Width = 401, Height = 129;
-    private static readonly D3D12SurfaceStyle[] Families = [D3D12SurfaceStyle.GenshinPmx,
-        D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.StarRailPmx,
-        D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.Mmd];
+    private static readonly string[] Families =
+    [
+        T8cTestHelpers.GenshinStyleId,
+        T8cTestHelpers.EndfieldStyleId,
+        T8cTestHelpers.StarRailStyleId,
+        T8cTestHelpers.WutheringStyleId,
+        T8cTestHelpers.MmdStyleId,
+    ];
 
     [Fact, Trait("Category", "Gpu")]
     public void FiveFamiliesMixPackedAndGrayFacesWithoutCrossDrawImagesAndRestoreOriginalExactly()
@@ -29,7 +35,7 @@ public sealed class D3D12PackedFaceIntegrationTests
             {
                 // A separate capture has exactly one selected family; every other
                 // draw is ordinary MMD. It therefore cannot inherit another packed
-                // family's root constants, t7 or t8 in its independent reference.
+                // family's root constants, t0 or t1 in its independent reference.
                 var reference = session.Capture(frame, Width, Height, surfaceStyles: Map(order, onlyFamily: family));
                 int changed = CompareRegion(frame, family, reference, mixed);
                 Assert.Equal(0, changed);
@@ -39,7 +45,7 @@ public sealed class D3D12PackedFaceIntegrationTests
                 else
                     Assert.Equal(0, CompareRegion(frame, family, original, mixed));
             }
-            // Distinct G/A and R/G control images make stale t8 binding observable
+            // Distinct G/A and R/G control images make stale secondary texture binding observable
             // in both directions, rather than accidentally equivalent fixtures.
             foreach (int packedFamily in new[] { 0, 1 })
             {
@@ -66,19 +72,23 @@ public sealed class D3D12PackedFaceIntegrationTests
     }
 
     private static D3D12SurfaceStyleMap Map(int[] order, bool bound = true, int onlyFamily = -1, bool crossSecondary = false)
-        => new(order.Select(i => onlyFamily < 0 || onlyFamily == i ? Families[i] : D3D12SurfaceStyle.Mmd),
-            order.Select(i => bound && i < 4 && (onlyFamily < 0 || onlyFamily == i)
-                ? new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face, 1, 1, Binding(i, crossSecondary))
-                : new D3D12CharacterMaterialStyle()));
+        => T8cTestHelpers.CreateDirectMap(
+            order.Select(i => onlyFamily < 0 || onlyFamily == i ? Families[i] : T8cTestHelpers.MmdStyleId),
+            order.Select(i =>
+            {
+                string styleId = onlyFamily < 0 || onlyFamily == i ? Families[i] : T8cTestHelpers.MmdStyleId;
+                return bound && i < 4 && (onlyFamily < 0 || onlyFamily == i)
+                    ? T8cTestHelpers.MaterialWithBinding(styleId, Binding(i, crossSecondary), D3D12CharacterMaterialRole.Face, 1, 1)
+                    : new D3D12CharacterMaterialStyle();
+            }));
 
-    private static D3D12FaceSdfBinding Binding(int family, bool crossSecondary)
+    private static StyleMaterialBindingData Binding(int family, bool crossSecondary)
         => family switch
         {
-            0 => D3D12FaceSdfBinding.GenshinSoft(0, crossSecondary ? 1 : 3, -Vector3.UnitZ, Vector3.UnitX, .4f),
-            1 => new(5, -Vector3.UnitZ, Vector3.UnitX, .1f, 1,
-                Encoding: D3D12FaceSdfEncoding.EndfieldRgbCmM, SecondaryCombinedTextureIndex: crossSecondary ? 3 : 1),
-            2 => new(2, -Vector3.UnitZ, Vector3.UnitX, .3f, 1),
-            _ => new(4, -Vector3.UnitZ, Vector3.UnitX, .1f, 1.27f)
+            0 => T8cTestHelpers.GenshinSoftFaceBinding(0, crossSecondary ? 1 : 3, -Vector3.UnitZ, Vector3.UnitX, .4f),
+            1 => T8cTestHelpers.EndfieldFaceSdfBinding(5, crossSecondary ? 3 : 1, -Vector3.UnitZ, Vector3.UnitX, .1f, 1),
+            2 => T8cTestHelpers.FaceSdfBinding(T8cTestHelpers.StarRailStyleId, 2, forward: -Vector3.UnitZ, right: Vector3.UnitX, transition: .3f, offset: 1),
+            _ => T8cTestHelpers.FaceSdfBinding(T8cTestHelpers.WutheringStyleId, 4, forward: -Vector3.UnitZ, right: Vector3.UnitX, transition: .1f, offset: 1.27f),
         };
 
     private static OriginalFrameScene Frame(int[] order)
@@ -92,7 +102,7 @@ public sealed class D3D12PackedFaceIntegrationTests
                 new(new(x + .35f, -.65f, 0), Vector3.UnitX, new(.375f, .5f)),
                 new(new(x + .35f, .65f, 0), Vector3.UnitX, new(.375f, .5f)),
                 new(new(x - .35f, .65f, 0), Vector3.UnitX, new(.375f, .5f))]);
-            materials.Add(new(Families[family].ToString(), indices.Count, 6, new(.6f, .4f, .2f, family == 4 ? .7f : 1),
+            materials.Add(new(Families[family], indices.Count, 6, new(.6f, .4f, .2f, family == 4 ? .7f : 1),
                 Vector3.Zero, Vector3.Zero, 1));
             indices.AddRange([(uint)first, (uint)(first + 2), (uint)(first + 1), (uint)first, (uint)(first + 3), (uint)(first + 2)]);
         }

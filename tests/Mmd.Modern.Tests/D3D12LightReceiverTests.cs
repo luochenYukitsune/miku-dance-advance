@@ -33,12 +33,12 @@ public sealed class NativeLightReceiverContractTests
 public sealed class D3D12LightReceiverTests
 {
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void IncludeExcludeAndThirtySecondMaskBitSelectTheRealRasterReceiver(D3D12SurfaceStyle family)
+    [InlineData("mmd")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void IncludeExcludeAndThirtySecondMaskBitSelectTheRealRasterReceiver(string family)
     {
         using var session = new D3D12FrameSession(); var a = Guid.NewGuid(); var b = Guid.NewGuid();
         var original = D3D12NativeLightTests.Fixture();
@@ -47,7 +47,7 @@ public sealed class D3D12LightReceiverTests
         var dark = new OriginalFrameScene(new(original.Surface.Snapshot.WithLighting(Vector3.UnitZ),
             original.Surface.Materials, original.Surface.Profile), options: original.Options, materials: original.Materials);
         var frame = NativeLightReceiverContractTests.WithOwners(dark, a, b);
-        var styles = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd]);
+        var styles = new D3D12SurfaceStyleMap([family, "mmd"], null, TestStylePlugins.AllPresetCatalog);
         var light = D3D12NativeLightTests.Light(SceneLightKind.Point) with { CastShadows = false };
         OriginalFrameScene With(params NativeSceneLight[] lights) => NativeLightReceiverContractTests.WithOwners(frame, a, b, new(lights));
         var baseline = session.Capture(With(), 129, 97, surfaceStyles: styles);

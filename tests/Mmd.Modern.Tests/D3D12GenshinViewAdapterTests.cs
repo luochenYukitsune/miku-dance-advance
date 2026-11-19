@@ -20,16 +20,15 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
     {
         var store = new D3D12StylePresetStore(directory);
         var custom = store.SaveAsNew("Body surface", "genshin", new(.3f), new(.6f, .12f));
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var source = Frame();
         var flags = source.Materials.ToArray();
         SceneRenderingStyleBinding[] bindings =
         [Binding(2, 2, custom.StableId), Binding(0, 2, "mmd")];
 
-        var result = D3D12ViewRenderingStyles.Resolve(source, catalog, bindings);
+        var result = D3D12ViewRenderingStyles.Resolve(source, catalog, bindings, styleCatalog: TestStylePlugins.AllViewCatalog);
 
-        Assert.Equal(new[] { D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd,
-            D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx }, result.SurfaceStyles.Materials);
+        Assert.Equal(new[] { "mmd", "mmd", "genshin", "genshin" }, result.SurfaceStyles.StyleIds);
         Assert.Equal(source.Materials.Count, result.SurfaceStyles.Count);
         Assert.False(result.SurfaceStyles.IsDefault);
         Assert.Same(source.Surface, result.Scene.Surface);
@@ -40,16 +39,16 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         Assert.Equal(custom.CharacterToonResponse, result.Scene.Materials[2].CharacterToonResponse);
         Assert.Equal(RayGiToonResponse.PreservePaletteBands, result.Scene.Materials[2].GiToonResponseOverride);
         Assert.Equal(flags, source.Materials);
-        Assert.Contains(result.Diagnostics, message => message.Contains("ordinary PMX basic body", StringComparison.Ordinal));
+        Assert.Contains(result.Diagnostics, message => message.Contains(bindings[0].ObjectId.ToString("D"), StringComparison.Ordinal));
         bindings[0] = bindings[0] with { Preset = new("mmd") };
         File.Delete(Path.Combine(directory, custom.StableId + ".json"));
-        Assert.Equal(D3D12SurfaceStyle.GenshinPmx, result.SurfaceStyles.Materials[2]);
-        Assert.Equal(D3D12SurfaceStyle.Mmd,
-            D3D12ViewRenderingStyles.Resolve(source, catalog, bindings).SurfaceStyles.Materials[2]);
+        Assert.Equal("genshin", result.SurfaceStyles.StyleIds[2]);
+        Assert.Equal("mmd",
+            D3D12ViewRenderingStyles.Resolve(source, catalog, bindings, styleCatalog: TestStylePlugins.AllViewCatalog).SurfaceStyles.StyleIds[2]);
         Assert.Throws<NotSupportedException>(() => ((IList<string>)result.Diagnostics)[0] = "changed");
         Assert.Equal(result.Scene.Materials,
             D3D12ViewRenderingStyles.Apply(source, catalog,
-                [Binding(0, 2, "mmd"), Binding(2, 2, custom.StableId)]).Materials);
+                [Binding(0, 2, "mmd"), Binding(2, 2, custom.StableId)], styleCatalog: TestStylePlugins.AllViewCatalog).Materials);
     }
 
     [Theory]
@@ -61,24 +60,24 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         var source = Frame();
         var binding = Binding(0, source.Materials.Count, "genshin", role);
 
-        var result = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn, [binding]);
+        var result = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog, [binding], styleCatalog: TestStylePlugins.AllViewCatalog);
 
         Assert.Same(source, result.Scene);
         Assert.True(result.SurfaceStyles.IsDefault);
-        Assert.All(result.SurfaceStyles.Materials, style => Assert.Equal(D3D12SurfaceStyle.Mmd, style));
+        Assert.All(result.SurfaceStyles.StyleIds, style => Assert.Equal("mmd", style));
         string diagnostic = Assert.Single(result.Diagnostics);
         Assert.Contains(binding.ObjectId.ToString("D"), diagnostic);
-        Assert.Contains("character-only", diagnostic);
+        Assert.Contains(role.ToString(), diagnostic);
         Assert.Contains("keeps the MMD surface", diagnostic);
-        Assert.True(D3D12ViewRenderingStyles.Preflight(source, D3D12StylePresetCatalog.BuiltIn, [binding]).IsAvailable);
+        Assert.True(D3D12ViewRenderingStyles.Preflight(source, TestStylePlugins.AllPresetCatalog, [binding], styleCatalog: TestStylePlugins.AllViewCatalog).IsAvailable);
     }
 
     [Fact]
     public void HiddenGenshinAndEmptyLegacyBindingsConsumeNoSurfaceRange()
     {
         var source = Frame();
-        var catalog = D3D12StylePresetCatalog.BuiltIn;
-        var legacy = D3D12ViewRenderingStyles.Resolve(source, catalog, []);
+        var catalog = TestStylePlugins.AllPresetCatalog;
+        var legacy = D3D12ViewRenderingStyles.Resolve(source, catalog, [], styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.Same(source, legacy.Scene);
         Assert.True(legacy.SurfaceStyles.IsDefault);
         Assert.Equal(source.Materials.Count, legacy.SurfaceStyles.Count);
@@ -86,7 +85,7 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
 
         var hidden = Binding(4, 0, "genshin", visible: false);
         var result = D3D12ViewRenderingStyles.Resolve(source, catalog,
-            [Binding(0, 4, role: ModelRole.Environment), hidden]);
+            [Binding(0, 4, role: ModelRole.Environment), hidden], styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.Same(source, result.Scene);
         Assert.True(result.SurfaceStyles.IsDefault);
         Assert.NotEmpty(Assert.Single(result.Diagnostics));
@@ -102,12 +101,12 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         var first = Binding(0, 2, "genshin");
         var invalid = Binding(1, 2);
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(source,
-            D3D12StylePresetCatalog.BuiltIn, [first, invalid]));
+            TestStylePlugins.AllPresetCatalog, [first, invalid], styleCatalog: TestStylePlugins.AllViewCatalog));
         foreach (string id in new[] { "custom-missing-a", "custom-missing-b", "custom-missing" })
         {
             var hidden = Binding(4, 0, id, visible: false);
             var error = Assert.Throws<D3D12ViewRenderingStylesException>(() => D3D12ViewRenderingStyles.Resolve(source,
-                D3D12StylePresetCatalog.BuiltIn, [first, Binding(2, 2), hidden]));
+                TestStylePlugins.AllPresetCatalog, [first, Binding(2, 2), hidden], styleCatalog: TestStylePlugins.AllViewCatalog));
             var failure = Assert.Single(error.Failures);
             Assert.Equal(id, failure.Preset.StableId);
             Assert.Equal(new[] { hidden.ObjectId }, failure.AffectedObjectIds);
@@ -124,7 +123,8 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         var custom = store.SaveAsNew("Keep parameters", "genshin", null, null);
 
         var error = Assert.Throws<NotSupportedException>(() => D3D12ViewRenderingStyles.Resolve(legacy,
-            store.Load(), [Binding(0, legacy.Materials.Count, custom.StableId)]));
+            store.Load(TestStylePlugins.AllPresetCatalog.Plugins.Values), [Binding(0, legacy.Materials.Count, custom.StableId)],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
 
         Assert.Contains("modern frame options", error.Message);
         Assert.Null(legacy.Options);
@@ -141,14 +141,14 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         var store = new D3D12StylePresetStore(directory);
         var genshin = store.SaveAsNew("Ordinary body", "genshin", new(), new());
         var mmd = store.SaveAsNew("Same parameters", "mmd", new(), new());
-        var catalog = store.Load();
+        var catalog = store.Load(TestStylePlugins.AllPresetCatalog.Plugins.Values);
         var request = new ViewRenderRequest(width, height);
         var plan = new OfflineFramePlan(width, height, new(30), 0, 8);
         var binding = Binding(0, source.Materials.Count, genshin.StableId);
         OfflineFrame Selected(int index, string id) => new(plan.GetSample(index), width, height, source, null, null, null)
         { RenderingStyles = Array.AsReadOnly(new[] { binding with { Preset = new(id) } }) };
         var token = TestContext.Current.CancellationToken;
-        await using var renderer = new D3D12ViewRenderer(request, stylePresets: catalog);
+        await using var renderer = new D3D12ViewRenderer(request, stylePresets: catalog, styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         async Task<byte[]> Capture(OfflineFrame frame)
         {
@@ -160,7 +160,8 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
         Assert.False(mmdPixels.AsSpan().SequenceEqual(genshinPixels), "The adapter must dispatch the actual Genshin body surface.");
         var viewScene = D3D12ViewScene.Resolve(source, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality);
-        var expected = D3D12ViewRenderingStyles.Resolve(viewScene, catalog, Selected(1, genshin.StableId).RenderingStyles);
+        var expected = D3D12ViewRenderingStyles.Resolve(viewScene, catalog, Selected(1, genshin.StableId).RenderingStyles,
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         using (var direct = new D3D12FrameSession())
             Assert.Equal(direct.Capture(expected.Scene, width, height, surfaceStyles: expected.SurfaceStyles).Rgba, genshinPixels);
         var before = renderer.Statistics!;
@@ -192,7 +193,7 @@ public sealed class D3D12GenshinViewAdapterTests : IDisposable
             var binding = Binding(0, scene.Materials.Count, "genshin");
             var frame = new PreviewFrame(96, 72, 0, scene, null, null, null)
             { RenderingStyles = Array.AsReadOnly(new[] { binding }) };
-            await using var renderer = new D3D12RealtimeViewRenderer(window, new(96, 72));
+            await using var renderer = new D3D12RealtimeViewRenderer(window, new(96, 72), styleCatalog: TestStylePlugins.AllViewCatalog);
             var token = TestContext.Current.CancellationToken;
             await renderer.PresentAsync(frame, token);
             var before = renderer.Statistics;

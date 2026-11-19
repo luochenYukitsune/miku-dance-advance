@@ -17,44 +17,43 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     public static IEnumerable<object[]> Families()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx }) yield return [family];
+        foreach (var family in T8cTestHelpers.ModernStyleIds) yield return [family];
     }
 
     public static IEnumerable<object[]> Variants()
     {
         foreach (var family in Families())
-        foreach (var variant in D3D12GenshinSurfaceTests.SurfaceVariants())
+        foreach (var variant in T8cTestHelpers.SurfaceVariants())
             yield return [family[0], .. variant];
     }
 
     [Theory, MemberData(nameof(Variants))]
     public void EveryActualFamilyVariantCompilesWithOneTailAndAllDiffuseConsumers(
-        D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub)
+        string family, string entry, bool native, bool gi, bool morph, bool sub)
     {
         var shader = Compile(family, entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
         string source = Source(family, native, gi, morph, sub);
         Assert.Equal(1, Occurrences(source, "float4 PmxMaterialTreatmentParams;"));
         Assert.Equal(1, Occurrences(source, "float3 PmxMaterialSaturation(float3 rgb)"));
-        Assert.Contains("precise float3 baseColor=PmxMaterialSaturation(EgColor.rgb*", source);
-        Assert.Contains("+highlight*originalC;", source);
-        Assert.Contains("float alpha=EgColor.a*texel.a*sphere.a;", source);
+        Assert.Contains("precise float3 baseColor = PmxMaterialSaturation(EgColor.rgb *", source);
+        Assert.Contains("+ highlight * originalC;", source);
+        Assert.Contains("float alpha = EgColor.a * texel.a * sphere.a;", source);
         if (native || gi)
         {
             // The standalone GI function's endpoint receives the treatment; native lights no longer copy it into a budget.
-            Assert.Equal(1, Occurrences(source, "precise float3 diffuseLit=PmxMaterialSaturation("));
-            string texel = morph ? "MorphDiffuse(texel)" : "texel";
-            Assert.Contains("precise float3 fill=EgColor.rgb*GiAmbientShare.rgb*" + texel + ";", source);
-            Assert.Contains("if(PmxMaterialTreatmentParams.x!=1 || PmxMaterialTreatmentParams.y!=0) fill=PmxMaterialSaturation(EgColor.rgb*" + texel + ")*GiAmbientShare.rgb;", source);
+            Assert.Equal(1, Occurrences(source, "precise float3 diffuseLit = PmxMaterialSaturation("));
+            Assert.Contains("fill = EgColor.rgb * GiAmbientShare.rgb * MorphDiffuse(texel);", source);
+            Assert.Contains("if (PmxMaterialTreatmentParams.x != 1 || PmxMaterialTreatmentParams.y != 0)", source);
+            Assert.Contains("fill = PmxMaterialSaturation(EgColor.rgb * MorphDiffuse(texel)) * GiAmbientShare.rgb;", source);
         }
-        if (native) Assert.Contains("float3 diffuse=PmxMaterialSaturation(NativeDiffuse.rgb*", source);
+        if (native) Assert.Contains("float3 diffuse = PmxMaterialSaturation(NativeDiffuse.rgb *", source);
         Assert.DoesNotContain("PmxMaterialTreatmentParams", OriginalFrameShaders.CharacterToonSource(native, gi, morph, sub));
     }
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void SectorBasedHsvOracleKeepsHueValueGraysAndCapsOnlySaturation(D3D12SurfaceStyle family)
+    public void SectorBasedHsvOracleKeepsHueValueGraysAndCapsOnlySaturation(string family)
     {
         using var session = new D3D12FrameSession();
         foreach (var rgb in new[] { Color, new Vector3(.1f, .6f, .3f), new Vector3(.2f, .1f, .65f), new Vector3(.37f), Vector3.Zero })
@@ -70,10 +69,10 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void ExplicitWidthIsMultipliedAfterDefaultResolutionAndOutsideProjectionUsesTheSamePalette(D3D12SurfaceStyle family)
+    public void ExplicitWidthIsMultipliedAfterDefaultResolutionAndOutsideProjectionUsesTheSamePalette(string family)
     {
         using var session = new D3D12FrameSession();
-        float dot = family == D3D12SurfaceStyle.EndfieldPmx ? -.18f : -.05f;
+        float dot = family == T8cTestHelpers.EndfieldStyleId ? -.18f : -.05f;
         var normal = new Vector3(dot, 0, -MathF.Sqrt(1 - dot * dot));
         foreach (bool custom in new[] { false, true })
         foreach (bool outside in new[] { false, true })
@@ -88,7 +87,7 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void OrdinaryIdentityAndDormantMmdRetainExactRgbaWhileProtectedRolesRejectPayloads(D3D12SurfaceStyle family)
+    public void OrdinaryIdentityAndDormantMmdRetainExactRgbaWhileProtectedRolesAndDedicatedPayloadsIgnoreOrRejectTreatments(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Surface(Color, normal: DarkNormal, textured: true);
@@ -96,35 +95,42 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
             D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
         {
             var settings = new D3D12CharacterMaterialStyle(role);
-            var baseline = session.Capture(frame, Width, Height, surfaceStyles: new([family], [settings]));
+            var baseline = session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap([family], [settings]));
             if (role is D3D12CharacterMaterialRole.Face or D3D12CharacterMaterialRole.Eye)
             {
                 foreach (var payload in new[] { new D3D12PmxMaterialTreatment(), new(.5f, 1.4f) })
-                    Assert.Throws<ArgumentException>(() => new D3D12SurfaceStyleMap([family],
+                    Assert.Throws<ArgumentException>(() => T8cTestHelpers.CreateDirectMap([family],
                         [settings with { PmxMaterialTreatment = payload }]).Validate(frame));
                 continue;
             }
             Assert.Equal(baseline.Rgba, session.Capture(frame, Width, Height,
-                surfaceStyles: new([family], [settings with { PmxMaterialTreatment = new() }])).Rgba);
-            var mmd = session.Capture(frame, Width, Height, surfaceStyles: new([D3D12SurfaceStyle.Mmd], [settings]));
-            Assert.Equal(mmd.Rgba, session.Capture(frame, Width, Height, surfaceStyles: new([D3D12SurfaceStyle.Mmd],
+                surfaceStyles: T8cTestHelpers.CreateDirectMap([family], [settings with { PmxMaterialTreatment = new() }])).Rgba);
+            var mmd = session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap([T8cTestHelpers.MmdStyleId], [settings]));
+            Assert.Equal(mmd.Rgba, session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap([T8cTestHelpers.MmdStyleId],
                 [settings with { PmxMaterialTreatment = new(.5f, 1.4f) }])).Rgba);
         }
         D3D12CharacterMaterialStyle? dedicated = family switch
         {
-            D3D12SurfaceStyle.GenshinPmx => new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: new(0)),
-            D3D12SurfaceStyle.StarRailPmx or D3D12SurfaceStyle.WutheringPmx => new(D3D12CharacterMaterialRole.Hair, StarMcHair: new(0, 0)),
+            T8cTestHelpers.GenshinStyleId => T8cTestHelpers.MaterialWithBinding(family, TestStylePlugins.GenshinHair(0), D3D12CharacterMaterialRole.Hair, frame: frame),
+            T8cTestHelpers.StarRailStyleId or T8cTestHelpers.WutheringStyleId => T8cTestHelpers.MaterialWithBinding(family,
+                T8cTestHelpers.StarMcHairBinding(family, 0, 0, highlightCoefficient: 0, intensity: 0), D3D12CharacterMaterialRole.Hair, frame: frame),
             _ => null,
         };
         if (dedicated is not null)
+        {
+            var dedicatedBase = session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap([family], [dedicated]));
             foreach (var payload in new[] { new D3D12PmxMaterialTreatment(), new(.5f, 1.4f) })
-                Assert.Throws<ArgumentException>(() => new D3D12SurfaceStyleMap([family],
-                    [dedicated with { PmxMaterialTreatment = payload }]).Validate(frame));
+            {
+                var withTreatment = T8cTestHelpers.CreateDirectMap([family], [dedicated with { PmxMaterialTreatment = payload }]);
+                Assert.Null(withTreatment.EffectivePmxMaterialTreatment(0));
+                Assert.Equal(dedicatedBase.Rgba, session.Capture(frame, Width, Height, surfaceStyles: withTreatment).Rgba);
+            }
+        }
     }
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void MixedOrdinaryFaceEyeDedicatedAndMmdDrawsKeepEveryUnselectedPixelExact(D3D12SurfaceStyle family)
+    public void MixedOrdinaryFaceEyeDedicatedAndMmdDrawsKeepEveryUnselectedPixelExact(string family)
     {
         using var session = new D3D12FrameSession();
         var source = Surface(Color, normal: DarkNormal, textured: true); var mesh = source.Surface.Snapshot;
@@ -138,15 +144,16 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
         var frame = new OriginalFrameScene(new(scene, Enumerable.Repeat(source.Surface.Materials[0], rows.Length), source.Surface.Profile), options: source.Options);
         var dedicated = family switch
         {
-            D3D12SurfaceStyle.GenshinPmx => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: new(0)),
-            D3D12SurfaceStyle.StarRailPmx or D3D12SurfaceStyle.WutheringPmx => new(D3D12CharacterMaterialRole.Hair, StarMcHair: new(0, 0)),
+            T8cTestHelpers.GenshinStyleId => T8cTestHelpers.MaterialWithBinding(family, TestStylePlugins.GenshinHair(0), D3D12CharacterMaterialRole.Hair, frame: frame),
+            T8cTestHelpers.StarRailStyleId or T8cTestHelpers.WutheringStyleId => T8cTestHelpers.MaterialWithBinding(family,
+                T8cTestHelpers.StarMcHairBinding(family, 0, 0, highlightCoefficient: 0, intensity: 0), D3D12CharacterMaterialRole.Hair, frame: frame),
             _ => new(D3D12CharacterMaterialRole.Hair),
         };
         D3D12CharacterMaterialStyle[] settings = [new(), new(D3D12CharacterMaterialRole.Face), new(D3D12CharacterMaterialRole.Eye), dedicated, new()];
-        D3D12SurfaceStyle[] families = [family, family, family, family, D3D12SurfaceStyle.Mmd];
-        var baseline = session.Capture(frame, Width, Height, surfaceStyles: new(families, settings));
+        string[] families = [family, family, family, family, T8cTestHelpers.MmdStyleId];
+        var baseline = session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap(families, settings));
         var selected = settings.ToArray(); selected[0] = selected[0] with { PmxMaterialTreatment = new(.5f, 1.4f) };
-        var actual = session.Capture(frame, Width, Height, surfaceStyles: new(families, selected));
+        var actual = session.Capture(frame, Width, Height, surfaceStyles: T8cTestHelpers.CreateDirectMap(families, selected));
         int Y(float worldY) => (int)((.5f - worldY / mesh.Camera.OrthographicHeight) * Height);
         Assert.NotEqual(PixelAt(baseline, Width / 2, Y(rows[0])), PixelAt(actual, Width / 2, Y(rows[0])));
         for (int y = Y(.8f); y < Height; y++)
@@ -157,7 +164,7 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void AuthoredHighlightIncrementRemainsIndependentOfTheTreatedDiffuse(D3D12SurfaceStyle family)
+    public void AuthoredHighlightIncrementRemainsIndependentOfTheTreatedDiffuse(string family)
     {
         using var session = new D3D12FrameSession();
         var plain = Surface(Color); var mesh = plain.Surface.Snapshot;
@@ -185,8 +192,8 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
     {
         using var session = new D3D12FrameSession();
         var frame = Surface(Color, normal: DarkNormal, textured: true, sphere: sphere, straight: straight, transparent: true, morph: true);
-        var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.GenshinPmx));
-        var actual = session.Capture(frame, Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.GenshinPmx, .5f));
+        var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(T8cTestHelpers.GenshinStyleId));
+        var actual = session.Capture(frame, Width, Height, surfaceStyles: Map(T8cTestHelpers.GenshinStyleId, .5f));
         var texel = new Vector3(128 / 255f, 192 / 255f, 64 / 255f);
         var postMorph = texel * new Vector3(.8f, .7f, .6f) + new Vector3(.1f, .05f, .02f);
         var sphereColor = new Vector3(96 / 255f, 160 / 255f, 224 / 255f);
@@ -207,12 +214,12 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
             factors: new(new(4, 3, 2, 1), Vector4.Zero));
         var rgb = Color * new Vector3(128 / 255f, 192 / 255f, 64 / 255f) * new Vector3(4, 3, 2);
         Assert.True(rgb.X > 1, "The oracle must observe positive HDR before the sphere multiply.");
-        AssertPixel(session.Capture(hdr, Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.GenshinPmx, .5f)),
+        AssertPixel(session.Capture(hdr, Width, Height, surfaceStyles: Map(T8cTestHelpers.GenshinStyleId, .5f)),
             HsvOracle(rgb, .5f) * new Vector3(96 / 255f, 160 / 255f, 224 / 255f));
         var signed = Surface(Color, textured: true, sphere: OriginalSphereMode.Add,
             factors: new(new(-.5f, 1, 1, 1), Vector4.Zero));
-        var baseline = session.Capture(signed, Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.GenshinPmx));
-        Assert.Equal(baseline.Rgba, session.Capture(signed, Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.GenshinPmx, .5f)).Rgba);
+        var baseline = session.Capture(signed, Width, Height, surfaceStyles: Map(T8cTestHelpers.GenshinStyleId));
+        Assert.Equal(baseline.Rgba, session.Capture(signed, Width, Height, surfaceStyles: Map(T8cTestHelpers.GenshinStyleId, .5f)).Rgba);
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -242,13 +249,13 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
         }
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: 0, SamplesPerPixel: 256, Seed: 17,
             MaxRayDistance: 50, RayEpsilon: .001f, DirectScale: 0, OcclusionStrength: 1, OcclusionRadius: 1);
-        var families = new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd };
-        var probe = session.Capture(Frame(true), Width, Height, gi, surfaceStyles: new(families));
+        string[] families = [T8cTestHelpers.GenshinStyleId, T8cTestHelpers.MmdStyleId, T8cTestHelpers.MmdStyleId, T8cTestHelpers.MmdStyleId, T8cTestHelpers.MmdStyleId];
+        var probe = session.Capture(Frame(true), Width, Height, gi, surfaceStyles: T8cTestHelpers.CreateDirectMap(families));
         // A white, all-ambient probe measures only the existing transport opacity.
         // Geometry, normals, raw coverage and seed are identical to the color test.
         float occlusion = 1 - Pixel(probe)[0] / 255f;
         Assert.True(occlusion > .75f, "The test requires actual near secondary hits.");
-        var map = new D3D12SurfaceStyleMap(families, [new(PmxMaterialTreatment: new(.5f)), new(), new(), new(), new()]);
+        var map = T8cTestHelpers.CreateDirectMap(families, [new(PmxMaterialTreatment: new(.5f)), new(), new(), new(), new()]);
         var color = Frame(false); var endpoint = diffuse * .5f + ambient;
         var treated = HsvOracle(endpoint, .5f); var share = ambient / endpoint;
         var off = session.Capture(color, Width, Height, surfaceStyles: map);
@@ -259,10 +266,10 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
 
     [Theory, MemberData(nameof(Families))]
     [Trait("Category", "Gpu")]
-    public void NativeAndActualGiUseTheTreatedEndpointAndWarmParameterChangesAddNoReadbacksOrPipelines(D3D12SurfaceStyle family)
+    public void NativeAndActualGiUseTheTreatedEndpointAndWarmParameterChangesAddNoReadbacksOrPipelines(string family)
     {
         using var session = new D3D12FrameSession();
-        var frame = Bounce(); var map = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd],
+        var frame = Bounce(); var map = T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId],
             [new(PmxMaterialTreatment: new(.5f)), new()]);
         var lit = HsvOracle(new Vector3(.4f, .24f, .16f) * .5f, .5f);
         var dark = lit * Toon; var budget = lit * (Vector3.One - Toon);
@@ -285,7 +292,7 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
         var warm = session.Statistics!; long readbacks = session.Runtime.Readbacks;
         for (int i = 0; i < 4; i++)
         {
-            var changed = new D3D12SurfaceStyleMap(map.Materials,
+            var changed = T8cTestHelpers.CreateDirectMap(map.StyleIds,
                 [new(PmxMaterialTreatment: new(.5f + i * .1f, 1 + i * .05f)), new()]);
             using var output = session.Render(native, Width, Height, options, surfaceStyles: changed);
             Assert.Equal(0, output.Statistics.ReadbackCount);
@@ -355,15 +362,15 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
             3 => new(p, q, value), 4 => new(t, p, value), _ => new(value, p, q) };
     }
 
-    private static float Band(D3D12SurfaceStyle family, float dot, float threshold, float width)
+    private static float Band(string family, float dot, float threshold, float width)
     {
         float h = Math.Clamp(dot * .5f + .5f, 0, 1);
         return family switch
         {
-            D3D12SurfaceStyle.GenshinPmx => Smooth(threshold - width * .5f, threshold + width * .5f, h),
-            D3D12SurfaceStyle.StarRailPmx => Math.Clamp((h - (threshold - width)) / width, 0, 1),
-            D3D12SurfaceStyle.WutheringPmx => Smooth(threshold * 2 - 1 - width * .5f, threshold * 2 - 1 + width * .5f, dot),
-            D3D12SurfaceStyle.EndfieldPmx => .5f * Smooth(threshold - width * 1.25f, threshold - width * .75f, h)
+            T8cTestHelpers.GenshinStyleId => Smooth(threshold - width * .5f, threshold + width * .5f, h),
+            T8cTestHelpers.StarRailStyleId => Math.Clamp((h - (threshold - width)) / width, 0, 1),
+            T8cTestHelpers.WutheringStyleId => Smooth(threshold * 2 - 1 - width * .5f, threshold * 2 - 1 + width * .5f, dot),
+            T8cTestHelpers.EndfieldStyleId => .5f * Smooth(threshold - width * 1.25f, threshold - width * .75f, h)
                 + .5f * Smooth(threshold + width * .75f, threshold + width * 1.25f, h),
             _ => throw new ArgumentOutOfRangeException(nameof(family)),
         };
@@ -374,8 +381,8 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
     private static OriginalFrameOptions Options() => new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: Vector4.Zero);
     private static SceneVertex[] Quad(Vector3 normal) => [new(new(-.8f, -.6f, 0), normal, new(.25f)), new(new(.8f, -.6f, 0), normal, new(.25f)),
         new(new(.8f, .6f, 0), normal, new(.25f)), new(new(-.8f, .6f, 0), normal, new(.25f))];
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, float? saturation = null, float width = 1)
-        => new([family], [new(PmxMaterialTreatment: saturation.HasValue ? new(saturation.Value, width) : null)]);
+    private static D3D12SurfaceStyleMap Map(string family, float? saturation = null, float width = 1)
+        => T8cTestHelpers.CreateDirectMap([family], [new(PmxMaterialTreatment: saturation.HasValue ? new(saturation.Value, width) : null)]);
     private static byte[] Pixel(RenderedFrame frame) => frame.Rgba.AsSpan((Height / 2 * Width + Width / 2) * 4, 4).ToArray();
     private static byte[] PixelAt(RenderedFrame frame, int x, int y) => frame.Rgba.AsSpan((y * Width + x) * 4, 4).ToArray();
     private static void AssertPixel(RenderedFrame frame, Vector3 rgb, float alpha = 1)
@@ -388,20 +395,8 @@ public sealed class D3D12PmxMaterialTreatmentSurfaceTests
     private static void AssertCoverage(RenderedFrame a, RenderedFrame b)
     { for (int i = 3; i < a.Rgba.Length; i += 4) Assert.Equal(a.Rgba[i], b.Rgba[i]); }
     private static int Occurrences(string text, string value) => text.Split(value, StringSplitOptions.None).Length - 1;
-    private static string Source(D3D12SurfaceStyle family, bool native, bool gi, bool morph, bool sub) => family switch
-    {
-        D3D12SurfaceStyle.GenshinPmx => OriginalFrameShaders.GenshinSurfaceSource(native, gi, morph, sub),
-        D3D12SurfaceStyle.StarRailPmx => OriginalFrameShaders.StarRailSurfaceSource(native, gi, morph, sub),
-        D3D12SurfaceStyle.WutheringPmx => OriginalFrameShaders.WutheringSurfaceSource(native, gi, morph, sub),
-        D3D12SurfaceStyle.EndfieldPmx => OriginalFrameShaders.EndfieldSurfaceSource(native, gi, morph, sub),
-        _ => throw new ArgumentOutOfRangeException(nameof(family)),
-    };
-    private static byte[] Compile(D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub) => family switch
-    {
-        D3D12SurfaceStyle.GenshinPmx => OriginalFrameShaders.CompileGenshinSurface(entry, native, gi, morph, sub),
-        D3D12SurfaceStyle.StarRailPmx => OriginalFrameShaders.CompileStarRailSurface(entry, native, gi, morph, sub),
-        D3D12SurfaceStyle.WutheringPmx => OriginalFrameShaders.CompileWutheringSurface(entry, native, gi, morph, sub),
-        D3D12SurfaceStyle.EndfieldPmx => OriginalFrameShaders.CompileEndfieldSurface(entry, native, gi, morph, sub),
-        _ => throw new ArgumentOutOfRangeException(nameof(family)),
-    };
+    private static string Source(string family, bool native, bool gi, bool morph, bool sub)
+        => T8cTestHelpers.AssemblePluginSurfaceSource(family, "default", "PSSurface", native, gi, morph, sub);
+    private static byte[] Compile(string family, string entry, bool native, bool gi, bool morph, bool sub)
+        => T8cTestHelpers.CompilePluginSurface(family, "default", entry, native, gi, morph, sub);
 }

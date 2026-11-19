@@ -23,25 +23,25 @@ public sealed class D3D12GenshinSurfaceTests
     [Theory,MemberData(nameof(SurfaceVariants))]
     public void EveryActualSurfaceVariantCompilesAndDiffersFromTheMmdShader(string entry,bool native,bool gi,bool morph,bool sub)
     {
-        var shader=OriginalFrameShaders.CompileGenshinSurface(entry,native,gi,morph,sub);
+        var shader=T8bTestHelpers.CompileGenshinPixel("default",entry,native,gi,morph,sub);
         var mmd=OriginalFrameShaders.CompileCharacterToon(entry,native,gi,morph,sub);
         Assert.Equal(new byte[]{(byte)'D',(byte)'X',(byte)'B',(byte)'C'},shader[..4]);
         Assert.NotEqual(Convert.ToHexString(SHA256.HashData(mmd)),Convert.ToHexString(SHA256.HashData(shader)));
-        var source=OriginalFrameShaders.GenshinSurfaceSource(native,gi,morph,sub);
-        Assert.Contains("GenshinLightResponse(dot(n,l),visibility)",source);
-        Assert.Contains("halfLambert=saturate(nDotL*.5+.5)",source);
-        Assert.Contains("+highlight*originalC;",source);
+        var source=T8bTestHelpers.AssembleGenshinPixelSource("default",entry,native,gi,morph,sub);
+        Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)",source);
+        Assert.Contains("float halfLambert = saturate(dot(n, l) * .5 + .5);",source);
+        Assert.Contains("highlight * originalC",source);
         Assert.DoesNotContain("CharacterMainToon(",source);
-        if(gi||native)Assert.Contains("GenshinLightResponse(dot(normalize(v.Normal),IncomingLight.xyz),visibility)",source);
-        if(native) { Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v,n,l) GenshinLightResponse(dot(n,l),1)",source); Assert.DoesNotContain("remainingPalette",source); }
-        if(sub)Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)",source);
+        if(gi||native)Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)",source);
+        if(native) { Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v, n, l) StylizedNativeResponse(v, n, l)",source); Assert.DoesNotContain("CharacterRemainingLightBudget",source); }
+        if(sub)Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)",source);
     }
 
     [Fact,Trait("Category","Gpu")]
     public void MixedMaterialDrawsUseDifferentAlgorithmsAndKeepTheMmdRegionAndCoverageExact()
     {
         using var session=new D3D12FrameSession();
-        var frame=Rows();var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd]);
+        var frame=Rows();var map=T8bTestHelpers.CreateDirectMap("genshin","mmd");
         var baseline=session.Capture(frame,Width,Height);
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
         int selectedY=Project(frame,new(0,.6f,0)).Y,unchangedY=Project(frame,new(0,-.6f,0)).Y;
@@ -64,7 +64,7 @@ public sealed class D3D12GenshinSurfaceTests
         Assert.Single(session.LastRecordings.Select(record=>record.DeviceIdentity).Distinct());
         Assert.Single(session.LastRecordings.Select(record=>record.CommandListIdentity).Distinct());
         Assert.Equal(baseline.Rgba,session.Capture(frame,Width,Height).Rgba);
-        Assert.Equal(baseline.Rgba,session.Capture(frame,Width,Height,surfaceStyles:new([D3D12SurfaceStyle.Mmd,D3D12SurfaceStyle.Mmd])).Rgba);
+        Assert.Equal(baseline.Rgba,session.Capture(frame,Width,Height,surfaceStyles:new(["mmd","mmd"],null,TestStylePlugins.AllPresetCatalog)).Rgba);
         var warm=session.Statistics!;long readbacks=session.Runtime.Readbacks;
         for(int i=0;i<18;i++)
         {
@@ -90,7 +90,7 @@ public sealed class D3D12GenshinSurfaceTests
         using var session=new D3D12FrameSession();
         var frame=Layers(straight,sphere,sub);
         var baseline=session.Capture(frame,Width,Height);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd]);
+        var map=T8bTestHelpers.CreateDirectMap("genshin","mmd");
         var mixed=session.Capture(frame,Width,Height,surfaceStyles:map);
         for(int offset=3;offset<baseline.Rgba.Length;offset+=4)Assert.Equal(baseline.Rgba[offset],mixed.Rgba[offset]);
         // The green second draw is drawn over the selected red draw. Reordering the
@@ -117,7 +117,7 @@ public sealed class D3D12GenshinSurfaceTests
     {
         using var session=new D3D12FrameSession();
         var frame=GiReceiver(native);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd]);
+        var map=T8bTestHelpers.CreateDirectMap("genshin","mmd");
         var options=new RayGiOptions(LightingMode.SoftwareRayTracing,Strength:20,SamplesPerPixel:32,Seed:17,
             MaxRayDistance:50,RayEpsilon:.001f,DirectionalLightDirection:Vector3.UnitZ,DirectionalIrradiance:new(3),
             Composition:RayGiComposition.ToonPalette);
@@ -162,7 +162,7 @@ public sealed class D3D12GenshinSurfaceTests
                 materials:[new(false,true,false)]);
         }
         var withoutSpecular=Fixture(Vector3.Zero);var withSpecular=Fixture(authoredSpecular);
-        var map=new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx]);
+        var map=T8bTestHelpers.CreateDirectMap("genshin");
         var mmdBase=session.Capture(withoutSpecular,Width,Height);
         var mmdLit=session.Capture(withSpecular,Width,Height);
         var genshinBase=session.Capture(withoutSpecular,Width,Height,surfaceStyles:map);

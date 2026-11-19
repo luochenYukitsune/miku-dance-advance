@@ -11,9 +11,9 @@ public sealed class D3D12RemainingStyleHistoryTests
     private const int Width = 96, Height = 72;
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void ActualFsrAndGiResetOnceForSubmittedFamilyAndFaceChangesOnly(D3D12SurfaceStyle family)
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void ActualFsrAndGiResetOnceForSubmittedFamilyAndFaceChangesOnly(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
@@ -30,15 +30,15 @@ public sealed class D3D12RemainingStyleHistoryTests
         };
         var frame = Frame();
         var gi = Gi();
-        var mmd = Map(D3D12SurfaceStyle.Mmd);
+        var mmd = Map("mmd");
         var selectedFamily = Map(family);
-        var genshin = Map(D3D12SurfaceStyle.GenshinPmx);
+        var genshin = Map("genshin");
 
         Render(mmd, 1, "FirstFrame", "FirstFrame");
         Render(selectedFamily, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(selectedFamily.Materials), 2, "None", "None");
+        Render(new(selectedFamily.StyleIds, null, TestStylePlugins.AllPresetCatalog), 2, "None", "None");
         Render(genshin, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(genshin.Materials), 2, "None", "None");
+        Render(new(genshin.StyleIds, null, TestStylePlugins.AllPresetCatalog), 2, "None", "None");
         Render(selectedFamily, 1, "ExplicitReset", "ExplicitRequest");
         Render(selectedFamily, 2, "None", "None");
 
@@ -98,15 +98,15 @@ public sealed class D3D12RemainingStyleHistoryTests
     }
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void AbortedSelectionDoesNotCommitAndItsSubmittedResetMatchesFreshPixels(D3D12SurfaceStyle family)
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void AbortedSelectionDoesNotCommitAndItsSubmittedResetMatchesFreshPixels(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
         var frame = Frame();
         var gi = Gi();
-        var genshin = Map(D3D12SurfaceStyle.GenshinPmx);
+        var genshin = Map("genshin");
         var selectedFamily = Map(family, .35f, .35f);
         using (session.Render(frame, Width, Height, gi, surfaceStyles: genshin)) { }
         using (session.Render(frame, Width, Height, gi, surfaceStyles: genshin)) { }
@@ -137,9 +137,10 @@ public sealed class D3D12RemainingStyleHistoryTests
         Assert.Equal(2UL, session.RayGiStatistics.TemporalHistoryFrames);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, float normal = 1, float shadow = 1)
-        => new([family, D3D12SurfaceStyle.Mmd],
-            [new(D3D12CharacterMaterialRole.Face, normal, shadow), new()]);
+    private static D3D12SurfaceStyleMap Map(string family, float normal = 1, float shadow = 1)
+        => new([family, "mmd"],
+            [new(D3D12CharacterMaterialRole.Face, normal, shadow), new()],
+            TestStylePlugins.AllPresetCatalog);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 17, MaxRayDistance: 50, RayEpsilon: .001f,

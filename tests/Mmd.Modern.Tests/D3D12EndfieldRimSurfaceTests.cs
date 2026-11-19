@@ -11,22 +11,23 @@ public sealed class D3D12EndfieldRimSurfaceTests
 {
     private const int W=97,H=97;
     private static readonly Vector3 Normal=new(-.7f,.7f,-.14f);
-    private static readonly D3D12EndfieldRimBinding Rim=new(new(.12f,.07f,.035f),new(.8f,.7f,.6f),1.25f,.18f,0);
+    private static readonly EndfieldRimSpec Rim=new(new(.12f,.07f,.035f),new(.8f,.7f,.6f),1.25f,.18f,0);
 
-    public static IEnumerable<object[]> Variants()=>D3D12GenshinSurfaceTests.SurfaceVariants();
+    public static IEnumerable<object[]> Variants()=>T8dTestHelpers.SurfaceVariants();
     [Theory,MemberData(nameof(Variants))]
     public void ExactMaskCompilesForEveryActualSelectedPixelEntryAndOptionalRadialHair(string entry,bool native,bool gi,bool morph,bool sub)
     {
         foreach(bool hair in new[]{false,true})
         {
-            byte[] bytes=OriginalFrameShaders.CompileEndfieldRimSurface(entry,native,gi,morph,sub,hair);
+            string moduleId=T8dTestHelpers.ResolveEndfieldModuleId(hair,rim:true,matcap:false,palette:false,baseImage:false);
+            byte[] bytes=T8dTestHelpers.CompileEndfieldPixel(moduleId,entry,native,gi,morph,sub);
             Assert.Equal(new byte[]{68,88,66,67},bytes[..4]);
-            string source=OriginalFrameShaders.EndfieldRimSurfaceSource(entry,native,gi,morph,sub,hair);
-            Assert.Contains("bool front:SV_IsFrontFace",source);
-            Assert.Contains("register(b8)",source);
-            Assert.Equal(1,source.Split("color.rgb+=EndfieldRimDelta(v,front)",StringSplitOptions.None).Length-1);
+            string source=T8dTestHelpers.AssembleEndfieldPixelSource(moduleId,entry,native,gi,morph,sub);
+            Assert.Contains("bool mdaFront : SV_IsFrontFace",source);
+            Assert.Contains("register(b0, space2)",source);
+            Assert.Equal(1,source.Split("color.rgb += EndfieldRimDelta(v, mdaFront, camRight, camUp, camForward, camBackward, isOrtho);",StringSplitOptions.None).Length-1);
             Assert.DoesNotContain("pow(1-",source);
-            if(!hair)Assert.DoesNotContain("RAW_RADIAL",source);
+            if(!hair)Assert.DoesNotContain("MDA_STYLE_GEOM_RAW_RADIAL_SEEDS",source);
         }
     }
 
@@ -155,9 +156,9 @@ public sealed class D3D12EndfieldRimSurfaceTests
             [new SceneTexture("explicit green",1,1,[0,173,0,255])],camera:Camera,lightDirection:old.LightDirection,
             rawRadialSeeds:new(Enumerable.Repeat(Vector3.UnitY,old.Vertices.Length).ToArray()));
         var frame=new OriginalFrameScene(new(scene,ordinary.Surface.Materials,ordinary.Surface.Profile),options:ordinary.Options);
-        var hair=new D3D12EndfieldHairBinding(0,new(.02f,.015f,.01f));
-        D3D12SurfaceStyleMap Styles(bool rim)=>new([D3D12SurfaceStyle.EndfieldPmx],
-            [new(D3D12CharacterMaterialRole.Hair,EndfieldHair:hair,EndfieldRim:rim?Rim:null)]);
+        var hair=T8dTestHelpers.EndfieldHair(0,new(.02f,.015f,.01f));
+        D3D12SurfaceStyleMap Styles(bool rim)=>T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,["endfield"],
+            [new(D3D12CharacterMaterialRole.Hair)],[rim?[hair,Rim.ToBinding()]:[hair]]);
         var baseline=session.Capture(frame,W,H,surfaceStyles:Styles(false));
         var actual=session.Capture(frame,W,H,surfaceStyles:Styles(true));
         var view=Matrix4x4.CreateLookAt(Camera.Eye,Camera.Target,Camera.Up);
@@ -208,7 +209,7 @@ public sealed class D3D12EndfieldRimSurfaceTests
         Vector3 Point(float z){var q=Vector4.Transform(new Vector4(2*(x+.5f)/W-1,1-2*(y+.5f)/H,z,1),invVp);return Vector3.Transform(new(q.X/q.W,q.Y/q.W,q.Z/q.W),invWorld);}
         var a=Point(0);var b=Point(1);return Vector3.Transform(a+(b-a)*(-a.Z/(b.Z-a.Z)),scene.World);
     }
-    private static float Mask(Vector3 normal,Vector3 incoming,bool front,Matrix4x4 view,D3D12EndfieldRimBinding binding)
+    private static float Mask(Vector3 normal,Vector3 incoming,bool front,Matrix4x4 view,EndfieldRimSpec binding)
     {
         Vector3 n=Vector3.Normalize(normal)*(front?1:-1),v=Vector3.Normalize(incoming);
         Vector3 nc=Vector3.TransformNormal(n,view);nc.Z=-nc.Z;
@@ -227,7 +228,7 @@ public sealed class D3D12EndfieldRimSurfaceTests
         double ct=Math.Sqrt(1-transmitted),rs=(cosine-eta*ct)/(cosine+eta*ct),rp=(eta*cosine-ct)/(eta*cosine+ct);
         return(rs*rs+rp*rp)*.5;
     }
-    private static Vector3 Delta(D3D12EndfieldRimBinding b,float scalar)
+    private static Vector3 Delta(EndfieldRimSpec b,float scalar)
     {
         float f=Math.Clamp(scalar,0,1);var c=Vector3.Zero;
         for(int i=0;i<3;i++)

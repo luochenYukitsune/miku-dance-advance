@@ -66,7 +66,8 @@ public sealed class D3D12MaterialBindingProfileStore
     {
         ArgumentNullException.ThrowIfNull(source);
         var profile = new D3D12MaterialBindingProfile("custom-" + Guid.NewGuid().ToString("N"), name,
-            source.LayoutFingerprint, source.Materials, source.LayoutVersion, source.OutlineWidths);
+            source.LayoutFingerprint, source.Materials, source.LayoutVersion, source.OutlineWidths,
+            source.PipelineId, source.GuessMaterialRoles);
         // Validate and encode before touching the filesystem.
         byte[] bytes = D3D12MaterialBindingProfileJson.Encode(profile);
         lock (gate)

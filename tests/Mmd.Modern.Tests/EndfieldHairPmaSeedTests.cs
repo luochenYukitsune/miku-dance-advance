@@ -69,8 +69,8 @@ public sealed class EndfieldHairPmaSeedTests : IDisposable
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(entry.Profile), D3D12MaterialBindingProfileJson.Encode(mappings[entry.ObjectId]));
                 for (int slot = 0; slot < restored.Surface.Snapshot.Textures.Count; slot++)
                     Assert.Equal(entry.SourceRest.Surface.Snapshot.Textures[slot].Rgba.ToArray(), restored.Surface.Snapshot.Textures[slot].Rgba.ToArray());
-                Assert.Equal(dedicated ? 1 : 0, D3D12MaterialBindingProfileResolver.Resolve(mappings[entry.ObjectId], restored, entry.ObjectId, "endfield").EndfieldHairBindings.Count);
-                Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(mappings[entry.ObjectId], restored, entry.ObjectId, "mmd").EndfieldHairBindings);
+                Assert.Equal(dedicated ? 1 : 0, D3D12MaterialBindingProfileResolver.Resolve(mappings[entry.ObjectId], restored, entry.ObjectId, "endfield", TestStylePlugins.AllViewCatalog).PluginBindings.Count);
+                Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(mappings[entry.ObjectId], restored, entry.ObjectId, "mmd", TestStylePlugins.AllViewCatalog).PluginBindings);
             }
         }
     }
@@ -226,7 +226,8 @@ public sealed class EndfieldHairPmaSeedTests : IDisposable
             var layout=D3D12MaterialBindingLayout.Capture(frame);
             list.Add(new(obj.Id,new("map-"+i,"mapping "+i,layout.Fingerprint,
                 [new(0,D3D12CharacterMaterialRole.Hair,
-                    EndfieldHair:dedicated ? new(layout.CaptureTexture(appended.Textures.Count-1),new(.2f,.4f,.8f),-.5f) : null)]),frame));
+                    pluginBindings:dedicated ? [T8dTestHelpers.EndfieldHair(appended.Textures.Count-1,new(.2f,.4f,.8f),-.5f)] : null,
+                    textureGuards:dedicated ? [layout.CaptureTexture(appended.Textures.Count-1)] : null)]),frame));
         }
         entries=list.ToArray();
         return new(composition,new SceneLightingEditor(),[],new NoPhysics(),cancellationToken:Token);

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 
 namespace Mmd.Modern.App;
 
@@ -11,6 +12,8 @@ public partial class EditorWindow
     {
         if (Plugins is not null) throw new InvalidOperationException("A plugin host is already attached to this editor.");
         Plugins = plugins;
+        plugins.PluginsChanged += OnPluginsChanged;
+        _shell?.AttachPluginService(plugins);
         this.FindControl<Avalonia.Controls.MenuItem>("PluginsMenuItem")!.IsEnabled = true;
     }
 
@@ -29,15 +32,24 @@ public partial class EditorWindow
                 catch { await host.DisposeAsync(); throw; }
                 AttachPlugins(host);
             }
-            await new EditorPluginsWindow(this, host).ShowDialog(this);
+            await new EditorPluginsWindow(this, host, _shell?.Workspace).ShowDialog(this);
         }
         catch (Exception error) { await ShowErrorAsync(error); }
+    }
+
+    private void OnPluginsChanged(object? sender, EventArgs args)
+    {
+        void Apply() => _shell?.OnPluginsChanged();
+        if (Dispatcher.UIThread.CheckAccess()) Apply();
+        else Dispatcher.UIThread.Post(Apply);
     }
 
     internal async ValueTask ReleasePluginsAsync()
     {
         if (Plugins is not { } service) return;
-        await service.DisposeAsync();
+        service.PluginsChanged -= OnPluginsChanged;
+        _shell?.AttachPluginService(null);
         Plugins = null;
+        await service.DisposeAsync();
     }
 }

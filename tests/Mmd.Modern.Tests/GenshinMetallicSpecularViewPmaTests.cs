@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +8,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
@@ -17,36 +20,58 @@ public sealed class GenshinMetallicSpecularViewPmaTests
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
-    public void DetachedNestedPayloadAndRequestsPreserveExplicitRampEvenWhenItsMixIsZero()
+    public void DetachedNestedPayloadAndRequestsHandleOptionalRampAndValidation()
     {
-        var id = Guid.NewGuid(); var value = View(id, mix: 0);
-        D3D12ViewGenshinMetallicBinding[] input = [value];
-        var frozen = D3D12ViewGenshinMetallicBindings.Detach(input);
-        input[0] = value with { Specular = null };
-        Assert.Equal(value, Assert.Single(frozen));
-        Assert.Same(frozen, D3D12ViewGenshinMetallicBindings.Detach(frozen));
-        var existing = new SceneObjectRenderRequest(id, [4], [3], [8], includeSourceGeometry: true);
-        var request = Assert.Single(D3D12ViewGenshinMetallicBindings.CreateRequests(frozen, [existing]));
-        Assert.Equal(new[] { 0, 1, 2, 8 }, request.OptionalLocalTextureIndices.Order());
-        Assert.Equal(new[] { 3 }, request.LocalTextureIndices);
-        Assert.Equal(new[] { 4 }, request.BoneIndices);
-        Assert.True(request.IncludeSourceGeometry);
-        var noRamp = value with { Specular = value.Specular! with { RampCombinedTextureIndex = null } };
-        Assert.Equal(new[] { 0, 1 }, Assert.Single(D3D12ViewGenshinMetallicBindings.CreateRequests([noRamp])).OptionalLocalTextureIndices.Order());
-        D3D12ViewGenshinMetallicBindings.Detach([noRamp]);
+        var id = Guid.NewGuid();
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal) { ["lightmap"] = 0, ["matcap"] = 1, ["specularRamp"] = 2 };
+        var value = TestStylePlugins.Bind(id, 0, MakeBinding(rampSlot: 2, rampMix: 0f));
+        D3D12ViewPluginMaterialBinding[] input = [value];
+        var frozen = D3D12ViewPluginMaterialBindings.Detach(input);
+        input[0] = TestStylePlugins.Bind(id, 0, MakeBinding(hasSpecular: false));
+        Assert.True(D3D12StylePluginAdapter.BindingDataEquivalent(value.Binding, Assert.Single(frozen).Binding));
+        Assert.Same(frozen, D3D12ViewPluginMaterialBindings.Detach(frozen));
+
+        // Zero rampMix omits the optional ramp from GetSceneTextureRequests; positive rampMix requests it.
+        var zeroMixReq = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests(frozen, TestStylePlugins.AllViewCatalog));
+        Assert.Equal(new[] { 0, 1 }, zeroMixReq.OptionalLocalTextureIndices.Order());
+
+        var active = TestStylePlugins.Bind(id, 0, MakeBinding(rampSlot: 2, rampMix: .5f));
+        var matcap = TestStylePlugins.Bind(id, 1, T8bTestHelpers.CreateEndfieldMatcapBinding(3, 4, 8));
+        var face = TestStylePlugins.Bind(id, 2, TestStylePlugins.FaceSdf("genshin", 0, 1,
+            trackingMode: StyleBoneTrackingMode.SelectedBone, boneName: "4"));
+        var boneNames = new Dictionary<Guid, IReadOnlyDictionary<string, int>>
+        {
+            [id] = new Dictionary<string, int>(StringComparer.Ordinal) { ["4"] = 4 }
+        };
+        var unionReq = Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests(
+            [active, matcap, face], TestStylePlugins.AllViewCatalog,
+            [new(id, 2, D3D12CharacterMaterialRole.Face)], boneNames));
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 8 }, unionReq.OptionalLocalTextureIndices.Order());
+        Assert.Equal(new[] { 4 }, unionReq.BoneIndices);
+
+        var noRamp = TestStylePlugins.Bind(id, 0, MakeBinding(rampSlot: -1, rampMix: 0f));
+        Assert.Equal(new[] { 0, 1 }, Assert.Single(D3D12ViewPluginMaterialBindings.CreateRequests([noRamp], TestStylePlugins.AllViewCatalog)).OptionalLocalTextureIndices.Order());
+
+        foreach (var bad in new[]
+        {
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularColor: new(float.NaN))),
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularSharpColor: new(float.PositiveInfinity))),
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularScale: float.NaN)),
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularAttenuation: float.NaN)),
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularSharpOffset: float.NaN)),
+            TestStylePlugins.Bind(id, 0, MakeBinding(rampMix: float.NaN)),
+            new D3D12ViewPluginMaterialBinding(id, 0, new("genshin", "metallic",
+                new ReadOnlyDictionary<string, int>(slots.ToDictionary(p => p.Key, p => p.Key == "specularRamp" ? -2 : p.Value)),
+                value.Binding.NumberValues, value.Binding.BoolValues, value.Binding.VectorValues, value.Binding.StringValues))
+        })
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Detach([bad]));
+
         foreach (var invalid in new[]
         {
-            value with { Specular = value.Specular! with { Color = new(float.NaN) } },
-            value with { Specular = value.Specular! with { SharpColor = new(float.PositiveInfinity) } },
-            value with { Specular = value.Specular! with { Shininess = -1 } },
-            value with { Specular = value.Specular! with { Scale = float.NaN } },
-            value with { Specular = value.Specular! with { Attenuation = float.NaN } },
-            value with { Specular = value.Specular! with { SharpOffset = float.NaN } },
-            value with { Specular = value.Specular! with { RampMix = float.NaN } },
-            value with { Specular = value.Specular! with { RampCombinedTextureIndex = -1 } },
-            noRamp with { Specular = noRamp.Specular! with { RampMix = .1f } }
+            TestStylePlugins.Bind(id, 0, MakeBinding(specularShininess: -1f)),
+            TestStylePlugins.Bind(id, 0, MakeBinding(rampSlot: -1, rampMix: .1f)),
         })
-            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewGenshinMetallicBindings.Detach([invalid]));
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([], [invalid], TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
@@ -57,33 +82,43 @@ public sealed class GenshinMetallicSpecularViewPmaTests
         var second = editor.Add("second selected object", Path.Combine(Path.GetTempPath(), "metal-spec-b.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new("genshin"), Token);
-        D3D12ViewGenshinMetallicBinding[] bindings = [View(first.Id), View(second.Id)];
-        D3D12ViewGenshinHairBinding[] hair = [new(first.Id, 0, 0)];
-        var requests = D3D12ViewGenshinMetallicBindings.CreateRequests(bindings, D3D12ViewGenshinHairBindings.CreateRequests(hair));
+        D3D12ViewPluginMaterialBinding[] bindings = [View(first.Id), View(second.Id)];
+        D3D12ViewPluginMaterialBinding[] hair = [TestStylePlugins.Bind(first.Id, 0, TestStylePlugins.GenshinHair(0))];
+        D3D12ViewPluginMaterialBinding[] all = [.. bindings, .. hair];
+        var requests = D3D12ViewPluginMaterialBindings.CreateRequests(all, TestStylePlugins.AllViewCatalog);
         var capture = project.CaptureRenderSnapshot(requests);
-        var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, sceneInputs: capture.SceneInputs, hairDataBindings: hair, genshinMetallicDataBindings: bindings);
+        var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, sceneInputs: capture.SceneInputs, pluginBindings: all, styleCatalog: TestStylePlugins.AllViewCatalog);
         foreach (var obj in capture.RenderingStyles)
         {
             var style = result.SurfaceStyles.CharacterMaterials[obj.MaterialStart];
-            var parent = Assert.IsType<D3D12GenshinMetallicBinding>(style.GenshinMetallic);
-            var specular = Assert.IsType<D3D12GenshinMetallicSpecularBinding>(parent.Specular);
-            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[0], parent.LightmapCombinedTextureIndex);
-            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[1], parent.MatcapCombinedTextureIndex);
-            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[2], specular.RampCombinedTextureIndex);
-            Assert.Equal(View(obj.ObjectId).Specular! with { RampCombinedTextureIndex = specular.RampCombinedTextureIndex }, specular);
+            var draw = Assert.IsType<D3D12PluginDrawData>(style.PluginDraw);
+            Assert.Equal(obj.ObjectId == first.Id ? "metallic-specular-rb" : "metallic-specular", draw.ShaderModuleId);
+            var texBySlot = draw.TextureBindings!.ToDictionary(t => t.SlotIndex, t => t.SceneTextureIndex);
+            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[0], texBySlot[3]);
+            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[1], texBySlot[4]);
+            Assert.Equal(capture.SceneInputs[obj.ObjectId].TextureIndices[2], texBySlot[5]);
+            int cbOffset = obj.ObjectId == first.Id ? 16 : 0;
+            var specCb = draw.ConstantBufferData.Span[(cbOffset + 64)..];
+            Assert.Equal(new Vector3(.7f, 1.2f, -.1f), new(
+                BinaryPrimitives.ReadSingleLittleEndian(specCb[..4]),
+                BinaryPrimitives.ReadSingleLittleEndian(specCb[4..8]),
+                BinaryPrimitives.ReadSingleLittleEndian(specCb[8..12])));
+            Assert.Equal(12f, BinaryPrimitives.ReadSingleLittleEndian(specCb[12..16]));
+            Assert.Equal(.6f, BinaryPrimitives.ReadSingleLittleEndian(specCb[40..44]));
             if (obj.ObjectId == first.Id)
-                Assert.Equal(parent.LightmapCombinedTextureIndex, style.GenshinNonMetallicSpecular!.CombinedTextureIndex);
+                Assert.Equal(texBySlot[3], texBySlot[0]);
         }
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Preflight(Modern(capture.Scene, source),
-            D3D12StylePresetCatalog.BuiltIn, capture.RenderingStyles, hairDataBindings: [new(first.Id, 0, 2)],
-            genshinMetallicDataBindings: bindings));
+            TestStylePlugins.AllPresetCatalog, capture.RenderingStyles,
+            pluginBindings: [.. bindings, TestStylePlugins.Bind(first.Id, 0, TestStylePlugins.GenshinHair(2))],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void SelectedRampRequiresACurrentImageEvenWithZeroMix(bool procedural)
+    public void ActiveRampRequiresACurrentImageAndProfileGuardsUnusedRamp(bool procedural)
     {
         var source = Source(); var textures = source.Surface.Snapshot.Textures.ToArray();
         if (procedural) textures[2] = SceneTexture.ProceduralToon();
@@ -91,27 +126,88 @@ public sealed class GenshinMetallicSpecularViewPmaTests
         var item = editor.Add("selected resource", Path.Combine(Path.GetTempPath(), "metal-spec-missing.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
         project.SetDefaultRenderingStyle(new("genshin"), Token);
-        var mapping = View(item.Id, mix: 0);
-        var captured = mapping with { Specular = null };
-        var capture = project.CaptureRenderSnapshot(D3D12ViewGenshinMetallicBindings.CreateRequests([procedural ? mapping : captured]));
+        var activeMix = View(item.Id, mix: .5f);
+        var capturedWithoutRamp = TestStylePlugins.Bind(item.Id, 0, MakeBinding(hasSpecular: false));
+        var capture = project.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(
+            [capturedWithoutRamp], TestStylePlugins.AllViewCatalog));
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source),
-            D3D12StylePresetCatalog.BuiltIn, capture.RenderingStyles, sceneInputs: capture.SceneInputs,
-            genshinMetallicDataBindings: [mapping]));
-        var absent = mapping with { Specular = mapping.Specular! with { RampCombinedTextureIndex = null } };
-        var resolved = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-            capture.RenderingStyles, sceneInputs: capture.SceneInputs, genshinMetallicDataBindings: [absent]);
-        Assert.Null(Assert.Single(resolved.SurfaceStyles.CharacterMaterials).GenshinMetallic!.Specular!.RampCombinedTextureIndex);
+            TestStylePlugins.AllPresetCatalog, capture.RenderingStyles, sceneInputs: capture.SceneInputs,
+            pluginBindings: [activeMix], styleCatalog: TestStylePlugins.AllViewCatalog));
+
+        if (procedural)
+        {
+            var layout = D3D12MaterialBindingLayout.Capture(source);
+            var procProfile = new D3D12MaterialBindingProfile("proc", "Proc", layout.Fingerprint,
+                [new(0, D3D12CharacterMaterialRole.Body,
+                    pluginBindings: [MakeBinding(rampSlot: 2, rampMix: 0f)],
+                    textureGuards: [layout.CaptureTexture(0), layout.CaptureTexture(1),
+                        new(2, 2, 2, SceneTextureKind.IndexedProceduralToon, layout.CaptureTexture(2).RgbaSha256)])]);
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+                procProfile, source, item.Id, "genshin", TestStylePlugins.AllViewCatalog));
+        }
+
+        var absent = TestStylePlugins.Bind(item.Id, 0, MakeBinding(rampSlot: -1, rampMix: 0f));
+        var resolved = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+            capture.RenderingStyles, sceneInputs: capture.SceneInputs, pluginBindings: [absent], styleCatalog: TestStylePlugins.AllViewCatalog);
+        Assert.Equal(2, Assert.Single(resolved.SurfaceStyles.CharacterMaterials).PluginDraw!.TextureBindings!.Count);
     }
 
     [Fact]
-    public void SchemaSevenStrictlyRoundtripsAndRejectsNestedMissingUnknownEnumsAndOlderVersion()
+    public void SchemaFourteenAndLegacySchemaSevenRoundtripAndRejectMalformedPayloads()
     {
         var profile = Profile(Source()); var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(7, profile.SchemaVersion);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profile.SchemaVersion);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
+        foreach (string damage in new[] { "missing", "unknown", "schema", "kind", "numeric-enum", "nonfinite" })
+        {
+            var doc = JsonNode.Parse(bytes)!;
+            var row = doc["materials"]![0]!.AsObject();
+            var binding = row["pluginBindings"]![0]!.AsObject();
+            var guard = row["textureGuards"]![2]!.AsObject();
+            if (damage == "missing") binding.Remove("modeId");
+            if (damage == "unknown") binding["unexpected"] = 1;
+            if (damage == "schema") doc["schemaVersion"] = 7;
+            if (damage == "kind") guard["kind"] = "image";
+            if (damage == "numeric-enum") guard["kind"] = "0";
+            if (damage == "nonfinite") binding["numberValues"]!["specularScale"] = "NaN";
+            Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
+        }
+        var future = JsonNode.Parse(bytes)!; future["schemaVersion"] = D3D12MaterialBindingProfile.CurrentSchemaVersion + 1;
+        Assert.Throws<NotSupportedException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(future.ToJsonString())));
+
+        var layout = D3D12MaterialBindingLayout.Capture(Source());
+        var lm = layout.CaptureTexture(0); var mc = layout.CaptureTexture(1); var rm = layout.CaptureTexture(2);
+        var legacy = new JsonObject
+        {
+            ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 7,
+            ["stableId"] = "legacy-seven", ["name"] = "Legacy Seven", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint,
+            ["materials"] = new JsonArray(new JsonObject
+            {
+                ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
+                ["faceGeometricShadowStrength"] = 1f, ["eyeGeometricShadowStrength"] = .2f,
+                ["pmxMaterialTreatment"] = null, ["face"] = null, ["genshinHair"] = null, ["starMcHair"] = null,
+                ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null, ["endfieldMatcap"] = null,
+                ["genshinMetallic"] = new JsonObject
+                {
+                    ["lightmap"] = Texture(lm), ["matcap"] = Texture(mc), ["matcapEncoding"] = "SrgbRgb",
+                    ["darkColor"] = Vector(new(.2f, .3f, .4f)), ["lightColor"] = Vector(new(1.2f, 1.3f, 1.4f)),
+                    ["shadowMultiplyColor"] = Vector(new(.8f, .7f, .6f)), ["enableMetallics"] = .6f,
+                    ["tileScale"] = 1.7f, ["brightness"] = .8f, ["litMode"] = "Uniform", ["uniformLitFactor"] = .95f,
+                    ["specular"] = new JsonObject
+                    {
+                        ["color"] = Vector(new(.7f, 1.2f, -.1f)), ["sharpColor"] = Vector(new(.2f, .4f, 1.3f)),
+                        ["shininess"] = 12f, ["scale"] = .8f, ["attenuation"] = .4f, ["sharpOffset"] = .9f,
+                        ["ramp"] = Texture(rm), ["rampMix"] = .6f
+                    }
+                }
+            })
+        };
+        var decodedLegacy = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacy.ToJsonString()));
+        Assert.True(decodedLegacy.Materials[0].PluginBindings[0].BoolValues!["hasSpecular"]);
         foreach (string damage in new[] { "missing", "unknown", "schema", "encoding", "mode", "kind", "numeric-enum", "ramp-missing", "parameter-missing", "ramp-required", "nonfinite" })
         {
-            var doc = JsonNode.Parse(bytes)!; var parent = doc["materials"]![0]!["genshinMetallic"]!.AsObject();
+            var doc = JsonNode.Parse(legacy.ToJsonString())!; var parent = doc["materials"]![0]!["genshinMetallic"]!.AsObject();
             var specular = parent["specular"]!.AsObject();
             if (damage == "missing") parent.Remove("specular");
             if (damage == "unknown") specular["intensity"] = 1;
@@ -126,22 +222,20 @@ public sealed class GenshinMetallicSpecularViewPmaTests
             if (damage == "nonfinite") specular["scale"] = "NaN";
             Assert.Throws<InvalidDataException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(doc.ToJsonString())));
         }
-        var future = JsonNode.Parse(bytes)!; future["schemaVersion"] = D3D12MaterialBindingProfile.CurrentSchemaVersion + 1;
-        Assert.Throws<NotSupportedException>(() => D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(future.ToJsonString())));
     }
 
     [Fact]
-    public void SchemaSevenAllowsNoRampAtZeroMixAndMixedParentsWithoutSpecular()
+    public void SchemaFourteenAllowsNoRampAtZeroMixAndMixedParentsWithoutSpecular()
     {
         var source = Source(); var profile = Profile(source, ramp: false, mix: 0);
         var rows = new[] { profile.Materials[0], profile.Materials[0] with { LocalMaterialIndex = 1,
-            GenshinMetallic = profile.Materials[0].GenshinMetallic! with { Specular = null } } };
+            PluginBindings = [MakeBinding(hasSpecular: false)] } };
         profile = new(profile.StableId, profile.Name, profile.LayoutFingerprint, rows);
         var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
         var restored = D3D12MaterialBindingProfileJson.Decode(bytes);
-        Assert.Equal(7, restored.SchemaVersion);
-        Assert.Null(restored.Materials[0].GenshinMetallic!.Specular!.Ramp);
-        Assert.Null(restored.Materials[1].GenshinMetallic!.Specular);
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, restored.SchemaVersion);
+        Assert.False(restored.Materials[0].PluginBindings[0].TextureSlots!.ContainsKey("specularRamp"));
+        Assert.Null(restored.Materials[1].PluginBindings[0].BoolValues);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(restored));
     }
 
@@ -153,25 +247,26 @@ public sealed class GenshinMetallicSpecularViewPmaTests
     public void DormantProfileGuardsAnExplicitUnusedRampAndRejectsProceduralResources(string pipeline)
     {
         var source = Source(); var profile = Profile(source, mix: 0); var id = Guid.NewGuid();
-        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline).GenshinMetallicBindings);
+        Assert.Empty(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog).PluginBindings);
         var textures = source.Surface.Snapshot.Textures.ToArray();
         textures[2] = new("mutated ramp", 2, 2, new byte[16]);
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(textures), id, pipeline));
-        var parent = profile.Materials[0].GenshinMetallic!;
-        Assert.Throws<ArgumentException>(() => (parent with { Specular = parent.Specular! with
-            { Ramp = parent.Specular.Ramp! with { Kind = SceneTextureKind.IndexedProceduralToon } } }).Validate());
-        var active = Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, "genshin").GenshinMetallicBindings);
-        Assert.Equal(2, active.Specular!.RampCombinedTextureIndex);
-        Assert.Equal(0, active.Specular.RampMix);
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, Source(textures), id, pipeline, TestStylePlugins.AllViewCatalog));
+        var row = profile.Materials[0];
+        var procGuards = row.TextureGuards.ToArray();
+        procGuards[2] = procGuards[2] with { Kind = SceneTextureKind.IndexedProceduralToon };
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(
+            new("proc-guard", "Proc Guard", profile.LayoutFingerprint, [row with { TextureGuards = procGuards }]),
+            source, id, pipeline, TestStylePlugins.AllViewCatalog));
+        var active = Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, "genshin", TestStylePlugins.AllViewCatalog).PluginBindings).Binding;
+        Assert.Equal(2, active.TextureSlots!["specularRamp"]);
+        Assert.Equal(0, active.NumberValues!["specularRampMix"]);
     }
 
     [Fact]
-    public void LegacySchemaSixBytesContainNoSpecularPlaceholder()
+    public void LegacySchemaSixDecodesWithoutSpecularAndUpgradesCleanly()
     {
-        var source = Source(); var profile = Profile(source);
-        profile = new(profile.StableId, profile.Name, profile.LayoutFingerprint,
-            [profile.Materials[0] with { GenshinMetallic = profile.Materials[0].GenshinMetallic! with { Specular = null } }]);
-        var metallic = profile.Materials[0].GenshinMetallic!;
+        var source = Source(); var layout = D3D12MaterialBindingLayout.Capture(source);
+        var lm = layout.CaptureTexture(0); var mc = layout.CaptureTexture(1);
         var row = new JsonObject
         {
             ["localMaterialIndex"] = 0, ["role"] = "Body", ["faceNormalShadeStrength"] = .35f,
@@ -180,28 +275,29 @@ public sealed class GenshinMetallicSpecularViewPmaTests
             ["endfieldRim"] = null, ["genshinHairAtlas"] = null, ["endfieldHair"] = null, ["endfieldMatcap"] = null,
             ["genshinMetallic"] = new JsonObject
             {
-                ["lightmap"] = Texture(metallic.Lightmap), ["matcap"] = Texture(metallic.Matcap),
-                ["matcapEncoding"] = "SrgbRgb", ["darkColor"] = Vector(metallic.DarkColor), ["lightColor"] = Vector(metallic.LightColor),
-                ["shadowMultiplyColor"] = Vector(metallic.ShadowMultiplyColor), ["enableMetallics"] = metallic.EnableMetallics,
-                ["tileScale"] = metallic.TileScale, ["brightness"] = metallic.Brightness, ["litMode"] = "Uniform",
-                ["uniformLitFactor"] = metallic.UniformLitFactor
+                ["lightmap"] = Texture(lm), ["matcap"] = Texture(mc),
+                ["matcapEncoding"] = "Srgb", ["darkColor"] = Vector(new(.2f, .3f, .4f)), ["lightColor"] = Vector(new(1.2f, 1.3f, 1.4f)),
+                ["shadowMultiplyColor"] = Vector(new(.8f, .7f, .6f)), ["enableMetallics"] = .6f,
+                ["tileScale"] = 1.7f, ["brightness"] = .8f, ["litMode"] = "Uniform",
+                ["uniformLitFactor"] = .95f
             }
         };
-        var expected = new JsonObject
+        var legacy = new JsonObject
         {
             ["format"] = "mda-d3d12-material-binding-profile", ["schemaVersion"] = 6,
-            ["stableId"] = profile.StableId, ["name"] = profile.Name, ["layoutVersion"] = 1,
-            ["layoutFingerprint"] = profile.LayoutFingerprint, ["materials"] = new JsonArray(row)
+            ["stableId"] = "genshin-metal", ["name"] = "Explicit metal", ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = layout.Fingerprint, ["materials"] = new JsonArray(row)
         };
-        var bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(6, profile.SchemaVersion);
-        Assert.DoesNotContain("specular", Encoding.UTF8.GetString(bytes));
-        Assert.Equal(Encoding.UTF8.GetBytes(expected.ToJsonString(new JsonSerializerOptions { WriteIndented = true })), bytes);
-        Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(bytes)));
+        var decoded = D3D12MaterialBindingProfileJson.Decode(Encoding.UTF8.GetBytes(legacy.ToJsonString(new JsonSerializerOptions { WriteIndented = true })));
+        var binding = Assert.Single(decoded.Materials[0].PluginBindings);
+        Assert.Null(binding.BoolValues);
+        byte[] upgraded = D3D12MaterialBindingProfileJson.Encode(decoded);
+        Assert.DoesNotContain("hasSpecular", Encoding.UTF8.GetString(upgraded));
+        Assert.Equal(upgraded, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(upgraded)));
     }
 
     [Fact]
-    public void PortableSchemaSevenRestoresRampAndFullOriginalTextureTableAfterRelocationAndDefaultResave()
+    public void PortableSchemaFourteenRestoresRampAndFullOriginalTextureTableAfterRelocationAndDefaultResave()
     {
         string directory = Path.Combine(Path.GetTempPath(), "metal-spec-portable-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -239,10 +335,10 @@ public sealed class GenshinMetallicSpecularViewPmaTests
             {
                 var restored = loaded.Session.Objects.Single().Source;
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(profiles[item.Id]));
-                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "genshin");
-                var selection = Assert.Single(mapped.GenshinMetallicBindings);
-                Assert.Equal(offset, selection.LightmapLocalTextureIndex); Assert.Equal(offset + 1, selection.MatcapLocalTextureIndex);
-                Assert.Equal(offset + 2, selection.Specular!.RampCombinedTextureIndex);
+                var mapped = D3D12MaterialBindingProfileResolver.Resolve(profiles[item.Id], restored, item.Id, "genshin", TestStylePlugins.AllViewCatalog);
+                var selection = Assert.Single(mapped.PluginBindings).Binding;
+                Assert.Equal(offset, selection.TextureSlots!["lightmap"]); Assert.Equal(offset + 1, selection.TextureSlots["matcap"]);
+                Assert.Equal(offset + 2, selection.TextureSlots["specularRamp"]);
                 Assert.Equal(extended.Textures.Count, restored.Surface.Snapshot.Textures.Count);
                 for (int i = 0; i < extended.Textures.Count; i++)
                 {
@@ -250,17 +346,18 @@ public sealed class GenshinMetallicSpecularViewPmaTests
                     Assert.Equal(extended.Textures[i].Width, restored.Surface.Snapshot.Textures[i].Width);
                     Assert.Equal(extended.Textures[i].Height, restored.Surface.Snapshot.Textures[i].Height);
                 }
-                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewGenshinMetallicBindings.CreateRequests(mapped.GenshinMetallicBindings));
-                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), D3D12StylePresetCatalog.BuiltIn,
-                    capture.RenderingStyles, mapped.CharacterMaterials, sceneInputs: capture.SceneInputs,
-                    genshinMetallicDataBindings: mapped.GenshinMetallicBindings);
-                var active = Assert.Single(result.SurfaceStyles.CharacterMaterials).GenshinMetallic!.Specular!;
-                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 2], active.RampCombinedTextureIndex);
+                var capture = loaded.Session.CaptureRenderSnapshot(D3D12ViewPluginMaterialBindings.CreateRequests(mapped.PluginBindings, TestStylePlugins.AllViewCatalog));
+                var result = D3D12ViewRenderingStyles.Resolve(Modern(capture.Scene, source), TestStylePlugins.AllPresetCatalog,
+                    capture.RenderingStyles, mapped.CharacterMaterials, mapped.PluginBindings, sceneInputs: capture.SceneInputs,
+                    styleCatalog: TestStylePlugins.AllViewCatalog);
+                var draw = Assert.IsType<D3D12PluginDrawData>(Assert.Single(result.SurfaceStyles.CharacterMaterials).PluginDraw);
+                Assert.Equal("metallic-specular", draw.ShaderModuleId);
+                Assert.Equal(capture.SceneInputs[item.Id].TextureIndices[offset + 2], draw.TextureBindings!.Single(t => t.SlotIndex == 5).SceneTextureIndex);
                 PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
             }
             using var reopened = D3D12MaterialBindingPma.Load(resaved, Path.Combine(directory, "cache2"), Load, new NoPhysics(),
                 out var again, cancellationToken: Token);
-            Assert.Equal(7, again[item.Id].SchemaVersion);
+            Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, again[item.Id].SchemaVersion);
             Assert.Equal(D3D12MaterialBindingProfileJson.Encode(profile), D3D12MaterialBindingProfileJson.Encode(again[item.Id]));
         }
         finally { Directory.Delete(directory, true); }
@@ -272,24 +369,47 @@ public sealed class GenshinMetallicSpecularViewPmaTests
         ["sourceSceneTextureOrdinal"] = image.SourceSceneTextureOrdinal, ["width"] = image.Width,
         ["height"] = image.Height, ["kind"] = image.Kind.ToString(), ["rgbaSha256"] = image.RgbaSha256
     };
-    private static D3D12ViewGenshinMetallicBinding View(Guid id, float mix = .6f) => new(id, 0, 0, 1,
-        D3D12MatcapColorEncoding.SrgbRgb, new(.2f, .3f, .4f), new(1.2f, 1.3f, 1.4f), new(.8f, .7f, .6f),
-        .6f, 1.7f, .8f, D3D12GenshinMetallicLitMode.Uniform, .95f,
-        new(new(.7f, 1.2f, -.1f), new(.2f, .4f, 1.3f), 12, .8f, .4f, .9f, 2, mix));
+    private static StyleMaterialBindingData MakeBinding(
+        int lightmapSlot = 0,
+        int matcapSlot = 1,
+        bool hasSpecular = true,
+        Vector3? specularColor = null,
+        Vector3? specularSharpColor = null,
+        float specularShininess = 12f,
+        float specularScale = .8f,
+        float specularAttenuation = .4f,
+        float specularSharpOffset = .9f,
+        int rampSlot = 2,
+        float rampMix = .6f)
+        => TestStylePlugins.GenshinMetallic(
+            lightmapSlot, matcapSlot, "SrgbRgb",
+            new(.2f, .3f, .4f), new(1.2f, 1.3f, 1.4f), new(.8f, .7f, .6f),
+            .6f, 1.7f, .8f, "Uniform", .95f,
+            hasSpecular: hasSpecular,
+            specularColor: specularColor ?? new(.7f, 1.2f, -.1f),
+            specularSharpColor: specularSharpColor ?? new(.2f, .4f, 1.3f),
+            specularShininess: specularShininess,
+            specularScale: specularScale,
+            specularAttenuation: specularAttenuation,
+            specularSharpOffset: specularSharpOffset,
+            specularRampSlot: rampSlot,
+            specularRampMix: rampMix);
+    private static D3D12ViewPluginMaterialBinding View(Guid id, float mix = .6f)
+        => TestStylePlugins.Bind(id, 0, MakeBinding(rampMix: mix));
     private static D3D12MaterialBindingProfile Profile(OriginalFrameScene source, int offset = 0, bool ramp = true, float mix = .6f)
     {
-        var layout = D3D12MaterialBindingLayout.Capture(source); var value = View(Guid.NewGuid(), mix); var specular = value.Specular!;
+        var layout = D3D12MaterialBindingLayout.Capture(source);
+        D3D12MaterialBindingProfileTexture[] guards = ramp
+            ? [layout.CaptureTexture(offset), layout.CaptureTexture(offset + 1), layout.CaptureTexture(offset + 2)]
+            : [layout.CaptureTexture(offset), layout.CaptureTexture(offset + 1)];
         return new("genshin-metal", "Explicit metal", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Body, GenshinMetallic:
-                new(layout.CaptureTexture(offset), layout.CaptureTexture(offset + 1), value.MatcapEncoding,
-                    value.DarkColor, value.LightColor, value.ShadowMultiplyColor, value.EnableMetallics,
-                    value.TileScale, value.Brightness, value.LitMode, value.UniformLitFactor,
-                    new(specular.Color, specular.SharpColor, specular.Shininess, specular.Scale, specular.Attenuation,
-                        specular.SharpOffset, ramp ? layout.CaptureTexture(offset + 2) : null, specular.RampMix)))]);
+            [new(0, D3D12CharacterMaterialRole.Body,
+                pluginBindings: [MakeBinding(offset, offset + 1, rampSlot: ramp ? offset + 2 : -1, rampMix: mix)],
+                textureGuards: guards)]);
     }
     private static OriginalFrameScene Source(SceneTexture[]? textures = null)
     {
-        var frame = D3D12EndfieldHairBindingTests.Frame(seeds: false, textures: textures ??
+        var frame = T8bTestHelpers.CreateMetallicFrame(seeds: false, textures: textures ??
             [new("R numerical", 1, 1, [240, 0, 130, 255]), new("color ChannelPacked", 1, 1, [12, 200, 130, 170]),
                 new("numeric multirow ramp", 2, 2, [255, 0, 31, 0, 0, 255, 67, 77, 7, 33, 255, 190, 99, 200, 13, 255]),
                 new("unreferenced resource", 1, 1, [3, 8, 19, 37])]);

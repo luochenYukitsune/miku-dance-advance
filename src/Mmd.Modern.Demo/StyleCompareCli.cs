@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using Mmd.Modern.App;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using SkiaSharp;
@@ -10,12 +12,11 @@ using Role = Mmd.Modern.Rendering.D3D12.D3D12CharacterMaterialRole;
 
 namespace Mmd.Modern.Demo;
 
-/// <summary>Headless dev tool: renders one model with every built-in style preset, per material-role scope,
-/// into labelled horizontal strips. Usage:
+/// <summary>Headless dev tool: renders one model with every available style (host MMD plus loaded
+/// rendering-style plugins), per material-role scope, into labelled horizontal strips. Usage:
 /// --style-compare --model a.pmx --output dir [--scope none|body|auto]... [--size 640x900] [--tag name]</summary>
 internal static class StyleCompareCli
 {
-    private static readonly string[] Presets = ["mmd", "genshin", "star-rail", "wuthering-waves", "endfield"];
     private static readonly string[] AllScopes = ["none", "body", "auto", "noguess"];
     private static readonly (string Name, float YawDegrees)[] Views = [("front", 0), ("three-quarter", 40)];
     private const float FovDegrees = 30;
@@ -51,59 +52,126 @@ internal static class StyleCompareCli
         if (scopes.Count == 0) scopes.AddRange(AllScopes);
 
         Console.OutputEncoding = System.Text.Encoding.UTF8;
-        var source = LoadModel(Path.GetFullPath(model));
-        var materials = source.Surface.Snapshot.Materials;
-        var autoRoles = materials.Select(material => D3D12CharacterMaterialRoleGuess.Guess(material.Name)).ToArray();
-        Console.WriteLine($"{materials.Count} materials, {source.Surface.Snapshot.Textures.Count} textures; auto classification:");
-        for (int i = 0; i < materials.Count; i++)
-            Console.WriteLine($"  {i,3}  {autoRoles[i],-4}  tex {materials[i].DiffuseTexture,3}  {materials[i].Name}");
-
-        string directory = Path.Combine(output, tag), tileDirectory = Path.Combine(directory, "tiles");
-        Directory.CreateDirectory(tileDirectory);
-        var objectId = Guid.NewGuid();
-        using var session = new D3D12FrameSession();
-        Console.WriteLine($"D3D12 session ready (WARP: {session.IsWarp}).");
-        int failures = 0;
-        foreach (var (viewName, yaw) in Views)
+        var pluginManager = LoadStylePlugins(out var styleCatalog, out var presetCatalog);
+        try
         {
-            var frame = BuildFrame(source, yaw);
-            foreach (string scope in scopes)
+            string[] presets = new[] { D3D12SurfaceStyleMap.DefaultStyleId }
+                .Concat(styleCatalog.Styles.Select(static s => s.StyleId))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            Console.WriteLine($"Loaded {styleCatalog.Styles.Count} style plugin definition(s): {string.Join(", ", presets)}");
+
+            var source = LoadModel(Path.GetFullPath(model));
+            var materials = source.Surface.Snapshot.Materials;
+            var autoRoles = materials.Select(material => D3D12CharacterMaterialRoleGuess.Guess(material.Name)).ToArray();
+            Console.WriteLine($"{materials.Count} materials, {source.Surface.Snapshot.Textures.Count} textures; auto classification:");
+            for (int i = 0; i < materials.Count; i++)
+                Console.WriteLine($"  {i,3}  {autoRoles[i],-4}  tex {materials[i].DiffuseTexture,3}  {materials[i].Name}");
+
+            string directory = Path.Combine(output, tag), tileDirectory = Path.Combine(directory, "tiles");
+            Directory.CreateDirectory(tileDirectory);
+            var objectId = Guid.NewGuid();
+            using var session = new D3D12FrameSession();
+            Console.WriteLine($"D3D12 session ready (WARP: {session.IsWarp}).");
+            int failures = 0;
+            foreach (var (viewName, yaw) in Views)
             {
-                var characterMaterials = scope switch
+                var frame = BuildFrame(source, yaw);
+                foreach (string scope in scopes)
                 {
-                    "none" or "noguess" => null,
-                    "body" => Enumerable.Range(0, materials.Count).Select(i => Binding(objectId, i, Role.Body)).ToArray(),
-                    _ => Enumerable.Range(0, materials.Count).Select(i => Binding(objectId, i, autoRoles[i])).ToArray(),
-                };
-                var tiles = new List<(string Label, SKBitmap Tile)>();
-                foreach (string preset in Presets)
-                {
-                    SKBitmap tile;
-                    try
+                    var characterMaterials = scope switch
                     {
-                        var result = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn,
-                            [new SceneRenderingStyleBinding(objectId, new(preset), ModelRole.Character, 0, materials.Count, true)],
-                            characterMaterials, guessMaterialRoles: scope != "noguess");
-                        tile = ToBitmap(session.Capture(result.Scene, width, height, surfaceStyles: result.SurfaceStyles));
-                    }
-                    catch (Exception error)
+                        "none" or "noguess" => null,
+                        "body" => Enumerable.Range(0, materials.Count).Select(i => Binding(objectId, i, Role.Body)).ToArray(),
+                        _ => Enumerable.Range(0, materials.Count).Select(i => Binding(objectId, i, autoRoles[i])).ToArray(),
+                    };
+                    var tiles = new List<(string Label, SKBitmap Tile)>();
+                    foreach (string preset in presets)
                     {
-                        failures++;
-                        Console.WriteLine($"  [{viewName}/{scope}/{preset}] FAILED: {error.GetType().Name}: {error.Message}");
-                        tile = ErrorTile($"{error.GetType().Name}: {error.Message}", width, height);
+                        SKBitmap tile;
+                        try
+                        {
+                            var result = D3D12ViewRenderingStyles.Resolve(
+                                frame,
+                                presetCatalog,
+                                [new SceneRenderingStyleBinding(objectId, new(preset), ModelRole.Character, 0, materials.Count, true)],
+                                characterMaterials,
+                                styleCatalog: styleCatalog,
+                                guessMaterialRoles: scope != "noguess");
+                            tile = ToBitmap(session.Capture(result.Scene, width, height, surfaceStyles: result.SurfaceStyles));
+                        }
+                        catch (Exception error)
+                        {
+                            failures++;
+                            Console.WriteLine($"  [{viewName}/{scope}/{preset}] FAILED: {error.GetType().Name}: {error.Message}");
+                            tile = ErrorTile($"{error.GetType().Name}: {error.Message}", width, height);
+                        }
+                        SavePng(tile, Path.Combine(tileDirectory, $"{viewName}-{scope}-{preset}.png"));
+                        tiles.Add((preset, tile));
                     }
-                    SavePng(tile, Path.Combine(tileDirectory, $"{viewName}-{scope}-{preset}.png"));
-                    tiles.Add((preset, tile));
+                    string stripName = viewName == "front" ? $"{scope}.png" : $"{scope}-{viewName}.png";
+                    using (var strip = Strip(tiles, $"{viewName} / {scope}", width, height))
+                        SavePng(strip, Path.Combine(directory, stripName));
+                    foreach (var (_, tile) in tiles) tile.Dispose();
+                    Console.WriteLine($"Wrote {Path.GetFullPath(Path.Combine(directory, stripName))}");
                 }
-                string stripName = viewName == "front" ? $"{scope}.png" : $"{scope}-{viewName}.png";
-                using (var strip = Strip(tiles, $"{viewName} / {scope}", width, height))
-                    SavePng(strip, Path.Combine(directory, stripName));
-                foreach (var (_, tile) in tiles) tile.Dispose();
-                Console.WriteLine($"Wrote {Path.GetFullPath(Path.Combine(directory, stripName))}");
             }
+            Console.WriteLine(failures == 0 ? "All tiles rendered." : $"{failures} tile(s) failed; see red tiles.");
+            return 0;
         }
-        Console.WriteLine(failures == 0 ? "All tiles rendered." : $"{failures} tile(s) failed; see red tiles.");
-        return 0;
+        finally
+        {
+            pluginManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private static PluginManager LoadStylePlugins(out D3D12ViewStyleCatalog styleCatalog, out D3D12StylePresetCatalog presetCatalog)
+    {
+        string pluginRoot = Path.Combine(AppContext.BaseDirectory, "plugins");
+        var manager = new PluginManager(
+            new PluginHostInfo(new Version(0, 1, 0), 1, "en"),
+            [
+                new(PluginCapabilities.EditorCommands, typeof(IPluginCommand)),
+                new(PluginCapabilities.RenderingStyles, typeof(IRenderingStyleProvider))
+            ]);
+        try
+        {
+            var discovery = manager.RefreshAsync([pluginRoot]).GetAwaiter().GetResult();
+            if (!discovery.Succeeded)
+                Console.WriteLine($"WARNING: plugin discovery in '{pluginRoot}' reported: {discovery.Diagnostic}");
+
+            foreach (var plugin in manager.Plugins)
+            {
+                if (plugin.State != PluginState.Disabled
+                    || plugin.Capabilities?.Contains(PluginCapabilities.RenderingStyles, StringComparer.Ordinal) != true)
+                    continue;
+                var enabled = manager.EnableAsync(plugin.Id).GetAwaiter().GetResult();
+                if (!enabled.Succeeded)
+                    Console.WriteLine($"WARNING: failed to enable plugin '{plugin.Id}': {enabled.Diagnostic}");
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var definitions = new List<IRenderingStyleDefinition>();
+            foreach (var provider in manager.Extensions.GetExtensions<IRenderingStyleProvider>(PluginCapabilities.RenderingStyles))
+            {
+                var styles = provider.Value.GetStyles();
+                if (styles is null) continue;
+                foreach (var style in styles)
+                {
+                    if (style is not null && seen.Add(style.StyleId))
+                        definitions.Add(style);
+                }
+            }
+
+            styleCatalog = new D3D12ViewStyleCatalog(definitions, "en");
+            presetCatalog = styleCatalog.ToD3D12PresetCatalog();
+            return manager;
+        }
+        catch
+        {
+            manager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            throw;
+        }
     }
 
     /// <summary>Some distributed models keep their textures in a subfolder the PMX does not name. When the
@@ -125,8 +193,8 @@ internal static class StyleCompareCli
         return EditorProjectWorkspace.CreateModelAsset(asset.Model, Path.Combine(fallback, Path.GetFileName(path))).Source;
     }
 
-    private static D3D12ViewCharacterMaterialBinding Binding(Guid objectId, int material, Role role)
-        => new(objectId, material, new D3D12CharacterMaterialStyle(role));
+    private static D3D12ViewCharacterMaterial Binding(Guid objectId, int material, Role role)
+        => new(objectId, material, role);
 
     /// <summary>Frames head to knees with a perspective camera yawed about the model, and a fixed key light
     /// from the viewer's upper front-left so a terminator crosses face and body.</summary>

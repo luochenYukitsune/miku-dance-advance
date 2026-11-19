@@ -18,7 +18,17 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
     private SceneProjectSession? builtSession;
     private Guid? builtModelId;
     private D3D12MaterialBindingProfile? builtProfile;
+    private EditorPluginService? pluginService;
+    private D3D12ViewStyleCatalog? builtCatalog;
+    private string? builtLanguage;
     private bool hasBuild, allowEdit, refreshing;
+
+    internal void AttachPluginService(EditorPluginService? service)
+    {
+        if (ReferenceEquals(pluginService, service)) return;
+        pluginService = service;
+        InvalidateBuild();
+    }
 
     public EditorMaterialInspectorViewModel() => Observe(this, static model => model.RefreshLocalization());
 
@@ -67,8 +77,12 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
         modelId = selectedModel;
         modelName = selectedModel is { } id && nextSession is not null
             ? nextSession.Objects.FirstOrDefault(item => item.Id == id)?.Name ?? "" : "";
+        var currentCatalog = pluginService?.CurrentStyleCatalog ?? workspace.StyleCatalog;
+        string currentLanguage = CurrentLanguage;
         bool signatureChanged = !hasBuild || !ReferenceEquals(builtSession, nextSession)
-            || builtModelId != selectedModel || !ReferenceEquals(builtProfile, nextProfile);
+            || builtModelId != selectedModel || !ReferenceEquals(builtProfile, nextProfile)
+            || !ReferenceEquals(builtCatalog, currentCatalog)
+            || !string.Equals(builtLanguage, currentLanguage, StringComparison.Ordinal);
         if (selectedModel is not null && nextSession is not null && signatureChanged)
         {
             // Older/future style schemas stay loadable but the existing material draft cannot read them.
@@ -88,6 +102,7 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
             else
             {
                 hasBuild = true; builtSession = nextSession; builtModelId = selectedModel; builtProfile = nextProfile;
+                builtCatalog = currentCatalog; builtLanguage = currentLanguage;
                 try
                 {
                     var built = new EditorModelPropertiesViewModel(workspace, selectedModel.Value);
@@ -120,6 +135,8 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
         builtSession = null;
         builtModelId = null;
         builtProfile = null;
+        builtCatalog = null;
+        builtLanguage = null;
     }
 
     private void Publish()

@@ -109,6 +109,7 @@ internal sealed partial class EditorStartupApplication
             token.ThrowIfCancellationRequested();
             var camera = new Mmd.Modern.Application.PmmCameraPose(new(0, 10, 0), System.Numerics.Vector3.Zero, -45, 30, true);
             workspace = new EditorShellViewModel(camera, renderEngine);
+            workspace.AttachPluginService(preparedPlugins);
             if (configuration is not null) workspace.Workspace.PackageCacheDirectory = configuration.PackageCacheDirectory;
             await YieldToStartupFrameAsync();
 

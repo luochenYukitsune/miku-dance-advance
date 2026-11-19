@@ -12,8 +12,8 @@ public sealed class MatcapTangentGeometryTests
     public void MirroredFacesKeepDifferentSignsAtTheSameSourceVertex()
     {
         var scene = Mesh();
-        var data = D3D12EndfieldMatcapGeometry.Build(scene, 0, 0);
-        Assert.Equal(64, Marshal.SizeOf<MatcapCorner>());
+        var data = D3D12TangentCornerGeometry.Build(scene, 0, 0);
+        Assert.Equal(64, Marshal.SizeOf<D3D12TangentCorner>());
         Assert.Equal(6, data.Corners.Length);
         // Both triangles use source vertex zero; its corner sign must not be overwritten.
         Assert.Equal(data.Corners[0].WorldPosition, data.Corners[3].WorldPosition);
@@ -27,8 +27,8 @@ public sealed class MatcapTangentGeometryTests
         var local = Mesh();
         var world = Matrix4x4.CreateScale(-2, 3, .5f) * Matrix4x4.CreateTranslation(7, 8, 9);
         var transformed = Mesh(world: world);
-        var before = D3D12EndfieldMatcapGeometry.Build(local, 0, 0);
-        var after = D3D12EndfieldMatcapGeometry.Build(transformed, 0, 0);
+        var before = D3D12TangentCornerGeometry.Build(local, 0, 0);
+        var after = D3D12TangentCornerGeometry.Build(transformed, 0, 0);
         Assert.True(Matrix4x4.Invert(world, out var inverse));
         var normalWorld = Matrix4x4.Transpose(inverse);
         for (int i = 0; i < 6; ++i)
@@ -48,20 +48,20 @@ public sealed class MatcapTangentGeometryTests
     public void CurrentDeformationAndUvMorphRegenerateRatherThanReuseRestFrames()
     {
         var source = Mesh();
-        var original = D3D12EndfieldMatcapGeometry.Build(source, 0, 0);
+        var original = D3D12TangentCornerGeometry.Build(source, 0, 0);
         var movedVertices = source.Vertices.ToArray();
         movedVertices[1] = movedVertices[1] with { Position = new(1, .6f, .2f) };
         var deformed = source.WithDeformedVertices(movedVertices);
-        var moved = D3D12EndfieldMatcapGeometry.Build(deformed, 0, 0);
+        var moved = D3D12TangentCornerGeometry.Build(deformed, 0, 0);
         Assert.NotEqual(original.Fingerprint, moved.Fingerprint);
         Assert.NotEqual(original.Corners[0].Tangent, moved.Corners[0].Tangent);
         movedVertices[1] = movedVertices[1] with { Uv = new(0, 1) };
         movedVertices[2] = movedVertices[2] with { Uv = new(1, 0) };
-        var uvMorphed = D3D12EndfieldMatcapGeometry.Build(source.WithDeformedVertices(movedVertices), 0, 0);
+        var uvMorphed = D3D12TangentCornerGeometry.Build(source.WithDeformedVertices(movedVertices), 0, 0);
         Assert.NotEqual(moved.Fingerprint, uvMorphed.Fingerprint);
         Assert.NotEqual(moved.Corners[0].Tangent, uvMorphed.Corners[0].Tangent);
-        Assert.Same(original, D3D12EndfieldMatcapGeometry.Build(source, 0, 0));
-        Assert.Same(original, D3D12EndfieldMatcapGeometry.Build(source.WithCamera(source.Camera with { Eye = new(1, 9, -30) }), 0, 0));
+        Assert.Same(original, D3D12TangentCornerGeometry.Build(source, 0, 0));
+        Assert.Same(original, D3D12TangentCornerGeometry.Build(source.WithCamera(source.Camera with { Eye = new(1, 9, -30) }), 0, 0));
     }
 
     [Fact]
@@ -70,23 +70,23 @@ public sealed class MatcapTangentGeometryTests
         var source = Mesh();
         var additional = source.Vertices.ToArray().Select(v => new SceneAdditionalUvVertex(new(v.Uv.Y, v.Uv.X, 17, 19), default, default, default)).ToArray();
         var selected = source.WithAdditionalUvs(new SceneAdditionalUvs(1, additional));
-        var uv0 = D3D12EndfieldMatcapGeometry.Build(selected, 0, 0);
-        var uv1 = D3D12EndfieldMatcapGeometry.Build(selected, 0, 1);
+        var uv0 = D3D12TangentCornerGeometry.Build(selected, 0, 0);
+        var uv1 = D3D12TangentCornerGeometry.Build(selected, 0, 1);
         Assert.Equal(new Vector2(0, 1), new(uv1.Corners[1].UvParity.X, uv1.Corners[1].UvParity.Y));
         Assert.Equal(-uv0.Corners[0].Tangent.W, uv1.Corners[0].Tangent.W);
         Assert.NotEqual(uv0.Fingerprint, uv1.Fingerprint);
-        Assert.Throws<ArgumentException>(() => D3D12EndfieldMatcapGeometry.Build(source, 0, 1));
-        Assert.Throws<ArgumentException>(() => D3D12EndfieldMatcapGeometry.Build(selected, 0, 2));
+        Assert.Throws<ArgumentException>(() => D3D12TangentCornerGeometry.Build(source, 0, 1));
+        Assert.Throws<ArgumentException>(() => D3D12TangentCornerGeometry.Build(selected, 0, 2));
     }
 
     [Fact]
     public void TranslationChangesBufferIdentityButKeepsTheAppearanceIdentity()
     {
-        var local = D3D12EndfieldMatcapGeometry.Build(Mesh(), 0, 0);
-        var translated = D3D12EndfieldMatcapGeometry.Build(Mesh(world: Matrix4x4.CreateTranslation(7, 8, 9)), 0, 0);
+        var local = D3D12TangentCornerGeometry.Build(Mesh(), 0, 0);
+        var translated = D3D12TangentCornerGeometry.Build(Mesh(world: Matrix4x4.CreateTranslation(7, 8, 9)), 0, 0);
         Assert.NotEqual(local.Fingerprint, translated.Fingerprint);
         Assert.Equal(local.AppearanceFingerprint, translated.AppearanceFingerprint);
-        var rotated = D3D12EndfieldMatcapGeometry.Build(Mesh(world: Matrix4x4.CreateRotationY(.4f)), 0, 0);
+        var rotated = D3D12TangentCornerGeometry.Build(Mesh(world: Matrix4x4.CreateRotationY(.4f)), 0, 0);
         Assert.NotEqual(local.AppearanceFingerprint, rotated.AppearanceFingerprint);
     }
 
@@ -103,9 +103,9 @@ public sealed class MatcapTangentGeometryTests
         var split = new SceneSnapshot(mesh.Vertices, mesh.Indices, [
             new("first", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
             new("second", 3, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1)]);
-        var whole = D3D12EndfieldMatcapGeometry.Build(mesh, 0, 0);
-        var first = D3D12EndfieldMatcapGeometry.Build(split, 0, 0);
-        var second = D3D12EndfieldMatcapGeometry.Build(split, 1, 0);
+        var whole = D3D12TangentCornerGeometry.Build(mesh, 0, 0);
+        var first = D3D12TangentCornerGeometry.Build(split, 0, 0);
+        var second = D3D12TangentCornerGeometry.Build(split, 1, 0);
         // The first triangle alone has +X tangents. Its shared corners must also
         // consume the second triangle's unequal UV derivative and corner angles.
         Assert.True(MathF.Abs(whole.Corners[1].Tangent.Y) > .02f);
@@ -117,7 +117,7 @@ public sealed class MatcapTangentGeometryTests
         Assert.Equal(first.Corners[1].Tangent, second.Corners[0].Tangent);
         var changed = split.Vertices.ToArray();
         changed[3] = changed[3] with { Uv = new(.4f, 1.8f) };
-        var changedNeighbor = D3D12EndfieldMatcapGeometry.Build(split.WithDeformedVertices(changed), 0, 0);
+        var changedNeighbor = D3D12TangentCornerGeometry.Build(split.WithDeformedVertices(changed), 0, 0);
         Assert.NotEqual(first.Corners[1].Tangent, changedNeighbor.Corners[1].Tangent);
     }
 
@@ -129,7 +129,7 @@ public sealed class MatcapTangentGeometryTests
         var source = new SceneSnapshot(mesh.Vertices, indices, [
             new("small selected draw", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
             new("remaining source", 3, indices.Length - 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1)]);
-        var error = Assert.Throws<ArgumentException>(() => D3D12EndfieldMatcapGeometry.Build(source, 0, 0));
+        var error = Assert.Throws<ArgumentException>(() => D3D12TangentCornerGeometry.Build(source, 0, 0));
         Assert.Contains("source mesh exceeds", error.Message);
     }
 
@@ -140,18 +140,18 @@ public sealed class MatcapTangentGeometryTests
         var split = new SceneSnapshot(mesh.Vertices, mesh.Indices, [
             new("first", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
             new("second", 3, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1)]);
-        Assert.Equal(3, D3D12EndfieldMatcapGeometry.Build(split, 1, 0).Corners.Length);
-        var descriptor = new D3D12EndfieldMatcapGeometry(split, 1);
+        Assert.Equal(3, D3D12TangentCornerGeometry.Build(split, 1, 0).Corners.Length);
+        var descriptor = new D3D12TangentCornerGeometry(split, 1);
         Assert.Same(split, descriptor.Source);
         Assert.Equal(1, descriptor.LocalMaterialIndex);
-        Assert.Throws<ArgumentOutOfRangeException>(() => new D3D12EndfieldMatcapGeometry(split, 2));
-        Assert.Throws<ArgumentOutOfRangeException>(() => D3D12EndfieldMatcapGeometry.Build(split, 0, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new D3D12TangentCornerGeometry(split, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => D3D12TangentCornerGeometry.Build(split, 0, 5));
         var invalid = mesh.Vertices.ToArray(); invalid[0] = invalid[0] with { Normal = Vector3.Zero };
-        Assert.Throws<ArgumentException>(() => D3D12EndfieldMatcapGeometry.Build(mesh.WithDeformedVertices(invalid), 0, 0));
+        Assert.Throws<ArgumentException>(() => D3D12TangentCornerGeometry.Build(mesh.WithDeformedVertices(invalid), 0, 0));
         var huge = Mesh(world: Matrix4x4.CreateScale(2));
         var hugeVertices = huge.Vertices.ToArray(); hugeVertices[0] = hugeVertices[0] with { Position = new(float.MaxValue, 0, 0) };
         huge = huge.WithDeformedVertices(hugeVertices);
-        Assert.Throws<ArgumentException>(() => D3D12EndfieldMatcapGeometry.Build(huge, 0, 0));
+        Assert.Throws<ArgumentException>(() => D3D12TangentCornerGeometry.Build(huge, 0, 0));
     }
 
     private static SceneSnapshot Mesh(Matrix4x4? world = null)

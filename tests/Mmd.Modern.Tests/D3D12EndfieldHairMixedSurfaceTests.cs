@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -29,17 +30,28 @@ public sealed class D3D12EndfieldHairMixedSurfaceTests
             camera:new(new(0,0,-5),Vector3.Zero,Vector3.UnitY,2,.1f,20),lightDirection:-Vector3.UnitZ,
             rawRadialSeeds:new(Enumerable.Repeat(Vector3.UnitY,vertices.Count).ToArray()));
         var frame=Create(scene,Enumerable.Repeat(new OriginalStyleMaterialBinding(new(.2f),DoubleSided:true),count).ToArray());
-        D3D12SurfaceStyle[] families=[D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.Mmd,D3D12SurfaceStyle.GenshinPmx,
-            D3D12SurfaceStyle.EndfieldPmx,D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx,D3D12SurfaceStyle.EndfieldPmx];
-        D3D12CharacterMaterialStyle[] before=[new(D3D12CharacterMaterialRole.Hair),new(),
-            new(D3D12CharacterMaterialRole.Face,FaceSdf:D3D12FaceSdfBinding.GenshinSoft(2,3,-Vector3.UnitZ,Vector3.UnitX)),
-            new(D3D12CharacterMaterialRole.Eye),new(D3D12CharacterMaterialRole.Hair,GenshinNonMetallicSpecular:new(0)),
-            new(D3D12CharacterMaterialRole.Hair,StarMcHair:new(0,1)),new(D3D12CharacterMaterialRole.Hair,StarMcHair:new(0,1)),new()];
-        var after=before.ToArray();after[0]=new(D3D12CharacterMaterialRole.Hair,EndfieldHair:new(0,new(.1f,.07f,.04f)));
+        string[] families=["endfield","mmd","genshin",
+            "endfield","genshin","star-rail",
+            "wuthering-waves","endfield"];
+        D3D12CharacterMaterialStyle[] roles=[new(D3D12CharacterMaterialRole.Hair),new(),
+            new(D3D12CharacterMaterialRole.Face),
+            new(D3D12CharacterMaterialRole.Eye),new(D3D12CharacterMaterialRole.Hair),
+            new(D3D12CharacterMaterialRole.Hair),new(D3D12CharacterMaterialRole.Hair),new()];
+        IReadOnlyList<StyleMaterialBindingData>?[] beforeBindings=[
+            null, null,
+            [TestStylePlugins.FaceSdf("genshin",2,3,"GenshinSoftFace",worldForward:-Vector3.UnitZ,worldRight:Vector3.UnitX)],
+            null,
+            [TestStylePlugins.GenshinHair(0)],
+            [TestStylePlugins.StarMcHair("star-rail",0,1)],
+            [TestStylePlugins.StarMcHair("wuthering-waves",0,1)],
+            null];
+        var afterBindings=beforeBindings.ToArray();
+        afterBindings[0]=[T8dTestHelpers.EndfieldHair(0,new(.1f,.07f,.04f))];
         using var session=new D3D12FrameSession();
-        var baseline=session.Capture(frame,W,H,surfaceStyles:new(families,before));
-        var selected=session.Capture(frame,W,H,surfaceStyles:new(families,after));
+        var beforeMap=T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,families,roles,beforeBindings);
+        var afterMap=T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,families,roles,afterBindings);
+        var baseline=session.Capture(frame,W,H,surfaceStyles:beforeMap);
+        var selected=session.Capture(frame,W,H,surfaceStyles:afterMap);
         for(int row=0;row<count;row++)
         {
             var clip=Vector4.Transform(new Vector4(0,.7f-row*.2f,0,1),scene.Camera.ViewProjection(W,H));
@@ -48,7 +60,7 @@ public sealed class D3D12EndfieldHairMixedSurfaceTests
             if(row==0)Assert.NotEqual(a,b);else Assert.Equal(a,b);
         }
         for(int i=3;i<baseline.Rgba.Length;i+=4)Assert.Equal(baseline.Rgba[i],selected.Rgba[i]);
-        Assert.Equal(baseline.Rgba,session.Capture(frame,W,H,surfaceStyles:new(families,before)).Rgba);
+        Assert.Equal(baseline.Rgba,session.Capture(frame,W,H,surfaceStyles:beforeMap).Rgba);
     }
 
     [Fact,Trait("Category","Gpu")]
@@ -68,8 +80,8 @@ public sealed class D3D12EndfieldHairMixedSurfaceTests
             var material=new OriginalStyleMaterialBinding(new(.2f),1,OriginalSphereMode.SubTexture,true)
             {TextureFactors=OriginalMaterialTextureFactors.Identity with {Sphere=new(new(.8f,.6f,.4f,1),new(.03f,.02f,.01f,0))}};
             var frame=Create(scene,[material]);
-            var zero=session.Capture(frame,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(new(0,Vector3.Zero)));
-            var actual=session.Capture(frame,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(new(0,palette)));
+            var zero=session.Capture(frame,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(T8dTestHelpers.EndfieldHair(0,Vector3.Zero),frame));
+            var actual=session.Capture(frame,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(T8dTestHelpers.EndfieldHair(0,palette),frame));
             var a=Pixel(zero,W/2,H/2);var b=Pixel(actual,W/2,H/2);
             if(previous is not null)Assert.NotEqual(previous,a);previous=a;
             for(int c=0;c<3;c++)
@@ -79,7 +91,7 @@ public sealed class D3D12EndfieldHairMixedSurfaceTests
             }
             for(int i=3;i<zero.Rgba.Length;i+=4)Assert.Equal(zero.Rgba[i],actual.Rgba[i]);
             var noMorph=Create(scene,[material with {TextureFactors=OriginalMaterialTextureFactors.Identity}]);
-            var unmodified=session.Capture(noMorph,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(new(0,Vector3.Zero)));
+            var unmodified=session.Capture(noMorph,W,H,surfaceStyles:D3D12EndfieldHairSurfaceTests.Map(T8dTestHelpers.EndfieldHair(0,Vector3.Zero),noMorph));
             Assert.NotEqual(a,Pixel(unmodified,W/2,H/2));
         }
     }

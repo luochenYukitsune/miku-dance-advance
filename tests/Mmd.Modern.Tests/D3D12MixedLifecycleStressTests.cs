@@ -143,8 +143,9 @@ public sealed class D3D12MixedLifecycleStressTests
         var gi = new RayGiOptions(mode, Strength: .5f, SamplesPerPixel: 1, Seed: 31,
             MaxRayDistance: 50, RayEpsilon: .001f, Composition: RayGiComposition.ToonPalette,
             Denoiser: RayGiDenoiser.TemporalSpatial);
-        var family = (D3D12SurfaceStyle)(step % 5);
-        var styles = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd]);
+        string[] familyIds = ["mmd", "genshin", "star-rail", "wuthering-waves", "endfield"];
+        string familyId = familyIds[step % 5];
+        var styles = new D3D12SurfaceStyleMap([familyId, "mmd"], null, TestStylePlugins.AllPresetCatalog);
         return (frame, step / 5 % 2 == 0 ? 49 : 61, step / 5 % 2 == 0 ? 37 : 43, gi, styles);
     }
 }

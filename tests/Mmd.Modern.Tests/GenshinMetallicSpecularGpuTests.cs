@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -12,12 +13,36 @@ public sealed class GenshinMetallicSpecularGpuTests
     private static readonly Vector3 Diffuse = new(.18f, .15f, .12f);
     private static readonly Vector3 PmxSpecular = new(.16f, .12f, .08f);
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 3, .1f, 30);
-    private static readonly D3D12GenshinMetallicSpecularBinding Lobe = new(new(.65f, .5f, .75f), new(.3f, .7f, .4f),
-        Shininess: 0, Scale: .45f, Attenuation: .25f);
-    // Identity palette isolates the new additive endpoint from the already accepted MatCap.
-    private static readonly D3D12GenshinMetallicBinding Metal = new(0, 1,
-        D3D12MatcapColorEncoding.SrgbRgb, Vector3.One, Vector3.One, Vector3.One,
-        LitMode: D3D12GenshinMetallicLitMode.Uniform, UniformLitFactor: 1);
+
+    private static StyleMaterialBindingData MakeMetal(
+        float enableMetallics = 1f,
+        string litMode = "Uniform",
+        float uniformLitFactor = 1f,
+        bool hasSpecular = false,
+        Vector3? specColor = null,
+        Vector3? sharpColor = null,
+        float shininess = 0f,
+        float scale = .45f,
+        float attenuation = .25f,
+        float sharpOffset = 1f,
+        int rampSlot = -1,
+        float rampMix = 0f)
+        => TestStylePlugins.GenshinMetallic(
+            0, 1, "SrgbRgb",
+            Vector3.One, Vector3.One, Vector3.One,
+            enableMetallics, 1f, 1f, litMode, uniformLitFactor,
+            hasSpecular: hasSpecular,
+            specularColor: specColor ?? new(.65f, .5f, .75f),
+            specularSharpColor: sharpColor ?? new(.3f, .7f, .4f),
+            specularShininess: shininess,
+            specularScale: scale,
+            specularAttenuation: attenuation,
+            specularSharpOffset: sharpOffset,
+            specularRampSlot: rampSlot,
+            specularRampMix: rampMix);
+
+    private static readonly StyleMaterialBindingData LobeMetal = MakeMetal(hasSpecular: true);
+    private static readonly StyleMaterialBindingData BaseMetal = MakeMetal(hasSpecular: false);
 
     [Fact, Trait("Category", "Gpu")]
     public void ZeroMetalWeightRestoresPreviousPmxAndRbFramesExactly()
@@ -29,10 +54,8 @@ public sealed class GenshinMetallicSpecularGpuTests
         {
             if (red > 229 && enable > 0) continue;
             var frame = Frame(red: red, pmx: PmxSpecular);
-            var previous = Metal with { EnableMetallics = enable };
-            var before = session.Capture(frame, W, H, surfaceStyles: Map(previous, rb));
-            var after = session.Capture(frame, W, H,
-                surfaceStyles: Map(previous with { Specular = Lobe }, rb));
+            var before = session.Capture(frame, W, H, surfaceStyles: Map(MakeMetal(enableMetallics: enable, hasSpecular: false), rb));
+            var after = session.Capture(frame, W, H, surfaceStyles: Map(MakeMetal(enableMetallics: enable, hasSpecular: true), rb));
             Assert.Equal(before.Rgba, after.Rgba);
         }
     }
@@ -45,14 +68,14 @@ public sealed class GenshinMetallicSpecularGpuTests
         foreach (float enable in new[] { .35f, 1f, 2f })
         {
             var frame = Frame(pmx: PmxSpecular);
-            var binding = Metal with { EnableMetallics = enable, Specular = Lobe };
+            var binding = MakeMetal(enableMetallics: enable, hasSpecular: true);
             var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding, rb));
             float m = Math.Clamp(enable, 0, 1);
             Vector3 nonmetal = PmxSpecular * (rb ? .35f : 1);
-            Vector3 expected = Diffuse + nonmetal * (1 - m) + Local(1, 1, Lobe) * m;
+            Vector3 expected = Diffuse + nonmetal * (1 - m) + Local(1, 1, binding) * m;
             AssertPixel(actual, W / 2, H / 2, expected);
             // Previous binding leaves ordinary PMX unchanged; only the new explicit endpoint replaces it.
-            var previous = session.Capture(frame, W, H, surfaceStyles: Map(binding with { Specular = null }, rb));
+            var previous = session.Capture(frame, W, H, surfaceStyles: Map(MakeMetal(enableMetallics: enable, hasSpecular: false), rb));
             AssertPixel(previous, W / 2, H / 2, Diffuse + nonmetal * (rb ? 1 - m : 1));
             AssertCoverage(previous, actual);
         }
@@ -62,23 +85,24 @@ public sealed class GenshinMetallicSpecularGpuTests
     public void BlueScalesTheMetalLobeWhileStrictSharpReplacementBypassesBlue()
     {
         using var session = new D3D12FrameSession();
-        var lobe = Lobe with { Scale = .5f, SharpOffset = .5f };
+        var lobe = MakeMetal(hasSpecular: true, scale: .5f, sharpOffset: .5f);
+        var sharpColor = new Vector3(.3f, .7f, .4f);
         foreach (byte blue in new byte[] { 0, 96, 255 })
         {
             var frame = Frame(blue: blue);
-            var ordinary = session.Capture(frame, W, H, surfaceStyles: Map(Metal with { Specular = lobe }));
+            var ordinary = session.Capture(frame, W, H, surfaceStyles: Map(lobe));
             AssertPixel(ordinary, W / 2, H / 2, Diffuse + Local(1, blue / 255f, lobe));
-            var sharp = lobe with { SharpOffset = MathF.BitDecrement(.5f) };
-            var replaced = session.Capture(frame, W, H, surfaceStyles: Map(Metal with { Specular = sharp }));
-            AssertPixel(replaced, W / 2, H / 2, Diffuse + GenshinMetallicOracle.Gamma(sharp.SharpColor));
+            var sharp = MakeMetal(hasSpecular: true, scale: .5f, sharpOffset: MathF.BitDecrement(.5f));
+            var replaced = session.Capture(frame, W, H, surfaceStyles: Map(sharp));
+            AssertPixel(replaced, W / 2, H / 2, Diffuse + GenshinMetallicOracle.Gamma(sharpColor));
             Assert.NotEqual(Pixel(ordinary), Pixel(replaced));
         }
-        var zeroScaleSharp = lobe with { Scale = 0, SharpOffset = 0 };
+        var zeroScaleSharp = MakeMetal(hasSpecular: true, scale: 0f, sharpOffset: 0f);
         AssertPixel(session.Capture(Frame(blue: 0), W, H,
-            surfaceStyles: Map(Metal with { Specular = zeroScaleSharp })), W / 2, H / 2, Diffuse);
+            surfaceStyles: Map(zeroScaleSharp)), W / 2, H / 2, Diffuse);
         // Authored signed/HDR values survive Gamma and local composition until the final target.
-        var signed = Lobe with { Color = new(-.5f, 1.3f, .5f), Scale = .2f };
-        AssertPixel(session.Capture(Frame(), W, H, surfaceStyles: Map(Metal with { Specular = signed })),
+        var signed = MakeMetal(hasSpecular: true, specColor: new(-.5f, 1.3f, .5f), scale: .2f);
+        AssertPixel(session.Capture(Frame(), W, H, surfaceStyles: Map(signed)),
             W / 2, H / 2, Diffuse + Local(1, 1, signed));
     }
 
@@ -93,16 +117,16 @@ public sealed class GenshinMetallicSpecularGpuTests
         foreach (float p in new[] { .2f, .63f, 1f, 2f })
         foreach (float mix in new[] { 0f, .35f, 1f })
         {
-            var lobe = Lobe with { Scale = p, RampCombinedTextureIndex = 1, RampMix = mix };
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(Metal with { Specular = lobe }));
-            Vector3 expected = Diffuse + Local(1, 1, lobe,
+            var binding = MakeMetal(hasSpecular: true, scale: p, rampSlot: 1, rampMix: mix);
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
+            Vector3 expected = Diffuse + Local(1, 1, binding,
                 q => GenshinMetallicSpecularOracle.LinearRepeat(ramp.Rgba, ramp.Width, ramp.Height, q));
             AssertPixel(actual, W / 2, H / 2, expected);
             var changed = ramp.Rgba.ToArray();
             for (int i = 3; i < changed.Length; i += 4) changed[i] ^= 255;
             var alphaOnly = Frame(image: new("same RGB opposite alpha", ramp.Width, ramp.Height, changed), lightmapAlpha: 255);
             Assert.Equal(actual.Rgba, session.Capture(alphaOnly, W, H,
-                surfaceStyles: Map(Metal with { Specular = lobe })).Rgba);
+                surfaceStyles: Map(binding)).Rgba);
         }
     }
 
@@ -115,21 +139,18 @@ public sealed class GenshinMetallicSpecularGpuTests
         foreach (float lit in new[] { -1f, 0f, .35f, 1f, 2f })
         foreach (float attenuation in new[] { 0f, .25f, 1f })
         {
-            var lobe = Lobe with { Attenuation = attenuation };
-            var binding = Metal with { UniformLitFactor = lit, Specular = lobe };
+            var binding = MakeMetal(uniformLitFactor: lit, hasSpecular: true, attenuation: attenuation);
             var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
-            AssertPixel(actual, W / 2, H / 2, Diffuse + Local(1, 1, lobe, lit: lit));
+            AssertPixel(actual, W / 2, H / 2, Diffuse + Local(1, 1, binding, lit: lit));
         }
         foreach (float lit in new[] { 0f, 1f })
         {
-            var lobe = Lobe with { Attenuation = 0 };
-            var binding = Metal with { LitMode = D3D12GenshinMetallicLitMode.PrimaryResponse,
-                UniformLitFactor = -2, Specular = lobe };
+            var binding = MakeMetal(litMode: "PrimaryResponse", uniformLitFactor: -2f, hasSpecular: true, attenuation: 0f);
             var endpoint = Frame(light: lit == 0 ? Vector3.UnitZ : -Vector3.UnitZ);
             var actual = session.Capture(endpoint, W, H, surfaceStyles: Map(binding));
-            AssertPixel(actual, W / 2, H / 2, Diffuse + Local(0, 1, lobe, lit: lit));
+            AssertPixel(actual, W / 2, H / 2, Diffuse + Local(0, 1, binding, lit: lit));
             Assert.Equal(actual.Rgba, session.Capture(endpoint, W, H,
-                surfaceStyles: Map(binding with { UniformLitFactor = 3 })).Rgba);
+                surfaceStyles: Map(MakeMetal(litMode: "PrimaryResponse", uniformLitFactor: 3f, hasSpecular: true, attenuation: 0f))).Rgba);
         }
     }
 
@@ -137,7 +158,7 @@ public sealed class GenshinMetallicSpecularGpuTests
     public void SameCaptureEyePositionAndGeometryNormalDrivePerspectiveAndOrthographicHalfDirection()
     {
         using var session = new D3D12FrameSession();
-        var lobe = Lobe with { Shininess = 7, Scale = .8f };
+        var lobe = MakeMetal(hasSpecular: true, shininess: 7f, scale: .8f);
         foreach (bool perspective in new[] { false, true })
         {
             var camera = Camera with { Eye = new(.4f, .2f, -5), Target = new(.4f, .2f, 0),
@@ -145,7 +166,7 @@ public sealed class GenshinMetallicSpecularGpuTests
             Vector3 normal = Vector3.Normalize(new(.4f, -.1f, -.85f));
             Vector3 light = Vector3.Normalize(new(-.35f, .2f, -1));
             var frame = Frame(camera: camera, normal: normal, light: light);
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(Metal with { Specular = lobe }));
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(lobe));
             foreach (int x in new[] { 38, 48, 57 })
             foreach (int y in new[] { 29, 36, 43 })
             {
@@ -168,8 +189,8 @@ public sealed class GenshinMetallicSpecularGpuTests
             var frame = Frame(nativeIntensity: native ? 20 : null);
             var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing,
                 SamplesPerPixel: 4, Seed: 13, Composition: RayGiComposition.ToonPalette) : null;
-            var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(Metal with { Specular = Lobe }));
-            var expected = Diffuse + Local(1, 1, Lobe);
+            var actual = session.Capture(frame, W, H, options, surfaceStyles: Map(LobeMetal));
+            var expected = Diffuse + Local(1, 1, LobeMetal);
             if (native)
                 for (int c = 0; c < 3; c++) Assert.InRange((int)Pixel(actual)[c], (int)(Math.Min(expected[c], 1) * 255) - 1, 254);
             else AssertPixel(actual, W / 2, H / 2, expected);
@@ -183,8 +204,8 @@ public sealed class GenshinMetallicSpecularGpuTests
         using var session = new D3D12FrameSession();
         var frame = Frame(alpha: .43f, straight: true, samples: 2, smaa: true,
             normal: Vector3.Normalize(new(.5f, .3f, -.8f)));
-        var styles = Map(Metal with { Specular = Lobe });
-        var previous = session.Capture(frame, W, H, surfaceStyles: Map(Metal));
+        var styles = Map(LobeMetal);
+        var previous = session.Capture(frame, W, H, surfaceStyles: Map(BaseMetal));
         var before = session.Capture(frame, W, H, surfaceStyles: styles);
         var after = session.Capture(frame, W, H, surfaceStyles: styles, diffusion: new(true, .7f, .01f));
         AssertCoverage(previous, before); AssertCoverage(before, after);
@@ -195,24 +216,24 @@ public sealed class GenshinMetallicSpecularGpuTests
         Assert.Equal(new[] { "diffusion:x", "diffusion:y", "alpha:straight" },
             session.LastRecordings.TakeLast(3).Select(r => r.Channel));
         Assert.Equal(before.Rgba, session.Capture(frame, W, H, surfaceStyles: styles).Rgba);
-        Assert.Equal(previous.Rgba, session.Capture(frame, W, H, surfaceStyles: Map(Metal)).Rgba);
+        Assert.Equal(previous.Rgba, session.Capture(frame, W, H, surfaceStyles: Map(BaseMetal)).Rgba);
     }
 
     [Fact, Trait("Category", "Gpu")]
     public void WarmParameterEditsReusePipelinesAndAbortedGiChangesDoNotCommitMaterialHistory()
     {
         using var session = new D3D12FrameSession();
-        var frame = Frame(); var binding = Metal with { Specular = Lobe };
+        var frame = Frame();
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 31,
             Composition: RayGiComposition.ToonPalette, Denoiser: RayGiDenoiser.TemporalSpatial);
-        Render(binding, 1, "FirstFrame"); Render(binding, 2, "None");
+        Render(LobeMetal, 1, "FirstFrame"); Render(LobeMetal, 2, "None");
         var warm = session.Statistics!; long reads = session.Runtime.Readbacks;
-        var changed = binding with { Specular = Lobe with { Color = new(.4f), Scale = .7f, Attenuation = .6f } };
+        var changed = MakeMetal(hasSpecular: true, specColor: new(.4f), scale: .7f, attenuation: .6f);
         Render(changed, 1, "ExplicitReset"); Render(changed, 2, "None");
         Assert.Equal(warm.ShaderCompilations, session.Statistics!.ShaderCompilations);
         Assert.Equal(warm.PipelineCreations, session.Statistics!.PipelineCreations);
         long submissions = session.Runtime.Submissions;
-        var future = changed with { Specular = Lobe with { SharpOffset = .1f } };
+        var future = MakeMetal(hasSpecular: true, sharpOffset: .1f);
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(frame, W, H, gi,
             (_, _) => throw new OperationCanceledException("Abort future metallic specular parameters."),
             surfaceStyles: Map(future)));
@@ -222,7 +243,7 @@ public sealed class GenshinMetallicSpecularGpuTests
         Render(future, 1, "ExplicitReset"); Render(future, 2, "None");
         Assert.Equal(reads, session.Runtime.Readbacks);
 
-        void Render(D3D12GenshinMetallicBinding value, ulong frames, string reason)
+        void Render(StyleMaterialBindingData value, ulong frames, string reason)
         {
             using var output = session.Render(frame, W, H, gi, surfaceStyles: Map(value));
             Assert.Equal(0, output.Statistics.ReadbackCount);
@@ -233,13 +254,15 @@ public sealed class GenshinMetallicSpecularGpuTests
         }
     }
 
-    private static Vector3 Local(float nh, float blue, D3D12GenshinMetallicSpecularBinding lobe,
+    private static Vector3 Local(float nh, float blue, StyleMaterialBindingData lobe,
         Func<float, Vector3>? ramp = null, float lit = 1)
         => GenshinMetallicSpecularOracle.Local(nh, blue, lobe, lit, ramp);
 
-    private static D3D12SurfaceStyleMap Map(D3D12GenshinMetallicBinding binding, bool rb = false)
-        => new([D3D12SurfaceStyle.GenshinPmx], [new(rb?D3D12CharacterMaterialRole.Hair:D3D12CharacterMaterialRole.Body,
-            GenshinNonMetallicSpecular: rb ? new(0, 1, 0, .35f) : null, GenshinMetallic: binding)]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData binding, bool rb = false)
+        => T8bTestHelpers.CreateGenshinMap(
+            rb ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body,
+            rb ? TestStylePlugins.GenshinHair(0, 1f, 0f, .35f, 1f) : null,
+            binding);
 
     private static SceneTexture Ramp() => new("asymmetric numeric ramp", 3, 2,
         [16, 180, 70, 0, 210, 80, 160, 17, 100, 20, 220, 50,

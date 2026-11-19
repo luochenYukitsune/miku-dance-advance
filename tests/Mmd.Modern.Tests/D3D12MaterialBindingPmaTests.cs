@@ -1,9 +1,13 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput;
 using Mmd.Modern.ViewOutput.D3D12;
@@ -37,7 +41,7 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
                 Assert.Equal(entry.SourceRest.Surface.Snapshot.Textures.Count, restored.Surface.Snapshot.Textures.Count);
                 for (int i = 0; i < restored.Surface.Snapshot.Textures.Count; i++)
                     Assert.Equal(entry.SourceRest.Surface.Snapshot.Textures[i].Rgba.ToArray(), restored.Surface.Snapshot.Textures[i].Rgba.ToArray());
-                Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], restored, entry.ObjectId, "genshin").GenshinHairBindings);
+                Assert.Single(D3D12MaterialBindingProfileResolver.Resolve(profiles[entry.ObjectId], restored, entry.ObjectId, "genshin", TestStylePlugins.AllViewCatalog).PluginBindings);
             }
             PmaProjectStore.Save(resaved, loaded.Session, cancellationToken: Token);
         }
@@ -115,6 +119,77 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
         Assert.Throws<SceneProjectAssetException>(()=>D3D12MaterialBindingPma.Load(path,Path.Combine(directory,"cache"),Load,new NoPhysics(),out _,cancellationToken:Token));
     }
 
+    [Fact]
+    public void LegacySchemaV11PortableMappingPmaLoadsAndUpgradesToSchemaV14()
+    {
+        using var project = Project(out var entries);
+        var options = D3D12MaterialBindingPma.CreateSaveOptions(project, entries);
+        var resources = options.AdditionalResources.ToDictionary(pair => pair.Key, pair => pair.Value);
+        var firstEntry = entries[0];
+        var restLayout = D3D12MaterialBindingLayout.Capture(firstEntry.SourceRest);
+        var tex = restLayout.CaptureTexture(firstEntry.SourceRest.Surface.Snapshot.Textures.Count - 1);
+        string metadataPath = resources.Keys.First(path =>
+            path.Contains(firstEntry.ObjectId.ToString("N"), StringComparison.Ordinal)
+            && path.EndsWith("binding.json", StringComparison.Ordinal));
+
+        var bindingNode = JsonNode.Parse(resources[metadataPath].Span)!.AsObject();
+        bindingNode["profile"] = new JsonObject
+        {
+            ["format"] = "mda-d3d12-material-binding-profile",
+            ["schemaVersion"] = 11,
+            ["stableId"] = firstEntry.Profile.StableId,
+            ["name"] = firstEntry.Profile.Name,
+            ["layoutVersion"] = 1,
+            ["layoutFingerprint"] = firstEntry.Profile.LayoutFingerprint,
+            ["materials"] = new JsonArray(new JsonObject
+            {
+                ["localMaterialIndex"] = 0,
+                ["role"] = "Hair",
+                ["faceNormalShadeStrength"] = 0.35,
+                ["faceGeometricShadowStrength"] = 1.0,
+                ["eyeGeometricShadowStrength"] = 0.2,
+                ["pmxMaterialTreatment"] = null,
+                ["face"] = null,
+                ["genshinHair"] = new JsonObject
+                {
+                    ["texture"] = new JsonObject
+                    {
+                        ["sourceSceneTextureOrdinal"] = tex.SourceSceneTextureOrdinal,
+                        ["width"] = tex.Width,
+                        ["height"] = tex.Height,
+                        ["kind"] = tex.Kind.ToString(),
+                        ["rgbaSha256"] = tex.RgbaSha256
+                    },
+                    ["globalSpecularScale"] = 1.0,
+                    ["shininess"] = 10.0,
+                    ["multiplier"] = 0.8,
+                    ["intensity"] = 1.0
+                },
+                ["starMcHair"] = null,
+                ["endfieldRim"] = null,
+                ["genshinHairAtlas"] = null,
+                ["endfieldHair"] = null,
+                ["endfieldMatcap"] = null,
+                ["genshinMetallic"] = null
+            })
+        };
+        resources[metadataPath] = Encoding.UTF8.GetBytes(bindingNode.ToJsonString());
+        string legacyPmaPath = Path.Combine(directory, "legacy-v11.pma");
+        PmaProjectStore.Save(legacyPmaPath, project, options with { AdditionalResources = resources }, Token);
+
+        using var loaded = D3D12MaterialBindingPma.Load(legacyPmaPath, Path.Combine(directory, "legacy-cache"), Load,
+            new NoPhysics(), out var profiles, cancellationToken: Token);
+        var upgraded = profiles[firstEntry.ObjectId];
+        Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, upgraded.SchemaVersion);
+        var restored = loaded.Session.Objects.Single(obj => obj.Id == firstEntry.ObjectId).Source;
+        var resolved = D3D12MaterialBindingProfileResolver.Resolve(upgraded, restored, firstEntry.ObjectId, "genshin", TestStylePlugins.AllViewCatalog);
+        var hairBinding = Assert.Single(resolved.PluginBindings);
+        Assert.Equal("genshin", hairBinding.Binding.StyleId);
+        Assert.Equal("hair", hairBinding.Binding.ModeId);
+        Assert.Equal(tex.SourceSceneTextureOrdinal, hairBinding.Binding.TextureSlots!["texture"]);
+        Assert.Equal(0.8, hairBinding.Binding.NumberValues!["multiplier"], 4);
+    }
+
     [Theory, Trait("Category", "Gpu")]
     [InlineData("genshin", false)]
     [InlineData("mmd", false)]
@@ -128,17 +203,34 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
         using var project = Project(out var entries);
         if (generic)
         {
-            var family = pipeline switch { "genshin" => D3D12SurfaceStyle.GenshinPmx,
-                "star-rail" => D3D12SurfaceStyle.StarRailPmx, "wuthering-waves" => D3D12SurfaceStyle.WutheringPmx,
-                _ => D3D12SurfaceStyle.EndfieldPmx };
+            var style = TestStylePlugins.AllViewCatalog.FindStyle(pipeline)!;
+            var treatment = D3D12StylePluginAdapter.ToD3D12Treatment(style.DefaultRoleTreatments[StyleMaterialRole.Hair]);
             entries = entries.Select(entry => entry with { Profile = new(entry.Profile.StableId, entry.Profile.Name,
                 entry.Profile.LayoutFingerprint, [new(0, D3D12CharacterMaterialRole.Hair,
-                    PmxMaterialTreatment: D3D12PmxMaterialTreatmentCatalog.Resolve(family, D3D12CharacterMaterialRole.Hair))]) }).ToArray();
+                    pmxMaterialTreatment: treatment)]) }).ToArray();
         }
         else if (pipeline == "endfield")
+        {
+            var endfieldRim = new StyleMaterialBindingData(
+                "endfield",
+                "rim",
+                NumberValues: new ReadOnlyDictionary<string, double>(new Dictionary<string, double>(StringComparer.Ordinal)
+                {
+                    ["edgeSize"] = 4.0,
+                    ["edgeStrength"] = 0.15,
+                    ["directionRadians"] = 0.0,
+                    ["rangeStrength"] = 0.0,
+                    ["radialStrength"] = 0.0,
+                }),
+                VectorValues: new ReadOnlyDictionary<string, float[]>(new Dictionary<string, float[]>(StringComparer.Ordinal)
+                {
+                    ["baseColor"] = [0.2f, 0.3f, 0.4f],
+                    ["rimColor"] = [0.7f, 0.8f, 0.9f],
+                }));
             entries = entries.Select(entry => entry with { Profile = new(entry.Profile.StableId, entry.Profile.Name,
                 entry.Profile.LayoutFingerprint, [new(0, D3D12CharacterMaterialRole.Hair,
-                    EndfieldRim: new(new(.2f,.3f,.4f), new(.7f,.8f,.9f), EdgeSize: 4f, EdgeStrength: .15f))]) }).ToArray();
+                    pluginBindings: [endfieldRim])]) }).ToArray();
+        }
         project.EditRenderingStyles(edit => edit.DefaultStyle = new(pipeline), Token);
         string path = Path.Combine(directory, "render.pma");
         PmaProjectStore.Save(path, project, D3D12MaterialBindingPma.CreateSaveOptions(project, entries), Token);
@@ -152,18 +244,20 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
                 new NoPhysics(), out var resavedProfiles, cancellationToken: Token);
             foreach (var entry in entries)
             {
-                Assert.Equal(11, profiles[entry.ObjectId].SchemaVersion);
+                Assert.Equal(D3D12MaterialBindingProfile.CurrentSchemaVersion, profiles[entry.ObjectId].SchemaVersion);
                 Assert.Equal(D3D12MaterialBindingProfileJson.Encode(entry.Profile),
                     D3D12MaterialBindingProfileJson.Encode(resavedProfiles[entry.ObjectId]));
             }
         }
-        var before = entries.Select(entry => D3D12MaterialBindingProfileResolver.Resolve(entry.Profile, entry.SourceRest, entry.ObjectId, pipeline)).ToArray();
-        var after = loaded.Session.Objects.Select(obj => D3D12MaterialBindingProfileResolver.Resolve(profiles[obj.Id], obj.Source, obj.Id, pipeline)).ToArray();
+        var before = entries.Select(entry => D3D12MaterialBindingProfileResolver.Resolve(entry.Profile, entry.SourceRest, entry.ObjectId, pipeline, TestStylePlugins.AllViewCatalog)).ToArray();
+        var after = loaded.Session.Objects.Select(obj => D3D12MaterialBindingProfileResolver.Resolve(profiles[obj.Id], obj.Source, obj.Id, pipeline, TestStylePlugins.AllViewCatalog)).ToArray();
         var request = new ViewRenderRequest(97, 65, new(Antialiasing: FrameAntialiasing.Smaa1X, SpatialSamples: 2));
         await using var expected = new D3D12ViewRenderer(request,
-            characterMaterials: before.SelectMany(value => value.CharacterMaterials), hairDataBindings: before.SelectMany(value => value.GenshinHairBindings));
+            stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog,
+            characterMaterials: before.SelectMany(value => value.CharacterMaterials), pluginBindings: before.SelectMany(value => value.PluginBindings));
         await using var actual = new D3D12ViewRenderer(request,
-            characterMaterials: after.SelectMany(value => value.CharacterMaterials), hairDataBindings: after.SelectMany(value => value.GenshinHairBindings));
+            stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog,
+            characterMaterials: after.SelectMany(value => value.CharacterMaterials), pluginBindings: after.SelectMany(value => value.PluginBindings));
         Assert.False(actual.IsWarp); Assert.False(expected.IsWarp);
         var plan = new OfflineFramePlan(97, 65, new(30), 0, 0);
         OfflineFrame Capture(SceneProjectSession owner, D3D12ViewRenderer renderer)
@@ -177,17 +271,19 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
         Assert.Equal(a.Pixels.ToArray(), b.Pixels.ToArray());
         if (generic)
         {
-            await using var withoutTreatment = new D3D12ViewRenderer(request);
+            await using var withoutTreatment = new D3D12ViewRenderer(request,
+                stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog);
             using var plain = await withoutTreatment.CaptureAsync(Capture(project, withoutTreatment), Token);
             Assert.NotEqual(plain.Pixels.ToArray(), a.Pixels.ToArray());
-            Assert.All(after, mapping => Assert.NotNull(Assert.Single(mapping.CharacterMaterials).Style.PmxMaterialTreatment));
+            Assert.All(after, mapping => Assert.NotNull(Assert.Single(mapping.CharacterMaterials).PmxTreatment));
         }
         else if (pipeline == "endfield")
         {
-            await using var withoutRim = new D3D12ViewRenderer(request);
+            await using var withoutRim = new D3D12ViewRenderer(request,
+                stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog);
             using var plain = await withoutRim.CaptureAsync(Capture(project, withoutRim), Token);
             Assert.NotEqual(plain.Pixels.ToArray(), a.Pixels.ToArray());
-            Assert.All(after, mapping => Assert.NotNull(Assert.Single(mapping.CharacterMaterials).Style.EndfieldRim));
+            Assert.All(after, mapping => Assert.Contains(mapping.PluginBindings, binding => binding.Binding.StyleId == "endfield" && binding.Binding.ModeId == "rim"));
         }
         Assert.Contains(b.Pixels.ToArray().Where((_, i) => i % 4 == 3), alpha => alpha != 0);
     }
@@ -218,7 +314,9 @@ public sealed class D3D12MaterialBindingPmaTests : IDisposable
             composition.SetTransform(obj.Id,new((i-.5f)*2,0,0),Quaternion.Identity,1);
             var layout=D3D12MaterialBindingLayout.Capture(frame);
             list.Add(new(obj.Id,new("map-"+i,"mapping "+i,layout.Fingerprint,
-                [new(0,Mmd.Modern.Rendering.D3D12.D3D12CharacterMaterialRole.Hair,GenshinHair:new(layout.CaptureTexture(appended.Textures.Count-1),Multiplier:.8f))]),frame));
+                [new(0,Mmd.Modern.Rendering.D3D12.D3D12CharacterMaterialRole.Hair,
+                     pluginBindings:[TestStylePlugins.GenshinHair(appended.Textures.Count-1,multiplier:.8f)],
+                     textureGuards:[layout.CaptureTexture(appended.Textures.Count-1)])]),frame));
         }
         entries=list.ToArray();
         return new(composition,new SceneLightingEditor(),[],new NoPhysics(),cancellationToken:Token);

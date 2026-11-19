@@ -28,26 +28,26 @@ public sealed class D3D12StarRailHistoryTests
         };
         var frame = Frame();
         var gi = Gi();
-        var mmd = Map(D3D12SurfaceStyle.Mmd);
-        var starRail = Map(D3D12SurfaceStyle.StarRailPmx);
-        var genshin = Map(D3D12SurfaceStyle.GenshinPmx);
+        var mmd = Map(T8cTestHelpers.MmdStyleId);
+        var starRail = Map(T8cTestHelpers.StarRailStyleId);
+        var genshin = Map(T8cTestHelpers.GenshinStyleId);
 
         Render(mmd, 1, "FirstFrame", "FirstFrame");
         Render(starRail, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(starRail.Materials), 2, "None", "None");
+        Render(T8cTestHelpers.CreateDirectMap(starRail.StyleIds, starRail.CharacterMaterials), 2, "None", "None");
         Render(genshin, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(genshin.Materials), 2, "None", "None");
+        Render(T8cTestHelpers.CreateDirectMap(genshin.StyleIds, genshin.CharacterMaterials), 2, "None", "None");
         Render(starRail, 1, "ExplicitReset", "ExplicitRequest");
         Render(starRail, 2, "None", "None");
 
         // Consumed Face values invalidate both histories; neither parameter can cause
         // a second reset when the next submitted frame has identical effective inputs.
-        var normal = Map(D3D12SurfaceStyle.StarRailPmx, .35f, 1);
-        var face = Map(D3D12SurfaceStyle.StarRailPmx, .35f, .35f);
+        var normal = Map(T8cTestHelpers.StarRailStyleId, .35f, 1);
+        var face = Map(T8cTestHelpers.StarRailStyleId, .35f, .35f);
         Render(normal, 1, "ExplicitReset", "ExplicitRequest");
         Render(normal, 2, "None", "None");
         Render(face, 1, "ExplicitReset", "ExplicitRequest");
-        Render(Map(D3D12SurfaceStyle.StarRailPmx, .35f, .35f), 2, "None", "None");
+        Render(Map(T8cTestHelpers.StarRailStyleId, .35f, .35f), 2, "None", "None");
 
         long submitted = session.Runtime.Submissions;
         long readbacks = session.Runtime.Readbacks;
@@ -102,8 +102,8 @@ public sealed class D3D12StarRailHistoryTests
         RequireSoftwareGi(session);
         var frame = Frame();
         var gi = Gi();
-        var genshin = Map(D3D12SurfaceStyle.GenshinPmx);
-        var starRail = Map(D3D12SurfaceStyle.StarRailPmx, .35f, .35f);
+        var genshin = Map(T8cTestHelpers.GenshinStyleId);
+        var starRail = Map(T8cTestHelpers.StarRailStyleId, .35f, .35f);
         using (session.Render(frame, Width, Height, gi, surfaceStyles: genshin)) { }
         using (session.Render(frame, Width, Height, gi, surfaceStyles: genshin)) { }
         Assert.Equal(2UL, session.RayGiStatistics!.TemporalHistoryFrames);
@@ -133,8 +133,8 @@ public sealed class D3D12StarRailHistoryTests
         Assert.Equal(2UL, session.RayGiStatistics.TemporalHistoryFrames);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, float normal = 1, float shadow = 1)
-        => new([family, D3D12SurfaceStyle.Mmd],
+    private static D3D12SurfaceStyleMap Map(string family, float normal = 1, float shadow = 1)
+        => T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId],
             [new(D3D12CharacterMaterialRole.Face, normal, shadow), new()]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,

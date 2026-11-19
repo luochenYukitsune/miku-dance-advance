@@ -10,13 +10,13 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
     [Fact]
     public void OptionalTreatmentAppendsWithoutChangingExistingRoleOrMaterialDefaults()
     {
-        var previousCaller = new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face, .35f, .6f, null, .2f, null, null);
+        var previousCaller = new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face, .35f, .6f, .2f, null, null, null);
         Assert.Null(previousCaller.PmxMaterialTreatment);
         var treatment = new D3D12PmxMaterialTreatment();
         Assert.Equal(1, treatment.Saturation);
         Assert.Equal(1, treatment.TransitionWidthScale);
         treatment.Validate();
-        var defaults = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx]);
+        var defaults = T8cTestHelpers.CreateDirectMap([T8cTestHelpers.GenshinStyleId]);
         Assert.Null(defaults.EffectivePmxMaterialTreatment(0));
         Assert.Null(defaults.EffectiveToonResponse(0, null));
     }
@@ -51,28 +51,54 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
     }
 
     [Fact]
-    public void FaceEyeAndEveryDedicatedPayloadRejectEvenAnIdentityTreatment()
+    public void FaceEyeRejectEvenAnIdentityTreatmentAndDedicatedPayloadsIgnoreIt()
     {
         foreach (var treatment in new[] { new D3D12PmxMaterialTreatment(), new D3D12PmxMaterialTreatment(1.02f, .9f) })
         {
             foreach (var role in new[] { D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
                 Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(role,
                     PmxMaterialTreatment: treatment).Validate());
-            Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face,
-                FaceSdf: new(0, -Vector3.UnitZ, Vector3.UnitX), PmxMaterialTreatment: treatment).Validate());
-            Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair,
-                GenshinNonMetallicSpecular: new(0), PmxMaterialTreatment: treatment).Validate());
-            Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair,
-                StarMcHair: new(0, 0), PmxMaterialTreatment: treatment).Validate());
+            Assert.Throws<ArgumentException>(() => T8cTestHelpers.MaterialWithBinding(
+                T8cTestHelpers.GenshinStyleId,
+                T8cTestHelpers.FaceSdfBinding(T8cTestHelpers.GenshinStyleId, 0),
+                D3D12CharacterMaterialRole.Face,
+                pmxMaterialTreatment: treatment).Validate());
+
+            var faceOnBody = T8cTestHelpers.CreateDirectMap(
+                [T8cTestHelpers.GenshinStyleId],
+                [T8cTestHelpers.MaterialWithBinding(
+                    T8cTestHelpers.GenshinStyleId,
+                    T8cTestHelpers.FaceSdfBinding(T8cTestHelpers.GenshinStyleId, 0),
+                    D3D12CharacterMaterialRole.Body,
+                    pmxMaterialTreatment: treatment)]);
+            var genshinHair = T8cTestHelpers.CreateDirectMap(
+                [T8cTestHelpers.GenshinStyleId],
+                [T8cTestHelpers.MaterialWithBinding(
+                    T8cTestHelpers.GenshinStyleId,
+                    TestStylePlugins.GenshinHair(0),
+                    D3D12CharacterMaterialRole.Hair,
+                    pmxMaterialTreatment: treatment)]);
+            var starMcHair = T8cTestHelpers.CreateDirectMap(
+                [T8cTestHelpers.StarRailStyleId],
+                [T8cTestHelpers.MaterialWithBinding(
+                    T8cTestHelpers.StarRailStyleId,
+                    T8cTestHelpers.StarMcHairBinding(T8cTestHelpers.StarRailStyleId, 0, 0),
+                    D3D12CharacterMaterialRole.Hair,
+                    pmxMaterialTreatment: treatment)]);
+            foreach (var dedicated in new[] { faceOnBody, genshinHair, starMcHair })
+            {
+                dedicated.Validate(Frame(textures: [new("t", 1, 1, [0, 0, 0, 0])]));
+                Assert.Null(dedicated.EffectivePmxMaterialTreatment(0));
+            }
         }
     }
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void OnlyExplicitOrdinaryBodyAndHairConsumeNonidentityValues(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.GenshinStyleId)]
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    [InlineData(T8cTestHelpers.EndfieldStyleId)]
+    public void OnlyExplicitOrdinaryBodyAndHairConsumeNonidentityValues(string family)
     {
         var treatment = new D3D12PmxMaterialTreatment(1.02f, .9f);
         foreach (var role in new[] { D3D12CharacterMaterialRole.Body, D3D12CharacterMaterialRole.Hair })
@@ -108,35 +134,35 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
     public void OriginalMmdAcceptsValidOrdinaryDataAndConsumesNoTreatmentOrWidth()
     {
         var treatment = new D3D12PmxMaterialTreatment(2, 1.5f);
-        var map = Map(treatment, D3D12SurfaceStyle.Mmd);
+        var map = Map(treatment, T8cTestHelpers.MmdStyleId);
         var response = new CharacterToonResponse(.05f, .1f);
         map.Validate(Frame(response: response));
         Assert.Null(map.EffectivePmxMaterialTreatment(0));
         Assert.Same(response, map.EffectiveToonResponse(0, response));
         Assert.Null(map.EffectiveToonResponse(0, null));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(null, map));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map, Map(null, D3D12SurfaceStyle.Mmd)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map, Map(null, T8cTestHelpers.MmdStyleId)));
     }
 
     [Fact]
     public void MaterialOrderAndTreatmentValuesAreDetachedFromCallerArrays()
     {
         var treatment = new D3D12PmxMaterialTreatment(1.02f, .9f);
-        D3D12SurfaceStyle[] families = [D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.StarRailPmx];
+        string[] families = [T8cTestHelpers.StarRailStyleId, T8cTestHelpers.StarRailStyleId];
         D3D12CharacterMaterialStyle[] rows = [new(PmxMaterialTreatment: treatment), new()];
-        var map = new D3D12SurfaceStyleMap(families, rows);
-        families[0] = D3D12SurfaceStyle.Mmd;
+        var map = T8cTestHelpers.CreateDirectMap(families, rows);
+        families[0] = T8cTestHelpers.MmdStyleId;
         rows[0] = new(PmxMaterialTreatment: new(0, 1.5f));
-        Assert.Equal(D3D12SurfaceStyle.StarRailPmx, map.Materials[0]);
+        Assert.Equal(T8cTestHelpers.StarRailStyleId, map.StyleIds[0]);
         Assert.Equal(treatment, map.EffectivePmxMaterialTreatment(0));
         Assert.NotSame(treatment, map.CharacterMaterials[0].PmxMaterialTreatment);
         Assert.Null(map.EffectivePmxMaterialTreatment(1));
-        var equal = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.StarRailPmx],
+        var equal = T8cTestHelpers.CreateDirectMap([T8cTestHelpers.StarRailStyleId, T8cTestHelpers.StarRailStyleId],
             [new(D3D12CharacterMaterialRole.Hair, PmxMaterialTreatment: treatment with { }), new()]);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(map, equal));
-        var reordered = new D3D12SurfaceStyleMap(equal.Materials, [new(), new(PmxMaterialTreatment: treatment)]);
+        var reordered = T8cTestHelpers.CreateDirectMap(equal.StyleIds, [new(), new(PmxMaterialTreatment: treatment)]);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, reordered));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map, map.CaptureFaceTextures(Frame(2))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map, map.CaptureResolvedInputs(Frame(2))));
     }
 
     [Fact]
@@ -148,7 +174,7 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, Map(treatment with { Saturation = 1.01f })));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, Map(treatment with { TransitionWidthScale = 1.1f })));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, Map(null)));
-        var unused = new D3D12SurfaceStyleMap(map.Materials,
+        var unused = T8cTestHelpers.CreateDirectMap(map.StyleIds,
             [new(D3D12CharacterMaterialRole.Hair, .99f, .01f, EyeGeometricShadowStrength: .8f,
                 PmxMaterialTreatment: treatment)]);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(map, unused));
@@ -167,7 +193,7 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
         Assert.Equal(.2f * 1.5f, modified.TransitionWidth);
         Assert.Equal(.2f, explicitResponse.TransitionWidth);
         map.Validate(Frame(response: explicitResponse));
-        foreach (var inactive in new[] { Map(null), Map(new()), Map(new(1.02f), D3D12SurfaceStyle.Mmd) })
+        foreach (var inactive in new[] { Map(null), Map(new()), Map(new(1.02f), T8cTestHelpers.MmdStyleId) })
         {
             Assert.Same(explicitResponse, inactive.EffectiveToonResponse(0, explicitResponse));
             Assert.Null(inactive.EffectiveToonResponse(0, null));
@@ -194,17 +220,17 @@ public sealed class D3D12PmxMaterialTreatmentBindingTests
     }
 
     private static D3D12SurfaceStyleMap Map(D3D12PmxMaterialTreatment? treatment,
-        D3D12SurfaceStyle family = D3D12SurfaceStyle.GenshinPmx,
+        string family = T8cTestHelpers.GenshinStyleId,
         D3D12CharacterMaterialRole role = D3D12CharacterMaterialRole.Body)
-        => new([family], [new(role, PmxMaterialTreatment: treatment)]);
+        => T8cTestHelpers.CreateDirectMap([family], [new(role, PmxMaterialTreatment: treatment)]);
 
-    private static OriginalFrameScene Frame(int count = 1, CharacterToonResponse? response = null)
+    private static OriginalFrameScene Frame(int count = 1, CharacterToonResponse? response = null, SceneTexture[]? textures = null)
     {
         SceneVertex[] vertices = [new(new(-1, -1, 0), -Vector3.UnitZ, Vector2.Zero),
             new(new(1, -1, 0), -Vector3.UnitZ, Vector2.Zero), new(new(0, 1, 0), -Vector3.UnitZ, Vector2.Zero)];
         var materials = Enumerable.Range(0, count).Select(i => new SceneMaterial($"explicit ordinary material {i}",
             i * 3, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 10)).ToArray();
-        var snapshot = new SceneSnapshot(vertices, Enumerable.Range(0, count).SelectMany(_ => new uint[] { 0, 2, 1 }).ToArray(), materials);
+        var snapshot = new SceneSnapshot(vertices, Enumerable.Range(0, count).SelectMany(_ => new uint[] { 0, 2, 1 }).ToArray(), materials, textures);
         return new(new(snapshot, Enumerable.Repeat(new OriginalStyleMaterialBinding(new(.2f), DoubleSided: true), count).ToArray(),
             new(Vector3.One, Vector3.One, Matrix4x4.Identity)), options: new(OriginalAlphaBlendMode.Normal, true, false),
             materials: Enumerable.Repeat(new OriginalFrameMaterialFlags(false, false, false) { CharacterToonResponse = response }, count));

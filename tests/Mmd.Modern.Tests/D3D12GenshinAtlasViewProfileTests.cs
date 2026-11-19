@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
@@ -12,33 +13,39 @@ namespace Mmd.Modern.Tests;
 
 public sealed class D3D12GenshinAtlasViewProfileTests
 {
-    internal static D3D12ViewGenshinHairAtlasBinding Binding(Guid id, int lightmap = 1, int atlas = 0)
-        => new(id, 0, lightmap, atlas, D3D12GenshinAtlasColorEncoding.SrgbRgb, 2.5f, .3f, .6f, -.5f, .7f, .8f, 1, .2f);
+    internal static StyleMaterialBindingData AtlasBinding(int lightmap = 1, int atlas = 0)
+        => TestStylePlugins.GenshinHairAtlas(lightmap, atlas, "SrgbRgb", 2.5f, .3f, .6f, -.5f, .7f, .8f, 1f, .2f);
+    internal static D3D12ViewPluginMaterialBinding Binding(Guid id, int lightmap = 1, int atlas = 0)
+        => TestStylePlugins.Bind(id, 0, AtlasBinding(lightmap, atlas));
     internal static D3D12MaterialBindingProfile Profile(OriginalFrameScene source, bool includeHighlight = true)
     {
         var layout = D3D12MaterialBindingLayout.Capture(source);
+        var bindings = includeHighlight
+            ? new[] { TestStylePlugins.GenshinHair(1), AtlasBinding() }
+            : [AtlasBinding()];
         return new("atlas-map", "Atlas map", layout.Fingerprint,
             [new(0, D3D12CharacterMaterialRole.Hair,
-                GenshinHair: includeHighlight ? new(layout.CaptureTexture(1)) : null,
-                GenshinHairAtlas: new(layout.CaptureTexture(1), layout.CaptureTexture(0),
-                    D3D12GenshinAtlasColorEncoding.SrgbRgb, 2.5f, .3f, .6f, -.5f, .7f, .8f, 1, .2f))]);
+                pluginBindings: bindings,
+                textureGuards: [layout.CaptureTexture(0), layout.CaptureTexture(1)])]);
     }
 
     [Fact]
-    public void SchemaThreePreservesBothGuardsAndCoexistingHighlightWithoutUpgradingOlderPayloads()
+    public void SchemaFourteenPreservesBothGuardsAndCoexistingHighlightWithoutUpgradingOlderPayloads()
     {
         var source = Source(); var profile = Profile(source);
         byte[] bytes = D3D12MaterialBindingProfileJson.Encode(profile);
-        Assert.Equal(3, JsonNode.Parse(bytes)!["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(14, JsonNode.Parse(bytes)!["schemaVersion"]!.GetValue<int>());
         var restored = D3D12MaterialBindingProfileJson.Decode(bytes);
         Assert.Equal(profile.Materials, restored.Materials);
         Assert.Equal(bytes, D3D12MaterialBindingProfileJson.Encode(restored));
         foreach (var row in new[] { new D3D12MaterialBindingProfileRow(0, D3D12CharacterMaterialRole.Hair),
-            new(0, D3D12CharacterMaterialRole.Hair, EndfieldRim: new(Vector3.One, Vector3.One)) })
+            new(0, D3D12CharacterMaterialRole.Hair, pluginBindings: [new StyleMaterialBindingData("endfield", "rim",
+                VectorValues: new Dictionary<string, float[]> { ["rimColor"] = [1f, 1f, 1f], ["shadowColor"] = [1f, 1f, 1f] }.AsReadOnly())]) })
         {
             var old = new D3D12MaterialBindingProfile("old", "old", profile.LayoutFingerprint, [row]);
             byte[] oldBytes = D3D12MaterialBindingProfileJson.Encode(old);
-            Assert.False(JsonNode.Parse(oldBytes)!["materials"]![0]!.AsObject().ContainsKey("genshinHairAtlas"));
+            var decodedBindings = JsonNode.Parse(oldBytes)!["materials"]![0]!["pluginBindings"]!.AsArray();
+            Assert.DoesNotContain(decodedBindings, node => (string?)node!["modeId"] == "hair-atlas");
             Assert.Equal(oldBytes, D3D12MaterialBindingProfileJson.Encode(D3D12MaterialBindingProfileJson.Decode(oldBytes)));
         }
     }
@@ -50,9 +57,49 @@ public sealed class D3D12GenshinAtlasViewProfileTests
     [InlineData("range")]
     [InlineData("schema2")]
     [InlineData("duplicate")]
-    public void SchemaThreeRejectsMalformedOrSilentDowngradedAtlas(string damage)
+    public void LegacySchemaThreeRejectsMalformedOrSilentDowngradedAtlas(string damage)
     {
-        var document = JsonNode.Parse(D3D12MaterialBindingProfileJson.Encode(Profile(Source())))!;
+        var layout = D3D12MaterialBindingLayout.Capture(Source());
+        var lm = layout.CaptureTexture(1);
+        var at = layout.CaptureTexture(0);
+        string TexJson(D3D12MaterialBindingProfileTexture t)
+            => $$$"""{"sourceSceneTextureOrdinal":{{{t.SourceSceneTextureOrdinal}}},"width":{{{t.Width}}},"height":{{{t.Height}}},"kind":"{{{t.Kind}}}","rgbaSha256":"{{{t.RgbaSha256}}}"}""";
+        string legacy = $$$"""
+            {
+              "format":"mda-d3d12-material-binding-profile",
+              "schemaVersion":3,
+              "stableId":"atlas-map",
+              "name":"Atlas map",
+              "layoutVersion":1,
+              "layoutFingerprint":"{{{layout.Fingerprint}}}",
+              "materials":[{
+                "localMaterialIndex":0,
+                "role":"Hair",
+                "faceNormalShadeStrength":0.35,
+                "faceGeometricShadowStrength":1,
+                "eyeGeometricShadowStrength":0.2,
+                "pmxMaterialTreatment":null,
+                "face":null,
+                "genshinHair":null,
+                "starMcHair":null,
+                "endfieldRim":null,
+                "genshinHairAtlas":{
+                  "lightmap":{{{TexJson(lm)}}},
+                  "atlas":{{{TexJson(at)}}},
+                  "atlasEncoding":"Srgb",
+                  "explicitRowId":2.5,
+                  "dayNight":0.3,
+                  "shadowPosition":0.6,
+                  "shadowRampWidth":0.5,
+                  "vertexWidth":0.7,
+                  "vertexAo":0.8,
+                  "useLightmapAo":1,
+                  "useVertexColorAo":0.2
+                }
+              }]
+            }
+            """;
+        var document = JsonNode.Parse(legacy)!;
         var atlas = document["materials"]![0]!["genshinHairAtlas"]!.AsObject();
         switch (damage)
         {
@@ -76,16 +123,18 @@ public sealed class D3D12GenshinAtlasViewProfileTests
     public void ProfileActivatesOnlySelectedFamilyAndChecksBothImagesEvenWhenDormant(string pipeline)
     {
         var source = Source(); var profile = Profile(source); var id = Guid.NewGuid();
-        var result = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline);
-        Assert.Equal(pipeline == "genshin" ? 1 : 0, result.GenshinHairAtlasBindings.Count);
-        if (pipeline == "genshin") Assert.Equal(Binding(id), Assert.Single(result.GenshinHairAtlasBindings));
+        var result = D3D12MaterialBindingProfileResolver.Resolve(profile, source, id, pipeline, TestStylePlugins.AllViewCatalog);
+        var atlasMatches = result.PluginBindings.Where(b => b.Binding.ModeId == "hair-atlas").ToArray();
+        Assert.Equal(pipeline == "genshin" ? 1 : 0, atlasMatches.Length);
+        if (pipeline == "genshin") Assert.True(D3D12StylePluginAdapter.BindingDataEquivalent(Binding(id).Binding, Assert.Single(atlasMatches).Binding));
         foreach (bool damageLightmap in new[] { false, true })
         {
-            var row = profile.Materials[0]; var atlas = row.GenshinHairAtlas!;
-            atlas = damageLightmap ? atlas with { Lightmap = atlas.Lightmap with { RgbaSha256 = new('0', 64) } }
-                : atlas with { Atlas = atlas.Atlas with { RgbaSha256 = new('0', 64) } };
-            var invalid = new D3D12MaterialBindingProfile("bad", "bad", profile.LayoutFingerprint, [row with { GenshinHairAtlas = atlas }]);
-            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(invalid, source, id, pipeline));
+            var row = profile.Materials[0];
+            var guards = row.TextureGuards.ToArray();
+            int idx = damageLightmap ? 1 : 0;
+            guards[idx] = guards[idx] with { RgbaSha256 = new('0', 64) };
+            var invalid = new D3D12MaterialBindingProfile("bad", "bad", profile.LayoutFingerprint, [row with { TextureGuards = guards }]);
+            Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(invalid, source, id, pipeline, TestStylePlugins.AllViewCatalog));
         }
     }
 
@@ -96,10 +145,11 @@ public sealed class D3D12GenshinAtlasViewProfileTests
         var b = layout.Add("b", SourcePath, ModelRole.Character, Source(reverse: true));
         using var project = new SceneProjectSession(layout, new(), [], new NoPhysics(), cancellationToken: TestContext.Current.CancellationToken);
         project.SetDefaultRenderingStyle(new("genshin"), TestContext.Current.CancellationToken);
-        D3D12ViewGenshinHairAtlasBinding[] atlas = [Binding(a.Id), Binding(b.Id, 0, 1)];
-        D3D12ViewGenshinHairBinding[] highlight = [new(a.Id, 0, 1), new(b.Id, 0, 0)];
-        var requests = D3D12ViewGenshinHairAtlasBindings.CreateRequests(atlas,
-            D3D12ViewGenshinHairBindings.CreateRequests(highlight));
+        D3D12ViewPluginMaterialBinding[] atlas = [Binding(a.Id), Binding(b.Id, 0, 1)];
+        D3D12ViewPluginMaterialBinding[] highlight = [TestStylePlugins.Bind(a.Id, 0, TestStylePlugins.GenshinHair(1)),
+            TestStylePlugins.Bind(b.Id, 0, TestStylePlugins.GenshinHair(0))];
+        D3D12ViewPluginMaterialBinding[] combined = [.. atlas, .. highlight];
+        var requests = D3D12ViewPluginMaterialBindings.CreateRequests(combined, TestStylePlugins.AllViewCatalog);
         Assert.Equal(2, requests.Count);
         // Requests are deduplicated source-local selections, not a sorted combined texture table.
         Assert.All(requests, request => Assert.Equal(new[] { 0, 1 }, request.LocalTextureIndices.Order()));
@@ -108,18 +158,21 @@ public sealed class D3D12GenshinAtlasViewProfileTests
         // selecting modern frame options. This does not re-evaluate animation or change SceneInputs.
         var frameScene = D3D12ViewScene.Resolve(sample.Scene, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), new());
-        var result = D3D12ViewRenderingStyles.Resolve(frameScene, D3D12StylePresetCatalog.BuiltIn,
-            sample.RenderingStyles, sceneInputs: sample.SceneInputs, hairDataBindings: highlight, genshinHairAtlasDataBindings: atlas);
+        var result = D3D12ViewRenderingStyles.Resolve(frameScene, TestStylePlugins.AllPresetCatalog,
+            sample.RenderingStyles, sceneInputs: sample.SceneInputs, pluginBindings: combined, styleCatalog: TestStylePlugins.AllViewCatalog);
         foreach (var instance in sample.RenderingStyles)
         {
             var binding = atlas.Single(value => value.ObjectId == instance.ObjectId);
             var style = result.SurfaceStyles.CharacterMaterials[instance.MaterialStart];
-            Assert.Equal(sample.SceneInputs[instance.ObjectId].TextureIndices[binding.LightmapLocalTextureIndex], style.GenshinHairShadowAtlas!.LightmapCombinedTextureIndex);
-            Assert.Equal(sample.SceneInputs[instance.ObjectId].TextureIndices[binding.AtlasLocalTextureIndex], style.GenshinHairShadowAtlas.AtlasCombinedTextureIndex);
-            Assert.NotNull(style.GenshinNonMetallicSpecular);
+            var draw = Assert.IsType<D3D12PluginDrawData>(style.PluginDraw);
+            Assert.Equal("hair-atlas-rb", draw.ShaderModuleId);
+            var bySlot = draw.TextureBindings!.ToDictionary(t => t.SlotIndex, t => t.SceneTextureIndex);
+            Assert.Equal(sample.SceneInputs[instance.ObjectId].TextureIndices[binding.Binding.TextureSlots!["lightmap"]], bySlot[1]);
+            Assert.Equal(sample.SceneInputs[instance.ObjectId].TextureIndices[binding.Binding.TextureSlots["atlas"]], bySlot[2]);
+            Assert.Equal(sample.SceneInputs[instance.ObjectId].TextureIndices[binding.Binding.TextureSlots["lightmap"]], bySlot[0]);
         }
-        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(frameScene, D3D12StylePresetCatalog.BuiltIn,
-            sample.RenderingStyles, hairDataBindings: highlight, genshinHairAtlasDataBindings: atlas));
+        Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(frameScene, TestStylePlugins.AllPresetCatalog,
+            sample.RenderingStyles, pluginBindings: combined, styleCatalog: TestStylePlugins.AllViewCatalog));
         Assert.Equal(0, project.CurrentFrame);
     }
 
@@ -127,21 +180,38 @@ public sealed class D3D12GenshinAtlasViewProfileTests
     public void LocalBindingsDetachAndRejectCrossFamilyOrComposedDuplicatesBeforeDeviceCreation()
     {
         var id = Guid.NewGuid(); var valid = Binding(id); var inputs = new[] { valid };
-        var detached = D3D12ViewGenshinHairAtlasBindings.Detach(inputs); inputs[0] = valid with { AtlasLocalTextureIndex = 99 };
-        Assert.Equal(valid, detached[0]); Assert.Same(detached, D3D12ViewGenshinHairAtlasBindings.Detach(detached));
-        foreach (var candidate in new[] { valid with { ObjectId = Guid.Empty }, valid with { LocalMaterialIndex = -1 },
-            valid with { LightmapLocalTextureIndex = -1 }, valid with { AtlasLocalTextureIndex = -1 },
-            valid with { ExplicitRowId = float.NaN }, valid with { DayNight = 2 } })
-            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewGenshinHairAtlasBindings.Detach([candidate]));
-        Assert.Throws<ArgumentException>(() => D3D12ViewGenshinHairAtlasBindings.Detach([valid, valid]));
-        foreach (var style in new[] { new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Face),
-            new(D3D12CharacterMaterialRole.Hair, StarMcHair: new(0, 0)),
-            new(D3D12CharacterMaterialRole.Hair, PmxMaterialTreatment: new()),
-            new(D3D12CharacterMaterialRole.Hair, GenshinHairShadowAtlas: new(1, 0, D3D12GenshinAtlasColorEncoding.LinearRgb, 1, 0, 1, 1, 1, 1, 0, 0)) })
+        var detached = D3D12ViewPluginMaterialBindings.Detach(inputs);
+        inputs[0] = TestStylePlugins.Bind(id, 0, AtlasBinding(atlas: 99));
+        Assert.Equal(valid.ObjectId, detached[0].ObjectId);
+        Assert.Equal(0, detached[0].Binding.TextureSlots!["atlas"]);
+        Assert.Same(detached, D3D12ViewPluginMaterialBindings.Detach(detached));
+        foreach (var candidate in new[] {
+            TestStylePlugins.Bind(Guid.Empty, 0, AtlasBinding()),
+            TestStylePlugins.Bind(id, -1, AtlasBinding()),
+            TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHairAtlas(1, 0, explicitRowId: float.NaN)) })
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Detach([candidate]));
+        foreach (var candidate in new[] {
+            TestStylePlugins.Bind(Guid.Empty, 0, AtlasBinding()),
+            TestStylePlugins.Bind(id, -1, AtlasBinding()),
+            TestStylePlugins.Bind(id, 0, AtlasBinding(lightmap: -1)),
+            TestStylePlugins.Bind(id, 0, AtlasBinding(atlas: -1)),
+            TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHairAtlas(1, 0, explicitRowId: float.NaN)),
+            TestStylePlugins.Bind(id, 0, TestStylePlugins.GenshinHairAtlas(1, 0, dayNight: 2f)) })
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([], [candidate], TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([], [valid, valid], TestStylePlugins.AllViewCatalog));
+        foreach (var combo in new (D3D12ViewCharacterMaterial[] Materials, D3D12ViewPluginMaterialBinding[] Bindings)[]
         {
-            D3D12ViewCharacterMaterialBinding[] materials = [new(id, 0, style)];
-            Assert.Throws<ArgumentException>(() => new D3D12ViewRenderer(new(32, 32), characterMaterials: materials, genshinHairAtlasDataBindings: [valid]));
-            Assert.Throws<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(32, 32), characterMaterials: materials, genshinHairAtlasDataBindings: [valid]));
+            ([new(id, 0, D3D12CharacterMaterialRole.Face)], [valid]),
+            ([new(id, 0, D3D12CharacterMaterialRole.Eye)], [valid]),
+            ([new(id, 0, D3D12CharacterMaterialRole.Hair)], [valid, valid]),
+            ([new(id, 0, D3D12CharacterMaterialRole.Hair)], [valid, TestStylePlugins.Bind(id, 0, new("genshin", "default"))]),
+            ([new(id, 0, D3D12CharacterMaterialRole.Face)], [valid, TestStylePlugins.Bind(id, 0, TestStylePlugins.FaceSdf("genshin", 0, 1))]),
+        })
+        {
+            Assert.Throws<ArgumentException>(() => new D3D12ViewRenderer(new(32, 32), characterMaterials: combo.Materials,
+                pluginBindings: combo.Bindings, styleCatalog: TestStylePlugins.AllViewCatalog));
+            Assert.Throws<ArgumentException>(() => new D3D12RealtimeViewRenderer(0, new(32, 32), characterMaterials: combo.Materials,
+                pluginBindings: combo.Bindings, styleCatalog: TestStylePlugins.AllViewCatalog));
         }
     }
 

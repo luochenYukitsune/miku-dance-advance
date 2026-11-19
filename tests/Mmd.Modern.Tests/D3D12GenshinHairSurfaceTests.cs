@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -18,20 +19,22 @@ public sealed class D3D12GenshinHairSurfaceTests
     [Theory, MemberData(nameof(Variants))]
     public void AllTwelveVariantsCompileWithAnIndependentRootAbiAndOneReplacedLobe(string entry, bool native, bool gi, bool morph, bool sub)
     {
-        var shader = OriginalFrameShaders.CompileGenshinHairSurface(entry, native, gi, morph, sub);
+        var shader = T8bTestHelpers.CompileGenshinPixel("hair", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
-        string source = OriginalFrameShaders.GenshinHairSurfaceSource(native, gi, morph, sub);
-        Assert.Contains("GenshinHairConstants:register(b5)", source);
-        Assert.Contains("GenshinHairMap:register(t9)", source);
-        Assert.Contains("GenshinHairSampler:register(s3)", source);
-        Assert.Contains("GenshinHairCubicRepeat(v.Uv)", source);
-        Assert.Contains("(1-packed.b)<pow(halfResponse,GenshinHairParameters.y)", source);
-        Assert.DoesNotContain("pow(max(0,dot(n,h)),SpecularPower.w)", source);
-        Assert.Equal(1, source.Split("float3 highlight=", StringSplitOptions.None).Length - 1);
-        Assert.Contains("+highlight*originalC;", source);
-        Assert.Contains("return float4(baseColor*GenshinPaletteFactor(GenshinLightResponse(dot(n,l),1))+highlight,alpha)", source);
-        Assert.DoesNotContain("FaceSdfConstants:register(b4)", source);
-        if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
+        string source = T8bTestHelpers.AssembleGenshinPixelSource("hair", entry, native, gi, morph, sub);
+        Assert.Contains("cbuffer PluginStyleConstants : register(b0, space2)", source);
+        Assert.Contains("GenshinHairParameters;", source);
+        Assert.Contains("GenshinHairMap : register(t0, space2)", source);
+        Assert.Contains("MdaLinearWrapSampler : register(s0, space2)", source);
+        Assert.Contains("GenshinCubicSample(GenshinHairMap, v.Uv)", source);
+        Assert.Contains("(1 - packed.b) < pow(halfResponse, GenshinHairParameters.y)", source);
+        Assert.DoesNotContain("pow(max(0, dot(n, h)), SpecularPower.w)", source);
+        Assert.Contains("float3 highlight = MdaStyleSpecular(v, n, h, l, baseColor);", source);
+        Assert.Contains("float3 highlight = GenshinHairHighlight(v, n, h);", source);
+        Assert.Contains("highlight * originalC", source);
+        Assert.Contains("color = baseColor * c + baseColor * ToonShadowColor.rgb * (1 - c) + highlight;", source);
+        Assert.DoesNotContain("FaceSdfMap", source);
+        if (sub) Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)", source);
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -42,7 +45,7 @@ public sealed class D3D12GenshinHairSurfaceTests
         foreach (byte blue in new byte[] { 0, 127, 128, 255 })
         {
             var frame = Frame([red, 93, blue, 17]);
-            var binding = new D3D12GenshinNonMetallicSpecularBinding(0, .5f, 1);
+            var binding = TestStylePlugins.GenshinHair(0, globalSpecularScale: .5f, shininess: 1);
             var actual = session.Capture(frame, Width, Height, surfaceStyles: Map(binding));
             var baseline = session.Capture(Frame([red, 93, blue, 17], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(binding));
             float factor = blue >= 128 ? red / 255f * .1f : 0;
@@ -51,18 +54,18 @@ public sealed class D3D12GenshinHairSurfaceTests
         }
         // NdotH=1 and scale=1 produce power=1. B=0 gives exact equality,
         // and must stay dark rather than using an inclusive threshold.
-        var equality = new D3D12GenshinNonMetallicSpecularBinding(0, 1, 1);
+        var equality = TestStylePlugins.GenshinHair(0, globalSpecularScale: 1, shininess: 1);
         Assert.Equal(session.Capture(Frame([255, 0, 0, 255], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(equality)).Rgba,
             session.Capture(Frame([255, 0, 0, 255]), Width, Height, surfaceStyles: Map(equality)).Rgba);
         var ordinaryFrame = Frame([128, 0, 255, 255]);
         var ordinary = session.Capture(ordinaryFrame, Width, Height, surfaceStyles: Map(null));
-        var selected = session.Capture(ordinaryFrame, Width, Height, surfaceStyles: Map(new(0)));
+        var selected = session.Capture(ordinaryFrame, Width, Height, surfaceStyles: Map(TestStylePlugins.GenshinHair(0)));
         Assert.NotEqual(Pixel(ordinary), Pixel(selected));
         Assert.Equal(ordinary.Rgba, session.Capture(ordinaryFrame, Width, Height, surfaceStyles: Map(null)).Rgba);
-        foreach (var family in Enum.GetValues<D3D12SurfaceStyle>())
+        foreach (string styleId in (string[])["mmd", .. TestStylePlugins.OfficialStyleIds])
         {
-            var hair = new D3D12SurfaceStyleMap([family], [new(D3D12CharacterMaterialRole.Hair)]);
-            var body = new D3D12SurfaceStyleMap([family]);
+            var hair = T8bTestHelpers.CreateDirectMap([styleId], (D3D12CharacterMaterialRole.Hair, null, 0.35f, 1f, 0.2f));
+            var body = T8bTestHelpers.CreateDirectMap(styleId);
             Assert.Equal(session.Capture(ordinaryFrame, Width, Height, surfaceStyles: body).Rgba,
                 session.Capture(ordinaryFrame, Width, Height, surfaceStyles: hair).Rgba);
         }
@@ -73,7 +76,7 @@ public sealed class D3D12GenshinHairSurfaceTests
     {
         using var session = new D3D12FrameSession();
         byte[] packed = [0, 20, 255, 0, 255, 40, 255, 64, 48, 60, 255, 128, 128, 80, 255, 255];
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0, 1, 0, .6f);
+        var binding = TestStylePlugins.GenshinHair(0, globalSpecularScale: 1, shininess: 0, multiplier: .6f);
         foreach (var uv in new[] { new Vector2(.23f, .42f), new Vector2(1.23f, -.58f), new Vector2(-.08f, 1.07f) })
         {
             var actual = session.Capture(Frame(packed, uv: uv, textureWidth: 2, textureHeight: 2), Width, Height, surfaceStyles: Map(binding));
@@ -92,7 +95,7 @@ public sealed class D3D12GenshinHairSurfaceTests
         using var session = new D3D12FrameSession();
         const float d = .175f;
         var normal = new Vector3(d, 0, -MathF.Sqrt(1 - d * d));
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0, 1, 0);
+        var binding = TestStylePlugins.GenshinHair(0, globalSpecularScale: 1, shininess: 0);
         var actual = session.Capture(Frame([128, 0, 255, 255], normal: normal, light: Vector3.UnitX, outside: outside), Width, Height, surfaceStyles: Map(binding));
         var baseline = session.Capture(Frame([128, 0, 255, 255], normal: normal, light: Vector3.UnitX, outside: outside, specular: Vector3.Zero), Width, Height, surfaceStyles: Map(binding));
         AssertIncrement(baseline, actual, Specular * (128 / 255f * .1f * (outside ? 1 : 3 * d) * 255));
@@ -103,7 +106,7 @@ public sealed class D3D12GenshinHairSurfaceTests
     public void ProjectedShadowVisibilityAttenuatesTheDedicatedHighlightWithTheOriginalContrast(float depth)
     {
         using var session = new D3D12FrameSession();
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0, 1, 0);
+        var binding = TestStylePlugins.GenshinHair(0, globalSpecularScale: 1, shininess: 0);
         var actual = session.Capture(Frame([128, 0, 255, 255], projectedDepth: depth), Width, Height, surfaceStyles: Map(binding));
         var baseline = session.Capture(Frame([128, 0, 255, 255], projectedDepth: depth, specular: Vector3.Zero), Width, Height, surfaceStyles: Map(binding));
         float visibility = OriginalFrameMath.Visibility(depth, 1, .5f, false);
@@ -115,7 +118,7 @@ public sealed class D3D12GenshinHairSurfaceTests
     public void NativeAndGiRootsRetainTheSinglePrimaryHighlightAndWarmRenderingDoesNotReadBack(bool native, bool gi)
     {
         using var session = new D3D12FrameSession();
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(0);
+        var binding = TestStylePlugins.GenshinHair(0);
         var frame = Frame([128, 200, 255, 0], native: native);
         var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 17,
             Composition: RayGiComposition.ToonPalette) : null;
@@ -126,7 +129,7 @@ public sealed class D3D12GenshinHairSurfaceTests
         for (int i = 0; i < 4; i++)
         {
             using var rendered = session.Render(frame, Width, Height, options,
-                surfaceStyles: Map(binding with { Intensity = .5f + i * .1f }));
+                surfaceStyles: Map(TestStylePlugins.GenshinHair(0, intensity: .5f + i * .1f)));
             Assert.Equal(0, rendered.Statistics.ReadbackCount);
             Assert.Equal(warm.ShaderCompilations, rendered.Statistics.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, rendered.Statistics.PipelineCreations);
@@ -141,7 +144,7 @@ public sealed class D3D12GenshinHairSurfaceTests
         using var session = new D3D12FrameSession();
         var frame = Frame([128, 255, 255, 0], transparent: true, straight: straight, sub: sub, sphere: !sub);
         var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(null));
-        var binding = new D3D12GenshinNonMetallicSpecularBinding(2);
+        var binding = TestStylePlugins.GenshinHair(2);
         var selected = session.Capture(frame, Width, Height, surfaceStyles: Map(binding));
         for (int i = 3; i < ordinary.Rgba.Length; i += 4) Assert.Equal(ordinary.Rgba[i], selected.Rgba[i]);
         var changedUnused = Frame([128, 0, 255, 255], transparent: true, straight: straight, sub: sub, sphere: !sub);
@@ -172,11 +175,17 @@ public sealed class D3D12GenshinHairSurfaceTests
         var frame = new OriginalFrameScene(new(scene, [surfaceBinding, surfaceBinding, surfaceBinding], source.Surface.Profile), options: source.Options, lighting: source.Lighting);
         var giOptions = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 17,
             Composition: RayGiComposition.ToonPalette) : null;
-        var face = D3D12FaceSdfBinding.GenshinSoft(1, 2, -Vector3.UnitZ, Vector3.UnitX);
-        var ordinary = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd],
-            [new(D3D12CharacterMaterialRole.Face, 1, 1, face), new(), new()]);
-        var mixed = new D3D12SurfaceStyleMap(ordinary.Materials,
-            [ordinary.CharacterMaterials[0], new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: new(0)), new()]);
+        var face = TestStylePlugins.FaceSdf("genshin", 1, 2, "GenshinSoftFace", .001f, .55f);
+        var ordinary = T8bTestHelpers.CreateDirectMap(
+            ["genshin", "genshin", "mmd"],
+            (D3D12CharacterMaterialRole.Face, [face], 1f, 1f, 0.2f),
+            (D3D12CharacterMaterialRole.Body, null, 0.35f, 1f, 0.2f),
+            (D3D12CharacterMaterialRole.Body, null, 0.35f, 1f, 0.2f));
+        var mixed = T8bTestHelpers.CreateDirectMap(
+            ["genshin", "genshin", "mmd"],
+            (D3D12CharacterMaterialRole.Face, [face], 1f, 1f, 0.2f),
+            (D3D12CharacterMaterialRole.Hair, [TestStylePlugins.GenshinHair(0)], 0.35f, 1f, 0.2f),
+            (D3D12CharacterMaterialRole.Body, null, 0.35f, 1f, 0.2f));
         var before = session.Capture(frame, Width, Height, giOptions, surfaceStyles: ordinary);
         var after = session.Capture(frame, Width, Height, giOptions, surfaceStyles: mixed);
         for (int y = 0; y < Height; y++) for (int x = 0; x < Width; x++)
@@ -189,8 +198,8 @@ public sealed class D3D12GenshinHairSurfaceTests
         Assert.Equal(before.Rgba, session.Capture(frame, Width, Height, giOptions, surfaceStyles: ordinary).Rgba);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12GenshinNonMetallicSpecularBinding? binding)
-        => new([D3D12SurfaceStyle.GenshinPmx], [new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: binding)]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding)
+        => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Hair, binding);
 
     private static OriginalFrameScene Frame(byte[] packed, Vector3? specular = null, Vector2? uv = null,
         int textureWidth = 1, int textureHeight = 1, Vector3? normal = null, Vector3? light = null,

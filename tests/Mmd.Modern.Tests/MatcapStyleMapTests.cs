@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -7,101 +8,146 @@ namespace Mmd.Modern.Tests;
 
 public sealed class MatcapStyleMapTests
 {
-    private static readonly D3D12EndfieldMatcapBinding Binding = new(0, 1, 2,
-        D3D12MatcapColorEncoding.SrgbRgb, 0, new(.2f), Vector3.Zero);
+    private static StyleMaterialBindingData Binding(
+        int normalSlot = 0,
+        int pSlot = 1,
+        int matcapSlot = 2,
+        string encoding = T8dTestHelpers.EncodingSrgbRgb,
+        int uvChannel = 0,
+        Vector3? baseColor = null,
+        Vector3? highlightColor = null,
+        float normalStrength = 2f,
+        float rotationRadians = 0f,
+        float highlightCoefficient = 0f,
+        float shadowHardness = .5f,
+        Vector3? lightControlDirection = null,
+        float baselineStrength = 1f,
+        bool coupleEndfieldPalette = false)
+        => T8dTestHelpers.EndfieldMatcap(normalSlot, pSlot, matcapSlot, encoding, uvChannel,
+            baseColor ?? new(.2f), highlightColor ?? Vector3.Zero, normalStrength, rotationRadians,
+            highlightCoefficient, shadowHardness, lightControlDirection, baselineStrength, coupleEndfieldPalette);
+
     private static SceneTexture Texture(byte r = 120, byte g = 70, byte b = 40, byte a = 230)
         => new("authored", 1, 1, [r, g, b, a]);
     private static OriginalFrameScene Frame(SceneTexture[]? textures = null, Matrix4x4? world = null)
         => D3D12EndfieldHairBindingTests.Frame(textures: textures ?? [Texture(), Texture(), Texture()], world: world);
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldMatcapBinding? binding,
-        D3D12SurfaceStyle family = D3D12SurfaceStyle.EndfieldPmx)
-        => new([family], [new(EndfieldMatcap: binding)]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding,
+        string family = "endfield", OriginalFrameScene? frame = null, D3D12CharacterMaterialRole role = D3D12CharacterMaterialRole.Body,
+        params StyleMaterialBindingData[] extra)
+        => T8dTestHelpers.CreateDirectSurfaceStyleMap(frame ?? Frame(), [family], [new(role)],
+            [binding is null && extra.Length == 0 ? null : binding is null ? extra : [binding, .. extra]]);
 
     [Fact]
     public void FullPackedNormalBindingRequiresItsExplicitFamilyTexturesAndEffectiveUv()
     {
-        var frame = Frame(); var map = Map(Binding);
+        var frame = Frame(); var binding = Binding(); var map = Map(binding, frame: frame);
         map.Validate(frame);
-        Assert.True(map.HasConsumedEndfieldMatcap);
-        Assert.Same(Binding, map.EffectiveEndfieldMatcap(0));
-        Assert.Equal(frame.Surface.Snapshot.Materials[0].IndexCount, map.EndfieldMatcapGeometry(0, frame).Corners.Length);
-        foreach (var family in new[] { D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx })
-            Assert.Throws<NotSupportedException>(() => Map(Binding, family).Validate(frame));
-        foreach (var bad in new[] { Binding with { NormalCombinedTextureIndex = 3 }, Binding with { PCombinedTextureIndex = 3 }, Binding with { MatcapCombinedTextureIndex = 3 } })
-            Assert.Throws<ArgumentOutOfRangeException>(() => Map(bad).Validate(frame));
-        Assert.Throws<ArgumentException>(() => Map(Binding with { UvChannel = 1 }).Validate(frame));
-        Assert.False(Map(null).HasConsumedEndfieldMatcap);
+        Assert.Equal("matcap", map.CharacterMaterials[0].PluginDraw?.ShaderModuleId);
+        Assert.Contains(map.CharacterMaterials[0].PluginDraw!.BufferBindings!, static b => b.Kind == D3D12PluginBufferKind.MikkTangentCorners);
+        Assert.Equal(frame.Surface.Snapshot.Materials[0].IndexCount, D3D12TangentCornerGeometry.Build(frame.Surface.Snapshot, 0, 0).Corners.Length);
+        Assert.Throws<NotSupportedException>(() => new D3D12SurfaceStyleMap(["mmd"], [map.CharacterMaterials[0]], TestStylePlugins.AllPresetCatalog).Validate(frame));
+        foreach (var family in new[] { "genshin", "star-rail", "wuthering-waves" })
+            Assert.NotEqual("matcap", Map(binding, family, frame).CharacterMaterials[0].PluginDraw?.ShaderModuleId);
+        foreach (var bad in new[] { Binding(normalSlot: 3), Binding(pSlot: 3), Binding(matcapSlot: 3) })
+            Assert.Throws<ArgumentOutOfRangeException>(() => Map(bad, frame: frame).Validate(frame));
+        Assert.Throws<ArgumentException>(() => Map(Binding(uvChannel: 1), frame: frame).Validate(frame));
+        Assert.Null(Map(null, frame: frame).CharacterMaterials[0].PluginDraw);
+        Assert.Equal("default", Map(null, frame: frame).ResolveShaderModule(0)?.ModuleId);
     }
 
     [Fact]
     public void CoupledPaletteRequiresExplicitSharedColorsAndExactlyOneDynamicRadialStrength()
     {
-        var matcap = Binding with { CoupleEndfieldPalette = true };
-        var hair = new D3D12EndfieldHairBinding(1, Binding.BaseColor);
-        var rim = new D3D12EndfieldRimBinding(Binding.BaseColor, new(.3f), EdgeStrength: .4f);
-        var style = new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Hair,
-            EndfieldHair: hair, EndfieldRim: rim, EndfieldMatcap: matcap);
-        style.Validate();
-        foreach (var bad in new[] { style with { EndfieldHair = hair with { PaletteColor = new(.5f) } },
-            style with { EndfieldRim = rim with { BaseColor = new(.5f) } },
-            style with { EndfieldMatcap = matcap with { BaselineStrength = 2 } },
-            style with { EndfieldRim = rim with { RadialStrength = .2f }, EndfieldMatcap = matcap with { BaselineStrength = 1.2f } } })
-            Assert.Throws<ArgumentException>(bad.Validate);
-        (style with { EndfieldHair = null, EndfieldRim = rim with { RadialStrength = .2f }, EndfieldMatcap = matcap with { BaselineStrength = 1.2f } }).Validate();
-        foreach (var role in new[] { D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
-            Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(role, EndfieldMatcap: Binding).Validate());
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(EndfieldMatcap: Binding, PmxMaterialTreatment: new()).Validate());
+        var baseColor = new Vector3(.2f);
+        var matcap = Binding(baseColor: baseColor, coupleEndfieldPalette: true);
+        var hair = T8dTestHelpers.EndfieldHair(1, baseColor);
+        var rim = T8dTestHelpers.EndfieldRim(baseColor, new(.3f), edgeStrength: .4f);
+        Assert.True(T8dTestHelpers.ValidateEndfield([hair, rim, matcap], StyleMaterialRole.Hair).IsValid);
+        foreach (var bad in new StyleMaterialBindingData[][]
+        {
+            [T8dTestHelpers.EndfieldHair(1, new(.5f)), rim, matcap],
+            [hair, T8dTestHelpers.EndfieldRim(new(.5f), new(.3f), edgeStrength: .4f), matcap],
+            [hair, rim, Binding(baseColor: baseColor, baselineStrength: 2, coupleEndfieldPalette: true)],
+            [hair, T8dTestHelpers.EndfieldRim(baseColor, new(.3f), edgeStrength: .4f, radialStrength: .2f),
+                Binding(baseColor: baseColor, baselineStrength: 1.2f, coupleEndfieldPalette: true)],
+        })
+            Assert.False(T8dTestHelpers.ValidateEndfield(bad, StyleMaterialRole.Hair).IsValid);
+        Assert.True(T8dTestHelpers.ValidateEndfield([
+            T8dTestHelpers.EndfieldRim(baseColor, new(.3f), edgeStrength: .4f, radialStrength: .2f),
+            Binding(baseColor: baseColor, baselineStrength: 1.2f, coupleEndfieldPalette: true)], StyleMaterialRole.Hair).IsValid);
+        foreach (var role in new[] { StyleMaterialRole.Face, StyleMaterialRole.Eye })
+            Assert.False(T8dTestHelpers.ValidateEndfield(Binding(), role).IsValid);
     }
 
     [Fact]
-    public void SameTopologyWrongObjectPoseOrUvIsRejectedBeforeRecording()
+    public void InvalidMikkDataInvalidNormalsAndNonInvertibleWorldFailBeforeRecording()
     {
-        var frame = Frame();
-        var moved = Frame(world: Matrix4x4.CreateTranslation(.1f, 0, 0));
-        Assert.Throws<ArgumentException>(() => Map(Binding with { Geometry = new(moved.Surface.Snapshot, 0) }).Validate(frame));
+        var frame = Frame(); var binding = Binding(); var validMap = Map(binding, frame: frame);
+        validMap.Validate(frame);
         var snapshot = frame.Surface.Snapshot;
-        var changed = snapshot.Vertices.ToArray(); changed[0] = changed[0] with { Uv = changed[0].Uv + new Vector2(.01f, 0) };
-        var changedUvs = new SceneSnapshot(changed, snapshot.Indices, snapshot.Materials, snapshot.Textures, snapshot.World, snapshot.Camera);
-        Assert.Throws<ArgumentException>(() => Map(Binding with { Geometry = new(changedUvs, 0) }).Validate(frame));
+
+        var badDataDraw = validMap.CharacterMaterials[0].PluginDraw! with
+        {
+            BufferBindings = [new D3D12PluginBufferBinding(0, D3D12PluginBufferKind.MikkTangentCorners, "uv0", Data: new byte[63])]
+        };
+        Assert.Throws<ArgumentException>(() => badDataDraw.Validate());
+
         var normalVertices = snapshot.Vertices.ToArray();
-        normalVertices[0] = normalVertices[0] with { Normal = Vector3.Normalize(new Vector3(.3f, 0, -1)) };
-        var normalSource = new SceneSnapshot(normalVertices, snapshot.Indices, snapshot.Materials, snapshot.Textures, snapshot.World, snapshot.Camera);
-        Assert.Throws<ArgumentException>(() => Map(Binding with { Geometry = new(normalSource, 0) }).Validate(frame));
-        Map(Binding with { Geometry = new(snapshot, 0) }).Validate(frame);
+        normalVertices[0] = normalVertices[0] with { Normal = Vector3.Zero };
+        var normalFrame = new OriginalFrameScene(new(new SceneSnapshot(normalVertices, snapshot.Indices, snapshot.Materials, snapshot.Textures, snapshot.World, snapshot.Camera),
+            frame.Surface.Materials, frame.Surface.Profile), options: frame.Options);
+        Assert.Throws<ArgumentException>(() => validMap.Validate(normalFrame));
+
+        Assert.Throws<ArgumentException>(() =>
+        {
+            var singularWorld = Frame(world: Matrix4x4.CreateScale(0, 1, 1));
+            validMap.Validate(singularWorld);
+        });
+
+        var changed = snapshot.Vertices.ToArray(); changed[0] = changed[0] with { Uv = changed[0].Uv + new Vector2(.01f, 0) };
+        var changedUvFrame = new OriginalFrameScene(new(new SceneSnapshot(changed, snapshot.Indices, snapshot.Materials, snapshot.Textures, snapshot.World, snapshot.Camera),
+            frame.Surface.Materials, frame.Surface.Profile), options: frame.Options);
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(validMap.CaptureResolvedInputs(frame), validMap.CaptureResolvedInputs(changedUvFrame)));
     }
 
     [Fact]
-    public void DetachedHistoryConsumesOnlyNrgPraAndColorRgbaAndRebasesActualSlots()
+    public void DetachedHistoryCapturesBoundTexturesAndRebasesActualSlots()
     {
-        var map = Map(Binding); var first = map.CaptureFaceTextures(Frame());
+        var frame = Frame(); var binding = Binding(); var map = Map(binding, frame: frame);
+        var first = map.CaptureResolvedInputs(frame);
         Assert.NotSame(map, first);
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame())));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame([Texture(b: 255, a: 0), Texture(g: 255, b: 255), Texture()]))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame())));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(new(new(
+            TestStylePlugins.WithTextures(frame.Surface.Snapshot, [
+                new("renamed 0", 1, 1, Texture().Rgba),
+                new("renamed 1", 1, 1, Texture().Rgba),
+                new("renamed 2", 1, 1, Texture().Rgba)]),
+            frame.Surface.Materials, frame.Surface.Profile), options: frame.Options))));
         foreach (var changed in new[] { new[] { Texture(r: 1), Texture(), Texture() }, new[] { Texture(g: 1), Texture(), Texture() },
             new[] { Texture(), Texture(r: 1), Texture() }, new[] { Texture(), Texture(a: 1), Texture() },
             new[] { Texture(), Texture(), Texture(r: 1) }, new[] { Texture(), Texture(), Texture(g: 1) },
             new[] { Texture(), Texture(), Texture(b: 1) }, new[] { Texture(), Texture(), Texture(a: 1) } })
-            Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame(changed))));
-        var rebased = Map(Binding with { NormalCombinedTextureIndex = 2, PCombinedTextureIndex = 0, MatcapCombinedTextureIndex = 1 })
-            .CaptureFaceTextures(Frame());
+            Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame(changed))));
+        var rebased = Map(Binding(normalSlot: 2, pSlot: 0, matcapSlot: 1), frame: frame)
+            .CaptureResolvedInputs(Frame());
         Assert.True(D3D12SurfaceStyleMap.Equivalent(first, rebased));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame())));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame())));
     }
 
     [Fact]
     public void HistoryUsesConsumedAppearanceAndIgnoresPureWorldTranslationOrDescriptorIdentity()
     {
-        var frame = Frame(); var snapshot = frame.Surface.Snapshot;
-        var first = Map(Binding with { Geometry = new(snapshot, 0) }).CaptureFaceTextures(frame);
-        var copy = Map(Binding with { Geometry = new(snapshot, 0) }).CaptureFaceTextures(frame);
+        var frame = Frame(); var binding = Binding();
+        var first = Map(binding, frame: frame).CaptureResolvedInputs(frame);
+        var copy = Map(Binding(), frame: frame).CaptureResolvedInputs(frame);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(first, copy));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, Map(Binding).CaptureFaceTextures(Frame(world: Matrix4x4.CreateTranslation(1, 2, 3)))));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, Map(Binding).CaptureFaceTextures(Frame(world: Matrix4x4.CreateRotationZ(.3f)))));
-        foreach (var changed in new[] { Binding with { NormalStrength = 1 }, Binding with { RotationRadians = 1 },
-            Binding with { HighlightColor = Vector3.One }, Binding with { HighlightCoefficient = 1 },
-            Binding with { ShadowHardness = .8f }, Binding with { BaselineStrength = 2 },
-            Binding with { MatcapEncoding = D3D12MatcapColorEncoding.LinearRgb }, Binding with { LightControlDirection = Vector3.UnitX } })
-            Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(Binding), Map(changed)));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(Binding), Map(null)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, Map(binding, frame: frame).CaptureResolvedInputs(Frame(world: Matrix4x4.CreateTranslation(1, 2, 3)))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, Map(binding, frame: frame).CaptureResolvedInputs(Frame(world: Matrix4x4.CreateRotationZ(.3f)))));
+        foreach (var changed in new[] { Binding(normalStrength: 1), Binding(rotationRadians: 1),
+            Binding(highlightColor: Vector3.One), Binding(highlightCoefficient: 1),
+            Binding(shadowHardness: .8f), Binding(baselineStrength: 2),
+            Binding(encoding: T8dTestHelpers.EncodingLinearRgb), Binding(lightControlDirection: Vector3.UnitX) })
+            Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(changed)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(null)));
     }
 }

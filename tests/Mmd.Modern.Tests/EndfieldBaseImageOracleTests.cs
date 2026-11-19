@@ -1,5 +1,6 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
+using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -7,22 +8,23 @@ namespace Mmd.Modern.Tests;
 
 public sealed class EndfieldBaseImageOracleTests
 {
-    private static D3D12EndfieldBaseImageBinding Neutral => new(new(.2f,.4f,.7f), new(.5f), Vector3.One, Vector3.One, ShadowStrength:0);
+    private static EndfieldBaseImageSpec Neutral => new(new(.2f,.4f,.7f), new(.5f), Vector3.One, Vector3.One, ShadowStrength:0);
 
     [Theory, InlineData(0), InlineData(1), InlineData(2)]
     public void FixedTablesAreHalfQuantized257TexelsAndSampleNormalizedCoordinates(int row)
     {
-        Assert.Equal(771, D3D12EndfieldShadowLut.Values.Length);
-        Assert.Equal(771 * 16, D3D12EndfieldShadowLut.Bytes.Length);
+        var (lutBinding, values) = T8dTestHelpers.GetEndfieldShadowLut();
+        Assert.Equal(771, values.Length);
+        Assert.Equal(771 * 16, lutBinding.Data.Length);
         foreach (float q in new[] {-float.MaxValue,-1,0,.125f,.25f,.499f,.5f,.75f,1,3,float.MaxValue})
         {
             float coordinate = Math.Clamp(q,0,1)*257-.5f;
             int j=(int)MathF.Floor(coordinate); float f=coordinate-j;
-            Vector4 a=D3D12EndfieldShadowLut.Values[row*257+Math.Clamp(j,0,256)];
-            Vector4 b=D3D12EndfieldShadowLut.Values[row*257+Math.Clamp(j+1,0,256)];
+            Vector4 a=values[row*257+Math.Clamp(j,0,256)];
+            Vector4 b=values[row*257+Math.Clamp(j+1,0,256)];
             Near(EndfieldBaseImageOracle.SampleLut(row,q),new Vector3(a.X,a.Y,a.Z)*(1-f)+new Vector3(b.X,b.Y,b.Z)*f);
         }
-        foreach (var v in D3D12EndfieldShadowLut.Values)
+        foreach (var v in values)
         { Assert.Equal((float)(Half)v.X,v.X); Assert.Equal((float)(Half)v.Y,v.Y); Assert.Equal((float)(Half)v.Z,v.Z); Assert.Equal(1,v.W); }
         Assert.Equal(.7998046875f,EndfieldBaseImageOracle.SampleLut(0,.5f).X);
         Assert.Equal(.6492919921875f,EndfieldBaseImageOracle.SampleLut(0,.25f).X);
@@ -69,26 +71,54 @@ public sealed class EndfieldBaseImageOracleTests
     [Fact]
     public void ValidationRejectsAmbiguousNonfiniteAndUnsupportedInputs()
     {
-        Neutral.Validate();
-        Assert.Throws<ArgumentOutOfRangeException>(()=>(Neutral with { Contrast=5 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>(Neutral with { Saturation=float.NaN }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>(Neutral with { BaseImageLinearRgb=new(float.PositiveInfinity) }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(()=>(Neutral with { DetailInputMode=D3D12EndfieldPaletteInputMode.Texture }).Validate());
-        Assert.Throws<ArgumentException>(()=>(Neutral with { BaseCombinedTextureIndex=1 }).Validate());
-        Assert.Throws<ArgumentException>(()=>(Neutral with { BaseEncoding=D3D12MatcapColorEncoding.SrgbRgb }).Validate());
+        var matcap = T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette: true);
+        var palette = new EndfieldPaletteSpec(Vector3.Zero).ToBinding();
+        Assert.True(T8dTestHelpers.ValidateEndfield([matcap, palette, Neutral.ToBinding()]).IsValid);
+        foreach (var bad in new[]
+        {
+            Neutral with { Contrast = 5 },
+            Neutral with { Saturation = float.NaN },
+            Neutral with { BaseImageLinearRgb = new(float.PositiveInfinity) },
+            Neutral with { DetailInputMode = T8dTestHelpers.ModeTexture },
+            Neutral with { BaseSlot = 1 },
+            Neutral with { BaseEncoding = T8dTestHelpers.EncodingSrgbRgb },
+        })
+            Assert.False(T8dTestHelpers.ValidateEndfield([matcap, palette, bad.ToBinding()]).IsValid);
     }
 
     [Fact]
     public void ConsumedEqualityTracksEffectiveInputsAndIgnoresDormantShadow()
     {
-        var a=Neutral;
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(a,a with {ShadowFactor=-5,ShadowColor=new(7),WarmTint=4,ModelColor=new(3)}));
-        Assert.False(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(a,a with {Contrast=.2f}));
-        var t=a with {BaseInputMode=D3D12EndfieldPaletteInputMode.Texture,BaseCombinedTextureIndex=3};
-        Assert.True(t.ConsumesBaseTexture);
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(t,t with {BaseImageLinearRgb=new(3)}));
-        Assert.False(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(t,t with {BaseCombinedTextureIndex=4}));
-        Assert.True(D3D12EndfieldBaseImageBinding.ConsumedEquivalent(t,t with {BaseCombinedTextureIndex=4},false));
+        var matcap = T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette: true);
+        var palette = new EndfieldPaletteSpec(Vector3.Zero).ToBinding();
+        var dormant = Neutral with { ShadowInputMode = T8dTestHelpers.ModeTexture, ShadowSlot = 1 };
+        var dormantDraw = T8dTestHelpers.BuildEndfieldDrawData([matcap, palette, dormant.ToBinding()])!;
+        Assert.DoesNotContain(dormantDraw.TextureBindings!, static t => t.SlotIndex == 8);
+        var dormantOther = Neutral with { ShadowInputMode = T8dTestHelpers.ModeTexture, ShadowSlot = 2 };
+        var tex = new SceneTexture("tex", 1, 1, [120, 140, 160, 255]);
+        SceneVertex[] verts = [new(new(-1,-1,0), Vector3.UnitZ, Vector2.Zero), new(new(1,-1,0), Vector3.UnitZ, Vector2.UnitX), new(new(0,1,0), Vector3.UnitZ, Vector2.UnitY)];
+        SceneSnapshot Snap(params SceneTexture[] ts) => new(verts, [0, 1, 2], [new("m", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1)], ts);
+        OriginalFrameScene MakeFrame(params SceneTexture[] ts) => new(new(Snap(ts), [new(Vector3.Zero)], new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)), options: new(OriginalAlphaBlendMode.Normal, false, false));
+
+        var frameDormant = MakeFrame(tex, tex, tex, tex, tex);
+        var mapDormantA = T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, dormant.ToBinding()]]);
+        var mapDormantB = T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, dormantOther.ToBinding()]]);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(mapDormantA, mapDormantB));
+
+        var t = Neutral with { BaseInputMode = T8dTestHelpers.ModeTexture, BaseSlot = 3 };
+        var drawT = T8dTestHelpers.BuildEndfieldDrawData([matcap, palette, t.ToBinding()])!;
+        Assert.Contains(drawT.TextureBindings!, static tb => tb.SlotIndex == 6 && tb.SceneTextureIndex == 3);
+        var tRebased = t with { BaseSlot = 4 };
+        var mapT = T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, t.ToBinding()]]);
+        var mapTContrast = T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, (Neutral with { Contrast = .2f }).ToBinding()]]);
+        var mapTRebased = T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, tRebased.ToBinding()]]);
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(
+            T8dTestHelpers.CreateDirectSurfaceStyleMap(frameDormant, ["endfield"], bindingsByMaterial: [[matcap, palette, Neutral.ToBinding()]]),
+            mapTContrast));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(mapT, mapTRebased));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(
+            mapT.CaptureResolvedInputs(frameDormant),
+            mapTRebased.CaptureResolvedInputs(MakeFrame(tex, tex, tex, tex, tex))));
     }
 
     private static void Near(Vector3 expected,Vector3 actual)=>Assert.InRange(Vector3.Distance(expected,actual),0,4e-6f);

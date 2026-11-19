@@ -12,14 +12,14 @@ public sealed class D3D12SurfaceStyleTransportTests
     [Fact]
     public void MaterialMapOwnsAnImmutableSnapshotAndValidatesEveryFrameMaterial()
     {
-        var values = new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd };
-        var map = new D3D12SurfaceStyleMap(values);
-        values[0] = D3D12SurfaceStyle.Mmd;
-        Assert.Equal(D3D12SurfaceStyle.GenshinPmx, map.Materials[0]);
+        var values = new[] { "genshin", "mmd" };
+        var map = new D3D12SurfaceStyleMap(values, null, TestStylePlugins.AllPresetCatalog);
+        values[0] = "mmd";
+        Assert.Equal("genshin", map.StyleIds[0]);
         Assert.Equal(2, map.Count);
         Assert.False(map.IsDefault);
-        var mutableView = Assert.IsAssignableFrom<IList<D3D12SurfaceStyle>>(map.Materials);
-        Assert.Throws<NotSupportedException>(() => mutableView[0] = D3D12SurfaceStyle.Mmd);
+        var mutableView = Assert.IsAssignableFrom<IList<string>>(map.StyleIds);
+        Assert.Throws<NotSupportedException>(() => mutableView[0] = "mmd");
         map.Validate(Frame());
         Assert.Throws<ArgumentNullException>(() => map.Validate(null!));
         Assert.Throws<ArgumentNullException>(() => new D3D12SurfaceStyleMap(null!));
@@ -31,7 +31,7 @@ public sealed class D3D12SurfaceStyleTransportTests
     [InlineData(3)]
     public void MaterialMapRejectsMissingAndExtraBindings(int count)
     {
-        var map = new D3D12SurfaceStyleMap(Enumerable.Repeat(D3D12SurfaceStyle.Mmd, count));
+        var map = new D3D12SurfaceStyleMap(Enumerable.Repeat("mmd", count));
         Assert.Throws<ArgumentException>(() => map.Validate(Frame()));
     }
 
@@ -39,12 +39,14 @@ public sealed class D3D12SurfaceStyleTransportTests
     public void UndefinedFamiliesAndNonModernGenshinRequestsAreRejected()
     {
         var frame = Frame();
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            new D3D12SurfaceStyleMap([(D3D12SurfaceStyle)int.MaxValue, D3D12SurfaceStyle.Mmd]).Validate(frame));
+        Assert.Throws<ArgumentException>(() =>
+            new D3D12SurfaceStyleMap(["../bad", "mmd"]));
+        Assert.Throws<NotSupportedException>(() =>
+            new D3D12SurfaceStyleMap(["unregistered-style", "mmd"], null, TestStylePlugins.AllPresetCatalog).Validate(frame));
         var legacy = new OriginalFrameScene(frame.Surface, materials: frame.Materials);
-        var genshin = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd]);
+        var genshin = new D3D12SurfaceStyleMap(["genshin", "mmd"], null, TestStylePlugins.AllPresetCatalog);
         Assert.Contains("modern frame options", Assert.Throws<NotSupportedException>(() => genshin.Validate(legacy)).Message);
-        new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd]).Validate(legacy);
+        new D3D12SurfaceStyleMap(["mmd", "mmd"]).Validate(legacy);
         new D3D12SurfaceStyleMap([]).Validate(new(new OriginalStyleScene(SceneSnapshot.CreateEmpty(), [])));
     }
 
@@ -52,8 +54,8 @@ public sealed class D3D12SurfaceStyleTransportTests
     public void EffectiveFamilyEqualityTreatsNullAndAllMmdAsTheSameDefault()
     {
         var empty = new D3D12SurfaceStyleMap([]);
-        var defaults = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd]);
-        var mixed = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd]);
+        var defaults = new D3D12SurfaceStyleMap(["mmd", "mmd"]);
+        var mixed = new D3D12SurfaceStyleMap(["genshin", "mmd"], null, TestStylePlugins.AllPresetCatalog);
         Assert.True(empty.IsDefault);
         Assert.True(defaults.IsDefault);
         Assert.True(D3D12SurfaceStyleMap.Equivalent(null, null));
@@ -61,12 +63,12 @@ public sealed class D3D12SurfaceStyleTransportTests
         Assert.True(D3D12SurfaceStyleMap.Equivalent(defaults, null));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(empty, defaults));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(mixed,
-            new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd])));
+            new(["genshin", "mmd"], null, TestStylePlugins.AllPresetCatalog)));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(mixed, defaults));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(null, mixed));
         Assert.False(D3D12SurfaceStyleMap.Equivalent(mixed,
-            new([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx])));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(mixed, new([D3D12SurfaceStyle.GenshinPmx])));
+            new(["mmd", "genshin"], null, TestStylePlugins.AllPresetCatalog)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(mixed, new(["genshin"], null, TestStylePlugins.AllPresetCatalog)));
     }
 
     [Theory, Trait("Category", "Gpu")]
@@ -76,8 +78,8 @@ public sealed class D3D12SurfaceStyleTransportTests
     {
         using var session = new D3D12FrameSession();
         var frame = SurfaceFixture(samples);
-        var defaults = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd]);
-        var genshin = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx]);
+        var defaults = new D3D12SurfaceStyleMap(["mmd"]);
+        var genshin = new D3D12SurfaceStyleMap(["genshin"], null, TestStylePlugins.AllPresetCatalog);
         var baseline = session.Capture(frame, Width, Height);
         Assert.Equal(baseline.Rgba, session.Capture(frame, Width, Height, surfaceStyles: defaults).Rgba);
         var selected = session.Capture(frame, Width, Height, surfaceStyles: genshin);
@@ -112,10 +114,10 @@ public sealed class D3D12SurfaceStyleTransportTests
         var invalidLoader = new D3D12TemporalUpscalingOptions
         { Mode = D3D12TemporalUpscalingMode.Fsr, LoaderPath = "missing-style-map-runtime-must-not-load.dll" };
         Assert.Throws<ArgumentException>(() => session.Render(frame, Width, Height,
-            temporalUpscaling: invalidLoader, surfaceStyles: new([D3D12SurfaceStyle.GenshinPmx])));
+            temporalUpscaling: invalidLoader, surfaceStyles: new(["genshin"], null, TestStylePlugins.AllPresetCatalog)));
         var legacy = new OriginalFrameScene(frame.Surface, materials: frame.Materials);
         Assert.Throws<NotSupportedException>(() => session.Capture(legacy, Width, Height,
-            temporalUpscaling: invalidLoader, surfaceStyles: new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd])));
+            temporalUpscaling: invalidLoader, surfaceStyles: new(["genshin", "mmd"], null, TestStylePlugins.AllPresetCatalog)));
         Assert.False(session.Runtime.IsRecording);
         Assert.Equal(frameId, session.Runtime.FrameId);
         Assert.Equal(submissions, session.Runtime.Submissions);
@@ -139,13 +141,13 @@ public sealed class D3D12SurfaceStyleTransportTests
         var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 17,
             MaxRayDistance: 50, RayEpsilon: .001f, Composition: RayGiComposition.ToonPalette,
             Denoiser: RayGiDenoiser.TemporalSpatial);
-        var defaults = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.Mmd]);
-        var genshin = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd]);
+        var defaults = new D3D12SurfaceStyleMap(["mmd", "mmd"]);
+        var genshin = new D3D12SurfaceStyleMap(["genshin", "mmd"], null, TestStylePlugins.AllPresetCatalog);
 
         Render(null, 1, "FirstFrame", "FirstFrame");
         Render(defaults, 2, "None", "None");
         Render(genshin, 1, "ExplicitReset", "ExplicitRequest");
-        Render(new(genshin.Materials), 2, "None", "None");
+        Render(new(genshin.StyleIds, null, TestStylePlugins.AllPresetCatalog), 2, "None", "None");
 
         // A recorded but unsubmitted default request cannot replace the committed Genshin family.
         long submitted = session.Runtime.Submissions;
@@ -154,7 +156,7 @@ public sealed class D3D12SurfaceStyleTransportTests
             temporalUpscaling: temporal, surfaceStyles: defaults));
         Assert.Equal(submitted, session.Runtime.Submissions);
         Assert.False(session.Runtime.IsRecording);
-        Render(new(genshin.Materials), 3, "None", "AbortedFrame");
+        Render(new(genshin.StyleIds, null, TestStylePlugins.AllPresetCatalog), 3, "None", "AbortedFrame");
         Render(defaults, 1, "ExplicitReset", "ExplicitRequest");
         Render(null, 2, "None", "None");
         gi = gi with { Strength = gi.Strength + 1 };

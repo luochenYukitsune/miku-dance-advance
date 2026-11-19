@@ -2,6 +2,7 @@ using System.Numerics;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput;
 using Mmd.Modern.ViewOutput.D3D12;
@@ -23,21 +24,25 @@ public sealed class D3D12MaterialBindingProfileResolverTests
         var source = Fixture();
         var layout = D3D12MaterialBindingLayout.Capture(source);
         var profile = new D3D12MaterialBindingProfile("hair-map", "Explicit map", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Hair, GenshinHair: new(layout.CaptureTexture(1))),
-             new(1, D3D12CharacterMaterialRole.Eye, EyeGeometricShadowStrength: .15f)]);
+            [new(0, D3D12CharacterMaterialRole.Hair,
+                 pluginBindings: [TestStylePlugins.GenshinHair(1)],
+                 textureGuards: [layout.CaptureTexture(1)]),
+             new(1, D3D12CharacterMaterialRole.Eye, eyeGeometricShadowStrength: .15f)]);
         Guid first = Guid.NewGuid(), second = Guid.NewGuid();
-        var a = D3D12MaterialBindingProfileResolver.Resolve(profile, source, first, pipeline);
-        var b = D3D12MaterialBindingProfileResolver.Resolve(profile, source, second, pipeline);
+        var a = D3D12MaterialBindingProfileResolver.Resolve(profile, source, first, pipeline, TestStylePlugins.AllViewCatalog);
+        var b = D3D12MaterialBindingProfileResolver.Resolve(profile, source, second, pipeline, TestStylePlugins.AllViewCatalog);
         Assert.Equal(2, a.CharacterMaterials.Count);
         Assert.All(a.CharacterMaterials, value => Assert.Equal(first, value.ObjectId));
         Assert.All(b.CharacterMaterials, value => Assert.Equal(second, value.ObjectId));
-        Assert.Equal(a.CharacterMaterials.Select(value => value.Style), b.CharacterMaterials.Select(value => value.Style));
-        Assert.Equal(.15f, a.CharacterMaterials[1].Style.EyeGeometricShadowStrength);
-        Assert.All(a.CharacterMaterials, value => Assert.Null(value.Style.GenshinNonMetallicSpecular));
-        Assert.Empty(a.FaceBindings);
-        Assert.Empty(a.StarMcHairBindings);
-        Assert.Equal(pipeline == "genshin" ? 1 : 0, a.GenshinHairBindings.Count);
-        if (pipeline == "genshin") Assert.Equal(1, a.GenshinHairBindings[0].LocalTextureIndex);
+        Assert.Equal(a.CharacterMaterials.Select(value => value with { ObjectId = second }), b.CharacterMaterials);
+        Assert.Equal(.15f, a.CharacterMaterials[1].EyeGeometricShadowStrength);
+        Assert.All(a.CharacterMaterials, value => Assert.Null(value.PmxTreatment));
+        Assert.Equal(pipeline == "genshin" ? 1 : 0, a.PluginBindings.Count);
+        if (pipeline == "genshin")
+        {
+            Assert.Equal("hair", a.PluginBindings[0].Binding.ModeId);
+            Assert.Equal(1, a.PluginBindings[0].Binding.TextureSlots!["texture"]);
+        }
     }
 
     [Fact]
@@ -45,8 +50,10 @@ public sealed class D3D12MaterialBindingProfileResolverTests
     {
         var source = Fixture(); var layout = D3D12MaterialBindingLayout.Capture(source);
         var profile = new D3D12MaterialBindingProfile("map", "map", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Hair, GenshinHair: new(layout.CaptureTexture(1) with { RgbaSha256 = new('0', 64) }))]);
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "mmd"));
+            [new(0, D3D12CharacterMaterialRole.Hair,
+                 pluginBindings: [TestStylePlugins.GenshinHair(1)],
+                 textureGuards: [layout.CaptureTexture(1) with { RgbaSha256 = new('0', 64) }])]);
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
@@ -54,12 +61,12 @@ public sealed class D3D12MaterialBindingProfileResolverTests
     {
         var source = Fixture(); var layout = D3D12MaterialBindingLayout.Capture(source);
         var profile = new D3D12MaterialBindingProfile("map", "map", layout.Fingerprint, [new(0, D3D12CharacterMaterialRole.Eye)]);
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.Empty, "mmd"));
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "guess"));
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.Empty, "mmd", TestStylePlugins.AllViewCatalog));
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "../bad", TestStylePlugins.AllViewCatalog));
         var mismatch = new D3D12MaterialBindingProfile("map", "map", new('0', 64), profile.Materials);
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(mismatch, source, Guid.NewGuid(), "mmd"));
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(mismatch, source, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog));
         var outside = new D3D12MaterialBindingProfile("map", "map", layout.Fingerprint, [new(2, D3D12CharacterMaterialRole.Body)]);
-        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(outside, source, Guid.NewGuid(), "mmd"));
+        Assert.Throws<ArgumentException>(() => D3D12MaterialBindingProfileResolver.Resolve(outside, source, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog));
     }
 
     [Theory]
@@ -68,18 +75,29 @@ public sealed class D3D12MaterialBindingProfileResolverTests
     public void FixedHeadFaceAndTwoHairImagesBecomeExistingLocalViewBindings(string pipeline)
     {
         var source = Fixture(); var layout = D3D12MaterialBindingLayout.Capture(source);
+        var tex1 = layout.CaptureTexture(1);
+        var tex0 = layout.CaptureTexture(0);
         var profile = new D3D12MaterialBindingProfile("map", "map", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Face, Face: new(pipeline, layout.CaptureTexture(1), null, -Vector3.UnitZ, Vector3.UnitX)),
-             new(1, D3D12CharacterMaterialRole.Hair, StarMcHair: new(pipeline, layout.CaptureTexture(1), layout.CaptureTexture(0)))]);
-        var result = D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), pipeline);
-        var face = Assert.Single(result.FaceBindings);
-        Assert.Equal(1, face.LocalTextureIndex);
-        Assert.Equal(new D3D12ViewFaceHeadBasis.FixedWorld(-Vector3.UnitZ, Vector3.UnitX), face.HeadBasis);
-        var hair = Assert.Single(result.StarMcHairBindings);
-        Assert.Equal(1, hair.HighlightLocalTextureIndex); Assert.Equal(0, hair.ShadowLocalTextureIndex);
-        Assert.All(result.CharacterMaterials, value => Assert.Null(value.Style.FaceSdf));
-        var dormant = D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "mmd");
-        Assert.Empty(dormant.FaceBindings); Assert.Empty(dormant.StarMcHairBindings);
+            [new(0, D3D12CharacterMaterialRole.Face,
+                 pluginBindings: [TestStylePlugins.FaceSdf(pipeline, 1)],
+                 textureGuards: [tex1]),
+             new(1, D3D12CharacterMaterialRole.Hair,
+                 pluginBindings: [TestStylePlugins.StarMcHair(pipeline, 1, 0)],
+                 textureGuards: [tex1, tex0])]);
+        var result = D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), pipeline, TestStylePlugins.AllViewCatalog);
+        Assert.Equal(2, result.PluginBindings.Count);
+        var face = result.PluginBindings[0];
+        Assert.Equal("face-sdf", face.Binding.ModeId);
+        Assert.Equal(1, face.Binding.TextureSlots!["primary"]);
+        Assert.Equal(StyleBoneTrackingMode.FixedWorld, face.Binding.BoneBinding!.Mode);
+        Assert.Equal(-Vector3.UnitZ, face.Binding.BoneBinding.FixedWorldForward);
+        Assert.Equal(Vector3.UnitX, face.Binding.BoneBinding.FixedWorldRight);
+        var hair = result.PluginBindings[1];
+        Assert.Equal("hair", hair.Binding.ModeId);
+        Assert.Equal(1, hair.Binding.TextureSlots!["highlight"]);
+        Assert.Equal(0, hair.Binding.TextureSlots!["shadow"]);
+        var dormant = D3D12MaterialBindingProfileResolver.Resolve(profile, source, Guid.NewGuid(), "mmd", TestStylePlugins.AllViewCatalog);
+        Assert.Empty(dormant.PluginBindings);
     }
 
     [Theory, Trait("Category", "Gpu")]
@@ -94,23 +112,36 @@ public sealed class D3D12MaterialBindingProfileResolverTests
         var instance = composition.Add("explicit mapping", Path.Combine(Path.GetTempPath(), "mapping-fixture.pmx"), ModelRole.Character, source);
         using var project = new SceneProjectSession(composition, new(), [], new NoPhysics(), cancellationToken: TestContext.Current.CancellationToken);
         project.SetDefaultRenderingStyle(new(pipeline), TestContext.Current.CancellationToken);
-        var texture = layout.CaptureTexture(1);
+        var texture1 = layout.CaptureTexture(1);
+        var texture0 = layout.CaptureTexture(0);
+        StyleMaterialBindingData[] rowBindings = pipeline switch
+        {
+            "genshin" => [TestStylePlugins.GenshinHair(1, multiplier: .8f)],
+            "star-rail" or "wuthering-waves" => [TestStylePlugins.StarMcHair(pipeline, 1, 0, intensity: .8f)],
+            _ => [],
+        };
+        D3D12MaterialBindingProfileTexture[] rowGuards = pipeline switch
+        {
+            "genshin" => [texture1],
+            "star-rail" or "wuthering-waves" => [texture1, texture0],
+            _ => [],
+        };
         var profile = new D3D12MaterialBindingProfile("portable-map", "Portable map", layout.Fingerprint,
-            [new(0, D3D12CharacterMaterialRole.Hair,
-                GenshinHair: pipeline == "genshin" ? new(texture, Multiplier: .8f) : null,
-                StarMcHair: pipeline is "star-rail" or "wuthering-waves" ? new(pipeline, texture, layout.CaptureTexture(0), Intensity: .8f) : null),
+            [new(0, D3D12CharacterMaterialRole.Hair, pluginBindings: rowBindings, textureGuards: rowGuards),
              new(1, D3D12CharacterMaterialRole.Eye)]);
         profile = D3D12MaterialBindingProfileJson.Decode(D3D12MaterialBindingProfileJson.Encode(profile));
         Guid actor = instance.Id;
-        var restored = D3D12MaterialBindingProfileResolver.Resolve(profile, source, actor, pipeline);
-        D3D12ViewCharacterMaterialBinding[] manual = [new(actor, 0, new(D3D12CharacterMaterialRole.Hair)), new(actor, 1, new(D3D12CharacterMaterialRole.Eye))];
-        D3D12ViewGenshinHairBinding[] genshin = pipeline == "genshin" ? [new(actor, 0, 1, Multiplier: .8f)] : [];
-        D3D12ViewStarMcHairBinding[] starMc = pipeline is "star-rail" or "wuthering-waves" ? [new(actor, 0, 1, 0, Intensity: .8f)] : [];
+        var restored = D3D12MaterialBindingProfileResolver.Resolve(profile, source, actor, pipeline, TestStylePlugins.AllViewCatalog);
+        D3D12ViewCharacterMaterial[] manual = [new(actor, 0, D3D12CharacterMaterialRole.Hair), new(actor, 1, D3D12CharacterMaterialRole.Eye)];
+        D3D12ViewPluginMaterialBinding[] manualPluginBindings = rowBindings.Select(b => TestStylePlugins.Bind(actor, 0, b)).ToArray();
         var quality = new ViewQualityOptions(Antialiasing: FrameAntialiasing.Smaa1X, SpatialSamples: 2);
         var plan = new OfflineFramePlan(97, 65, new(30), 0, 0);
-        await using var expected = new D3D12ViewRenderer(new(97, 65, quality), characterMaterials: manual, hairDataBindings: genshin, starMcHairDataBindings: starMc);
-        await using var actual = new D3D12ViewRenderer(new(97, 65, quality), characterMaterials: restored.CharacterMaterials,
-            faceDataBindings: restored.FaceBindings, hairDataBindings: restored.GenshinHairBindings, starMcHairDataBindings: restored.StarMcHairBindings);
+        await using var expected = new D3D12ViewRenderer(new(97, 65, quality),
+            stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog,
+            characterMaterials: manual, pluginBindings: manualPluginBindings);
+        await using var actual = new D3D12ViewRenderer(new(97, 65, quality),
+            stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog,
+            characterMaterials: restored.CharacterMaterials, pluginBindings: restored.PluginBindings);
         Assert.False(expected.IsWarp); Assert.False(actual.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(expected.SceneInputRequests);
         var frame = new OfflineFrame(plan.GetSample(0),97,65,snapshot.Scene,snapshot.Camera,snapshot.Light,snapshot.SelfShadow)

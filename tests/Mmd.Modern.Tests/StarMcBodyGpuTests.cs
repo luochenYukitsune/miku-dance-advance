@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -9,18 +10,52 @@ namespace Mmd.Modern.Tests;
 public sealed class StarMcBodyGpuTests
 {
     private const int Size = 97;
-    private static readonly D3D12StarMcBodyBinding Binding = new(0, 1, 2, 3,
-        D3D12MatcapColorEncoding.LinearRgb, NormalStrength: 1, DetailStrength: 1,
-        HighlightCoefficient: .35f, ShadowColorStrength: 1, WarmBandStrength: .35f);
+    private static readonly Vector3 DefaultShadowColor = new(.62f, .66f, .72f);
+
+    private static StyleMaterialBindingData Body(
+        string family,
+        float? normalStrength = 1f,
+        float? detailStrength = 1f,
+        float? metallicSaturation = 1f,
+        float? highlightCoefficient = .35f,
+        float? highlightStrength = 1f,
+        float? rotationRadians = 0f,
+        float? shadowCoefficient = .5f,
+        float? shadowSoftness = .1f,
+        float? shadowColorStrength = 1f,
+        float? warmBandStrength = .35f,
+        Vector3? shadowColor = null,
+        Vector3? rimColor = null,
+        float? rimStrength = 0f,
+        float? rimSize = .75f,
+        float? rimDirectionRadians = 0f)
+        => T8cTestHelpers.StarMcBodyBinding(
+            family, 0, 1, 2, 3, "LinearRgb",
+            normalStrength: normalStrength ?? 1f,
+            detailStrength: detailStrength ?? 1f,
+            metallicSaturation: metallicSaturation ?? 1f,
+            highlightCoefficient: highlightCoefficient ?? .35f,
+            highlightStrength: highlightStrength ?? 1f,
+            rotationRadians: rotationRadians ?? 0f,
+            shadowCoefficient: shadowCoefficient ?? .5f,
+            shadowSoftness: shadowSoftness ?? .1f,
+            shadowColorStrength: shadowColorStrength ?? 1f,
+            warmBandStrength: warmBandStrength ?? .35f,
+            shadowColor: shadowColor,
+            rimColor: rimColor,
+            rimStrength: rimStrength ?? 0f,
+            rimSize: rimSize ?? .75f,
+            rimDirectionRadians: rimDirectionRadians ?? 0f);
 
     [Fact, Trait("Category", "Gpu")]
     public void SpatialDetailUsesGreenSoftLightAndPreservesStraightCoverage()
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(detail: new("spatial detail G", 2, 1, [255, 0, 200, 0, 0, 255, 10, 255]));
-        var neutral = Binding with { DetailStrength = 0, NormalStrength = 0, HighlightStrength = 0, ShadowColorStrength = 0 };
-        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, neutral));
-        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, neutral with { DetailStrength = 1 }));
+        var neutralOff = Body(T8cTestHelpers.WutheringStyleId, detailStrength: 0, normalStrength: 0, highlightStrength: 0, shadowColorStrength: 0);
+        var neutralOn = Body(T8cTestHelpers.WutheringStyleId, detailStrength: 1, normalStrength: 0, highlightStrength: 0, shadowColorStrength: 0);
+        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, neutralOff, frame));
+        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, neutralOn, frame));
         foreach (int x in new[] { 36, 60 })
         {
             var snapshot = frame.Surface.Snapshot;
@@ -41,14 +76,14 @@ public sealed class StarMcBodyGpuTests
         AssertCoverage(baseline, actual);
         var ignored = Frame(detail: new("ignored detail RBA", 2, 1, [0, 0, 0, 255, 255, 255, 255, 0]));
         Assert.Equal(actual.Rgba, session.Capture(ignored, Size, Size,
-            surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, neutral with { DetailStrength = 1 })).Rgba);
+            surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, neutralOn, ignored)).Rgba);
     }
 
     [Fact, Trait("Category", "Gpu")]
     public void McPackedRgChangesBodyLightingAndBlueAlphaNeverBecomeNormalZ()
     {
         using var session = new D3D12FrameSession();
-        var binding = Binding with { HighlightStrength = 0, DetailStrength = 0, ShadowCoefficient = .3f, ShadowSoftness = .4f };
+        var binding = Body(T8cTestHelpers.WutheringStyleId, highlightStrength: 0, detailStrength: 0, shadowCoefficient: .3f, shadowSoftness: .4f);
         var flat = Frame(normal: new("flat RG", 1, 1, [128, 128, 0, 0]), light: Vector3.UnitX);
         var tilted = Frame(normal: new("tilted RG", 1, 1, [230, 128, 0, 0]), light: Vector3.UnitX);
         // For this planar +X tangent and +X light, packed R is exactly the
@@ -59,50 +94,57 @@ public sealed class StarMcBodyGpuTests
         float tiltedBlend = .05f + .95f * Math.Clamp(((230f / 255) - (edge - .4f)) / .4f, 0, 1);
         Assert.InRange(flatBlend, .42f, .44f);
         Assert.Equal(1f, tiltedBlend);
-        var first = session.Capture(flat, Size, Size, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, binding));
-        var changed = session.Capture(tilted, Size, Size, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, binding));
+        var first = session.Capture(flat, Size, Size, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, binding, flat));
+        var changed = session.Capture(tilted, Size, Size, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, binding, tilted));
         AssertVisibleDifference(first, changed);
         int center = (48 * Size + 48) * 4;
         for (int channel = 0; channel < 3; channel++)
         {
-            float shadow = binding.EffectiveShadowColor[channel];
+            float shadow = DefaultShadowColor[channel];
             float expected = changed.Rgba[center + channel] * (shadow + (1 - shadow) * flatBlend);
             Assert.InRange(Math.Abs(first.Rgba[center + channel] - expected), 0, 1.7f);
         }
         var ignored = Frame(normal: new("same RG ignored BA", 1, 1, [230, 128, 255, 255]), light: Vector3.UnitX);
-        Assert.Equal(changed.Rgba, session.Capture(ignored, Size, Size, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, binding)).Rgba);
+        Assert.Equal(changed.Rgba, session.Capture(ignored, Size, Size, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, binding, ignored)).Rgba);
         AssertCoverage(first, changed);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void CameraNormalMatcapAndExplicitMetalSaturationWorkWithZeroPmxSpecular(D3D12SurfaceStyle family)
+    public void CameraNormalMatcapAndExplicitMetalSaturationWorkWithZeroPmxSpecular(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(normalDirection: Vector3.Normalize(new Vector3(.75f, .1f, -1)));
-        var binding = Binding with { ShadowColorStrength = 0, DetailStrength = 0, NormalStrength = 0, HighlightCoefficient = 1 };
-        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding with { HighlightStrength = 0 }));
-        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding));
-        var rotated = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding with { RotationRadians = 1.7f, MetallicSaturation = .2f }));
+        var off = Body(family, shadowColorStrength: 0, detailStrength: 0, normalStrength: 0, highlightCoefficient: 1, highlightStrength: 0);
+        var on = Body(family, shadowColorStrength: 0, detailStrength: 0, normalStrength: 0, highlightCoefficient: 1, highlightStrength: 1);
+        var rotatedBinding = Body(family, shadowColorStrength: 0, detailStrength: 0, normalStrength: 0, highlightCoefficient: 1, highlightStrength: 1,
+            rotationRadians: 1.7f, metallicSaturation: .2f);
+        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(family, off, frame));
+        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(family, on, frame));
+        var rotated = session.Capture(frame, Size, Size, surfaceStyles: Map(family, rotatedBinding, frame));
         AssertVisibleDifference(baseline, actual);
         AssertVisibleDifference(actual, rotated);
         AssertCoverage(baseline, actual);
         var ignored = Frame(normalDirection: Vector3.Normalize(new Vector3(.75f, .1f, -1)),
             cap: new("same RGB unused alpha", 2, 2, [20, 190, 80, 255, 230, 50, 150, 0, 80, 10, 240, 255, 250, 220, 30, 0]));
-        Assert.Equal(actual.Rgba, session.Capture(ignored, Size, Size, surfaceStyles: Map(family, binding)).Rgba);
+        Assert.Equal(actual.Rgba, session.Capture(ignored, Size, Size, surfaceStyles: Map(family, on, ignored)).Rgba);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void DirectionalFresnelRimChangesOnlyCoveredColor(D3D12SurfaceStyle family)
+    public void DirectionalFresnelRimChangesOnlyCoveredColor(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(normalDirection: Vector3.Normalize(new Vector3(.995f, 0, -.1f)));
-        var binding = Binding with { DetailStrength = 0, HighlightStrength = 0, ShadowColorStrength = 0,
-            RimStrength = .8f, RimSize = .8f, RimDirectionRadians = MathF.PI, RimColor = new(.7f, .3f, .1f) };
-        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding with { RimStrength = 0 }));
-        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding));
-        var rotated = session.Capture(frame, Size, Size, surfaceStyles: Map(family, binding with { RimDirectionRadians = 0 }));
+        var off = Body(family, detailStrength: 0, highlightStrength: 0, shadowColorStrength: 0,
+            rimStrength: 0, rimSize: .8f, rimDirectionRadians: MathF.PI, rimColor: new(.7f, .3f, .1f));
+        var on = Body(family, detailStrength: 0, highlightStrength: 0, shadowColorStrength: 0,
+            rimStrength: .8f, rimSize: .8f, rimDirectionRadians: MathF.PI, rimColor: new(.7f, .3f, .1f));
+        var turned = Body(family, detailStrength: 0, highlightStrength: 0, shadowColorStrength: 0,
+            rimStrength: .8f, rimSize: .8f, rimDirectionRadians: 0f, rimColor: new(.7f, .3f, .1f));
+        var baseline = session.Capture(frame, Size, Size, surfaceStyles: Map(family, off, frame));
+        var actual = session.Capture(frame, Size, Size, surfaceStyles: Map(family, on, frame));
+        var rotated = session.Capture(frame, Size, Size, surfaceStyles: Map(family, turned, frame));
         AssertVisibleDifference(baseline, actual);
         AssertVisibleDifference(actual, rotated);
         AssertCoverage(baseline, actual);
@@ -116,18 +158,19 @@ public sealed class StarMcBodyGpuTests
         var frame = Frame(native: native, light: Vector3.Normalize(new Vector3(.6f, 0, -.8f)));
         var options = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 2,
             Seed: 47, Composition: RayGiComposition.ToonPalette) : null;
-        foreach (var family in new[] { D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx })
+        foreach (var family in new[] { T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId })
         {
-            var baseline = session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, null));
-            var actual = session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, Binding));
+            var binding = Body(family);
+            var baseline = session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, null, frame));
+            var actual = session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, binding, frame));
             AssertVisibleDifference(baseline, actual);
             AssertCoverage(baseline, actual);
-            Assert.Equal(baseline.Rgba, session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, null)).Rgba);
+            Assert.Equal(baseline.Rgba, session.Capture(frame, Size, Size, options, surfaceStyles: Map(family, null, frame)).Rgba);
         }
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12StarMcBodyBinding? binding)
-        => new([family], [new(StarMcBody: binding)]);
+    private static D3D12SurfaceStyleMap Map(string family, StyleMaterialBindingData? binding, OriginalFrameScene frame)
+        => T8cTestHelpers.CreateSingleBindingMap(family, binding, D3D12CharacterMaterialRole.Body, frame: frame);
     private static OriginalFrameScene Frame(SceneTexture? normal = null, SceneTexture? detail = null, SceneTexture? cap = null,
         Vector3? normalDirection = null, Vector3? light = null, bool native = false)
     {

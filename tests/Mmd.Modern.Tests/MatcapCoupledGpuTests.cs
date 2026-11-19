@@ -3,6 +3,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput;
 using Mmd.Modern.ViewOutput.D3D12;
@@ -17,15 +18,15 @@ public sealed class MatcapCoupledGpuTests
     private static CancellationToken Token => TestContext.Current.CancellationToken;
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2.6f, .1f, 30);
     private static readonly Vector3 Base = new(.085f, .07f, .06f);
-    private static readonly D3D12EndfieldMatcapBinding Matcap = new(0, 1, 2,
-        D3D12MatcapColorEncoding.LinearRgb, 0, Base, new(.2f, .45f, .12f),
+    private static readonly EndfieldMatcapSpec Matcap = new(0, 1, 2,
+        T8dTestHelpers.EncodingLinearRgb, 0, Base, new(.2f, .45f, .12f),
         NormalStrength: 1.7f, HighlightCoefficient: .1f, LightControlDirection: Vector3.UnitZ,
         BaselineStrength: 1, CoupleEndfieldPalette: true);
     // Normal incidence yields Fresnel=1/9; EdgeSize=4 saturates the independent
     // smoothstep to one, so the actual rim scalar is exactly EdgeStrength.
-    private static readonly D3D12EndfieldRimBinding Rim = new(Base, new(.8f, .7f, .6f),
+    private static readonly EndfieldRimSpec Rim = new(Base, new(.8f, .7f, .6f),
         EdgeSize: 4, EdgeStrength: .18f, RangeStrength: 1);
-    private static readonly D3D12EndfieldHairBinding Hair = new(3, Base, .3f);
+    private static readonly EndfieldHairSpec Hair = new(3, Base, .3f);
 
     [Theory, InlineData(true, false), InlineData(false, true), InlineData(true, true)]
     [Trait("Category", "Gpu")]
@@ -158,13 +159,14 @@ public sealed class MatcapCoupledGpuTests
             using var project = new SceneProjectSession(editor, new SceneLightingEditor(), [], new NoPhysics(), cancellationToken: Token);
             project.SetDefaultRenderingStyle(new("endfield"), Token);
             var layout = D3D12MaterialBindingLayout.Capture(source);
+            var matcapBinding = T8dTestHelpers.EndfieldMatcap(start, start + 1, start + 2,
+                T8dTestHelpers.EncodingLinearRgb, 0, Base, Matcap.EffectiveHighlightColor,
+                normalStrength: 1.7f, highlightCoefficient: .1f, lightControlDirection: -Vector3.UnitZ);
             var profile = new D3D12MaterialBindingProfile("matcap-gpu", "Portable packed normal MatCap", layout.Fingerprint,
-                [new(0, D3D12CharacterMaterialRole.Body, EndfieldMatcap: new(layout.CaptureTexture(start),
-                    layout.CaptureTexture(start + 1), layout.CaptureTexture(start + 2), D3D12MatcapColorEncoding.LinearRgb,
-                    0, Base, Matcap.HighlightColor, NormalStrength: 1.7f, HighlightCoefficient: .1f,
-                    LightControlDirection: -Vector3.UnitZ))]);
-            var before = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield");
-            byte[] expected = await Capture(project, before);
+                [new(0, D3D12CharacterMaterialRole.Body, pluginBindings: [matcapBinding],
+                    textureGuards: [layout.CaptureTexture(start), layout.CaptureTexture(start + 1), layout.CaptureTexture(start + 2)])]);
+            var before = D3D12MaterialBindingProfileResolver.Resolve(profile, source, item.Id, "endfield", TestStylePlugins.AllViewCatalog);
+            byte[] expected = await Capture(project, before, expectedSlots: [start, start + 1, start + 2]);
             byte[] off = await Capture(project, before, dedicated: false);
             int changed = 0;
             for (int index = 0; index < off.Length; index += 4)
@@ -186,29 +188,33 @@ public sealed class MatcapCoupledGpuTests
                 new NoPhysics(), out var profiles, cancellationToken: Token))
             {
                 var value = loaded.Session.Objects.Single();
-                var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[value.Id], value.Source, value.Id, "endfield");
-                Assert.Equal(expected, await Capture(loaded.Session, mapping));
+                var mapping = D3D12MaterialBindingProfileResolver.Resolve(profiles[value.Id], value.Source, value.Id, "endfield", TestStylePlugins.AllViewCatalog);
+                Assert.Equal(expected, await Capture(loaded.Session, mapping, expectedSlots: [start, start + 1, start + 2]));
                 PmaProjectStore.Save(saved, loaded.Session, cancellationToken: Token);
             }
             using var again = D3D12MaterialBindingPma.Load(saved, Path.Combine(directory, "cache2"), Load,
                 new NoPhysics(), out var savedProfiles, cancellationToken: Token);
             var restored = again.Session.Objects.Single();
-            var resaved = D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[restored.Id], restored.Source, restored.Id, "endfield");
-            Assert.Equal(expected, await Capture(again.Session, resaved));
+            var resaved = D3D12MaterialBindingProfileResolver.Resolve(savedProfiles[restored.Id], restored.Source, restored.Id, "endfield", TestStylePlugins.AllViewCatalog);
+            Assert.Equal(expected, await Capture(again.Session, resaved, expectedSlots: [start, start + 1, start + 2]));
         }
         finally { Directory.Delete(directory, true); }
     }
 
-    private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool dedicated = true)
+    private static async Task<byte[]> Capture(SceneProjectSession project, D3D12ResolvedMaterialBindingProfile mapping, bool dedicated = true, int[]? expectedSlots = null)
     {
-        await using var renderer = new D3D12ViewRenderer(new(W, H), characterMaterials: mapping.CharacterMaterials,
-            endfieldMatcapDataBindings: dedicated ? mapping.EndfieldMatcapBindings : []);
+        await using var renderer = new D3D12ViewRenderer(new(W, H),
+            stylePresets: TestStylePlugins.AllPresetCatalog,
+            characterMaterials: mapping.CharacterMaterials,
+            pluginBindings: dedicated ? mapping.PluginBindings : [],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.False(renderer.IsWarp);
         var snapshot = project.CaptureRenderSnapshot(renderer.SceneInputRequests);
-        if (dedicated)
+        if (dedicated && expectedSlots is not null)
         {
-            var id = Assert.Single(mapping.EndfieldMatcapBindings).ObjectId;
-            Assert.NotNull(snapshot.SceneInputs[id].SourceGeometry);
+            var id = Assert.Single(mapping.PluginBindings).ObjectId;
+            foreach (int slot in expectedSlots)
+                Assert.Contains(slot, snapshot.SceneInputs[id].TextureIndices.Keys);
         }
         var plan = new OfflineFramePlan(W, H, new(30), 0, 0);
         var frame = new OfflineFrame(plan.GetSample(0), W, H, snapshot.Scene, null, null, null)
@@ -217,9 +223,16 @@ public sealed class MatcapCoupledGpuTests
         return image.Pixels.ToArray();
     }
 
-    private static D3D12SurfaceStyleMap Styles(D3D12EndfieldMatcapBinding? matcap, bool rim, bool hair)
-        => new([D3D12SurfaceStyle.EndfieldPmx], [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap: matcap, EndfieldRim: rim ? Rim : null, EndfieldHair: hair ? Hair : null)]);
+    private static D3D12SurfaceStyleMap Styles(EndfieldMatcapSpec? matcap, bool rim, bool hair)
+    {
+        var bindings = new List<StyleMaterialBindingData>(3);
+        if (hair) bindings.Add(Hair.ToBinding());
+        if (rim) bindings.Add(Rim.ToBinding());
+        if (matcap is not null) bindings.Add(matcap.ToBinding());
+        return T8dTestHelpers.CreateDirectSurfaceStyleMap(Frame(), ["endfield"],
+            [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body)],
+            [bindings]);
+    }
 
     private static SceneTexture[] Textures() => [new("packed RG", 1, 1, [179, 153, 0, 0]),
         new("P gate", 1, 1, [40, 0, 0, 24]), new("nonwhite MatCap", 1, 1, [40, 180, 70, 180]),
@@ -239,7 +252,7 @@ public sealed class MatcapCoupledGpuTests
                 AlphaOutput: straight ? FrameAlphaOutput.Straight : FrameAlphaOutput.LegacyMax));
     }
 
-    private static Vector3 ChangedColor(SceneSnapshot scene, D3D12EndfieldMatcapBinding binding)
+    private static Vector3 ChangedColor(SceneSnapshot scene, EndfieldMatcapSpec binding)
     {
         var vp = scene.World * scene.Camera.ViewProjection(W, H);
         Vector2 Project(int index)
@@ -253,7 +266,7 @@ public sealed class MatcapCoupledGpuTests
             new(Vector3.UnitX, -1), 1, front, binding.NormalStrength);
         var gate = MatcapOracle.SourceGate(mapped, binding.LightControlDirection ?? Vector3.UnitZ,
             binding.ShadowHardness, 40f / 255, 24f / 255, binding.HighlightCoefficient).Gate;
-        return MatcapOracle.MaterialColor(binding.BaseColor, binding.HighlightColor,
+        return MatcapOracle.MaterialColor(binding.EffectiveBaseColor, binding.EffectiveHighlightColor,
             new Vector4(40, 180, 70, 180) / 255, gate);
     }
 

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -13,15 +14,15 @@ public sealed class EndfieldPaletteGpuTests
     private const int W = 97, H = 97;
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2.6f, .1f, 30);
     private static readonly Vector3 Cpre = new(.22f, .16f, .10f);
-    private static readonly D3D12EndfieldMatcapBinding Matcap = new(0, 1, 2,
-        D3D12MatcapColorEncoding.LinearRgb, 0, Cpre, new(.2f, .45f, .12f),
+    private static readonly EndfieldMatcapSpec Matcap = new(0, 1, 2,
+        T8dTestHelpers.EncodingLinearRgb, 0, Cpre, new(.2f, .45f, .12f),
         NormalStrength: 1.7f, HighlightCoefficient: 1, BaselineStrength: .38f, CoupleEndfieldPalette: true);
     // Planar normal incidence and EdgeSize=4 saturate the rim mask to EdgeStrength.
-    private static readonly D3D12EndfieldRimBinding Rim = new(Cpre, new(.8f, .7f, .6f),
+    private static readonly EndfieldRimSpec Rim = new(Cpre, new(.8f, .7f, .6f),
         EdgeSize: 4, EdgeStrength: .16f, RangeStrength: .38f);
     // N=+Z, incoming=-Z, raw seed=+Y => q=1 and clamped radial q=.75.
-    private static readonly D3D12EndfieldHairBinding Hair = new(3, Cpre, -.15f);
-    private static readonly D3D12EndfieldPaletteBinding Palette = new(new(.09f, .07f, .04f),
+    private static readonly EndfieldHairSpec Hair = new(3, Cpre, -.15f);
+    private static readonly EndfieldPaletteSpec Palette = new(new(.09f, .07f, .04f),
         EmissionStrength: 1.5f, UniformEmissionBlue: .65f, LightInfluence: 1, Density: .013f);
 
     [Fact, Trait("Category", "Gpu")]
@@ -56,9 +57,9 @@ public sealed class EndfieldPaletteGpuTests
     {
         using var session = new D3D12FrameSession();
         var binding = Matcap with { UvChannel = 1 };
-        var palette = Palette with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Texture,
-            EmissionCombinedTextureIndex = 4, ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Texture,
-            ReceivedLightCombinedTextureIndex = 5, EmissionStrength = .7f, LightInfluence = .45f, Density = .021f };
+        var palette = Palette with { EmissionInputMode = T8dTestHelpers.ModeTexture,
+            EmissionSlot = 4, ReceivedLightInputMode = T8dTestHelpers.ModeTexture,
+            ReceivedLightSlot = 5, EmissionStrength = .7f, LightInfluence = .45f, Density = .021f };
         byte[]? previous = null;
         foreach (float shift in new[] { 0f, .29f })
         {
@@ -70,7 +71,7 @@ public sealed class EndfieldPaletteGpuTests
             var frame = Replace(source, snapshot);
             Assert.True(snapshot.HasDynamicVertices);
             var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding));
+            var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding, frame: frame));
             foreach (int x in new[] { 36, 48, 60 })
                 AssertPixel(plain, actual, x, 44, Delta(snapshot, binding, palette, x, 44));
             AssertCoverage(plain, actual);
@@ -87,27 +88,27 @@ public sealed class EndfieldPaletteGpuTests
     {
         using var session = new D3D12FrameSession();
         var source = Textures();
-        var binding = Matcap with { MatcapEncoding = D3D12MatcapColorEncoding.SrgbRgb };
-        var palette = Palette with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Texture,
-            EmissionCombinedTextureIndex = 2, ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Texture,
-            ReceivedLightCombinedTextureIndex = 2, EmissionStrength = .6f, LightInfluence = .35f };
+        var binding = Matcap with { MatcapEncoding = T8dTestHelpers.EncodingSrgbRgb };
+        var palette = Palette with { EmissionInputMode = T8dTestHelpers.ModeTexture,
+            EmissionSlot = 2, ReceivedLightInputMode = T8dTestHelpers.ModeTexture,
+            ReceivedLightSlot = 2, EmissionStrength = .6f, LightInfluence = .35f };
         var frame = Frame(textures: source);
         var plain = session.Capture(frame, W, H, surfaceStyles: Plain());
-        var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding));
+        var actual = session.Capture(frame, W, H, surfaceStyles: Map(palette, matcap: binding, frame: frame));
         AssertPixel(plain, actual, 48, 48, Delta(frame.Surface.Snapshot, binding, palette, 48, 48));
         // Change only the alpha of the separate palette inputs: the MatCap image keeps its own alpha.
-        var separate = palette with { EmissionCombinedTextureIndex = 4, ReceivedLightCombinedTextureIndex = 5 };
+        var separate = palette with { EmissionSlot = 4, ReceivedLightSlot = 5 };
         var rgba = source[2].Rgba.ToArray(); rgba[3] = 0;
         var zeroAlpha = Frame(textures: [source[0], source[1], source[2], source[3],
             new("numeric same RGB alpha0", 1, 1, rgba), new("received same RGB alpha0", 1, 1, rgba)]);
         rgba[3] = 255;
         var fullAlpha = Frame(textures: [source[0], source[1], source[2], source[3],
             new("numeric same RGB alpha1", 1, 1, rgba), new("received same RGB alpha1", 1, 1, rgba)]);
-        Assert.Equal(actual.Rgba, session.Capture(zeroAlpha, W, H, surfaceStyles: Map(separate, matcap: binding)).Rgba);
-        Assert.Equal(actual.Rgba, session.Capture(fullAlpha, W, H, surfaceStyles: Map(separate, matcap: binding)).Rgba);
-        var incorrectSrgb = palette with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Uniform,
-            EmissionCombinedTextureIndex = null, UniformEmissionBlue = MatcapOracle.Srgb(70f / 255),
-            ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Uniform, ReceivedLightCombinedTextureIndex = null,
+        Assert.Equal(actual.Rgba, session.Capture(zeroAlpha, W, H, surfaceStyles: Map(separate, matcap: binding, frame: zeroAlpha)).Rgba);
+        Assert.Equal(actual.Rgba, session.Capture(fullAlpha, W, H, surfaceStyles: Map(separate, matcap: binding, frame: fullAlpha)).Rgba);
+        var incorrectSrgb = palette with { EmissionInputMode = T8dTestHelpers.ModeUniform,
+            EmissionSlot = null, UniformEmissionBlue = MatcapOracle.Srgb(70f / 255),
+            ReceivedLightInputMode = T8dTestHelpers.ModeUniform, ReceivedLightSlot = null,
             ReceivedLightLinearRgb = new(MatcapOracle.Srgb(40f / 255), MatcapOracle.Srgb(180f / 255), MatcapOracle.Srgb(70f / 255)) };
         Assert.True(Vector3.Distance(Delta(frame.Surface.Snapshot, binding, palette, 48, 48),
             Delta(frame.Surface.Snapshot, binding, incorrectSrgb, 48, 48)) * 255 > 4,
@@ -159,8 +160,9 @@ public sealed class EndfieldPaletteGpuTests
     {
         using var session = new D3D12FrameSession();
         var frame = Frame(split: true);
-        D3D12SurfaceStyleMap Styles(bool enabled) => new([D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.EndfieldPmx],
-            [new(), new(EndfieldMatcap: enabled ? Matcap with { Palette = Palette } : null)]);
+        D3D12SurfaceStyleMap Styles(bool enabled) => T8dTestHelpers.CreateDirectSurfaceStyleMap(frame,
+            ["mmd", "endfield"], [new(), new()],
+            [null, enabled ? [(Matcap with { Palette = Palette }).ToBinding()] : null]);
         var plain = session.Capture(frame, W, H, surfaceStyles: Styles(false));
         var actual = session.Capture(frame, W, H, surfaceStyles: Styles(true));
         Assert.Equal(6, frame.Surface.Snapshot.Materials[1].StartIndex);
@@ -241,11 +243,18 @@ public sealed class EndfieldPaletteGpuTests
         }
     }
 
-    private static D3D12SurfaceStyleMap Plain() => new([D3D12SurfaceStyle.EndfieldPmx], [new()]);
-    private static D3D12SurfaceStyleMap Map(D3D12EndfieldPaletteBinding? palette, bool rim = false, bool hair = false,
-        D3D12EndfieldMatcapBinding? matcap = null) => new([D3D12SurfaceStyle.EndfieldPmx],
-        [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body,
-            EndfieldMatcap: (matcap ?? Matcap) with { Palette = palette }, EndfieldRim: rim ? Rim : null, EndfieldHair: hair ? Hair : null)]);
+    private static D3D12SurfaceStyleMap Plain() => new(["endfield"], registeredStyles: TestStylePlugins.AllPresetCatalog.Plugins.Values);
+    private static D3D12SurfaceStyleMap Map(EndfieldPaletteSpec? palette, bool rim = false, bool hair = false,
+        EndfieldMatcapSpec? matcap = null, OriginalFrameScene? frame = null)
+    {
+        var list = new List<StyleMaterialBindingData>(3);
+        if (hair) list.Add(Hair.ToBinding());
+        if (rim) list.Add(Rim.ToBinding());
+        list.Add(((matcap ?? Matcap) with { Palette = palette }).ToBinding());
+        return T8dTestHelpers.CreateDirectSurfaceStyleMap(frame ?? Frame(), ["endfield"],
+            [new(hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body)],
+            [list]);
+    }
 
     private static SceneTexture[] Textures() => [new("packed RG", 1, 1, [179, 153, 0, 0]),
         new("P gate", 1, 1, [40, 0, 0, 24]), new("nonwhite MatCap", 1, 1, [40, 180, 70, 180]),
@@ -283,39 +292,39 @@ public sealed class EndfieldPaletteGpuTests
         => new(new(snapshot, frame.Surface.Materials, frame.Surface.Profile), options: frame.Options, lighting: frame.Lighting);
 
     private static float Radial() => .75f * (64f / 255) * (Hair.Brightness + 1.5001001358032227f);
-    private static Vector3 MatColor(SceneSnapshot scene, D3D12EndfieldMatcapBinding binding)
+    private static Vector3 MatColor(SceneSnapshot scene, EndfieldMatcapSpec binding)
     {
-        var color = scene.Textures[binding.MatcapCombinedTextureIndex];
+        var color = scene.Textures[binding.MatcapSlot];
         var image = MatcapOracle.BilinearRepeat(color.Rgba, color.Width, color.Height, new(.5f),
-            binding.MatcapEncoding == D3D12MatcapColorEncoding.SrgbRgb);
+            binding.MatcapEncoding == T8dTestHelpers.EncodingSrgbRgb);
         // All MatCap color fixtures are constant; the source gate saturates to1 for the fixed N/P/coefficient.
-        return MatcapOracle.MaterialColor(binding.BaseColor, binding.HighlightColor, image, 1);
+        return MatcapOracle.MaterialColor(binding.EffectiveBaseColor, binding.EffectiveHighlightColor, image, 1);
     }
 
     // Independent source composition, grounded against a genuinely plain Endfield GPU
     // frame G. Its target is G+Enew-Cpre*B, not old coupled output plus an idealized delta.
-    private static Vector3 Delta(SceneSnapshot scene, D3D12EndfieldMatcapBinding binding,
-        D3D12EndfieldPaletteBinding palette, int x, int y, bool rim = false, bool hair = false, int material = 0)
+    private static Vector3 Delta(SceneSnapshot scene, EndfieldMatcapSpec binding,
+        EndfieldPaletteSpec palette, int x, int y, bool rim = false, bool hair = false, int material = 0)
     {
         Vector2 uv = UvAt(scene, binding.UvChannel, x, y, material);
         float blue = palette.UniformEmissionBlue;
-        if (palette.EmissionInputMode == D3D12EndfieldPaletteInputMode.Texture)
+        if (palette.EmissionInputMode == T8dTestHelpers.ModeTexture)
         {
-            var image = scene.Textures[palette.EmissionCombinedTextureIndex!.Value];
+            var image = scene.Textures[palette.EmissionSlot!.Value];
             blue = MatcapOracle.BilinearRepeat(image.Rgba, image.Width, image.Height, uv, false).Z;
         }
         Vector3 received = palette.ReceivedLightLinearRgb;
-        if (palette.ReceivedLightInputMode == D3D12EndfieldPaletteInputMode.Texture)
+        if (palette.ReceivedLightInputMode == T8dTestHelpers.ModeTexture)
         {
-            var image = scene.Textures[palette.ReceivedLightCombinedTextureIndex!.Value];
+            var image = scene.Textures[palette.ReceivedLightSlot!.Value];
             Vector4 sampled = MatcapOracle.BilinearRepeat(image.Rgba, image.Width, image.Height, uv, false);
             received = new(sampled.X, sampled.Y, sampled.Z);
         }
-        Vector3 lit = MatColor(scene, binding) + binding.BaseColor * (2 * blue * palette.EmissionStrength)
+        Vector3 lit = MatColor(scene, binding) + binding.EffectiveBaseColor * (2 * blue * palette.EmissionStrength)
             + Math.Clamp(palette.LightInfluence, 0, 1) * received;
         float r = rim ? Rim.EdgeStrength : 0, p = hair ? Radial() : 0;
         if (rim) lit = Overlay(lit, Rim.RimColor, r);
-        return Wave(lit, uv, palette.Density) * (binding.BaselineStrength + r + p) - binding.BaseColor * binding.BaselineStrength;
+        return Wave(lit, uv, palette.Density) * (binding.BaselineStrength + r + p) - binding.EffectiveBaseColor * binding.BaselineStrength;
     }
 
     private static Vector3 Overlay(Vector3 color, Vector3 tint, float factor)

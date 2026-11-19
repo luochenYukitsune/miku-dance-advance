@@ -19,7 +19,10 @@ public sealed class D3D12StylePresetStore
     }
 
     /// <summary>Reads a detached catalog, preserving per-file failures as explicit results. A missing directory is an empty local library.</summary>
-    public D3D12StylePresetCatalog Load()
+    public D3D12StylePresetCatalog Load() => Load(null);
+
+    /// <summary>Reads a detached catalog with registered plugin styles resolved against local presets.</summary>
+    public D3D12StylePresetCatalog Load(IEnumerable<D3D12PluginStyleRegistration>? plugins)
     {
         lock (gate)
         {
@@ -30,13 +33,13 @@ public sealed class D3D12StylePresetStore
                 RejectRedirect(DirectoryPath);
                 string[] paths = LocalPaths();
                 if (paths.Length > MaxLocalPresets)
-                    return new([new(null, D3D12StylePresetStatus.CapacityExceeded, null, "Preset library exceeds the 256-file budget; local presets were not loaded.")]);
-                return new(paths.Order(StringComparer.Ordinal).Select(ReadFile).ToArray());
+                    return new([new(null, D3D12StylePresetStatus.CapacityExceeded, null, "Preset library exceeds the 256-file budget; local presets were not loaded.")], plugins);
+                return new(paths.Order(StringComparer.Ordinal).Select(ReadFile).ToArray(), plugins);
             }
             catch (Exception error) when (error is DirectoryNotFoundException or FileNotFoundException)
-            { return D3D12StylePresetCatalog.BuiltIn; }
+            { return plugins is null ? D3D12StylePresetCatalog.BuiltIn : D3D12StylePresetCatalog.WithPlugins(plugins); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            { return new([new(null, D3D12StylePresetStatus.IoFailure, null, "Preset library could not be read: " + error.Message)]); }
+            { return new([new(null, D3D12StylePresetStatus.IoFailure, null, "Preset library could not be read: " + error.Message)], plugins); }
         }
     }
 

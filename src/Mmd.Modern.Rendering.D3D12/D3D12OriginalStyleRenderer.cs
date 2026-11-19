@@ -137,16 +137,17 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
             using var uploadCpu=MeasureSceneCpu(SceneCpuStage.OriginalOutlineUpload);
             return cache.ExpandedPositionBuffer("original-edge",positions);
         }
-        if(subTexture)BindAdditionalUvs(context,cache,scene);
-        if(surfaceStyles?.HasConsumedEndfieldHair==true)
+        bool needAdditionalUvs=subTexture||(surfaceStyles?.HasGeometryRequirement(D3D12StyleGeometryRequirements.SubTextureUv)==true);
+        if(needAdditionalUvs)BindAdditionalUvs(context,cache,scene);
+        if(surfaceStyles?.HasGeometryRequirement(D3D12StyleGeometryRequirements.RawRadialSeeds)==true)
         {
-            var stream=scene.RawRadialSeeds??throw new ArgumentException("Endfield radial hair requires an explicit raw seed stream.");
-            var buffer=cache.BufferByIdentity("original-endfield-radial",MemoryMarshal.AsBytes(stream.Vertices),ResourceStates.VertexAndConstantBuffer,stream);
+            var seeds=D3D12TangentCornerGeometry.GetOrComputeRawRadialSeeds(scene,out var seedIdentity);
+            var buffer=cache.BufferByIdentity("original-radial-seeds",MemoryMarshal.AsBytes(seeds),ResourceStates.VertexAndConstantBuffer,seedIdentity);
             commands.IASetVertexBuffers(2,new VertexBufferView(buffer.GPUVirtualAddress,checked(scene.VertexCount*12),12));
         }
         preflightCpu.Dispose();
         if(frame.Options is not null)
-            return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasConsumedFaceSdf==true,surfaceStyles?.HasConsumedPackedFaceSdf==true,surfaceStyles?.HasConsumedGenshinNonMetallicSpecular==true,surfaceStyles?.HasConsumedStarMcHair==true,surfaceStyles?.HasConsumedEndfieldHair==true,surfaceStyles?.HasConsumedEndfieldRim==true,surfaceStyles?.HasConsumedGenshinHairShadowAtlas==true,surfaceStyles?.HasConsumedSurfaceMatcap==true,surfaceStyles?.HasConsumedGenshinMetallic==true,surfaceStyles?.HasConsumedGenshinMetallicSpecular==true,surfaceStyles?.HasConsumedEndfieldPalette==true,surfaceStyles?.HasConsumedEndfieldBaseImage==true,surfaceStyles?.HasConsumedStarMcBody==true),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
+            return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasAnyPluginSpace2==true),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
         var selected=GetPipelines(style.Profile.TextureSampling,depth.Format,textureMorph,subTexture,D3D12RasterWinding.FrontCounterClockwise(frame));var root=selected.Root;
         commands.SetGraphicsRootSignature(root);commands.SetDescriptorHeaps(srvHeap);commands.OMSetRenderTargets(color.Handle,depth.Handle);
         commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);

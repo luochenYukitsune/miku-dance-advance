@@ -92,19 +92,13 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void EveryFamilyAppliesBoundedValueContrastAfterSaturationAndBeforeAmbientAllocation(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.GenshinStyleId)]
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    [InlineData(T8cTestHelpers.EndfieldStyleId)]
+    public void EveryFamilyAppliesBoundedValueContrastAfterSaturationAndBeforeAmbientAllocation(string family)
     {
-        string source = family switch
-        {
-            D3D12SurfaceStyle.GenshinPmx => OriginalFrameShaders.GenshinSurfaceSource(false, true, false, false),
-            D3D12SurfaceStyle.StarRailPmx => OriginalFrameShaders.StarRailSurfaceSource(false, true, false, false),
-            D3D12SurfaceStyle.WutheringPmx => OriginalFrameShaders.WutheringSurfaceSource(false, true, false, false),
-            _ => OriginalFrameShaders.EndfieldSurfaceSource(false, true, false, false),
-        };
+        string source = T8cTestHelpers.AssemblePluginSurfaceSource(family, "default", "PSSurfaceGi", false, true, false, false);
         Assert.Contains("if(saturation==1 && contrast==0) return rgb;", source);
         Assert.Contains("if(any(rgb<0)) return rgb;", source);
         Assert.Contains("if(saturation!=1 && chroma!=0)", source);
@@ -113,17 +107,17 @@ public sealed class D3D12PmxMaterialContrastTests
         Assert.Contains("rgb*=((1-contrast)+contrast*value);", source);
         Assert.True(source.IndexOf("rgb=value+(rgb-value)*factor;", StringComparison.Ordinal)
             < source.IndexOf("rgb*=((1-contrast)+contrast*value);", StringComparison.Ordinal));
-        Assert.Contains("if(PmxMaterialTreatmentParams.x!=1 || PmxMaterialTreatmentParams.y!=0) fill=PmxMaterialSaturation(EgColor.rgb*texel)*GiAmbientShare.rgb;", source);
+        Assert.Contains("if (PmxMaterialTreatmentParams.x != 1 || PmxMaterialTreatmentParams.y != 0)", source);
+        Assert.Contains("fill = PmxMaterialSaturation(EgColor.rgb * MorphDiffuse(texel)) * GiAmbientShare.rgb;", source);
     }
 
     public static IEnumerable<object[]> Families()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx }) yield return [family];
+        foreach (var family in T8cTestHelpers.ModernStyleIds) yield return [family];
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ActualRgbContrastUsesTheIndependentValueCurveAndLeavesSignedHdrAndCoverageExact(D3D12SurfaceStyle family)
+    public void ActualRgbContrastUsesTheIndependentValueCurveAndLeavesSignedHdrAndCoverageExact(string family)
     {
         using var session = new D3D12FrameSession();
         foreach (var rgb in new[] { new Vector3(.7f, .3f, .1f), new Vector3(.37f), Vector3.Zero,
@@ -148,7 +142,7 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ContrastAndShadeGammaCombineAtTheDarkEndpointWithoutChangingStraightAlpha(D3D12SurfaceStyle family)
+    public void ContrastAndShadeGammaCombineAtTheDarkEndpointWithoutChangingStraightAlpha(string family)
     {
         using var session = new D3D12FrameSession();
         var rgb = new Vector3(.7f, .3f, .1f);
@@ -165,11 +159,11 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ActualNativeAndGiIncrementsShareTheContrastAndGammaEndpoints(D3D12SurfaceStyle family)
+    public void ActualNativeAndGiIncrementsShareTheContrastAndGammaEndpoints(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Bounce();
-        var map = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd],
+        var map = T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId],
             [new(PmxMaterialTreatment: new(ValueContrast: .4f, ShadeGamma: 2)), new()]);
         var lit = ContrastOracle(new Vector3(.4f, .24f, .16f) * .5f, .4f);
         var dark = lit * new Vector3(.04f, .09f, .16f);
@@ -200,7 +194,7 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ContrastAndGammaEditsResetConsumedGiHistoryOnceAndNeutralRestorationIsExact(D3D12SurfaceStyle family)
+    public void ContrastAndGammaEditsResetConsumedGiHistoryOnceAndNeutralRestorationIsExact(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Surface(new(.7f, .3f, .1f), dark: true);
@@ -280,8 +274,8 @@ public sealed class D3D12PmxMaterialContrastTests
     }
 
     private static OriginalFrameOptions Options() => new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: Vector4.Zero);
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12PmxMaterialTreatment? treatment = null)
-        => new([family], [new(PmxMaterialTreatment: treatment)]);
+    private static D3D12SurfaceStyleMap Map(string family, D3D12PmxMaterialTreatment? treatment = null)
+        => T8cTestHelpers.CreateDirectMap([family], [new(PmxMaterialTreatment: treatment)]);
     private static byte[] Pixel(RenderedFrame frame) => frame.Rgba.AsSpan((Height / 2 * Width + Width / 2) * 4, 4).ToArray();
     private static void AssertPixel(RenderedFrame frame, Vector3 rgb, float alpha = 1)
     {

@@ -54,6 +54,9 @@ public sealed class PluginManager : IAsyncDisposable
     public IReadOnlyList<PluginInfo> Plugins => Volatile.Read(ref _snapshot);
     public IPluginExtensionRegistry Extensions => _registry;
 
+    /// <summary>Raised after <see cref="Plugins"/> is updated outside the manager synchronization gate.</summary>
+    public event EventHandler? PluginsChanged;
+
     public Task<PluginOperationResult> RefreshAsync(IEnumerable<string> roots, CancellationToken cancellationToken = default) =>
         RefreshAsync(roots, preserveActive: false, cancellationToken);
 
@@ -67,12 +70,85 @@ public sealed class PluginManager : IAsyncDisposable
     {
         if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
             return Failure("Plugin refresh was canceled.");
+        (PluginOperationResult Result, bool Changed) outcome;
+        try
+        {
+            outcome = await RefreshCoreAsync(roots, preserveActive, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        if (outcome.Changed)
+            OnPluginsChanged();
+        return outcome.Result;
+    }
+
+    public async Task<PluginOperationResult> EnableAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
+            return Failure("Plugin activation was canceled.");
+        (PluginOperationResult Result, bool Changed) outcome;
+        try
+        {
+            outcome = await EnableCoreAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        if (outcome.Changed)
+            OnPluginsChanged();
+        return outcome.Result;
+    }
+
+    public async Task<PluginOperationResult> DisableAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
+            return Failure("Plugin deactivation was canceled.");
+        (PluginOperationResult Result, bool Changed) outcome;
+        try
+        {
+            outcome = await DisableCoreAsync(id, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        if (outcome.Changed)
+            OnPluginsChanged();
+        return outcome.Result;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed)
-                return Failure("The plugin manager is disposed.");
+                return;
+            Volatile.Write(ref _disposed, true);
+            PluginsChanged = null;
+            foreach (var entry in _activationOrder.ToArray().Reverse())
+                await StopAsync(entry).ConfigureAwait(false);
+            Publish();
+        }
+        finally
+        {
+            // Keep the semaphore usable so already queued callers can observe disposal.
+            _gate.Release();
+        }
+    }
+
+    private async Task<(PluginOperationResult Result, bool Changed)> RefreshCoreAsync(
+        IEnumerable<string> roots, bool preserveActive, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_disposed)
+                return (Failure("The plugin manager is disposed."), false);
             if (!preserveActive && _activationOrder.Count != 0)
-                return Failure("Disable all active plugins before refreshing the plugin list.");
+                return (Failure("Disable all active plugins before refreshing the plugin list."), false);
             ArgumentNullException.ThrowIfNull(roots);
             var discovered = new List<Entry>();
             var seenDirectories = new HashSet<string>(PluginPaths.Comparer);
@@ -100,7 +176,7 @@ public sealed class PluginManager : IAsyncDisposable
                     if (!seenDirectories.Add(directory))
                         continue;
                     if (discovered.Count >= MaximumPlugins)
-                        return Failure($"Plugin discovery exceeds the limit of {MaximumPlugins} directories.");
+                        return (Failure($"Plugin discovery exceeds the limit of {MaximumPlugins} directories."), false);
                     try
                     {
                         var manifest = await PluginManifest.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
@@ -124,7 +200,7 @@ public sealed class PluginManager : IAsyncDisposable
                 {
                     if (!byDirectory.TryGetValue(active.Directory, out var candidate) || candidate.Manifest is null ||
                         !active.Manifest!.Digest.AsSpan().SequenceEqual(candidate.Manifest.Digest))
-                        return Failure($"Active plugin '{active.Id}' is missing or its manifest changed. Disable it before refreshing.");
+                        return (Failure($"Active plugin '{active.Id}' is missing or its manifest changed. Disable it before refreshing."), false);
                 }
                 // Reuse the actual entries: their runtime, collectible context and registrations
                 // remain owned by the original activation order throughout the refresh.
@@ -140,7 +216,7 @@ public sealed class PluginManager : IAsyncDisposable
                 if (matches.Length > 1)
                 {
                     if (matches.Any(e => e.Runtime is not null))
-                        return Failure($"Duplicate plugin id '{group.Key}' conflicts with an active plugin. Disable it before refreshing.");
+                        return (Failure($"Duplicate plugin id '{group.Key}' conflicts with an active plugin. Disable it before refreshing."), false);
                     foreach (var duplicate in matches)
                         duplicate.Reject($"Duplicate plugin id '{group.Key}'.");
                     continue;
@@ -156,7 +232,7 @@ public sealed class PluginManager : IAsyncDisposable
             {
                 var diagnostic = ValidateGraph(active, byId, new HashSet<string>(StringComparer.Ordinal), null);
                 if (diagnostic is not null)
-                    return Failure(diagnostic);
+                    return (Failure(diagnostic), false);
             }
             foreach (var entry in discovered.Where(e => e.Manifest is not null && e.Runtime is null && e.State != PluginState.Incompatible))
             {
@@ -168,38 +244,33 @@ public sealed class PluginManager : IAsyncDisposable
             _entries = discovered;
             _byId = byId;
             Publish();
-            return Success();
+            return (Success(), true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Failure("Plugin refresh was canceled.");
+            return (Failure("Plugin refresh was canceled."), false);
         }
         catch (Exception exception)
         {
-            return Failure(Describe(exception));
-        }
-        finally
-        {
-            _gate.Release();
+            return (Failure(Describe(exception)), false);
         }
     }
 
-    public async Task<PluginOperationResult> EnableAsync(string id, CancellationToken cancellationToken = default)
+    private async Task<(PluginOperationResult Result, bool Changed)> EnableCoreAsync(
+        string id, CancellationToken cancellationToken)
     {
-        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
-            return Failure("Plugin activation was canceled.");
         var newlyStarted = new List<Entry>();
         Entry? target = null;
         try
         {
             if (_disposed)
-                return Failure("The plugin manager is disposed.");
+                return (Failure("The plugin manager is disposed."), false);
             if (id is null || !_byId.TryGetValue(id, out target))
-                return Failure($"Plugin '{id}' was not found or its identifier is ambiguous.");
+                return (Failure($"Plugin '{id}' was not found or its identifier is ambiguous."), false);
             var plan = new List<Entry>();
             var diagnostic = ValidateGraph(target, _byId, new HashSet<string>(StringComparer.Ordinal), plan);
             if (diagnostic is not null)
-                return Failure(diagnostic);
+                return (Failure(diagnostic), false);
             // All graph, version and capability checks complete before any instance is created.
             foreach (var entry in plan)
             {
@@ -216,82 +287,65 @@ public sealed class PluginManager : IAsyncDisposable
                         target.Diagnostic = $"Dependency '{entry.Manifest!.Id}' failed: {result.Diagnostic}";
                     }
                     Publish();
-                    return Failure(Combine(result.Diagnostic, rollback));
+                    return (Failure(Combine(result.Diagnostic, rollback)), true);
                 }
                 newlyStarted.Add(entry);
             }
             cancellationToken.ThrowIfCancellationRequested();
+            if (newlyStarted.Count == 0)
+                return (Success(), false);
             Publish();
-            return Success();
+            return (Success(), true);
         }
         catch (Exception exception)
         {
             var diagnostic = exception is OperationCanceledException && cancellationToken.IsCancellationRequested
                 ? "Plugin activation was canceled." : Describe(exception);
             var rollback = await RollbackAsync(newlyStarted).ConfigureAwait(false);
+            var changed = newlyStarted.Count > 0;
             if (target is not null && target.Runtime is null)
             {
                 target.State = PluginState.Failed;
                 target.Diagnostic = diagnostic;
+                changed = true;
             }
-            Publish();
-            return Failure(Combine(diagnostic, rollback));
-        }
-        finally
-        {
-            _gate.Release();
+            if (changed)
+                Publish();
+            return (Failure(Combine(diagnostic, rollback)), changed);
         }
     }
 
-    public async Task<PluginOperationResult> DisableAsync(string id, CancellationToken cancellationToken = default)
+    private async Task<(PluginOperationResult Result, bool Changed)> DisableCoreAsync(
+        string id, CancellationToken cancellationToken)
     {
-        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
-            return Failure("Plugin deactivation was canceled.");
         try
         {
             if (_disposed)
-                return Failure("The plugin manager is disposed.");
+                return (Failure("The plugin manager is disposed."), false);
             if (id is null || !_byId.TryGetValue(id, out var entry))
-                return Failure($"Plugin '{id}' was not found or its identifier is ambiguous.");
+                return (Failure($"Plugin '{id}' was not found or its identifier is ambiguous."), false);
             if (entry.Runtime is null)
-                return Success();
+                return (Success(), false);
             var dependents = _activationOrder.Where(e => e.Manifest!.Dependencies.Any(d => d.Id == id)).ToArray();
             if (dependents.Length != 0)
-                return Failure($"Plugin '{id}' is required by active plugins: {string.Join(", ", dependents.Select(e => e.Manifest!.Id))}.");
+                return (Failure($"Plugin '{id}' is required by active plugins: {string.Join(", ", dependents.Select(e => e.Manifest!.Id))}."), false);
             cancellationToken.ThrowIfCancellationRequested();
             // Once stopping starts, cleanup finishes even if the caller cancels.
             var diagnostic = await StopAsync(entry).ConfigureAwait(false);
             Publish();
-            return diagnostic is null ? Success() : Failure(diagnostic);
+            return (diagnostic is null ? Success() : Failure(diagnostic), true);
         }
         catch (Exception exception)
         {
-            return Failure(exception is OperationCanceledException && cancellationToken.IsCancellationRequested
-                ? "Plugin deactivation was canceled." : Describe(exception));
-        }
-        finally
-        {
-            _gate.Release();
+            return (Failure(exception is OperationCanceledException && cancellationToken.IsCancellationRequested
+                ? "Plugin deactivation was canceled." : Describe(exception)), false);
         }
     }
 
-    public async ValueTask DisposeAsync()
+    private void OnPluginsChanged()
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            foreach (var entry in _activationOrder.ToArray().Reverse())
-                await StopAsync(entry).ConfigureAwait(false);
-            Publish();
-        }
-        finally
-        {
-            // Keep the semaphore usable so already queued callers can observe disposal.
-            _gate.Release();
-        }
+        if (!Volatile.Read(ref _disposed))
+            PluginsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void ValidateHostCompatibility(Entry entry)
@@ -426,8 +480,19 @@ public sealed class PluginManager : IAsyncDisposable
     }
 
     private void Publish() => Volatile.Write(ref _snapshot,
-        Array.AsReadOnly(_entries.Select(e => new PluginInfo(e.Id, e.Name, e.Version,
-            e.Directory, e.State, e.Diagnostic)).ToArray()));
+        Array.AsReadOnly(_entries.Select(e => new PluginInfo(
+            e.Id,
+            e.Name,
+            e.Version,
+            e.Directory,
+            e.State,
+            e.Diagnostic,
+            e.Capabilities,
+            e.Manifest?.Description,
+            e.Manifest?.Author,
+            e.Manifest?.ProvidedStyles,
+            e.Manifest?.LocalizedNames,
+            e.Manifest?.LocalizedDescriptions)).ToArray()));
 
     private static Entry InvalidEntry(string directory, string diagnostic) => new(directory, null)
     {
@@ -465,6 +530,9 @@ public sealed class PluginManager : IAsyncDisposable
     {
         internal string Directory { get; } = directory;
         internal PluginManifest? Manifest { get; } = manifest;
+        internal IReadOnlyList<string>? Capabilities { get; } = manifest is null
+            ? null
+            : Array.AsReadOnly(manifest.Capabilities.ToArray());
         internal string Id => Manifest?.Id ?? "invalid:" + Directory;
         internal string Name => Manifest?.Name ?? Path.GetFileName(Directory);
         internal Version Version => Manifest?.Version ?? new Version(0, 0);

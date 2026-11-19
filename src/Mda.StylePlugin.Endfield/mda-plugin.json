@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "mda.style.endfield",
+  "name": "明日方舟：终末地",
+  "version": "1.0.0",
+  "entryAssembly": "Mda.StylePlugin.Endfield.dll",
+  "entryType": "Mda.StylePlugin.Endfield.EndfieldStylePlugin",
+  "apiVersion": 1,
+  "minimumHostVersion": "0.1.0",
+  "dependencies": [],
+  "capabilities": ["rendering.styles"],
+  "providesStyles": ["endfield"],
+  "description": "Arknights: Endfield stylized rendering pipeline with three-knot diffuse response, EndfieldRgbCmM FaceSDF, radial hair, Fresnel rim, MikkTSpace MatCap, downstream palette, and base-image shadow LUT.",
+  "author": "MDA",
+  "localizedNames": {
+    "zh-CN": "明日方舟：终末地",
+    "en": "Arknights: Endfield",
+    "ja": "アークナイツ：エンドフィールド"
+  },
+  "localizedDescriptions": {
+    "zh-CN": "明日方舟：终末地风格化渲染管线：三段式漫反射、EndfieldRgbCmM 面部 SDF（支持骨骼追踪）、径向发丝高光、物理菲涅尔边缘光、MikkTSpace MatCap、下游调色盘与基色阴影 LUT。",
+    "en": "Arknights: Endfield stylized rendering pipeline with three-knot diffuse response, EndfieldRgbCmM FaceSDF with bone tracking, radial hair, Fresnel rim, MikkTSpace MatCap, downstream palette, and base-image shadow LUT.",
+    "ja": "アークナイツ：エンドフィールドスタイルレンダリング：3ノット拡散応答、ボーン追従対応 EndfieldRgbCmM FaceSDF、放射状ヘア、フレネルリム、MikkTSpace MatCap、パレット、ベース画像シャドウ LUT。"
+  }
+}

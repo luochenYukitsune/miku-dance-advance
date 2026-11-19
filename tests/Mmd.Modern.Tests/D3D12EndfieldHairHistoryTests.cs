@@ -16,13 +16,14 @@ public sealed class D3D12EndfieldHairHistoryTests
     {
         using var session = new D3D12FrameSession();
         var temporal = NativeAa(session); var gi = Gi();
-        var frame = Frame(); var binding = new D3D12EndfieldHairBinding(0, new(.06f, .04f, .02f));
+        var frame = Frame(); var binding = T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f));
         var map = Map(binding);
         long readbacks = session.Runtime.Readbacks;
         Render(frame, map, 1, "FirstFrame", "FirstFrame");
         Render(frame, Map(binding with { }), 2, "None", "None");
-        foreach (var changed in new[] { binding with { Brightness = 1f }, binding with { PaletteColor = new(.03f) },
-            binding with { Brightness = -2f } })
+        foreach (var changed in new[] { T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f), 1f),
+            T8dTestHelpers.EndfieldHair(0, new(.03f)),
+            T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f), -2f) })
         {
             Render(frame, Map(changed), 1, "ExplicitReset", "ExplicitRequest");
             Render(frame, Map(changed with { }), 2, "None", "None");
@@ -30,13 +31,14 @@ public sealed class D3D12EndfieldHairHistoryTests
         Render(frame, map, 1, "ExplicitReset", "ExplicitRequest");
         Render(frame, map, 2, "None", "None");
         long submissions = session.Runtime.Submissions;
-        Assert.Throws<ArgumentException>(() => session.Render(Frame(seeds: false), Width, Height, gi,
+        var invalidSeedFrame = Frame(seed: new Vector3(float.MaxValue, 1, 0), world: Matrix4x4.CreateScale(2));
+        Assert.Throws<ArgumentException>(() => session.Render(invalidSeedFrame, Width, Height, gi,
             temporalUpscaling: temporal, surfaceStyles: map));
         Assert.Equal(submissions, session.Runtime.Submissions);
         Render(frame, map, 3, "None", "None");
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(Frame(seed: Vector3.UnitY), Width, Height, gi,
             (_, _) => throw new OperationCanceledException("Abort detached Endfield radial inputs."),
-            temporalUpscaling: temporal, surfaceStyles: Map(binding with { Brightness = 2f })));
+            temporalUpscaling: temporal, surfaceStyles: Map(T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f), 2f))));
         Assert.False(session.Runtime.IsRecording);
         Render(frame, map, 4, "None", "AbortedFrame");
         Render(frame, map, 5, "None", "None");
@@ -48,7 +50,7 @@ public sealed class D3D12EndfieldHairHistoryTests
         var warm = session.Statistics!;
         for (int i = 0; i < 4; i++)
         {
-            Render(differentSeeds, Map(binding with { Brightness = i }), 1, "ExplicitReset", "ExplicitRequest");
+            Render(differentSeeds, Map(T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f), i)), 1, "ExplicitReset", "ExplicitRequest");
             Assert.Equal(warm.ShaderCompilations, session.Statistics!.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, session.Statistics.PipelineCreations);
             Assert.InRange(session.Statistics.CachedResources, 0, warm.CachedResources + 2);
@@ -60,19 +62,20 @@ public sealed class D3D12EndfieldHairHistoryTests
     }
 
     [Fact, Trait("Category", "Gpu")]
-    public void GreenKeysIgnoreCoverageButActualWholeSceneOwnerPolicyIsConservativeAndAbortRetryMatchesFresh()
+    public void OwnerChangeUsesSceneTextureResetWhileTextureByteChangesResetPluginInputsAndAbortRetryMatchesFresh()
     {
         using var session = new D3D12FrameSession();
         var temporal = NativeAa(session); var gi = Gi();
-        var binding = new D3D12EndfieldHairBinding(0, new(.06f, .04f, .02f));
+        var binding = T8dTestHelpers.EndfieldHair(0, new(.06f, .04f, .02f));
         var map = Map(binding); var frame = Frame();
         var newOwner = Frame(Texture("new owner"));
         var unusedChannels = Frame(Texture(r: 0, b: 255, a: 255));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(frame), map.CaptureFaceTextures(unusedChannels)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(frame), map.CaptureResolvedInputs(newOwner)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(frame), map.CaptureResolvedInputs(unusedChannels)));
         AssertHistories(session, frame, map, temporal, gi, 1, "FirstFrame", "FirstFrame");
         AssertHistories(session, frame, map, temporal, gi, 2, "None", "None");
         AssertHistories(session, newOwner, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
-        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "TexturesChanged", "SceneStructureChanged");
+        AssertHistories(session, unusedChannels, map, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         var changedFrame = Frame(Texture(g: 0), seed: Vector3.UnitY);
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(changedFrame, Width, Height, gi,
             (_, _) => throw new OperationCanceledException("Abort Green and raw stream edit before submit."),
@@ -105,9 +108,9 @@ public sealed class D3D12EndfieldHairHistoryTests
     }
 
     // Temporal reconstruction requires perspective; the binding-only fixture remains orthographic.
-    private static OriginalFrameScene Frame(SceneTexture? texture = null, bool seeds = true, Vector3? seed = null)
+    private static OriginalFrameScene Frame(SceneTexture? texture = null, bool seeds = true, Vector3? seed = null, Matrix4x4? world = null)
     {
-        var original = D3D12EndfieldHairBindingTests.Frame(texture, seeds, seed);
+        var original = D3D12EndfieldHairBindingTests.Frame(texture, seeds, seed, world: world);
         var snapshot = original.Surface.Snapshot;
         var perspective = snapshot.WithCamera(snapshot.Camera with { VerticalFovDegrees = 45 });
         return new(new(perspective, original.Surface.Materials, original.Surface.Profile),

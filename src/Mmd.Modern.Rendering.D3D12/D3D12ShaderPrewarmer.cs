@@ -3,19 +3,12 @@ using Mmd.Modern.Core;
 namespace Mmd.Modern.Rendering.D3D12;
 
 public readonly record struct D3D12ShaderStyleWarmupVariant(
-    D3D12SurfaceStyle Family,
-    bool FaceSdf = false,
-    bool GenshinHair = false,
-    bool StarMcHair = false,
-    bool EndfieldHair = false,
-    bool EndfieldRim = false,
-    bool GenshinAtlas = false,
-    bool EndfieldMatcap = false,
-    bool GenshinMetallic = false,
-    bool GenshinMetallicSpecular = false,
-    bool EndfieldPalette = false,
-    bool EndfieldBaseImage = false,
-    bool StarMcBody = false);
+    string StyleId,
+    D3D12PluginShaderModule Module,
+    D3D12StyleShaderHookMask? EffectiveHooksOverride = null,
+    D3D12StyleGeometryRequirements? EffectiveGeometryOverride = null,
+    bool CharacterToon = true,
+    bool PreserveDirectLightPalette = false);
 
 public sealed record D3D12ShaderWarmupSpec
 {
@@ -178,32 +171,34 @@ public static class D3D12ShaderPrewarmer
         var variants = new List<D3D12ShaderStyleWarmupVariant>();
         if (surfaceStyles is not null)
         {
-            var seen = new HashSet<D3D12ShaderStyleWarmupVariant>();
+            var seen = new HashSet<(string StyleId, string ModuleId, string Hash, D3D12StyleShaderHookMask Hooks, D3D12StyleGeometryRequirements Geom, bool Toon, bool DirectPalette)>();
             int count = Math.Min(frame.Surface.Snapshot.Materials.Count, surfaceStyles.Count);
             for (int i = 0; i < count; i++)
             {
                 if (!frame.Materials[i].SurfaceEnabled || frame.Surface.Snapshot.Materials[i].IndexCount == 0) continue;
-                var family = surfaceStyles.Materials[i];
-                if (family is not (D3D12SurfaceStyle.GenshinPmx or D3D12SurfaceStyle.StarRailPmx
-                    or D3D12SurfaceStyle.WutheringPmx or D3D12SurfaceStyle.EndfieldPmx))
-                    continue;
-                var metallic = surfaceStyles.EffectiveGenshinMetallic(i);
-                var matcap = surfaceStyles.EffectiveEndfieldMatcap(i);
-                var variant = new D3D12ShaderStyleWarmupVariant(
-                    Family: family,
-                    FaceSdf: surfaceStyles.EffectiveFaceSdf(i) is not null,
-                    GenshinHair: surfaceStyles.EffectiveGenshinNonMetallicSpecular(i) is not null,
-                    StarMcHair: surfaceStyles.EffectiveStarMcHair(i) is not null,
-                    EndfieldHair: surfaceStyles.EffectiveEndfieldHair(i) is not null,
-                    EndfieldRim: surfaceStyles.EffectiveEndfieldRim(i) is not null,
-                    GenshinAtlas: surfaceStyles.EffectiveGenshinHairShadowAtlas(i) is not null,
-                    EndfieldMatcap: matcap is not null,
-                    GenshinMetallic: metallic is not null,
-                    GenshinMetallicSpecular: metallic?.Specular is not null,
-                    EndfieldPalette: matcap?.Palette is not null,
-                    EndfieldBaseImage: matcap?.Palette?.BaseImage is not null,
-                    StarMcBody: surfaceStyles.EffectiveStarMcBody(i) is not null);
-                if (seen.Add(variant)) variants.Add(variant);
+                if (surfaceStyles.IsDefaultStyle(i)) continue;
+                var module = surfaceStyles.ResolveShaderModule(i);
+                if (module is null) continue;
+                var hooks = surfaceStyles.EffectiveHookMask(i);
+                var geom = D3D12StyleShaderAssembler.ResolveEffectiveGeometry(module, subTexture);
+                var pluginReg = surfaceStyles.ResolvePlugin(i);
+                bool matToon = (frame.Materials[i].CharacterToonResponse
+                    ?? surfaceStyles.CharacterMaterials[i].ToonResponse
+                    ?? pluginReg?.DefaultToonResponse) is not null
+                    || hooks.HasFlag(D3D12StyleShaderHookMask.AllowStylizedShadingWrapper)
+                    || hooks.HasFlag(D3D12StyleShaderHookMask.LightResponse);
+                bool preserveDirect = surfaceStyles.EffectivePreserveDirectLightPalette(i, frame.Materials[i].PreserveDirectLightPalette);
+                var dedupKey = (surfaceStyles.StyleIds[i], module.ModuleId, module.EffectiveContentHash, hooks, geom, matToon, preserveDirect);
+                if (seen.Add(dedupKey))
+                {
+                    variants.Add(new D3D12ShaderStyleWarmupVariant(
+                        surfaceStyles.StyleIds[i],
+                        module,
+                        hooks,
+                        geom,
+                        matToon,
+                        preserveDirect));
+                }
             }
         }
 
@@ -348,35 +343,27 @@ public static class D3D12ShaderPrewarmer
 
         foreach (var v in spec.StylizedVariants)
         {
-            if (v.Family is not (D3D12SurfaceStyle.GenshinPmx or D3D12SurfaceStyle.StarRailPmx
-                or D3D12SurfaceStyle.WutheringPmx or D3D12SurfaceStyle.EndfieldPmx))
+            if (v.Module is null || string.IsNullOrWhiteSpace(v.StyleId)
+                || string.Equals(v.StyleId, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal))
                 continue;
 
             bool n = spec.NativeLights, g = spec.Gi, tm = spec.TextureMorph, st = spec.SubTexture;
-            if (v.EndfieldHair)
-                Add($"sty:efHairVs:{n}:{g}:{tm}:{st}", () => OriginalFrameShaders.CompileEndfieldHairSurface("VSSurface", true, n, g, tm, st));
+            var module = v.Module;
+            var hooks = v.EffectiveHooksOverride ?? module.EffectiveHooks;
+            var geom = v.EffectiveGeometryOverride ?? D3D12StyleShaderAssembler.ResolveEffectiveGeometry(module, st);
+            var maskedVsGeom = geom & (D3D12StyleGeometryRequirements.SubTextureUv
+                | D3D12StyleGeometryRequirements.RawRadialSeeds
+                | D3D12StyleGeometryRequirements.ModelSpacePosition
+                | D3D12StyleGeometryRequirements.ModelSpaceNormal);
+
+            string vsKey = $"styVs:{maskedVsGeom}:{n}:{g}:{st}";
+            Add(vsKey, () => D3D12StyleShaderAssembler.CompileVertex(module, geom, n, g, st));
 
             var captured = v;
-            string styleKey = $"sty:{captured.Family}:{surfacePixel}:{n}:{g}:{tm}:{st}:"
-                + $"{captured.FaceSdf}:{captured.GenshinHair}:{captured.StarMcHair}:{captured.EndfieldHair}:{captured.EndfieldRim}:"
-                + $"{captured.GenshinAtlas}:{captured.EndfieldMatcap}:{captured.GenshinMetallic}:{captured.GenshinMetallicSpecular}:"
-                + $"{captured.EndfieldPalette}:{captured.EndfieldBaseImage}:{captured.StarMcBody}";
-            Add(styleKey, () =>
-            {
-                _ = captured.StarMcBody ? OriginalFrameShaders.CompileStarMcBodySurface(captured.Family, surfacePixel, n, g, tm, st)
-                    : captured.EndfieldBaseImage ? OriginalFrameShaders.CompileEndfieldBaseImageSurface(surfacePixel, n, g, tm, st, captured.EndfieldHair, captured.EndfieldRim)
-                    : captured.EndfieldPalette ? OriginalFrameShaders.CompileEndfieldPaletteSurface(surfacePixel, n, g, tm, st, captured.EndfieldHair, captured.EndfieldRim)
-                    : captured.GenshinMetallicSpecular ? OriginalFrameShaders.CompileGenshinMetallicSpecularSurface(surfacePixel, n, g, tm, st, captured.GenshinHair, captured.GenshinAtlas)
-                    : captured.GenshinMetallic ? OriginalFrameShaders.CompileGenshinMetallicSurface(surfacePixel, n, g, tm, st, captured.GenshinHair, captured.GenshinAtlas)
-                    : captured.EndfieldMatcap ? OriginalFrameShaders.CompileEndfieldMatcapSurface(surfacePixel, n, g, tm, st, captured.EndfieldHair, captured.EndfieldRim)
-                    : captured.GenshinAtlas ? OriginalFrameShaders.CompileGenshinHairAtlasSurface(surfacePixel, n, g, tm, st, captured.GenshinHair)
-                    : captured.EndfieldRim ? OriginalFrameShaders.CompileEndfieldRimSurface(surfacePixel, n, g, tm, st, captured.EndfieldHair)
-                    : captured.EndfieldHair ? OriginalFrameShaders.CompileEndfieldHairSurface(surfacePixel, false, n, g, tm, st)
-                    : captured.StarMcHair ? OriginalFrameShaders.CompileStarMcHairSurface(captured.Family, surfacePixel, n, g, tm, st)
-                    : captured.GenshinHair ? OriginalFrameShaders.CompileGenshinHairSurface(surfacePixel, n, g, tm, st)
-                    : captured.FaceSdf ? OriginalFrameShaders.CompileFaceSdfSurface(captured.Family, surfacePixel, n, g, tm, st)
-                    : OriginalFrameShaders.CompileStylizedFamilySurface(captured.Family, surfacePixel, n, g, tm, st);
-            });
+            string styleKey = $"styPs:{captured.StyleId}:{module.ModuleId}:{module.EffectiveContentHash}:{hooks}:{geom}:{surfacePixel}:{n}:{g}:{tm}:{st}:{captured.CharacterToon}:{captured.PreserveDirectLightPalette}";
+            Add(styleKey, () => D3D12StyleShaderAssembler.CompilePixel(
+                captured.StyleId, surfacePixel, module, hooks, geom,
+                n, g, tm, st, captured.CharacterToon, captured.PreserveDirectLightPalette));
         }
 
         return actions;

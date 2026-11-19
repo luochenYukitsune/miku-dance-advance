@@ -32,16 +32,17 @@ public sealed class D3D12StylizedShadingTests
     [Fact]
     public void CatalogGivesEachFamilyDistinctParametersAndMmdNone()
     {
-        Assert.Null(D3D12StylizedShadingCatalog.Resolve(D3D12SurfaceStyle.Mmd, D3D12CharacterMaterialRole.Body));
-        var families = new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx };
-        var bodies = families.Select(family => D3D12StylizedShadingCatalog.Resolve(family, D3D12CharacterMaterialRole.Body)!).ToArray();
+        Assert.Null(TestStylePlugins.AllPresetCatalog.Find("mmd").DefaultStylizedShading);
+        string[] families = ["genshin", "star-rail", "wuthering-waves", "endfield"];
+        var bodies = families.Select(family => D3D12StylizedShadingCatalog.ResolveForRole(
+            TestStylePlugins.AllPresetCatalog.Find(family).DefaultStylizedShading, D3D12CharacterMaterialRole.Body)!).ToArray();
         foreach (var body in bodies) body.Validate();
         Assert.Equal(bodies.Length, bodies.Distinct().Count());
-        foreach (var family in families)
+        foreach (string family in families)
         {
-            var face = D3D12StylizedShadingCatalog.Resolve(family, D3D12CharacterMaterialRole.Face)!;
-            var eye = D3D12StylizedShadingCatalog.Resolve(family, D3D12CharacterMaterialRole.Eye)!;
+            var baseShading = TestStylePlugins.AllPresetCatalog.Find(family).DefaultStylizedShading;
+            var face = D3D12StylizedShadingCatalog.ResolveForRole(baseShading, D3D12CharacterMaterialRole.Face)!;
+            var eye = D3D12StylizedShadingCatalog.ResolveForRole(baseShading, D3D12CharacterMaterialRole.Eye)!;
             Assert.True(face.FaceFlatten > .5f);
             Assert.Equal(0, face.RimStrength);
             Assert.Equal(0, eye.ShadowStrength);
@@ -53,15 +54,17 @@ public sealed class D3D12StylizedShadingTests
     {
         var frame = Frame("顏");
         var binding = Binding("genshin");
-        var guessed = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [binding]);
+        var presets = TestStylePlugins.AllPresetCatalog;
+        var views = TestStylePlugins.AllViewCatalog;
+        var guessed = D3D12ViewRenderingStyles.Resolve(frame, presets, [binding], styleCatalog: views);
         Assert.Equal(D3D12CharacterMaterialRole.Face, guessed.SurfaceStyles.StylizedRoles![0]);
         Assert.True(guessed.SurfaceStyles.EffectiveStylizedShading(0)!.FaceFlatten > 0);
-        var explicitBody = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [binding],
-            [new D3D12ViewCharacterMaterialBinding(binding.ObjectId, 0, new(D3D12CharacterMaterialRole.Body))]);
+        var explicitBody = D3D12ViewRenderingStyles.Resolve(frame, presets, [binding],
+            [new D3D12ViewCharacterMaterial(binding.ObjectId, 0, D3D12CharacterMaterialRole.Body)], styleCatalog: views);
         Assert.Equal(D3D12CharacterMaterialRole.Body, explicitBody.SurfaceStyles.StylizedRoles![0]);
-        var disabled = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [binding], guessMaterialRoles: false);
+        var disabled = D3D12ViewRenderingStyles.Resolve(frame, presets, [binding], guessMaterialRoles: false, styleCatalog: views);
         Assert.Equal(D3D12CharacterMaterialRole.Body, disabled.SurfaceStyles.StylizedRoles![0]);
-        var mmd = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [Binding("mmd")]);
+        var mmd = D3D12ViewRenderingStyles.Resolve(frame, presets, [Binding("mmd")], styleCatalog: views);
         Assert.Null(mmd.SurfaceStyles.EffectiveStylizedShading(0));
     }
 
@@ -73,11 +76,13 @@ public sealed class D3D12StylizedShadingTests
         using var session = new D3D12FrameSession();
         Assert.False(session.IsWarp);
         var raw = session.Capture(frame, width, height).Rgba;
-        var mmd = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [Binding("mmd")]);
+        var presets = TestStylePlugins.AllPresetCatalog;
+        var views = TestStylePlugins.AllViewCatalog;
+        var mmd = D3D12ViewRenderingStyles.Resolve(frame, presets, [Binding("mmd")], styleCatalog: views);
         Assert.Equal(raw, session.Capture(mmd.Scene, width, height, surfaceStyles: mmd.SurfaceStyles).Rgba);
         var captures = Presets.Skip(1).Select(preset =>
         {
-            var styled = D3D12ViewRenderingStyles.Resolve(frame, D3D12StylePresetCatalog.BuiltIn, [Binding(preset)]);
+            var styled = D3D12ViewRenderingStyles.Resolve(frame, presets, [Binding(preset)], styleCatalog: views);
             return session.Capture(styled.Scene, width, height, surfaceStyles: styled.SurfaceStyles).Rgba;
         }).ToArray();
         // 任意两个画风之间，以及每个画风与 MMD 之间，平均每像素颜色差都要明显（不是只差一两个字节）。

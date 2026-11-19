@@ -101,18 +101,18 @@ public sealed class PreviewAdaptiveSamplingTests
         var planner = new D3D12PreviewAdaptiveSampling();
         var quality = new ViewQualityOptions(SpatialSamples: 16);
         var first = Triangle(new("first", 1, 1, new byte[] { 255, 255, 255, 255 }));
-        var map = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd]);
+        var map = new D3D12SurfaceStyleMap(["mmd"]);
         planner.Prepare(1400, 621, quality, Scene(16, snapshot: first), map);
         planner.Reduce("budget");
         planner.Prepare(1400, 621, quality, Scene(16, snapshot: first.WithCamera(SceneCamera.Default)),
-            new D3D12SurfaceStyleMap([D3D12SurfaceStyle.Mmd]));
+            new D3D12SurfaceStyleMap(["mmd"]));
         Assert.Equal(8, planner.SpatialSamples);
         var second = Scene(16, snapshot: Triangle(new("second", 1, 1, new byte[] { 255, 255, 255, 255 })));
         planner.Prepare(1400, 621, quality, second, map);
         Assert.Equal(16, planner.SpatialSamples);
         planner.Reduce("budget");
         planner.Prepare(1400, 621, quality, second,
-            new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx]));
+            new D3D12SurfaceStyleMap(["genshin"], null, TestStylePlugins.AllPresetCatalog));
         Assert.Equal(16, planner.SpatialSamples);
     }
 

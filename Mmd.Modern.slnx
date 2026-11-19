@@ -23,6 +23,11 @@
   <Folder Name="/Plugins/">
     <Project Path="src/Mmd.Modern.Plugins.Contracts/Mmd.Modern.Plugins.Contracts.csproj" />
     <Project Path="src/Mmd.Modern.Plugins/Mmd.Modern.Plugins.csproj" />
+    <Project Path="src/Mda.StylePlugin.Genshin/Mda.StylePlugin.Genshin.csproj" />
+    <Project Path="src/Mda.StylePlugin.StarRail/Mda.StylePlugin.StarRail.csproj" />
+    <Project Path="src/Mda.StylePlugin.WutheringWaves/Mda.StylePlugin.WutheringWaves.csproj" />
+    <Project Path="src/Mda.StylePlugin.Endfield/Mda.StylePlugin.Endfield.csproj" />
+    <Project Path="examples/Mda.CustomStylePlugin/Mda.CustomStylePlugin.csproj" />
     <Project Path="examples/Mda.HelloPlugin/Mda.HelloPlugin.csproj" />
   </Folder>
   <Folder Name="/ViewOutput/">

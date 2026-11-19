@@ -1,8 +1,10 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.ViewOutput.D3D12;
@@ -44,49 +46,18 @@ public sealed class D3D12GeneratedStyleMaterialResult
         outputs[map] = old with { Guard = layout.CaptureTexture(old.Guard.SourceSceneTextureOrdinal), UserEdited = true };
         entries[material] = entry with { Outputs = outputs };
         var rows = Profile.Materials.Select(row => RefreshGuards(row, layout));
-        var profile = new D3D12MaterialBindingProfile(Profile.StableId, Profile.Name, layout.Fingerprint, rows, layout.Version, Profile.OutlineWidths);
+        var profile = new D3D12MaterialBindingProfile(Profile.StableId, Profile.Name, layout.Fingerprint, rows, layout.Version,
+            Profile.OutlineWidths, Profile.PipelineId, Profile.GuessMaterialRoles);
         return new(frame, profile, manifest with { Materials = entries });
     }
 
     internal static D3D12MaterialBindingProfileRow RefreshGuards(D3D12MaterialBindingProfileRow row, D3D12MaterialBindingLayout layout)
-    {
-        D3D12MaterialBindingProfileTexture Guard(D3D12MaterialBindingProfileTexture map) => layout.CaptureTexture(map.SourceSceneTextureOrdinal);
-        return row with
+        => row with
         {
-            Face = row.Face is { } face ? face with
-            {
-                Primary = Guard(face.Primary),
-                Secondary = face.Secondary is { } secondary ? Guard(secondary) : null
-            } : null,
-            GenshinHair = row.GenshinHair is { } hair ? hair with { Texture = Guard(hair.Texture) } : null,
-            StarMcHair = row.StarMcHair is { } starMcHair ? starMcHair with
-            { Highlight = Guard(starMcHair.Highlight), Shadow = Guard(starMcHair.Shadow) } : null,
-            StarMcBody = row.StarMcBody is { } b ? b with { Normal = Guard(b.Normal), Detail = Guard(b.Detail), Mask = Guard(b.Mask), Matcap = Guard(b.Matcap) } : null,
-            EndfieldHair = row.EndfieldHair is { } endfieldHair ? endfieldHair with { Texture = Guard(endfieldHair.Texture) } : null,
-            EndfieldMatcap = row.EndfieldMatcap is { } e ? e with
-            {
-                Normal = Guard(e.Normal), P = Guard(e.P), Matcap = Guard(e.Matcap),
-                Palette = e.Palette is { } palette ? palette with
-                {
-                    EmissionTexture = palette.EmissionTexture is { } emission ? Guard(emission) : null,
-                    ReceivedLightTexture = palette.ReceivedLightTexture is { } received ? Guard(received) : null,
-                    BaseImage = palette.BaseImage is { } image ? image with
-                    {
-                        BaseTexture = image.BaseTexture is { } baseImage ? Guard(baseImage) : null,
-                        DetailTexture = image.DetailTexture is { } d ? Guard(d) : null,
-                        ShadowTexture = image.ShadowTexture is { } s ? Guard(s) : null
-                    } : null
-                } : null
-            } : null,
-            GenshinHairAtlas = row.GenshinHairAtlas is { } a ? a with { Lightmap = Guard(a.Lightmap), Atlas = Guard(a.Atlas) } : null,
-            GenshinMetallic = row.GenshinMetallic is { } g ? g with
-            {
-                Lightmap = Guard(g.Lightmap), Matcap = Guard(g.Matcap),
-                Specular = g.Specular is { } specular ? specular with
-                { Ramp = specular.Ramp is { } ramp ? Guard(ramp) : null } : null
-            } : null
+            TextureGuards = row.TextureGuards
+                .Select(guard => layout.CaptureTexture(guard.SourceSceneTextureOrdinal))
+                .ToArray()
         };
-    }
 }
 
 /// <summary>Four-family data adapters over existing shaders. All generated maps are original MDA
@@ -179,7 +150,7 @@ public static class D3D12GeneratedStyleMaterialPreparation
         var frame = D3D12GeneratedEndfieldMaterialPreparation.ReplaceTextures(sourceRest, textures);
         var layout = D3D12MaterialBindingLayout.Capture(frame);
         var rows = entries.Select(entry => CreateRow(frame, pipelineId, entry));
-        var profile = new D3D12MaterialBindingProfile(stableId, name, layout.Fingerprint, rows, layout.Version);
+        var profile = new D3D12MaterialBindingProfile(stableId, name, layout.Fingerprint, rows, layout.Version, pipelineId: pipelineId);
         return new(frame, profile, new(2, GeneratorRevision, true, pipelineId, stableId, source.Textures.Count, entries.ToArray()));
     }
 
@@ -191,27 +162,179 @@ public static class D3D12GeneratedStyleMaterialPreparation
         bool hair = entry.Options.Kind == D3D12GeneratedPmxSurfaceKind.Hair;
         var role = hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body;
         D3D12MaterialBindingProfileTexture Map(string name) => entry.Outputs.Single(output => output.Name == name).Guard;
+
         if (pipeline is "star-rail" or "wuthering-waves")
-            return new(entry.LocalMaterialIndex, role, StarMcBody: new(pipeline, Map("normal"), Map("detail"), Map("mask"), Map("matcap"),
-                D3D12MatcapColorEncoding.LinearRgb, MetallicSaturation: pipeline == "star-rail" ? .9f : .8f,
-                HighlightStrength: hair ? .22f : .16f, ShadowColorStrength: .2f, WarmBandStrength: pipeline == "star-rail" ? .13f : .04f,
-                ShadowColor: Vector3.Clamp(frame.Surface.Materials[entry.LocalMaterialIndex].ToonShadowColor, new(.4f), Vector3.One),
-                RimStrength: hair ? .04f : .025f, RimColor: new(.8f, .84f, .9f)));
+        {
+            var normal = Map("normal");
+            var detail = Map("detail");
+            var mask = Map("mask");
+            var matcap = Map("matcap");
+            var shadowColor = Vector3.Clamp(frame.Surface.Materials[entry.LocalMaterialIndex].ToonShadowColor, new(.4f), Vector3.One);
+
+            var binding = new StyleMaterialBindingData(
+                pipeline,
+                "body",
+                Slots(("normal", normal), ("detail", detail), ("mask", mask), ("matcap", matcap)),
+                Numbers(
+                    ("uvChannel", 0),
+                    ("normalStrength", 1),
+                    ("detailStrength", 1),
+                    ("metallicSaturation", pipeline == "star-rail" ? 0.9 : 0.8),
+                    ("highlightCoefficient", 0),
+                    ("highlightStrength", hair ? 0.22 : 0.16),
+                    ("rotationRadians", 0),
+                    ("shadowCoefficient", 0.5),
+                    ("shadowSoftness", 0.1),
+                    ("shadowColorStrength", 0.2),
+                    ("warmBandStrength", pipeline == "star-rail" ? 0.13 : 0.04),
+                    ("rimStrength", hair ? 0.04 : 0.025),
+                    ("rimSize", 0.75),
+                    ("rimDirectionRadians", 0)),
+                VectorValues: Vectors(("shadowColor", shadowColor), ("rimColor", new Vector3(0.8f, 0.84f, 0.9f))),
+                StringValues: Strings(("matcapEncoding", "LinearRgb"), ("generatorRevision", "mikk-v1")));
+
+            return new D3D12MaterialBindingProfileRow(
+                entry.LocalMaterialIndex,
+                role,
+                pluginBindings: [binding],
+                textureGuards: [normal, detail, mask, matcap]);
+        }
+
         if (pipeline == "genshin")
         {
+            var lightmap = Map("lightmap");
             if (entry.Options.Kind is D3D12GeneratedPmxSurfaceKind.Hair or D3D12GeneratedPmxSurfaceKind.Cloth)
-                return new(entry.LocalMaterialIndex, role, GenshinHairAtlas: new(Map("lightmap"), Map("atlas"),
-                D3D12GenshinAtlasColorEncoding.LinearRgb, 1, 0, .7f, .18f, 1, 1, 0, 0));
+            {
+                var atlas = Map("atlas");
+                var binding = new StyleMaterialBindingData(
+                    "genshin",
+                    "hair-atlas",
+                    Slots(("lightmap", lightmap), ("atlas", atlas)),
+                    Numbers(
+                        ("explicitRowId", 1),
+                        ("dayNight", 0),
+                        ("shadowPosition", 0.7),
+                        ("shadowRampWidth", 0.18),
+                        ("vertexWidth", 1),
+                        ("vertexAo", 1),
+                        ("useLightmapAo", 0),
+                        ("useVertexColorAo", 0)),
+                    StringValues: Strings(("atlasEncoding", "LinearRgb")));
+
+                return new D3D12MaterialBindingProfileRow(
+                    entry.LocalMaterialIndex,
+                    role,
+                    pluginBindings: [binding],
+                    textureGuards: [lightmap, atlas]);
+            }
+
+            var genshinMatcap = Map("matcap");
             bool metal = entry.Options.Kind is D3D12GeneratedPmxSurfaceKind.Metal or D3D12GeneratedPmxSurfaceKind.Coated;
-            return new(entry.LocalMaterialIndex, role, GenshinMetallic: new(Map("lightmap"), Map("matcap"),
-                D3D12MatcapColorEncoding.LinearRgb, new(.7f), Vector3.One, new(.85f), EnableMetallics: metal ? .3f : 0));
+            var metalBinding = new StyleMaterialBindingData(
+                "genshin",
+                "metallic",
+                Slots(("lightmap", lightmap), ("matcap", genshinMatcap)),
+                Numbers(
+                    ("enableMetallics", metal ? 0.3 : 0),
+                    ("tileScale", 1),
+                    ("brightness", 1),
+                    ("uniformLitFactor", 1)),
+                VectorValues: Vectors(
+                    ("darkColor", new Vector3(0.7f)),
+                    ("lightColor", Vector3.One),
+                    ("shadowMultiplyColor", new Vector3(0.85f))),
+                StringValues: Strings(("matcapEncoding", "LinearRgb"), ("litMode", "PrimaryResponse")));
+
+            return new D3D12MaterialBindingProfileRow(
+                entry.LocalMaterialIndex,
+                role,
+                pluginBindings: [metalBinding],
+                textureGuards: [lightmap, genshinMatcap]);
         }
-        Vector3 light = Vector3.Normalize(source.LightDirection);
-        return new(entry.LocalMaterialIndex, role, EndfieldMatcap: new(Map("normal"), Map("p"), Map("matcap"),
-            D3D12MatcapColorEncoding.LinearRgb, 0, baseColor, Vector3.Zero, NormalStrength: 1,
-            LightControlDirection: light, BaselineStrength: .22f, CoupleEndfieldPalette: true,
-            Palette: new(Vector3.Zero, LightInfluence: .08f, ReceivedLightInputMode: D3D12EndfieldPaletteInputMode.RendererDiffuse),
-            HighlightRange: new(.22f, .12f, new(light, .3f, 1))));
+
+        {
+            Vector3 light = Vector3.Normalize(source.LightDirection);
+            var normal = Map("normal");
+            var p = Map("p");
+            var matcap = Map("matcap");
+
+            var binding = new StyleMaterialBindingData(
+                "endfield",
+                "matcap",
+                Slots(("normal", normal), ("p", p), ("matcap", matcap)),
+                Numbers(
+                    ("uvChannel", 0),
+                    ("normalStrength", 1),
+                    ("rotationRadians", 0),
+                    ("highlightCoefficient", 0),
+                    ("shadowHardness", 0.5),
+                    ("baselineStrength", 0.22),
+                    ("paletteEmissionStrength", 0),
+                    ("paletteUniformEmissionBlue", 0),
+                    ("paletteLightInfluence", 0.08),
+                    ("paletteDensity", 0),
+                    ("highlightRangeOverallBrightness", 0.22),
+                    ("highlightRangeHighlightBrightness", 0.12),
+                    ("highlightRangeDirectionalShadowWidth", 0.3),
+                    ("highlightRangeDirectionalShadowNormalStrength", 1)),
+                Bools(
+                    ("coupleEndfieldPalette", true),
+                    ("hasPalette", true),
+                    ("hasHighlightRange", true),
+                    ("hasHighlightRangeDirectionalShadow", true)),
+                Vectors(
+                    ("baseColor", baseColor),
+                    ("highlightColor", Vector3.Zero),
+                    ("lightControlDirection", light),
+                    ("paletteReceivedLightLinearRgb", Vector3.Zero),
+                    ("highlightRangeDirectionalShadowWorldDirection", light)),
+                Strings(
+                    ("matcapEncoding", "LinearRgb"),
+                    ("generatorRevision", "mikk-v1"),
+                    ("paletteEmissionInputMode", "Uniform"),
+                    ("paletteReceivedLightInputMode", "RendererDiffuse")));
+
+            return new D3D12MaterialBindingProfileRow(
+                entry.LocalMaterialIndex,
+                role,
+                pluginBindings: [binding],
+                textureGuards: [normal, p, matcap]);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, int> Slots(params (string Key, D3D12MaterialBindingProfileTexture Guard)[] entries)
+    {
+        var dict = new Dictionary<string, int>(entries.Length, StringComparer.Ordinal);
+        foreach (var (k, g) in entries) dict.Add(k, g.SourceSceneTextureOrdinal);
+        return new ReadOnlyDictionary<string, int>(dict);
+    }
+
+    private static IReadOnlyDictionary<string, double> Numbers(params (string Key, double Value)[] entries)
+    {
+        var dict = new Dictionary<string, double>(entries.Length, StringComparer.Ordinal);
+        foreach (var (k, v) in entries) dict.Add(k, v);
+        return new ReadOnlyDictionary<string, double>(dict);
+    }
+
+    private static IReadOnlyDictionary<string, bool> Bools(params (string Key, bool Value)[] entries)
+    {
+        var dict = new Dictionary<string, bool>(entries.Length, StringComparer.Ordinal);
+        foreach (var (k, v) in entries) dict.Add(k, v);
+        return new ReadOnlyDictionary<string, bool>(dict);
+    }
+
+    private static IReadOnlyDictionary<string, float[]> Vectors(params (string Key, Vector3 Value)[] entries)
+    {
+        var dict = new Dictionary<string, float[]>(entries.Length, StringComparer.Ordinal);
+        foreach (var (k, v) in entries) dict.Add(k, [v.X, v.Y, v.Z]);
+        return new ReadOnlyDictionary<string, float[]>(dict);
+    }
+
+    private static IReadOnlyDictionary<string, string> Strings(params (string Key, string Value)[] entries)
+    {
+        var dict = new Dictionary<string, string>(entries.Length, StringComparer.Ordinal);
+        foreach (var (k, v) in entries) dict.Add(k, v);
+        return new ReadOnlyDictionary<string, string>(dict);
     }
 
     /// <summary>Strict byte-consistent restore, including generated suffix boundaries; not an authorship signature.</summary>
@@ -290,10 +413,34 @@ public static class D3D12GeneratedStyleMaterialPreparation
 
     private static bool SameMaps(D3D12MaterialBindingProfileRow a, D3D12MaterialBindingProfileRow b)
     {
-        if (b.StarMcBody is { } s) return a.StarMcBody is { } x && x.PipelineId == s.PipelineId && x.Normal == s.Normal && x.Detail == s.Detail && x.Mask == s.Mask && x.Matcap == s.Matcap;
-        if (b.EndfieldMatcap is { } e) return a.EndfieldMatcap is { } x && x.Normal == e.Normal && x.P == e.P && x.Matcap == e.Matcap;
-        if (b.GenshinHairAtlas is { } h) return a.GenshinHairAtlas is { } x && x.Lightmap == h.Lightmap && x.Atlas == h.Atlas;
-        return b.GenshinMetallic is { } g && a.GenshinMetallic is { } y && y.Lightmap == g.Lightmap && y.Matcap == g.Matcap;
+        var guardsA = a.TextureGuards.ToDictionary(static g => g.SourceSceneTextureOrdinal);
+        var guardsB = b.TextureGuards.ToDictionary(static g => g.SourceSceneTextureOrdinal);
+        foreach (var expected in b.PluginBindings)
+        {
+            var actual = a.PluginBindings.FirstOrDefault(x =>
+                string.Equals(x.StyleId, expected.StyleId, StringComparison.Ordinal)
+                && string.Equals(x.ModeId, expected.ModeId, StringComparison.Ordinal));
+            if (actual is null)
+                return false;
+
+            if (expected.TextureSlots is not null)
+            {
+                if (actual.TextureSlots is null)
+                    return false;
+                foreach (var (slotKey, slotVal) in expected.TextureSlots)
+                {
+                    if (!actual.TextureSlots.TryGetValue(slotKey, out int actualSlot)
+                        || actualSlot != slotVal
+                        || !guardsA.TryGetValue(actualSlot, out var guardA)
+                        || !guardsB.TryGetValue(slotVal, out var guardB)
+                        || guardA != guardB)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
     internal static byte[] Encode(Manifest manifest) => JsonSerializer.SerializeToUtf8Bytes(manifest, Json);
     private static string Digest(ReadOnlySpan<byte> rgba) => Convert.ToHexString(SHA256.HashData(rgba)).ToLowerInvariant();

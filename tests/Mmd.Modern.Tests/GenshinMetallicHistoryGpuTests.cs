@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -9,8 +10,23 @@ namespace Mmd.Modern.Tests;
 public sealed class GenshinMetallicHistoryGpuTests
 {
     private const int Width = 96, Height = 72;
-    private static readonly D3D12GenshinMetallicBinding Binding = new(0, 1,
-        D3D12MatcapColorEncoding.SrgbRgb, new(.2f, .25f, .3f), new(.8f, .7f, .6f), new(.7f));
+    private static StyleMaterialBindingData MakeBinding(
+        float enableMetallics = 1f,
+        float tileScale = 1f,
+        float brightness = 1f,
+        Vector3? darkColor = null,
+        Vector3? lightColor = null,
+        Vector3? shadowMultiplyColor = null,
+        string litMode = "PrimaryResponse",
+        float uniformLitFactor = 1f)
+        => TestStylePlugins.GenshinMetallic(
+            0, 1, "SrgbRgb",
+            darkColor ?? new(.2f, .25f, .3f),
+            lightColor ?? new(.8f, .7f, .6f),
+            shadowMultiplyColor ?? new(.7f),
+            enableMetallics, tileScale, brightness, litMode, uniformLitFactor);
+
+    private static readonly StyleMaterialBindingData Binding = MakeBinding();
 
     [Fact, Trait("Category", "Gpu")]
     public void SubmittedParametersResetBothHistoriesAndAbortedFutureInputsNeverBecomeTheCommittedBinding()
@@ -21,25 +37,26 @@ public sealed class GenshinMetallicHistoryGpuTests
         var original = Map(Binding);
         long readbacks = session.Runtime.Readbacks;
         Render(original, 1, "FirstFrame", "FirstFrame");
-        Render(Map(Binding with { }), 2, "None", "None");
-        // PrimaryResponse does not consume the authored Uniform input.
-        Render(Map(Binding with { UniformLitFactor = .1f }), 3, "None", "None");
+        Render(Map(MakeBinding()), 2, "None", "None");
+        // UniformLitFactor is stored in the dedicated CBV slot even in PrimaryResponse mode.
+        Render(Map(MakeBinding(uniformLitFactor: .1f)), 1, "ExplicitReset", "ExplicitRequest");
+        Render(Map(MakeBinding(uniformLitFactor: .1f)), 2, "None", "None");
         foreach (var edited in new[]
         {
-            Binding with { EnableMetallics = .5f },
-            Binding with { TileScale = 2, Brightness = .4f },
-            Binding with { DarkColor = new(.4f), LightColor = new(.9f), ShadowMultiplyColor = new(.5f) },
-            Binding with { LitMode = D3D12GenshinMetallicLitMode.Uniform, UniformLitFactor = .8f },
-            Binding with { LitMode = D3D12GenshinMetallicLitMode.Uniform, UniformLitFactor = 1.2f }
+            MakeBinding(enableMetallics: .5f),
+            MakeBinding(tileScale: 2, brightness: .4f),
+            MakeBinding(darkColor: new(.4f), lightColor: new(.9f), shadowMultiplyColor: new(.5f)),
+            MakeBinding(litMode: "Uniform", uniformLitFactor: .8f),
+            MakeBinding(litMode: "Uniform", uniformLitFactor: 1.2f)
         })
         {
             Render(Map(edited), 1, "ExplicitReset", "ExplicitRequest");
-            Render(Map(edited with { }), 2, "None", "None");
+            Render(Map(edited), 2, "None", "None");
         }
         Render(original, 1, "ExplicitReset", "ExplicitRequest");
         Render(original, 2, "None", "None");
         long submissions = session.Runtime.Submissions;
-        var future = Map(Binding with { Brightness = .15f, DarkColor = new(.05f) });
+        var future = Map(MakeBinding(brightness: .15f, darkColor: new(.05f)));
         var futureFrame = Frame(Lightmap(80), Color(green: 12));
         Assert.Throws<OperationCanceledException>(() => session.RenderForPresent(futureFrame, Width, Height, gi,
             (_, _) => throw new OperationCanceledException("Abort unsubmitted metallic images and palette."),
@@ -51,9 +68,9 @@ public sealed class GenshinMetallicHistoryGpuTests
         // A successful retry must still observe the edit against the last submitted binding.
         AssertHistories(session, futureFrame, future, temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
         AssertHistories(session, futureFrame, future, temporal, gi, 2, "None", "None");
-        var disabled = Binding with { EnableMetallics = 0 };
+        var disabled = MakeBinding(enableMetallics: 0);
         AssertHistories(session, futureFrame, Map(disabled), temporal, gi, 1, "ExplicitReset", "ExplicitRequest");
-        AssertHistories(session, futureFrame, Map(disabled with { Brightness = 4 }), temporal, gi, 2, "None", "None");
+        AssertHistories(session, futureFrame, Map(MakeBinding(enableMetallics: 0, brightness: 4)), temporal, gi, 2, "None", "None");
         AssertHistories(session, futureFrame, Map(null), temporal, gi, 3, "None", "None");
         Assert.Equal(readbacks, session.Runtime.Readbacks);
 
@@ -76,15 +93,15 @@ public sealed class GenshinMetallicHistoryGpuTests
         var initial = Frame(Lightmap(), Color());
         var newOwner = Frame(Lightmap(), Color());
         var alphaOnly = Frame(Lightmap(alpha: 244), Color(alpha: 231));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(newOwner)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureFaceTextures(initial), map.CaptureFaceTextures(alphaOnly)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(newOwner)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(map.CaptureResolvedInputs(initial), map.CaptureResolvedInputs(alphaOnly)));
         Render(initial, 1, "FirstFrame", "FirstFrame");
         Render(initial, 2, "None", "None");
-        // Full SceneTexture owner identity remains a conservative outer history guard;
-        // consumed-key Alpha equivalence does not promise actual AA/GI history retention.
+        // Full SceneTexture owner identity remains a conservative outer history guard,
+        // while plugin-resolved texture bytes conservatively reset on unused channel edits.
         Render(newOwner, 1, "TexturesChanged", "SceneStructureChanged");
         Render(newOwner, 2, "None", "None");
-        Render(alphaOnly, 1, "TexturesChanged", "SceneStructureChanged");
+        Render(alphaOnly, 1, "ExplicitReset", "ExplicitRequest");
         Render(alphaOnly, 2, "None", "None");
         foreach (var changed in new[]
         {
@@ -130,8 +147,8 @@ public sealed class GenshinMetallicHistoryGpuTests
         return new() { Mode = D3D12TemporalUpscalingMode.Fsr, QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12GenshinMetallicBinding? binding)
-        => new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd], [new(GenshinMetallic: binding), new()]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding)
+        => T8bTestHelpers.CreateGenshinTwoMap("mmd", D3D12CharacterMaterialRole.Body, binding is null ? null : [binding]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 31, MaxRayDistance: 30, RayEpsilon: .001f,

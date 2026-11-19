@@ -13,16 +13,16 @@ namespace Mmd.Modern.Tests;
 public sealed class D3D12NativeLightCapacityTests
 {
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void ThirtyTwoDirectLightsRetainTheSameEnergyAsOneAcrossAllSurfaceFamilies(D3D12SurfaceStyle family)
+    [InlineData("mmd")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void ThirtyTwoDirectLightsRetainTheSameEnergyAsOneAcrossAllSurfaceFamilies(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = D3D12NativeLightTests.Fixture();
-        var map = new D3D12SurfaceStyleMap([family, D3D12SurfaceStyle.Mmd]);
+        var map = new D3D12SurfaceStyleMap([family, "mmd"], null, TestStylePlugins.AllPresetCatalog);
         var light = D3D12NativeLightTests.Light(SceneLightKind.Directional) with { CastShadows = false, Intensity = .25f };
         var single = session.Capture(D3D12NativeLightTests.WithLight(frame, [light]), 129, 97, surfaceStyles: map);
         var lights = Enumerable.Range(0, 128).Select(index => light with { Id = Guid.NewGuid(), Intensity = light.Intensity / 32, Enabled = index < 32 }).ToArray();

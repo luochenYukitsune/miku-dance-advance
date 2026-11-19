@@ -1,4 +1,6 @@
 using System.Numerics;
+using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -96,36 +98,66 @@ public sealed class EndfieldPaletteOracleTests
     [Fact]
     public void ValidationRejectsNonfiniteOutOfDomainAndAmbiguousInputOwnership()
     {
-        var valid = new D3D12EndfieldPaletteBinding(new(-16, 0, 16), -32, -16, 32, -32);
-        valid.Validate();
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { Density = float.NaN }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { EmissionStrength = 33 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { UniformEmissionBlue = -17 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { ReceivedLightLinearRgb = new(float.PositiveInfinity) }).Validate());
-        Assert.Throws<ArgumentException>(() => (valid with { EmissionCombinedTextureIndex = 0 }).Validate());
-        Assert.Throws<ArgumentException>(() => (valid with { ReceivedLightCombinedTextureIndex = 0 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Texture }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Texture, ReceivedLightCombinedTextureIndex = -1 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (valid with { ReceivedLightInputMode = (D3D12EndfieldPaletteInputMode)5 }).Validate());
+        var matcap = T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette: true);
+        var valid = new EndfieldPaletteSpec(new(-16, 0, 16), -32, -16, 32, -32);
+        Assert.True(T8dTestHelpers.ValidateEndfield([matcap, valid.ToBinding()]).IsValid);
+        foreach (var bad in new[]
+        {
+            valid with { Density = float.NaN },
+            valid with { EmissionStrength = 33 },
+            valid with { UniformEmissionBlue = -17 },
+            valid with { ReceivedLightLinearRgb = new(float.PositiveInfinity) },
+            valid with { EmissionSlot = 0 },
+            valid with { ReceivedLightSlot = 0 },
+            valid with { EmissionInputMode = T8dTestHelpers.ModeTexture },
+            valid with { ReceivedLightInputMode = T8dTestHelpers.ModeTexture, ReceivedLightSlot = -1 },
+            valid with { ReceivedLightInputMode = "InvalidMode" },
+        })
+            Assert.False(T8dTestHelpers.ValidateEndfield([matcap, bad.ToBinding()]).IsValid);
     }
 
     [Fact]
     public void ConsumedEqualityIgnoresInactiveInputsAndUnusedUniformsButTracksEffectiveFactors()
     {
-        var off = new D3D12EndfieldPaletteBinding(Vector3.Zero);
-        var texture = off with { EmissionInputMode = D3D12EndfieldPaletteInputMode.Texture, EmissionCombinedTextureIndex = 2,
-            ReceivedLightInputMode = D3D12EndfieldPaletteInputMode.Texture, ReceivedLightCombinedTextureIndex = 3,
-            UniformEmissionBlue = 4, ReceivedLightLinearRgb = new(4), LightInfluence = -3 };
-        texture.Validate();
-        Assert.True(D3D12EndfieldPaletteBinding.ConsumedEquivalent(off, texture));
-        Assert.False(texture.ConsumesEmissionTexture); Assert.False(texture.ConsumesReceivedLightTexture);
+        var matcap = T8dTestHelpers.EndfieldMatcap(coupleEndfieldPalette: true);
+        var off = new EndfieldPaletteSpec(Vector3.Zero);
+        var texture = off with
+        {
+            EmissionInputMode = T8dTestHelpers.ModeTexture,
+            EmissionSlot = 2,
+            ReceivedLightInputMode = T8dTestHelpers.ModeTexture,
+            ReceivedLightSlot = 3,
+            UniformEmissionBlue = 4,
+            ReceivedLightLinearRgb = new(4),
+            LightInfluence = -3,
+        };
+        Assert.True(T8dTestHelpers.ValidateEndfield([matcap, texture.ToBinding()]).IsValid);
+        var inactiveDraw = T8dTestHelpers.BuildEndfieldDrawData([matcap, texture.ToBinding()])!;
+        Assert.DoesNotContain(inactiveDraw.TextureBindings!, static t => t.SlotIndex is 4 or 5);
+
         var active = texture with { EmissionStrength = .5f, LightInfluence = 2 };
-        Assert.True(active.ConsumesEmissionTexture); Assert.True(active.ConsumesReceivedLightTexture);
-        Assert.True(D3D12EndfieldPaletteBinding.ConsumedEquivalent(active, active with { UniformEmissionBlue = 8, ReceivedLightLinearRgb = new(7), LightInfluence = 1 }));
-        Assert.False(D3D12EndfieldPaletteBinding.ConsumedEquivalent(active, active with { EmissionCombinedTextureIndex = 4 }));
-        Assert.True(D3D12EndfieldPaletteBinding.ConsumedEquivalent(active, active with { EmissionCombinedTextureIndex = 4, ReceivedLightCombinedTextureIndex = 8 }, false));
-        Assert.False(D3D12EndfieldPaletteBinding.ConsumedEquivalent(off, off with { Density = .1f }));
-        Assert.False(D3D12EndfieldPaletteBinding.ConsumedEquivalent(off, null));
+        var activeDraw = T8dTestHelpers.BuildEndfieldDrawData([matcap, active.ToBinding()])!;
+        Assert.Contains(activeDraw.TextureBindings!, static t => t.SlotIndex == 4 && t.SceneTextureIndex == 2);
+        Assert.Contains(activeDraw.TextureBindings!, static t => t.SlotIndex == 5 && t.SceneTextureIndex == 3);
+
+        var tex = new SceneTexture("tex", 1, 1, [64, 96, 128, 255]);
+        SceneVertex[] verts = [new(new(-1,-1,0), Vector3.UnitZ, Vector2.Zero), new(new(1,-1,0), Vector3.UnitZ, Vector2.UnitX), new(new(0,1,0), Vector3.UnitZ, Vector2.UnitY)];
+        OriginalFrameScene FrameWith(int count) => new(new(new(verts, [0, 1, 2], [new("m", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1)], Enumerable.Repeat(tex, count).ToArray()),
+            [new(Vector3.Zero)], new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)), options: new(OriginalAlphaBlendMode.Normal, false, false));
+
+        var frame = FrameWith(9);
+        var mapInactiveA = T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, texture.ToBinding()]]);
+        var mapInactiveB = T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, (texture with { EmissionSlot = 4, ReceivedLightSlot = 8 }).ToBinding()]]);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(mapInactiveA, mapInactiveB));
+
+        var mapActive = T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, active.ToBinding()]]);
+        var mapRebased = T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, (active with { EmissionSlot = 4, ReceivedLightSlot = 8 }).ToBinding()]]);
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(mapActive, mapRebased));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(mapActive.CaptureResolvedInputs(frame), mapRebased.CaptureResolvedInputs(frame)));
+
+        var mapOff = T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, off.ToBinding()]]);
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(mapOff, T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap, (off with { Density = .1f }).ToBinding()]])));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(mapOff, T8dTestHelpers.CreateDirectSurfaceStyleMap(frame, ["endfield"], bindingsByMaterial: [[matcap]])));
     }
 
     private static EndfieldPaletteOracle.Result Run(Vector3 pre, Vector3 mat, float blue = 0,

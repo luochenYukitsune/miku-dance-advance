@@ -1,5 +1,7 @@
 using System.Numerics;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -73,28 +75,61 @@ public sealed class GenshinMetallicOracleTests
     [Fact]
     public void BindingValidatesEveryConsumedFieldAndIgnoresInactiveUniform()
     {
-        var binding = Binding(); binding.Validate();
-        (binding with { DarkColor = new(-1, 2, 16), TileScale = -3, Brightness = -1, EnableMetallics = 2 }).Validate();
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { LightmapCombinedTextureIndex = -1 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { MatcapCombinedTextureIndex = -1 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { MatcapEncoding = (D3D12MatcapColorEncoding)99 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { LitMode = (D3D12GenshinMetallicLitMode)99 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { DarkColor = new(float.NaN) }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { LightColor = new(17) }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { ShadowMultiplyColor = new(float.PositiveInfinity) }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { Brightness = float.NaN }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { TileScale = 33 }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { EnableMetallics = float.PositiveInfinity }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => (binding with { UniformLitFactor = float.NaN }).Validate());
-        Assert.True(D3D12GenshinMetallicBinding.ConsumedEquivalent(binding, binding with { UniformLitFactor = 2 }));
-        var uniform = binding with { LitMode = D3D12GenshinMetallicLitMode.Uniform };
-        Assert.False(D3D12GenshinMetallicBinding.ConsumedEquivalent(uniform, uniform with { UniformLitFactor = 2 }));
-        Assert.False(D3D12GenshinMetallicBinding.ConsumedEquivalent(binding, binding with { Brightness = 2 }));
-        Assert.False(D3D12GenshinMetallicBinding.ConsumedEquivalent(binding, binding with { MatcapEncoding = D3D12MatcapColorEncoding.SrgbRgb }));
-        Assert.False(D3D12GenshinMetallicBinding.ConsumedEquivalent(binding, binding with { LightmapCombinedTextureIndex = 8 }));
-        Assert.True(D3D12GenshinMetallicBinding.ConsumedEquivalent(binding, binding with { LightmapCombinedTextureIndex = 8 }, false));
+        var binding = Binding();
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null, binding).IsValid);
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null,
+            MakeBinding(darkColor: new(-1, 2, 16), tileScale: -3, brightness: -1, enableMetallics: 2)).IsValid);
+        foreach (var bad in new[] {
+            MakeBinding(lightmapSlot: -1),
+            MakeBinding(matcapSlot: -1),
+            MakeBinding(matcapEncoding: "Unknown"),
+            MakeBinding(litMode: "Unknown"),
+            MakeBinding(darkColor: new(float.NaN)),
+            MakeBinding(lightColor: new(17)),
+            MakeBinding(shadowMultiplyColor: new(float.PositiveInfinity)),
+            MakeBinding(brightness: float.NaN),
+            MakeBinding(tileScale: 33),
+            MakeBinding(enableMetallics: float.PositiveInfinity),
+            MakeBinding(uniformLitFactor: float.NaN),
+        })
+        {
+            Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, null, bad).IsValid);
+            Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([],
+                [TestStylePlugins.Bind(Guid.NewGuid(), 0, bad)], TestStylePlugins.AllViewCatalog));
+        }
+
+        static D3D12SurfaceStyleMap Map(StyleMaterialBindingData b)
+            => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Body, b);
+
+        var uniform = MakeBinding(litMode: "Uniform");
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(uniform), Map(MakeBinding(litMode: "Uniform", uniformLitFactor: 2))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(MakeBinding(brightness: 2))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(MakeBinding(matcapEncoding: "SrgbRgb"))));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(Map(binding), Map(MakeBinding(lightmapSlot: 8))));
+
+        var frame = T8bTestHelpers.CreateMetallicFrame(Enumerable.Repeat(new Mmd.Modern.Core.SceneTexture("t", 1, 1, [240, 70, 40, 230]), 9).ToArray());
+        var capA = Map(binding).CaptureResolvedInputs(frame);
+        var capB = Map(MakeBinding(lightmapSlot: 8)).CaptureResolvedInputs(frame);
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(capA, capB));
     }
 
-    internal static D3D12GenshinMetallicBinding Binding() => new(0, 1, D3D12MatcapColorEncoding.LinearRgb, Vector3.Zero, Vector3.One, Vector3.One);
+    internal static StyleMaterialBindingData MakeBinding(
+        int lightmapSlot = 0,
+        int matcapSlot = 1,
+        string matcapEncoding = "LinearRgb",
+        Vector3? darkColor = null,
+        Vector3? lightColor = null,
+        Vector3? shadowMultiplyColor = null,
+        float enableMetallics = 1f,
+        float tileScale = 1f,
+        float brightness = 1f,
+        string litMode = "PrimaryResponse",
+        float uniformLitFactor = 1f)
+        => TestStylePlugins.GenshinMetallic(
+            lightmapSlot, matcapSlot, matcapEncoding,
+            darkColor ?? Vector3.Zero, lightColor ?? Vector3.One, shadowMultiplyColor ?? Vector3.One,
+            enableMetallics, tileScale, brightness, litMode, uniformLitFactor);
+
+    internal static StyleMaterialBindingData Binding() => MakeBinding();
     private static void Near(Vector3 expected, Vector3 actual) => Assert.InRange(Vector3.Distance(expected, actual), 0, .000002f);
 }

@@ -5,124 +5,103 @@ using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.ViewOutput.D3D12;
 
-/// <summary>Explicit renderer input for one material of one scene instance. MaterialIndex is local to the
-/// instance's PMX material table, not the composed frame. It is not inferred from names or written to PMA.</summary>
-public sealed record D3D12ViewCharacterMaterialBinding(Guid ObjectId, int MaterialIndex,
-    D3D12CharacterMaterialStyle Style);
+/// <summary>
+/// Explicit per-material character rendering overrides for one scene instance.
+/// <see cref="LocalMaterialIndex"/> is local to the instance's source material table, not the composed frame.
+/// </summary>
+public sealed record D3D12ViewCharacterMaterial(
+    Guid ObjectId,
+    int LocalMaterialIndex,
+    D3D12CharacterMaterialRole Role = D3D12CharacterMaterialRole.Body,
+    bool ExplicitRole = true,
+    float FaceNormalShadeStrength = 0.35f,
+    float FaceGeometricShadowStrength = 1f,
+    float EyeGeometricShadowStrength = 0.2f,
+    CharacterToonResponse? ToonResponse = null,
+    D3D12PmxMaterialTreatment? PmxTreatment = null,
+    D3D12StylizedShading? StylizedShading = null,
+    bool PreserveDirectLightPalette = false)
+{
+    public void Validate()
+    {
+        if (ObjectId == Guid.Empty || LocalMaterialIndex < 0)
+            throw new ArgumentException("Character material overrides require a nonempty object identity and nonnegative local material index.");
+        if (!Enum.IsDefined(Role))
+            throw new ArgumentOutOfRangeException(nameof(Role), "Unknown character material role.");
+        if (!float.IsFinite(FaceNormalShadeStrength) || FaceNormalShadeStrength is < 0f or > 1f)
+            throw new ArgumentOutOfRangeException(nameof(FaceNormalShadeStrength), "Face normal shade strength must be finite and between zero and one.");
+        if (!float.IsFinite(FaceGeometricShadowStrength) || FaceGeometricShadowStrength is < 0f or > 1f)
+            throw new ArgumentOutOfRangeException(nameof(FaceGeometricShadowStrength), "Face geometric shadow strength must be finite and between zero and one.");
+        if (!float.IsFinite(EyeGeometricShadowStrength) || EyeGeometricShadowStrength is < 0f or > 1f)
+            throw new ArgumentOutOfRangeException(nameof(EyeGeometricShadowStrength), "Eye geometric shadow strength must be finite and between zero and one.");
+        if (ToonResponse is not null)
+            CharacterToonMath.Validate(ToonResponse);
+        PmxTreatment?.Validate();
+        if (ExplicitRole)
+        {
+            if (PmxTreatment is { HairHighlightStrength: > 0f } && Role != D3D12CharacterMaterialRole.Hair)
+                throw new ArgumentException("Generic hair highlights require an explicit Hair material role.", nameof(PmxTreatment));
+            if (PmxTreatment is not null && Role is not (D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair))
+                throw new ArgumentException("Ordinary-PMX material treatment requires explicitly selected Body or Hair.", nameof(PmxTreatment));
+        }
+        StylizedShading?.Validate();
+    }
+}
 
 internal static class D3D12ViewCharacterMaterials
 {
     /// <summary>Snapshots host input before a device is created; already detached adapter input is reused.</summary>
-    public static IReadOnlyList<D3D12ViewCharacterMaterialBinding> Detach(
-        IEnumerable<D3D12ViewCharacterMaterialBinding>? bindings)
+    public static IReadOnlyList<D3D12ViewCharacterMaterial> Detach(
+        IEnumerable<D3D12ViewCharacterMaterial>? materials)
     {
-        if (bindings is DetachedBindings detached) return detached;
-        var values = bindings?.ToArray() ?? [];
+        if (materials is DetachedMaterials detached)
+            return detached;
+
+        var values = materials?.ToArray() ?? [];
         var keys = new HashSet<(Guid, int)>();
-        foreach (var binding in values)
+        foreach (var material in values)
         {
-            if (binding is null || binding.ObjectId == Guid.Empty || binding.MaterialIndex < 0)
-                throw new ArgumentException("Character material bindings require a nonempty object identity and nonnegative local material index.", nameof(bindings));
-            if (!keys.Add((binding.ObjectId, binding.MaterialIndex)))
-                throw new ArgumentException("Character material bindings must be unique for each object identity and local material index.", nameof(bindings));
-            if (binding.Style is null)
-                throw new ArgumentException("Character material bindings require an explicit material style.", nameof(bindings));
-            binding.Style.Validate();
+            if (material is null)
+                throw new ArgumentException("Character material overrides cannot contain null.", nameof(materials));
+            material.Validate();
+            if (!keys.Add((material.ObjectId, material.LocalMaterialIndex)))
+                throw new ArgumentException("Character material overrides must be unique for each object identity and local material index.", nameof(materials));
         }
-        return new DetachedBindings(values);
+        return new DetachedMaterials(values);
     }
 
-    /// <summary>Composed-frame numerical payloads are active renderer requests. Unlike dormant local
-    /// host configuration, these must already match the selected pipeline, even during preflight.</summary>
-    internal static void ValidateGenshinHairConfiguration(D3D12StylePresetCatalog catalog,
-        IReadOnlyList<SceneRenderingStyleBinding> objects, IReadOnlyList<D3D12ViewCharacterMaterialBinding> bindings)
-    {
-        var byObject = objects.ToDictionary(instance => instance.ObjectId);
-        foreach (var binding in bindings)
-        {
-            if (binding.Style.GenshinNonMetallicSpecular is null && binding.Style.GenshinHairShadowAtlas is null) continue;
-            if (!byObject.TryGetValue(binding.ObjectId, out var instance))
-                throw new ArgumentException($"Hair material binding refers to unknown object '{binding.ObjectId:D}'.", nameof(bindings));
-            if (instance.Role != ModelRole.Character)
-                throw new ArgumentException("Dedicated hair inputs require an explicit Character object.", nameof(bindings));
-            var definition = catalog.Find(instance.Preset.StableId).Definition;
-            if (definition is not null && definition.PipelineId != "genshin")
-                throw new ArgumentException("Composed Genshin hair inputs require the explicitly selected Genshin pipeline.", nameof(bindings));
-        }
-    }
-
-    internal static void ValidateStarMcHairConfiguration(D3D12StylePresetCatalog catalog,
-        IReadOnlyList<SceneRenderingStyleBinding> objects, IReadOnlyList<D3D12ViewCharacterMaterialBinding> bindings)
-    {
-        var instances = objects.ToDictionary(instance => instance.ObjectId);
-        foreach (var binding in bindings)
-        {
-            if (binding.Style.StarMcHair is not { } hair) continue;
-            if (!instances.TryGetValue(binding.ObjectId, out var instance) || instance.Role != ModelRole.Character)
-                throw new ArgumentException("Composed Star/MC hair needs an explicit known Character object.", nameof(bindings));
-            var definition = catalog.Find(instance.Preset.StableId).Definition;
-            if (definition is null) continue; // Existing missing-preset workflow reports availability separately.
-            if (definition.PipelineId is not ("star-rail" or "wuthering-waves"))
-                throw new ArgumentException("Composed hair inputs must match the Star or MC pipeline.", nameof(bindings));
-            if (definition.PipelineId == "star-rail" && hair.HighlightChannel != D3D12HairHighlightChannel.Blue)
-                throw new ArgumentException("Star A hair consumes Blue, while Alpha data is MC-only.", nameof(bindings));
-        }
-    }
-
-    internal static void ValidateEndfieldRimConfiguration(D3D12StylePresetCatalog catalog,
-        IReadOnlyList<SceneRenderingStyleBinding> objects, IReadOnlyList<D3D12ViewCharacterMaterialBinding> bindings)
-    {
-        var instances = objects.ToDictionary(instance => instance.ObjectId);
-        foreach (var binding in bindings)
-        {
-            if (binding.Style.EndfieldRim is null) continue;
-            if (!instances.TryGetValue(binding.ObjectId, out var instance) || instance.Role != ModelRole.Character)
-                throw new ArgumentException("Composed Endfield rim needs an explicitly selected Character object.", nameof(bindings));
-            var definition = catalog.Find(instance.Preset.StableId).Definition;
-            if (definition is not null && definition.PipelineId != "endfield")
-                throw new ArgumentException("Composed Endfield rim requires the explicitly selected Endfield pipeline.", nameof(bindings));
-        }
-    }
-
-    public static D3D12CharacterMaterialStyle[] Resolve(int materialCount,
+    public static void ValidateObjects(
         IReadOnlyList<SceneRenderingStyleBinding> objects,
-        IReadOnlyList<D3D12ViewCharacterMaterialBinding> bindings, List<string>? diagnostics = null)
+        IReadOnlyList<D3D12ViewCharacterMaterial> materials,
+        List<string>? diagnostics = null)
     {
-        var result = new D3D12CharacterMaterialStyle[materialCount];
-        Array.Fill(result, new D3D12CharacterMaterialStyle());
-        if (bindings.Count == 0) return result;
-        var byObject = objects.ToDictionary(binding => binding.ObjectId);
-        foreach (var binding in bindings)
+        if (materials.Count == 0)
+            return;
+
+        var byObject = objects.ToDictionary(instance => instance.ObjectId);
+        foreach (var material in materials)
         {
-            if (!byObject.TryGetValue(binding.ObjectId, out var instance))
-                throw new ArgumentException($"Character material binding refers to unknown object '{binding.ObjectId:D}'.", nameof(bindings));
+            if (!byObject.TryGetValue(material.ObjectId, out var instance))
+                throw new ArgumentException($"Character material override refers to unknown object '{material.ObjectId:D}'.", nameof(materials));
             if (instance.Role != ModelRole.Character)
-                throw new ArgumentException($"Object '{binding.ObjectId:D}' is {instance.Role}; character material bindings require an explicit Character role.", nameof(bindings));
+                throw new ArgumentException($"Object '{material.ObjectId:D}' is {instance.Role}; character material overrides require an explicit Character role.", nameof(materials));
             if (!instance.Visible)
             {
-                diagnostics?.Add($"Hidden object '{binding.ObjectId:D}' retains local material {binding.MaterialIndex} ({binding.Style.Role}) without consuming a frame material; its upper bound is checked when the object is visible.");
+                diagnostics?.Add($"Hidden object '{material.ObjectId:D}' retains local material {material.LocalMaterialIndex} ({material.Role}) without consuming a frame material; its upper bound is checked when the object is visible.");
                 continue;
             }
-            if (binding.MaterialIndex >= instance.MaterialCount)
-                throw new ArgumentException($"Local material {binding.MaterialIndex} is outside visible object '{binding.ObjectId:D}' with {instance.MaterialCount} materials.", nameof(bindings));
-            result[instance.MaterialStart + binding.MaterialIndex] = binding.Style;
-            if (binding.Style.Role == D3D12CharacterMaterialRole.Face)
-                diagnostics?.Add($"Object '{binding.ObjectId:D}', local material {binding.MaterialIndex}: explicit Face normal and geometric shadow strengths are consumed by the Genshin, Star Rail, Wuthering Waves and Endfield ordinary PMX surfaces; MMD preserves its existing response. Material-level assignment affects the whole draw and does not split mixed face/clothing geometry.");
-            else if (binding.Style.Role == D3D12CharacterMaterialRole.Eye)
-                diagnostics?.Add($"Object '{binding.ObjectId:D}', local material {binding.MaterialIndex}: explicit Eye geometric shadow strength preserves computed shadow shape with reduced contrast in Genshin, Star Rail, Wuthering Waves and Endfield surfaces; authored normal response, specular and coverage are retained. MMD preserves its existing response. The whole material draw is selected explicitly; FaceSDF is not an Eye input.");
-            else if (binding.Style.Role == D3D12CharacterMaterialRole.Hair)
-                diagnostics?.Add($"Object '{binding.ObjectId:D}', local material {binding.MaterialIndex}: explicit Hair selection consumes dedicated family-specific numerical inputs only when their pipeline is selected and a compatible binding is active; otherwise the ordinary surface response is retained.");
+            if (material.LocalMaterialIndex >= instance.MaterialCount)
+                throw new ArgumentException($"Local material {material.LocalMaterialIndex} is outside visible object '{material.ObjectId:D}' with {instance.MaterialCount} materials.", nameof(materials));
         }
-        return result;
     }
 
-    private sealed class DetachedBindings(D3D12ViewCharacterMaterialBinding[] values)
-        : IReadOnlyList<D3D12ViewCharacterMaterialBinding>
+    private sealed class DetachedMaterials(D3D12ViewCharacterMaterial[] values)
+        : IReadOnlyList<D3D12ViewCharacterMaterial>
     {
         public int Count => values.Length;
-        public D3D12ViewCharacterMaterialBinding this[int index] => values[index];
-        public IEnumerator<D3D12ViewCharacterMaterialBinding> GetEnumerator()
-            => ((IEnumerable<D3D12ViewCharacterMaterialBinding>)values).GetEnumerator();
+        public D3D12ViewCharacterMaterial this[int index] => values[index];
+        public IEnumerator<D3D12ViewCharacterMaterial> GetEnumerator()
+            => ((IEnumerable<D3D12ViewCharacterMaterial>)values).GetEnumerator();
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

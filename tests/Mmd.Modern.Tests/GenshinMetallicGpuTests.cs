@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -12,9 +13,26 @@ public sealed class GenshinMetallicGpuTests
     private static readonly Vector3 C0 = new(.6f, .5f, .4f);
     private static readonly Vector3 Nonmetal = new(.2f, .25f, .3f);
     private static readonly SceneCamera Camera = new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 3, .1f, 30);
-    private static readonly D3D12GenshinMetallicBinding Binding = new(0, 1,
-        D3D12MatcapColorEncoding.LinearRgb, new(.25f, .45f, .35f), new(.85f, .7f, .95f), new(.7f, .5f, .8f),
-        LitMode: D3D12GenshinMetallicLitMode.Uniform, UniformLitFactor: 1.15f);
+    private static StyleMaterialBindingData MakeBinding(
+        int lightmapSlot = 0,
+        int matcapSlot = 1,
+        string matcapEncoding = "LinearRgb",
+        Vector3? darkColor = null,
+        Vector3? lightColor = null,
+        Vector3? shadowMultiplyColor = null,
+        float enableMetallics = 1f,
+        float tileScale = 1f,
+        float brightness = 1f,
+        string litMode = "Uniform",
+        float uniformLitFactor = 1.15f)
+        => TestStylePlugins.GenshinMetallic(
+            lightmapSlot, matcapSlot, matcapEncoding,
+            darkColor ?? new(.25f, .45f, .35f),
+            lightColor ?? new(.85f, .7f, .95f),
+            shadowMultiplyColor ?? new(.7f, .5f, .8f),
+            enableMetallics, tileScale, brightness, litMode, uniformLitFactor);
+
+    private static readonly StyleMaterialBindingData Binding = MakeBinding();
 
     [Fact, Trait("Category", "Gpu")]
     public void StrictRedThresholdAndDisabledBindingRecoverExactFrameWhileFractionalGateUsesBothMixes()
@@ -27,10 +45,10 @@ public sealed class GenshinMetallicGpuTests
             // inside the accepted soft transition and is not the Nonmetal endpoint.
             var frame = Frame(red: red, light: Vector3.UnitZ);
             var off = session.Capture(frame, W, H, surfaceStyles: Map(null));
-            Assert.Equal(off.Rgba, session.Capture(frame, W, H, surfaceStyles: Map(Binding with { EnableMetallics = 0 })).Rgba);
+            Assert.Equal(off.Rgba, session.Capture(frame, W, H, surfaceStyles: Map(MakeBinding(enableMetallics: 0))).Rgba);
             foreach (float enable in new[] { -1f, .35f, 1f, 2f })
             {
-                var binding = Binding with { EnableMetallics = enable };
+                var binding = MakeBinding(enableMetallics: enable);
                 var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
                 if (red == 229 || enable < 0) Assert.Equal(off.Rgba, actual.Rgba);
                 else
@@ -62,7 +80,7 @@ public sealed class GenshinMetallicGpuTests
                 Up = new(.45f, 1, .12f), VerticalFovDegrees = perspective ? 32 : null };
             var frame = Frame(world: world, camera: camera, normal: Vector3.Normalize(new(.5f, .35f, -.8f)),
                 mirrorModelUv: sx < 0);
-            var binding = Binding with { TileScale = tile };
+            var binding = MakeBinding(tileScale: tile);
             var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
             foreach (int y in new[] { 29, 43 }) foreach (int x in new[] { 41, 55 })
             {
@@ -81,14 +99,17 @@ public sealed class GenshinMetallicGpuTests
         foreach (float lit in new[] { 0f, 1f })
         {
             var frame = Frame(light: lit == 0 ? Vector3.UnitZ : -Vector3.UnitZ);
-            var binding = Binding with { LitMode = D3D12GenshinMetallicLitMode.PrimaryResponse,
-                UniformLitFactor = -3, DarkColor = new(.8f), LightColor = new(.8f), ShadowMultiplyColor = new(.2f) };
+            var dark = new Vector3(.8f);
+            var light = new Vector3(.8f);
+            var shadow = new Vector3(.2f);
+            var binding = MakeBinding(litMode: "PrimaryResponse", uniformLitFactor: -3f,
+                darkColor: dark, lightColor: light, shadowMultiplyColor: shadow);
             var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
-            var expected = C0 * GenshinMetallicOracle.LocalTint(Vector3.Zero, 1,
-                binding.DarkColor, binding.LightColor, binding.ShadowMultiplyColor, lit);
+            var expected = C0 * GenshinMetallicOracle.LocalTint(Vector3.Zero, 1, dark, light, shadow, lit);
             AssertPixel(actual, 48, 36, expected);
             Assert.Equal(actual.Rgba, session.Capture(frame, W, H,
-                surfaceStyles: Map(binding with { UniformLitFactor = 4 })).Rgba);
+                surfaceStyles: Map(MakeBinding(litMode: "PrimaryResponse", uniformLitFactor: 4f,
+                    darkColor: dark, lightColor: light, shadowMultiplyColor: shadow))).Rgba);
         }
     }
 
@@ -96,10 +117,10 @@ public sealed class GenshinMetallicGpuTests
     public void NonendpointSrgbCubicFilteringUsesAllRgbChannelsAndIgnoresChannelPackedAlpha()
     {
         using var session = new D3D12FrameSession();
-        foreach (var encoding in new[] { D3D12MatcapColorEncoding.LinearRgb, D3D12MatcapColorEncoding.SrgbRgb })
+        foreach (string encoding in new[] { "LinearRgb", "SrgbRgb" })
         {
             var frame = Frame(normal: Vector3.Normalize(new(.6f, -.3f, -.7f)));
-            var binding = Binding with { MatcapEncoding = encoding, Brightness = 1.25f, TileScale = 1.7f };
+            var binding = MakeBinding(matcapEncoding: encoding, brightness: 1.25f, tileScale: 1.7f);
             var actual = session.Capture(frame, W, H, surfaceStyles: Map(binding));
             AssertPixel(actual, 48, 36, C0 * Tint(frame.Surface.Snapshot, binding, 48, 36));
             var changedAlpha = MetalImage();
@@ -112,8 +133,8 @@ public sealed class GenshinMetallicGpuTests
         // Alternating encoded endpoints produce .5 linear at this exact midpoint.
         // Decode-after-filter would produce ~.214 and is separated by tens of output bytes.
         var endpoints = Frame(image: new("encoded black white", 2, 1, [0, 0, 0, 0, 255, 255, 255, 255]));
-        var midpoint = Binding with { MatcapEncoding = D3D12MatcapColorEncoding.SrgbRgb,
-            DarkColor = Vector3.Zero, LightColor = Vector3.One, ShadowMultiplyColor = Vector3.One };
+        var midpoint = MakeBinding(matcapEncoding: "SrgbRgb",
+            darkColor: Vector3.Zero, lightColor: Vector3.One, shadowMultiplyColor: Vector3.One);
         AssertPixel(session.Capture(endpoints, W, H, surfaceStyles: Map(midpoint)), 48, 36, C0 * .5f);
     }
 
@@ -121,8 +142,8 @@ public sealed class GenshinMetallicGpuTests
     public void SameMaterialAtlasAndRbUseOneMetalPaletteAndAttenuateOnlyTheNonmetallicLobe()
     {
         using var session = new D3D12FrameSession();
-        var atlas = GenshinHairAtlasSurfaceTests.Binding with { ShadowPosition = 1.1f };
-        var rb = new D3D12GenshinNonMetallicSpecularBinding(0, 1, 0, .1f);
+        var atlas = GenshinHairAtlasSurfaceTests.AtlasBinding(shadowPosition: 1.1f);
+        var rb = TestStylePlugins.GenshinHair(0, 1f, 0f, .1f, 1f);
         var specular = new Vector3(.4f, .3f, .2f);
         OriginalFrameScene Fixture(Vector3 spec)
         {
@@ -133,21 +154,20 @@ public sealed class GenshinMetallicGpuTests
                 old.World, old.Camera, old.LightDirection);
             return new(new(scene, source.Surface.Materials, source.Surface.Profile), options: source.Options);
         }
-        D3D12SurfaceStyleMap Styles(D3D12GenshinMetallicBinding? metal) => new([D3D12SurfaceStyle.GenshinPmx],
-            [new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: rb, GenshinHairShadowAtlas: atlas, GenshinMetallic: metal)]);
+        D3D12SurfaceStyleMap Styles(StyleMaterialBindingData? metal)
+            => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Hair, rb, atlas, metal);
         var frame = Fixture(specular); var noSpec = Fixture(Vector3.Zero);
         var off = session.Capture(frame, W, H, surfaceStyles: Styles(null));
         Assert.Equal(off.Rgba, session.Capture(frame, W, H,
-            surfaceStyles: Styles(Binding with { MatcapCombinedTextureIndex = 3, EnableMetallics = 0 })).Rgba);
-        var coord = GenshinHairAtlasOracle.Coordinates(1, 128 / 255f, atlas.ExplicitRowId, atlas.ShadowPosition,
-            atlas.ShadowRampWidth, atlas.VertexWidth, atlas.VertexAo, atlas.UseLightmapAo, atlas.UseVertexColorAo);
+            surfaceStyles: Styles(MakeBinding(matcapSlot: 3, enableMetallics: 0))).Rgba);
+        var coord = GenshinHairAtlasOracle.Coordinates(1, 128 / 255f, 1f, 1.1f, .5f, 1f, 1f, 0f, 0f);
         var bytes = GenshinHairAtlasSurfaceTests.Atlas();
         var palette = GenshinHairAtlasOracle.Palette(
             GenshinHairAtlasOracle.ClosestExtend(bytes, 4, 10, coord.Q, coord.DayY, false),
-            GenshinHairAtlasOracle.ClosestExtend(bytes, 4, 10, coord.Q, coord.NightY, false), atlas.DayNight, coord.Gate);
+            GenshinHairAtlasOracle.ClosestExtend(bytes, 4, 10, coord.Q, coord.NightY, false), .25f, coord.Gate);
         foreach (float enable in new[] { .4f, 1f })
         {
-            var binding = Binding with { MatcapCombinedTextureIndex = 3, EnableMetallics = enable };
+            var binding = MakeBinding(matcapSlot: 3, enableMetallics: enable);
             var actual = session.Capture(frame, W, H, surfaceStyles: Styles(binding));
             var diffuse = session.Capture(noSpec, W, H, surfaceStyles: Styles(binding));
             var expected = C0 * GenshinMetallicOracle.Palette(palette, Tint(frame.Surface.Snapshot, binding, 48, 36), enable);
@@ -163,7 +183,7 @@ public sealed class GenshinMetallicGpuTests
     {
         using var session = new D3D12FrameSession();
         // Constant source palette isolates endpoint composition from camera sampling.
-        var binding = Binding with { DarkColor = new(.65f), LightColor = new(.65f), ShadowMultiplyColor = Vector3.One };
+        var binding = MakeBinding(darkColor: new(.65f), lightColor: new(.65f), shadowMultiplyColor: Vector3.One);
         float palette = GenshinMetallicOracle.Gamma(.65f);
         foreach (bool native in new[] { false, true }) foreach (bool gi in new[] { false, true })
         {
@@ -193,8 +213,8 @@ public sealed class GenshinMetallicGpuTests
         var frame = new OriginalFrameScene(new(scene, [new(new(.2f)), old.Surface.Materials[1]],
             new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)),
             options: new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: Vector4.Zero), materials: flags);
-        var binding = Binding with { DarkColor = new(.6f), LightColor = new(.6f), ShadowMultiplyColor = Vector3.One };
-        var styles = new D3D12SurfaceStyleMap([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.Mmd], [new(GenshinMetallic: binding), new()]);
+        var binding = MakeBinding(darkColor: new(.6f), lightColor: new(.6f), shadowMultiplyColor: Vector3.One);
+        var styles = T8bTestHelpers.CreateGenshinTwoMap("mmd", D3D12CharacterMaterialRole.Body, [binding]);
         var options = new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: 20, SamplesPerPixel: 32, Seed: 17,
             MaxRayDistance: 50, RayEpsilon: .001f, DirectionalLightDirection: Vector3.UnitZ, DirectionalIrradiance: new(3),
             Composition: RayGiComposition.ToonPalette);
@@ -237,8 +257,8 @@ public sealed class GenshinMetallicGpuTests
         var warm = session.Statistics!; long reads = session.Runtime.Readbacks;
         for (int i = 0; i < 8; i++)
         {
-            using var image = session.Render(frame, W, H, surfaceStyles: Map(Binding with
-            { TileScale = .25f + i * .2f, Brightness = .4f + i * .1f, UniformLitFactor = .6f + i * .1f }));
+            using var image = session.Render(frame, W, H, surfaceStyles: Map(MakeBinding(
+                tileScale: .25f + i * .2f, brightness: .4f + i * .1f, uniformLitFactor: .6f + i * .1f)));
             Assert.Equal(0, image.Statistics.ReadbackCount);
             Assert.Equal(warm.ShaderCompilations, image.Statistics.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, image.Statistics.PipelineCreations);
@@ -248,8 +268,8 @@ public sealed class GenshinMetallicGpuTests
         Assert.Equal(original.Rgba, session.Capture(frame, W, H, surfaceStyles: Map(null)).Rgba);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12GenshinMetallicBinding? binding)
-        => new([D3D12SurfaceStyle.GenshinPmx], [new(GenshinMetallic: binding)]);
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding)
+        => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Body, binding);
     private static SceneTexture Lightmap(byte red = 255, byte alpha = 0) => new("numeric shared R gate", 1, 1, [red, 128, 255, alpha]);
     private static SceneTexture MetalImage() => new("asymmetric channel-packed color", 4, 3,
         [16, 180, 70, 0, 210, 80, 160, 17, 100, 20, 220, 50, 240, 210, 30, 120,
@@ -276,19 +296,27 @@ public sealed class GenshinMetallicGpuTests
                 new(.2f), intensity, 30, CastShadows: false)]) : null);
     }
 
-    private static Vector3 Tint(SceneSnapshot scene, D3D12GenshinMetallicBinding binding, int x, int y)
+    private static Vector3 Tint(SceneSnapshot scene, StyleMaterialBindingData binding, int x, int y)
     {
         Matrix4x4.Invert(scene.World, out var inverse);
         Vector3 normal = Vector3.Normalize(Vector3.TransformNormal(scene.Vertices[0].Normal, Matrix4x4.Transpose(inverse)));
         var view = Matrix4x4.CreateLookAt(scene.Camera.Eye, scene.Camera.Target, scene.Camera.Up);
+        float tileScale = (float)binding.NumberValues!["tileScale"];
+        float brightness = (float)binding.NumberValues["brightness"];
+        float uniformLitFactor = (float)binding.NumberValues["uniformLitFactor"];
+        var darkArr = binding.VectorValues!["darkColor"];
+        var lightArr = binding.VectorValues["lightColor"];
+        var shadowArr = binding.VectorValues["shadowMultiplyColor"];
+        Vector3 darkColor = new(darkArr[0], darkArr[1], darkArr[2]);
+        Vector3 lightColor = new(lightArr[0], lightArr[1], lightArr[2]);
+        Vector3 shadowMultiplyColor = new(shadowArr[0], shadowArr[1], shadowArr[2]);
         var uv = GenshinMetallicOracle.Coordinates(normal, WorldAtPixel(scene, x, y), scene.Camera.Eye,
             new(view.M12, view.M22, view.M32), Vector3.Normalize(scene.Camera.Eye - scene.Camera.Target),
-            scene.Camera.VerticalFovDegrees is null, binding.TileScale);
-        var image = scene.Textures[binding.MatcapCombinedTextureIndex];
+            scene.Camera.VerticalFovDegrees is null, tileScale);
+        var image = scene.Textures[binding.TextureSlots!["matcap"]];
         var sampled = GenshinMetallicOracle.CubicRepeat(image.Rgba, image.Width, image.Height, uv,
-            binding.MatcapEncoding == D3D12MatcapColorEncoding.SrgbRgb);
-        return GenshinMetallicOracle.LocalTint(sampled, binding.Brightness, binding.DarkColor, binding.LightColor,
-            binding.ShadowMultiplyColor, binding.UniformLitFactor);
+            binding.StringValues!["matcapEncoding"] == "SrgbRgb");
+        return GenshinMetallicOracle.LocalTint(sampled, brightness, darkColor, lightColor, shadowMultiplyColor, uniformLitFactor);
     }
 
     private static Vector3 WorldAtPixel(SceneSnapshot scene, int x, int y)

@@ -22,18 +22,20 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
         var flags = source.Materials.Select(value => value with { CharacterToonResponse = new(.05f, .1f) }).ToArray();
         source = new(source.Surface, source.Outline, source.OutlineOptions, source.Options, flags);
         var id = Guid.NewGuid();
-        var result = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
+        var result = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
             [new(id, new("star-rail"), ModelRole.Character, 0, 2, true)],
-            [new(id, 0, new(PmxMaterialTreatment: new(1, 1.5f)))]);
+            [new(id, 0, PmxTreatment: new(1, 1.5f))],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.Equal(new CharacterToonResponse(), result.Scene.Materials[0].CharacterToonResponse);
         Assert.Equal(new CharacterToonResponse(.5f, .15f),
             result.SurfaceStyles.EffectiveToonResponse(0, result.Scene.Materials[0].CharacterToonResponse));
         Assert.Equal(new CharacterToonResponse(.05f, .1f), source.Materials[0].CharacterToonResponse);
-        var catalog = new D3D12StylePresetCatalog([D3D12StylePresetResult.Resolve(
-            new("narrow-custom", "Narrow custom", "star-rail", null, new(.05f, .1f)))]);
+        var catalog = TestStylePlugins.AllViewCatalog.ToD3D12PresetCatalog([D3D12StylePresetResult.Resolve(
+            new("narrow-custom", "Narrow custom", "star-rail", null, new(.05f, .1f)), TestStylePlugins.AllPresetCatalog.Plugins)]);
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(Source(), catalog,
             [new(id, new("narrow-custom"), ModelRole.Character, 0, 2, true)],
-            [new(id, 0, new(PmxMaterialTreatment: new(1, 1.5f)))]));
+            [new(id, 0, PmxTreatment: new(1, 1.5f))],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
     [Fact]
@@ -42,24 +44,26 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
         var source = Source(); var a = Guid.NewGuid(); var b = Guid.NewGuid();
         SceneRenderingStyleBinding[] objects = [new(a, new("star-rail"), ModelRole.Character, 0, 1, true),
             new(b, new("endfield"), ModelRole.Character, 1, 1, true)];
-        D3D12ViewCharacterMaterialBinding[] selected = [new(b, 0,
-            new(PmxMaterialTreatment: new(1.02f, .9f)))];
+        D3D12ViewCharacterMaterial[] selected = [new(b, 0, PmxTreatment: new(1.02f, .9f))];
         var detached = D3D12ViewCharacterMaterials.Detach(selected);
-        selected[0] = new(a, 0, new(PmxMaterialTreatment: new(.8f, 1.1f)));
-        var result = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            objects, detached);
-        Assert.Null(result.SurfaceStyles.EffectivePmxMaterialTreatment(0));
+        selected[0] = new(a, 0, PmxTreatment: new(.8f, 1.1f));
+        var result = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            objects, detached, styleCatalog: TestStylePlugins.AllViewCatalog);
+        var starRailBody = T8cTestHelpers.GetDefaultTreatment(T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Body);
+        Assert.Equal(starRailBody, result.SurfaceStyles.EffectivePmxMaterialTreatment(0));
         Assert.Equal(new D3D12PmxMaterialTreatment(1.02f, .9f),
             result.SurfaceStyles.EffectivePmxMaterialTreatment(1));
         var hidden = objects[1] with { Visible = false, MaterialCount = 0, MaterialStart = 2 };
         var visible = objects[0] with { MaterialCount = 2 };
-        var hiddenResult = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            [visible, hidden], detached);
-        Assert.All(Enumerable.Range(0, 2), i => Assert.Null(hiddenResult.SurfaceStyles.EffectivePmxMaterialTreatment(i)));
+        var hiddenResult = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            [visible, hidden], detached, styleCatalog: TestStylePlugins.AllViewCatalog);
+        Assert.All(Enumerable.Range(0, 2), i => Assert.Equal(starRailBody, hiddenResult.SurfaceStyles.EffectivePmxMaterialTreatment(i)));
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(source,
-            D3D12StylePresetCatalog.BuiltIn, objects, [new(b, 1, new(PmxMaterialTreatment: new(.8f)))]));
+            TestStylePlugins.AllPresetCatalog, objects, [new(b, 1, PmxTreatment: new(.8f))],
+            styleCatalog: TestStylePlugins.AllViewCatalog));
         Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(source,
-            D3D12StylePresetCatalog.BuiltIn, [objects[0], objects[1] with { Role = ModelRole.Environment }], detached));
+            TestStylePlugins.AllPresetCatalog, [objects[0], objects[1] with { Role = ModelRole.Environment }], detached,
+            styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
     [Theory, InlineData("genshin"), InlineData("star-rail"), InlineData("wuthering-waves"), InlineData("endfield")]
@@ -69,10 +73,11 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
         var source = Source(); var a = Guid.NewGuid(); var b = Guid.NewGuid();
         SceneRenderingStyleBinding[] objects = [new(a, new(family), ModelRole.Character, 0, 1, true),
             new(b, new(family), ModelRole.Character, 1, 1, true)];
-        D3D12ViewCharacterMaterialBinding[] selected = [new(b, 0, new(PmxMaterialTreatment: new(0, 1.1f)))];
+        D3D12ViewCharacterMaterial[] selected = [new(b, 0, PmxTreatment: new(0, 1.1f))];
         var request = new ViewRenderRequest(Width, Height);
-        await using var treated = new D3D12ViewRenderer(request, characterMaterials: selected);
-        selected[0] = new(a, 0, new(PmxMaterialTreatment: new(2, .8f)));
+        await using var treated = new D3D12ViewRenderer(request,
+            stylePresets: TestStylePlugins.AllPresetCatalog, characterMaterials: selected, styleCatalog: TestStylePlugins.AllViewCatalog);
+        selected[0] = new(a, 0, PmxTreatment: new(2, .8f));
         Assert.Empty(treated.SceneInputRequests); // No textures, bones or second animation sample are requested.
         var plan = new OfflineFramePlan(Width, Height, new(30), 0, 1);
         var frame = new OfflineFrame(plan.GetSample(0), Width, Height, source, null, null, null)
@@ -80,12 +85,13 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
         using var actual = await treated.CaptureAsync(frame, Token);
         var resolvedSource = D3D12ViewScene.Resolve(source, null, null, null,
             new Dictionary<Guid, CharacterMorphChannels>(), request.EffectiveQuality, frame.ResolvedCamera);
-        var resolved = D3D12ViewRenderingStyles.Resolve(resolvedSource, D3D12StylePresetCatalog.BuiltIn, objects,
-            [new(b, 0, new(PmxMaterialTreatment: new(0, 1.1f)))]);
+        var resolved = D3D12ViewRenderingStyles.Resolve(resolvedSource, TestStylePlugins.AllPresetCatalog, objects,
+            [new(b, 0, PmxTreatment: new(0, 1.1f))], styleCatalog: TestStylePlugins.AllViewCatalog);
         using var lowLevel = new D3D12FrameSession();
         var expected = lowLevel.Capture(resolved.Scene, Width, Height, surfaceStyles: resolved.SurfaceStyles);
         Assert.Equal(expected.Rgba, actual.Pixels.ToArray());
-        await using var ordinary = new D3D12ViewRenderer(request);
+        await using var ordinary = new D3D12ViewRenderer(request,
+            stylePresets: TestStylePlugins.AllPresetCatalog, styleCatalog: TestStylePlugins.AllViewCatalog);
         using var before = await ordinary.CaptureAsync(frame, Token);
         var protectedClip = Vector4.Transform(new Vector4(-.8f, 0, 0, 1),
             source.Surface.Snapshot.Camera.ViewProjection(Width, Height));
@@ -112,7 +118,9 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
         try
         {
             await using var presenter = new D3D12RealtimeViewRenderer(window, request,
-                characterMaterials: [new(b, 0, new(PmxMaterialTreatment: new(0, 1.1f)))]);
+                stylePresets: TestStylePlugins.AllPresetCatalog,
+                characterMaterials: [new(b, 0, PmxTreatment: new(0, 1.1f))],
+                styleCatalog: TestStylePlugins.AllViewCatalog);
             Assert.Empty(presenter.SceneInputRequests);
             var preview = new PreviewFrame(Width, Height, 0, source, null, null, null)
             { RenderingStyles = objects, ResolvedCamera = frame.ResolvedCamera };
@@ -126,26 +134,29 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
     }
 
     [Fact]
-    public void RendererProfilesApplyOnlyToExplicitOrdinaryMappingsAndIdentityOptOutRestoresOldLook()
+    public void RendererProfilesApplyToDefaultRoleAndIdentityOptOutRestoresOldLook()
     {
         var source = Source(); var id = Guid.NewGuid();
         SceneRenderingStyleBinding[] objects = [new(id, new("star-rail"), ModelRole.Character, 0, 2, true)];
-        var mapped = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            objects, [new(id, 1, new(D3D12CharacterMaterialRole.Hair))]);
-        Assert.Null(mapped.SurfaceStyles.EffectivePmxMaterialTreatment(0));
-        Assert.Equal(D3D12PmxMaterialTreatmentCatalog.Resolve(D3D12SurfaceStyle.StarRailPmx,
-            D3D12CharacterMaterialRole.Hair), mapped.SurfaceStyles.EffectivePmxMaterialTreatment(1));
-        var optedOut = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            objects, [new(id, 1, new(D3D12CharacterMaterialRole.Hair, PmxMaterialTreatment: new()))]);
+        var mapped = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            objects, [new(id, 1, D3D12CharacterMaterialRole.Hair)], styleCatalog: TestStylePlugins.AllViewCatalog);
+        Assert.Equal(T8cTestHelpers.GetDefaultTreatment(T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Body),
+            mapped.SurfaceStyles.EffectivePmxMaterialTreatment(0));
+        Assert.Equal(T8cTestHelpers.GetDefaultTreatment(T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Hair),
+            mapped.SurfaceStyles.EffectivePmxMaterialTreatment(1));
+        var optedOut = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            objects, [new(id, 1, D3D12CharacterMaterialRole.Hair, PmxTreatment: new())],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.Null(optedOut.SurfaceStyles.EffectivePmxMaterialTreatment(1));
         foreach (var role in new[] { D3D12CharacterMaterialRole.Face, D3D12CharacterMaterialRole.Eye })
         {
-            var protectedRow = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-                objects, [new(id, 1, new(role))]);
+            var protectedRow = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+                objects, [new(id, 1, role)], styleCatalog: TestStylePlugins.AllViewCatalog);
             Assert.Null(protectedRow.SurfaceStyles.EffectivePmxMaterialTreatment(1));
         }
-        var mmd = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn,
-            [objects[0] with { Preset = new("mmd") }], [new(id, 1, new(D3D12CharacterMaterialRole.Hair))]);
+        var mmd = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog,
+            [objects[0] with { Preset = new("mmd") }], [new(id, 1, D3D12CharacterMaterialRole.Hair)],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
         Assert.Null(mmd.SurfaceStyles.EffectivePmxMaterialTreatment(1));
     }
 

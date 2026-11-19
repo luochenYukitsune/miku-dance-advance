@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Mmd.Modern.ViewOutput.D3D12;
 using static Mmd.Modern.App.EditorLocalization;
@@ -16,17 +17,34 @@ public sealed record EditorModelPropertiesDraft(Guid ObjectId, string Name, Mode
     bool PhysicsEnabled, RenderingPresetReference? StyleOverride, D3D12MaterialBindingProfile? MaterialProfile,
     bool? EnvironmentIndoor = null);
 
-public sealed record EditorModelStyleChoice(string SourceLabel, RenderingPresetReference? Reference,
-    string? Suffix = null, bool TranslateSuffix = false) : INotifyPropertyChanged
+public sealed class EditorModelStyleChoice : INotifyPropertyChanged
 {
-    public string Label => Suffix is null ? Text(SourceLabel)
-        : Format(SourceLabel, TranslateSuffix ? Text(Suffix) : Suffix);
+    private readonly Func<string> labelFactory;
+
+    public EditorModelStyleChoice(string sourceLabel, RenderingPresetReference? reference,
+        string? suffix = null, bool translateSuffix = false, Func<string>? dynamicLabel = null)
+    {
+        SourceLabel = sourceLabel;
+        Reference = reference;
+        Suffix = suffix;
+        TranslateSuffix = translateSuffix;
+        labelFactory = dynamicLabel ?? (() => Suffix is null ? Text(SourceLabel)
+            : Format(SourceLabel, TranslateSuffix ? Text(Suffix) : Suffix));
+    }
+
+    public string SourceLabel { get; }
+    public RenderingPresetReference? Reference { get; }
+    public string? Suffix { get; }
+    public bool TranslateSuffix { get; }
+    public string Label => labelFactory();
     public event PropertyChangedEventHandler? PropertyChanged;
     internal void RefreshLocalization() => PropertyChanged?.Invoke(this, new(nameof(Label)));
     public override string ToString() => Label;
 }
-public sealed record EditorSourceChoice(int Index, string SourceLabel) : INotifyPropertyChanged
+
+public sealed record EditorSourceChoice(int Index, string SourceLabel, string? RawName = null) : INotifyPropertyChanged
 {
+    public string EffectiveName => RawName ?? SourceLabel;
     // Indexed texture/bone labels contain authored names; only the application-owned sentinel is translated.
     public string Label => Index < 0 ? Text("未选择") : SourceLabel;
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -37,10 +55,12 @@ public sealed record EditorSourceChoice(int Index, string SourceLabel) : INotify
 /// <summary>Presentation-only copy of authored model properties. Opening/cancelling never edits a session.</summary>
 public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
 {
+    private readonly EditorProjectWorkspace workspace;
     private readonly EditableSceneObject source;
     private readonly SceneActorMotion actor;
     private readonly RenderingPresetReference defaultStyle;
     private readonly D3D12MaterialBindingLayout layout;
+    private readonly IReadOnlyList<(int Width, int Height)> textureDimensions;
     private D3D12MaterialBindingProfile? profile;
     private readonly Vector3 initialDegrees;
     private string name, validationMessage = "";
@@ -55,7 +75,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
 
     public EditorModelPropertiesViewModel(EditorProjectWorkspace workspace, Guid objectId)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
+        this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         supportsOutlineScaling = EditorRenderEngineOptions.UsesModernQualityPreferences(workspace.RenderEngine);
         var session = workspace.Session ?? throw new InvalidOperationException(Text("请先载入模型。"));
         source = session.Objects.SingleOrDefault(item => item.Id == objectId)
@@ -64,6 +84,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         defaultStyle = session.RenderingStyles.DefaultStyle;
         profile = workspace.MaterialBindings.GetValueOrDefault(objectId);
         layout = D3D12MaterialBindingLayout.Capture(source.Source);
+        textureDimensions = source.Source.Surface.Snapshot.Textures.Select(static t => (t.Width, t.Height)).ToArray();
         name = source.Name; roleIndex = source.Role switch { ModelRole.Character => 0, ModelRole.Environment => 1, _ => 2 };
         environmentIndoor = session.GetModelPurpose(objectId).EnvironmentIndoor;
         positionX = Decimal(source.Position.X); positionY = Decimal(source.Position.Y); positionZ = Decimal(source.Position.Z);
@@ -71,19 +92,32 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         rotationX = Decimal(initialDegrees.X); rotationY = Decimal(initialDegrees.Y); rotationZ = Decimal(initialDegrees.Z);
         scale = Decimal(source.Scale);
         ikEnabled = actor.IkEnabled; morphsEnabled = actor.MorphsEnabled; physicsEnabled = actor.PhysicsEnabled;
-        string defaultLabel = defaultStyle.StableId switch { "mmd" => "MMD 原版", "genshin" => "原神", "star-rail" => "星穹铁道", "wuthering-waves" => "鸣潮", "endfield" => "终末地", _ => defaultStyle.StableId };
-        List<EditorModelStyleChoice> styles = [new("继承工程默认 · {0}", null, defaultLabel, true), new("MMD 原版", RenderingStyleId.Mmd),
-            new("原神", RenderingStyleId.Genshin), new("星穹铁道", RenderingStyleId.StarRail),
-            new("鸣潮", RenderingStyleId.WutheringWaves), new("终末地", RenderingStyleId.Endfield)];
+
+        var activeCatalog = workspace.StyleCatalog;
+        List<EditorModelStyleChoice> styles =
+        [
+            new("继承工程默认 · {0}", null, dynamicLabel: () => Format("继承工程默认 · {0}", ResolveStyleDisplayName(defaultStyle.StableId, activeCatalog))),
+            new("MMD 原版", RenderingPresetReference.BuiltIn(RenderingStyleId.Mmd))
+        ];
+        foreach (var def in EditorStyleCatalogOrdering.OrderStyles(activeCatalog.Styles))
+        {
+            var styleRef = new RenderingPresetReference(def.StyleId);
+            styles.Add(new(def.StyleId, styleRef, dynamicLabel: () => ResolveStyleDisplayName(def.StyleId, activeCatalog)));
+        }
+
         if (session.RenderingStyles.ModelOverrides.TryGetValue(objectId, out var selected))
         {
             styleIndex = styles.FindIndex(choice => choice.Reference == selected);
-            if (styleIndex < 0) { styleIndex = styles.Count; styles.Add(new("保留当前引用 · {0}", selected, selected.StableId)); }
+            if (styleIndex < 0)
+            {
+                styleIndex = styles.Count;
+                styles.Add(new("保留当前引用 · {0}", selected, selected.StableId));
+            }
         }
         StyleChoices = styles.AsReadOnly();
         Textures = new[] { new EditorSourceChoice(-1, "未选择") }.Concat(source.Source.Surface.Snapshot.Textures.Select((texture, index) =>
-            new EditorSourceChoice(index, $"{index} · {texture.Name} ({texture.Width}×{texture.Height})"))).ToArray();
-        Bones = actor.Model.Bones.Select((bone, index) => new EditorSourceChoice(index, $"{index} · {bone.Name}")).ToArray();
+            new EditorSourceChoice(index, $"{index} · {texture.Name} ({texture.Width}×{texture.Height})", texture.Name))).ToArray();
+        Bones = actor.Model.Bones.Select((bone, index) => new EditorSourceChoice(index, $"{index} · {bone.Name}", bone.Name)).ToArray();
         RebuildMaterials();
         Observe(this, static model => model.RefreshLocalization());
     }
@@ -115,7 +149,17 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
             environmentIndoor = value; Changed();
         }
     }
-    public int StyleIndex { get => styleIndex; set => Set(ref styleIndex, value); }
+    public int StyleIndex
+    {
+        get => styleIndex;
+        set
+        {
+            if (!Set(ref styleIndex, value)) return;
+            string nextStyleId = SelectedEffectiveStyleId();
+            foreach (var material in Materials)
+                material.UpdateEffectiveStyle(nextStyleId);
+        }
+    }
     public decimal? PositionX { get => positionX; set => Set(ref positionX, value); }
     public decimal? PositionY { get => positionY; set => Set(ref positionY, value); }
     public decimal? PositionZ { get => positionZ; set => Set(ref positionZ, value); }
@@ -162,18 +206,20 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     public void ImportProfile(ReadOnlyMemory<byte> bytes)
     {
         var imported = D3D12MaterialBindingProfileJson.Decode(bytes);
-        _ = D3D12MaterialBindingProfileResolver.Resolve(imported, source.Source, source.Id, "mmd");
-        profile = imported; RebuildMaterials(); Changed(nameof(ProfileSummary)); ValidationMessage = "映射已载入草稿，点击“应用”后写入工程。";
+        _ = D3D12MaterialBindingProfileResolver.Resolve(imported, source.Source, source.Id, EffectiveValidationPipelineId(), workspace.StyleCatalog);
+        profile = imported; RebuildMaterials(); Changed(nameof(ProfileSummary)); ValidationMessage = Text("Mda.Text.ModelProps.ProfileImportedDraft");
     }
 
     public byte[] ExportProfile() => D3D12MaterialBindingProfileJson.Encode(BuildProfile()
-        ?? new D3D12MaterialBindingProfile("custom-" + Guid.NewGuid().ToString("N"), SafeProfileName(), layout.Fingerprint, [], layout.Version));
+        ?? new D3D12MaterialBindingProfile("custom-" + Guid.NewGuid().ToString("N"), SafeProfileName(), layout.Fingerprint, [], layout.Version,
+            guessMaterialRoles: profile?.GuessMaterialRoles ?? workspace.GuessMaterialRoles));
 
-    public void CaptureBoneBasis(SceneProjectSession session)
+    public void CaptureBoneBasis(SceneProjectSession session, EditorStyleModeItem? targetMode = null)
     {
         var material = SelectedMaterial ?? throw new InvalidOperationException(Text("请先选择材质。"));
-        if (material.SelectedBone is not { Index: >= 0 } bone || bone.Index >= actor.Model.Bones.Count)
-            throw Error("请选择此模型的有效骨骼。");
+        var chosenBone = targetMode?.SelectedBone ?? material.SelectedBone;
+        if (chosenBone is not { Index: >= 0 } bone || bone.Index >= actor.Model.Bones.Count)
+            throw Error("Mda.Text.ModelProps.SelectBoneError");
         // The exact authored actor and source identity must still be present; never reuse an index across models.
         var currentActor = session.CaptureAuthoredContent().Motions.SingleOrDefault(item => item.ObjectId == source.Id);
         if (currentActor is null || !ReferenceEquals(currentActor.Model, actor.Model)
@@ -183,21 +229,54 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         if (!snapshot.SceneInputs.TryGetValue(source.Id, out var inputs) || !inputs.Visible
             || !inputs.BoneWorldMatrices.TryGetValue(bone.Index, out var world))
             throw new InvalidOperationException(Text("此帧无法读取所选骨骼，请先显示模型再采样。"));
-        material.SetFixedBasis(Vector3.TransformNormal(Vector3.UnitZ, world), Vector3.TransformNormal(Vector3.UnitX, world));
-        ValidationMessage = "已采样当前骨骼朝向为固定世界方向；不会随之后的骨骼动画跟随。";
+        var forward = Vector3.TransformNormal(Vector3.UnitZ, world);
+        var right = Vector3.TransformNormal(Vector3.UnitX, world);
+        if (targetMode is not null)
+            targetMode.SetFixedBasis(forward, right);
+        material.SetFixedBasis(forward, right);
+        ValidationMessage = Text("Mda.Text.ModelProps.CapturedFixedBasisStatus");
     }
 
     private D3D12MaterialBindingProfile? BuildProfile()
     {
         var rows = Materials.Select(item => item.Build()).Where(row => row is not null).Cast<D3D12MaterialBindingProfileRow>().ToArray();
         var outlines = Materials.Select(item => item.BuildOutline()).OfType<D3D12MaterialBindingProfileOutline>().ToArray();
-        if (profile is null && rows.Length == 0 && outlines.Length == 0) return null;
+        bool effectiveGuess = profile?.GuessMaterialRoles ?? workspace.GuessMaterialRoles;
+        if (profile is null && rows.Length == 0 && outlines.Length == 0 && effectiveGuess) return null;
         if (profile is not null && profile.Materials.OrderBy(row => row.LocalMaterialIndex).SequenceEqual(rows)
-            && profile.OutlineWidths.OrderBy(row => row.LocalMaterialIndex).SequenceEqual(outlines)) return profile;
+            && profile.OutlineWidths.OrderBy(row => row.LocalMaterialIndex).SequenceEqual(outlines)
+            && profile.GuessMaterialRoles == effectiveGuess) return profile;
         var result = new D3D12MaterialBindingProfile("custom-" + Guid.NewGuid().ToString("N"), SafeProfileName(), layout.Fingerprint,
-            rows, layout.Version, outlineWidths: outlines);
-        _ = D3D12MaterialBindingProfileResolver.Resolve(result, source.Source, source.Id, "mmd");
+            rows, layout.Version, outlineWidths: outlines, pipelineId: profile?.PipelineId, guessMaterialRoles: effectiveGuess);
+        _ = D3D12MaterialBindingProfileResolver.Resolve(result, source.Source, source.Id, EffectiveValidationPipelineId(), workspace.StyleCatalog);
         return result;
+    }
+
+    private string EffectiveValidationPipelineId()
+    {
+        string styleId = SelectedEffectiveStyleId();
+        var resolved = workspace.PresetCatalog.Find(styleId);
+        return resolved.IsAvailable && resolved.Definition is not null
+            ? resolved.Definition.PipelineId
+            : D3D12SurfaceStyleMap.DefaultStyleId;
+    }
+
+    private string SelectedEffectiveStyleId()
+        => (uint)StyleIndex < (uint)StyleChoices.Count
+            ? (StyleChoices[StyleIndex].Reference ?? defaultStyle).StableId
+            : defaultStyle.StableId;
+
+    private static string ResolveStyleDisplayName(string styleId, D3D12ViewStyleCatalog catalog)
+    {
+        if (string.Equals(styleId, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal))
+            return Text("Mda.Text.Context.Inspector.Style.Option.Mmd");
+        if (catalog.FindStyle(styleId) is { } def)
+        {
+            string? resolved = def.DisplayName?.Resolve(EditorLocalization.CurrentLanguage);
+            if (!string.IsNullOrWhiteSpace(resolved))
+                return resolved;
+        }
+        return styleId;
     }
 
     private string SafeProfileName() { string value = Name.Trim(); if (value.Length == 0) value = Text("模型材质映射"); return value[..Math.Min(value.Length, 128)]; }
@@ -207,12 +286,15 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         Materials.Clear();
         var existing = profile?.Materials.ToDictionary(row => row.LocalMaterialIndex) ?? [];
         var outlines = profile?.OutlineWidths.ToDictionary(row => row.LocalMaterialIndex) ?? [];
+        var styleCatalog = workspace.StyleCatalog;
+        string effectiveStyleId = SelectedEffectiveStyleId();
         for (int index = 0; index < source.Source.Materials.Count; index++)
         {
             // Display names come from the actual PMX table; no role or style is inferred from them.
             string materialName = index < actor.Model.Materials.Count ? actor.Model.Materials[index].Name : source.Source.Surface.Snapshot.Materials[index].Name;
             Materials.Add(new(index, materialName, existing.GetValueOrDefault(index), layout, Textures, Bones,
-                outlines.GetValueOrDefault(index)?.Scale ?? 1f, supportsOutlineScaling));
+                outlines.GetValueOrDefault(index)?.Scale ?? 1f, supportsOutlineScaling, styleCatalog, effectiveStyleId,
+                source.Id, textureDimensions));
         }
         SelectedMaterial = Materials.FirstOrDefault(item => item.LocalMaterialIndex == oldIndex) ?? Materials.FirstOrDefault();
         Changed(nameof(HasMaterials));
@@ -252,74 +334,300 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 {
     private readonly D3D12MaterialBindingProfileRow? original;
     private readonly D3D12MaterialBindingLayout layout;
+    private readonly D3D12ViewStyleCatalog styleCatalog;
+    private readonly Guid objectId;
+    private readonly string rawMaterialName;
+    private readonly IReadOnlyList<(int Width, int Height)> textureDimensions;
+    private readonly List<PipelineEntry> pipelineEntries = [];
+    private readonly List<DynamicModeEntry> legacyDynamicModes = [];
+    private readonly Dictionary<(string StyleId, string ModeId), StyleMaterialBindingData> draftBindings = [];
+    private readonly ObservableCollection<EditorStyleModeItem> dynamicModes = [];
+    private string effectiveStyleId;
     private int roleIndex, modeIndex, pipelineIndex;
     private EditorSourceChoice? primaryTexture, secondaryTexture;
     private Vector3 fixedForward, fixedRight;
-    private bool fixedBasisChanged;
-    private bool refreshingLocalization;
+    private bool fixedBasisChanged, legacyModeEdited;
+    private bool refreshingLocalization, rebuildingDynamicModes;
     private decimal? faceNormal, faceShadow, eyeShadow;
     private decimal? outlinePercent;
-    public EditorMaterialPropertiesItem(int index, string name, D3D12MaterialBindingProfileRow? row,
-        D3D12MaterialBindingLayout layout, IReadOnlyList<EditorSourceChoice> textures, IReadOnlyList<EditorSourceChoice> bones,
-        float outlineScale = 1f, bool supportsOutlineScaling = true)
+    private decimal? pmxSaturation, pmxTransitionWidthScale, pmxValueContrast, pmxShadeGamma, pmxHairHighlightStrength, pmxHairHighlightWidth;
+    private string styleValidationMessage = "";
+
+    private sealed record PipelineEntry(string StyleId, IRenderingStyleDefinition? Definition);
+    private sealed record DynamicModeEntry(string StyleId, IRenderingStyleDefinition Definition, StyleMaterialModeDescriptor Mode);
+
+    public EditorMaterialPropertiesItem(
+        int index,
+        string name,
+        D3D12MaterialBindingProfileRow? row,
+        D3D12MaterialBindingLayout layout,
+        IReadOnlyList<EditorSourceChoice> textures,
+        IReadOnlyList<EditorSourceChoice> bones,
+        float outlineScale = 1f,
+        bool supportsOutlineScaling = true,
+        D3D12ViewStyleCatalog? styleCatalog = null,
+        string? effectiveStyleId = null,
+        Guid objectId = default,
+        IReadOnlyList<(int Width, int Height)>? textureDimensions = null)
     {
-        LocalMaterialIndex = index; Label = $"{index} · {name}"; original = row; this.layout = layout;
-        SupportsOutlineScaling = supportsOutlineScaling; outlinePercent = (decimal)outlineScale * 100m;
-        Textures = textures; Bones = bones; roleIndex = row is null ? 0 : (int)row.Role + 1;
-        faceNormal = (decimal)(row?.FaceNormalShadeStrength ?? .35f); faceShadow = (decimal)(row?.FaceGeometricShadowStrength ?? 1f); eyeShadow = (decimal)(row?.EyeGeometricShadowStrength ?? .2f);
-        var face = row?.Face;
-        fixedForward = face?.HeadWorldForward ?? Vector3.UnitZ; fixedRight = face?.HeadWorldRight ?? Vector3.UnitX;
-        string? pipeline = face?.PipelineId ?? row?.StarMcHair?.PipelineId;
-        pipelineIndex = pipeline switch { "genshin" => 0, "wuthering-waves" => 2, "endfield" => 3, _ => 1 };
-        int first = face?.Primary.SourceSceneTextureOrdinal ?? row?.GenshinHair?.Texture.SourceSceneTextureOrdinal
-            ?? row?.GenshinHairAtlas?.Lightmap.SourceSceneTextureOrdinal ?? row?.StarMcHair?.Highlight.SourceSceneTextureOrdinal
-            ?? row?.EndfieldHair?.Texture.SourceSceneTextureOrdinal ?? -1;
-        int second = face?.Secondary?.SourceSceneTextureOrdinal ?? row?.GenshinHairAtlas?.Atlas.SourceSceneTextureOrdinal ?? row?.StarMcHair?.Shadow.SourceSceneTextureOrdinal ?? -1;
-        primaryTexture = textures.FirstOrDefault(item => item.Index == first); secondaryTexture = textures.FirstOrDefault(item => item.Index == second);
+        LocalMaterialIndex = index;
+        rawMaterialName = name;
+        Label = $"{index} · {name}";
+        original = row;
+        this.layout = layout;
+        this.styleCatalog = styleCatalog ?? D3D12ViewStyleCatalog.Empty;
+        this.objectId = objectId;
+        this.textureDimensions = textureDimensions ?? [];
+        this.effectiveStyleId = effectiveStyleId ?? D3D12SurfaceStyleMap.DefaultStyleId;
+        SupportsOutlineScaling = supportsOutlineScaling;
+        outlinePercent = (decimal)outlineScale * 100m;
+        Textures = textures;
+        Bones = bones;
+        roleIndex = row is null ? 0 : (int)row.Role + 1;
+        faceNormal = (decimal)(row?.FaceNormalShadeStrength ?? .35f);
+        faceShadow = (decimal)(row?.FaceGeometricShadowStrength ?? 1f);
+        eyeShadow = (decimal)(row?.EyeGeometricShadowStrength ?? .2f);
+
+        var tr = row?.PmxMaterialTreatment;
+        pmxSaturation = (decimal)(tr?.Saturation ?? 1f);
+        pmxTransitionWidthScale = (decimal)(tr?.TransitionWidthScale ?? 1f);
+        pmxValueContrast = (decimal)(tr?.ValueContrast ?? 0f);
+        pmxShadeGamma = (decimal)(tr?.ShadeGamma ?? 1f);
+        pmxHairHighlightStrength = (decimal)(tr?.HairHighlightStrength ?? 0f);
+        pmxHairHighlightWidth = (decimal)(tr?.HairHighlightWidth ?? .12f);
+
+        foreach (var def in EditorStyleCatalogOrdering.OrderStyles(this.styleCatalog.Styles))
+            pipelineEntries.Add(new(def.StyleId, def));
+
+        var primaryBinding = FindPrimaryEditableBinding(row);
+        if (primaryBinding is not null && !pipelineEntries.Any(entry => string.Equals(entry.StyleId, primaryBinding.StyleId, StringComparison.Ordinal)))
+            pipelineEntries.Add(new(primaryBinding.StyleId, null));
+
+        string? preferredPipeline = primaryBinding?.StyleId ?? effectiveStyleId;
+        pipelineIndex = !string.IsNullOrWhiteSpace(preferredPipeline)
+            ? pipelineEntries.FindIndex(entry => string.Equals(entry.StyleId, preferredPipeline, StringComparison.Ordinal))
+            : -1;
+        if (pipelineIndex < 0 && pipelineEntries.Count > 0)
+            pipelineIndex = 0;
+
+        var faceBinding = row?.PluginBindings.FirstOrDefault(static binding => string.Equals(binding.ModeId, "face-sdf", StringComparison.Ordinal));
+        fixedForward = faceBinding?.BoneBinding?.FixedWorldForward ?? Vector3.UnitZ;
+        fixedRight = faceBinding?.BoneBinding?.FixedWorldRight ?? Vector3.UnitX;
+        if (faceBinding?.BoneBinding is { Mode: StyleBoneTrackingMode.SelectedBone, BoneName: { } boneName } && !string.IsNullOrEmpty(boneName))
+            SelectedBone = bones.FirstOrDefault(bone => string.Equals(bone.EffectiveName, boneName, StringComparison.Ordinal));
+
+        if (row?.PluginBindings is { Count: > 0 } savedBindings)
+        {
+            foreach (var b in savedBindings)
+                draftBindings[(b.StyleId, b.ModeId)] = b;
+        }
+
+        if (!string.IsNullOrWhiteSpace(this.effectiveStyleId) && this.styleCatalog.FindStyle(this.effectiveStyleId) is { } activeStyle)
+        {
+            foreach (var mode in activeStyle.MaterialModes)
+            {
+                if (IsCoveredByBuiltInModeRows(activeStyle.StyleId, mode.ModeId))
+                    continue;
+                legacyDynamicModes.Add(new(activeStyle.StyleId, activeStyle, mode));
+            }
+        }
+
+        int first = ExtractTextureOrdinal(primaryBinding, this.styleCatalog, slotIndex: 0);
+        int second = ExtractTextureOrdinal(primaryBinding, this.styleCatalog, slotIndex: 1);
+        primaryTexture = textures.FirstOrDefault(item => item.Index == first);
+        secondaryTexture = textures.FirstOrDefault(item => item.Index == second);
+
+        RebuildDynamicModes();
+        ValidateLive();
         Observe(this, static model => model.RefreshLocalization());
     }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     public int LocalMaterialIndex { get; }
     public string Label { get; }
     public string[] RoleChoices => [Text("沿用原材质（不映射）"), Text("Mda.Text.6f93b2ca1bb0"), Text("Mda.Text.68fa14a6d0cf"), Text("Mda.Text.4f550cf482e7"), Text("Mda.Text.982acfe3cb07")];
-    public string[] ModeChoices => [Text("保留当前专用数据"), Text("普通 PMX（清除专用数据）"), "FaceSDF", Text("Mda.Text.56322a44a09f"), Text("Mda.Text.163107481cb7"), Text("星铁／鸣潮 · 头发"), Text("终末地 · 径向头发")];
-    public string[] PipelineChoices => [Text("原神"), Text("星穹铁道"), Text("鸣潮"), Text("终末地")];
+    public string[] ModeChoices => BuildModeChoices();
+    public string[] PipelineChoices => pipelineEntries.Select(ResolvePipelineChoiceLabel).ToArray();
     public IReadOnlyList<EditorSourceChoice> Textures { get; }
     public IReadOnlyList<EditorSourceChoice> Bones { get; }
+    public ObservableCollection<EditorStyleModeItem> DynamicModes => dynamicModes;
+    public bool HasDynamicModes => dynamicModes.Count > 0;
+    public bool HasNoDynamicModes => !HasDynamicModes;
+    public bool ShowMapRoleHint => !IsMapped && HasDynamicModes;
+    public string EffectiveStyleDisplayName => styleCatalog.FindStyle(effectiveStyleId) is { } def
+        ? ResolveLocalized(def.DisplayName, def.StyleId)
+        : (string.Equals(effectiveStyleId, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal)
+            ? Text("Mda.Text.Context.Inspector.Style.Option.Mmd")
+            : effectiveStyleId);
+    public string DynamicModesHeaderHint => Format("Mda.Text.ModelProps.DynamicModesHint", EffectiveStyleDisplayName);
+    public string NoDynamicModesNotice => styleCatalog.FindStyle(effectiveStyleId) is not null
+        ? Text("Mda.Text.ModelProps.NoDynamicModes")
+        : Format("Mda.Text.ModelProps.ModelStyleNoPluginNotice", EffectiveStyleDisplayName);
+    public string StyleValidationMessage => styleValidationMessage;
+    public bool HasStyleValidationMessage => !string.IsNullOrWhiteSpace(styleValidationMessage);
+
     public EditorSourceChoice? SelectedBone { get; set; }
-    public int RoleIndex { get => roleIndex; set { if (refreshingLocalization) return; roleIndex = value; Changed(); Changed(nameof(IsMapped)); } }
-    public int ModeIndex { get => modeIndex; set { if (refreshingLocalization) return; modeIndex = value; Changed(); Changed(nameof(NeedsPrimary)); Changed(nameof(NeedsSecondary)); Changed(nameof(NeedsPipeline)); Changed(nameof(IsFace)); Changed(nameof(PrimaryLabel)); Changed(nameof(SecondaryLabel)); } }
-    public int PipelineIndex { get => pipelineIndex; set { if (refreshingLocalization) return; pipelineIndex = value; Changed(); Changed(nameof(NeedsSecondary)); } }
+    public int RoleIndex
+    {
+        get => roleIndex;
+        set
+        {
+            if (refreshingLocalization || roleIndex == value) return;
+            roleIndex = value;
+            Changed();
+            Changed(nameof(IsMapped));
+            Changed(nameof(ShowMapRoleHint));
+            Changed(nameof(IsBodyOrHair));
+            Changed(nameof(IsNotBodyOrHair));
+            Changed(nameof(IsHairRole));
+            Changed(nameof(IsMappedAndNotHair));
+            foreach (var mode in dynamicModes)
+                mode.NotifyRoleChanged();
+            ValidateLive();
+        }
+    }
+    public int ModeIndex
+    {
+        get => modeIndex;
+        set
+        {
+            if (refreshingLocalization) return;
+            modeIndex = value;
+            legacyModeEdited = value > 0;
+            Changed();
+            Changed(nameof(NeedsPrimary));
+            Changed(nameof(NeedsSecondary));
+            Changed(nameof(NeedsPipeline));
+            Changed(nameof(IsFace));
+            Changed(nameof(PrimaryLabel));
+            Changed(nameof(SecondaryLabel));
+        }
+    }
+    public int PipelineIndex
+    {
+        get => pipelineIndex;
+        set
+        {
+            if (refreshingLocalization) return;
+            pipelineIndex = value;
+            Changed();
+            Changed(nameof(NeedsSecondary));
+            Changed(nameof(PrimaryLabel));
+            Changed(nameof(SecondaryLabel));
+        }
+    }
     public EditorSourceChoice? PrimaryTexture { get => primaryTexture; set { primaryTexture = value; Changed(); } }
     public EditorSourceChoice? SecondaryTexture { get => secondaryTexture; set { secondaryTexture = value; Changed(); } }
     public decimal? FaceNormal { get => faceNormal; set { faceNormal = value; Changed(); } }
     public decimal? FaceShadow { get => faceShadow; set { faceShadow = value; Changed(); } }
     public decimal? EyeShadow { get => eyeShadow; set { eyeShadow = value; Changed(); } }
+    public decimal? PmxSaturation { get => pmxSaturation; set { pmxSaturation = value; Changed(); } }
+    public decimal? PmxTransitionWidthScale { get => pmxTransitionWidthScale; set { pmxTransitionWidthScale = value; Changed(); } }
+    public decimal? PmxValueContrast { get => pmxValueContrast; set { pmxValueContrast = value; Changed(); } }
+    public decimal? PmxShadeGamma { get => pmxShadeGamma; set { pmxShadeGamma = value; Changed(); } }
+    public decimal? PmxHairHighlightStrength { get => pmxHairHighlightStrength; set { pmxHairHighlightStrength = value; Changed(); } }
+    public decimal? PmxHairHighlightWidth { get => pmxHairHighlightWidth; set { pmxHairHighlightWidth = value; Changed(); } }
     public bool IsMapped => RoleIndex > 0;
+    public bool IsBodyOrHair => RoleIndex is 1 or 4;
+    public bool IsNotBodyOrHair => IsMapped && !IsBodyOrHair;
+    public bool IsHairRole => RoleIndex == 4;
+    public bool IsMappedAndNotHair => IsMapped && IsBodyOrHair && !IsHairRole;
     public bool SupportsOutlineScaling { get; }
     public bool OutlineScalingUnavailable => !SupportsOutlineScaling;
     public decimal? OutlinePercent { get => outlinePercent; set { outlinePercent = value; Changed(); } }
+
+    public void ResetPmxTreatment()
+    {
+        PmxSaturation = 1m;
+        PmxTransitionWidthScale = 1m;
+        PmxValueContrast = 0m;
+        PmxShadeGamma = 1m;
+        PmxHairHighlightStrength = 0m;
+        PmxHairHighlightWidth = 0.12m;
+    }
+
+    internal void UpdateEffectiveStyle(string styleId)
+    {
+        if (string.Equals(effectiveStyleId, styleId, StringComparison.Ordinal))
+            return;
+        SnapshotCurrentDynamicDrafts();
+        effectiveStyleId = styleId;
+        RebuildDynamicModes();
+        ValidateLive();
+        Changed(nameof(EffectiveStyleDisplayName));
+        Changed(nameof(DynamicModesHeaderHint));
+        Changed(nameof(NoDynamicModesNotice));
+        Changed(nameof(HasDynamicModes));
+        Changed(nameof(HasNoDynamicModes));
+        Changed(nameof(ShowMapRoleHint));
+    }
+
     public D3D12MaterialBindingProfileOutline? BuildOutline()
     {
         if (OutlinePercent is null or < 0 or > 400) throw Error("Mda.Text.OutlineScale.Invalid");
         if (!SupportsOutlineScaling && OutlinePercent != 100) throw Error("Mda.Text.OutlineScale.ModernOnly");
         return OutlinePercent == 100 ? null : new(LocalMaterialIndex, (float)(OutlinePercent.Value / 100m));
     }
-    public bool NeedsPrimary => ModeIndex >= 2;
-    public bool NeedsSecondary => ModeIndex is 4 or 5 || ModeIndex == 2 && PipelineIndex is 0 or 3;
+
+    public bool NeedsPrimary => ModeIndex is >= 2 and <= 6 || (GetDynamicMode(ModeIndex) is { } extra && extra.Mode.TextureInputs.Count >= 1);
+    public bool NeedsSecondary
+    {
+        get
+        {
+            if (ModeIndex is 4 or 5) return true;
+            if (ModeIndex == 2)
+            {
+                var entry = SelectedPipelineEntry();
+                var mode = FindMode(entry?.Definition, "face-sdf");
+                if (mode is not null)
+                    return mode.TextureInputs.Count >= 2;
+                return original?.PluginBindings.Any(static b => string.Equals(b.ModeId, "face-sdf", StringComparison.Ordinal)
+                    && (b.TextureSlots?.ContainsKey("secondary") ?? false)) == true;
+            }
+            return GetDynamicMode(ModeIndex) is { } extra && extra.Mode.TextureInputs.Count >= 2;
+        }
+    }
     public bool NeedsPipeline => ModeIndex is 2 or 5;
-    public bool IsFace => ModeIndex == 2;
-    public string PrimaryLabel => Text(ModeIndex switch { 2 => "FaceSDF 主图", 3 or 4 => "光照控制图（LightMap）", 5 => "头发高光图", 6 => "径向头发图", _ => "主图" });
-    public string SecondaryLabel => Text(ModeIndex switch { 2 => "FaceSDF 副图", 4 => "明暗渐变图／图集", 5 => "头发阴影图", _ => "副图" });
-    public string ExistingMapping => Text(original is null ? "此材质尚无显式映射。" : original.Face is not null ? "当前：FaceSDF"
-        : original.StarMcBody is not null ? "Mda.Text.1b1caee6a93f"
-        : original.EndfieldMatcap is not null ? "Mda.Text.fbbacdc212d0"
-        : original.GenshinMetallic is not null ? "Mda.Text.37c4f44fe900"
-        : original.GenshinHairAtlas is not null ? "Mda.Text.5bc3bbdf4dbf"
-        : original.GenshinHair is not null ? "Mda.Text.cfb66317f18a"
-        : original.StarMcHair is not null ? "当前：星铁／鸣潮头发"
-        : original.EndfieldHair is not null ? "当前：终末地径向头发" : "当前：显式材质角色与普通 PMX 参数");
-    public string FixedBasisSummary => Format("固定世界方向  前 ({0:0.###}, {1:0.###}, {2:0.###})  右 ({3:0.###}, {4:0.###}, {5:0.###})", fixedForward.X, fixedForward.Y, fixedForward.Z, fixedRight.X, fixedRight.Y, fixedRight.Z);
+    public bool IsFace => ModeIndex == 2 || (GetDynamicMode(ModeIndex)?.Mode.SupportsBoneTracking == true);
+
+    public string PrimaryLabel
+    {
+        get
+        {
+            if (GetDynamicMode(ModeIndex) is { } extra && extra.Mode.TextureInputs.Count >= 1)
+                return ResolveLocalized(extra.Mode.TextureInputs[0].DisplayName, extra.Mode.TextureInputs[0].SlotKey);
+            return Text(ModeIndex switch
+            {
+                2 => "FaceSDF 主图",
+                3 or 4 => "光照控制图（LightMap）",
+                5 => "头发高光图",
+                6 => "径向头发图",
+                _ => "主图"
+            });
+        }
+    }
+
+    public string SecondaryLabel
+    {
+        get
+        {
+            if (GetDynamicMode(ModeIndex) is { } extra && extra.Mode.TextureInputs.Count >= 2)
+                return ResolveLocalized(extra.Mode.TextureInputs[1].DisplayName, extra.Mode.TextureInputs[1].SlotKey);
+            return Text(ModeIndex switch
+            {
+                2 => "FaceSDF 副图",
+                4 => "明暗渐变图／图集",
+                5 => "头发阴影图",
+                _ => "副图"
+            });
+        }
+    }
+
+    public string ExistingMapping => BuildExistingMappingSummary();
+
+    public string FixedBasisSummary => Format("固定世界方向  前 ({0:0.###}, {1:0.###}, {2:0.###})  右 ({3:0.###}, {4:0.###}, {5:0.###})",
+        fixedForward.X, fixedForward.Y, fixedForward.Z, fixedRight.X, fixedRight.Y, fixedRight.Z);
+
     public void SetFixedBasis(Vector3 forward, Vector3 right)
     {
         if (!float.IsFinite(forward.LengthSquared()) || !float.IsFinite(right.LengthSquared()) || forward.LengthSquared() < 1e-8f || right.LengthSquared() < 1e-8f)
@@ -330,54 +638,540 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     public D3D12MaterialBindingProfileRow? Build()
     {
         if (RoleIndex == 0) return null;
-        if (RoleIndex is < 1 or > 4 || ModeIndex is < 0 or > 6) throw Error("{0}：请选择有效材质角色与数据类型。", Label);
+        int maxMode = 6 + legacyDynamicModes.Count;
+        if (RoleIndex is < 1 or > 4 || ModeIndex < 0 || ModeIndex > maxMode)
+            throw Error("{0}：请选择有效材质角色与数据类型。", Label);
         var role = (D3D12CharacterMaterialRole)(RoleIndex - 1);
-        var row = (ModeIndex == 0 ? original : null) ?? new D3D12MaterialBindingProfileRow(LocalMaterialIndex, role);
-        row = row with { Role = role, FaceNormalShadeStrength = EditorModelPropertiesViewModel.Number(FaceNormal, "面部法线明暗"),
-            FaceGeometricShadowStrength = EditorModelPropertiesViewModel.Number(FaceShadow, "面部投影强度"), EyeGeometricShadowStrength = EditorModelPropertiesViewModel.Number(EyeShadow, "眼睛投影强度") };
-        D3D12MaterialBindingProfileTexture Texture(EditorSourceChoice? choice, string label)
-        { if (choice is not { Index: >= 0 }) throw Error("{0}：请选择{1}。", Label, EditorLocalization.Label(label)); return layout.CaptureTexture(choice.Index); }
-        string Pipeline() => PipelineIndex switch { 0 => "genshin", 1 => "star-rail", 2 => "wuthering-waves", 3 => "endfield", _ => throw Error("请选择专用数据的画风。") };
-        switch (ModeIndex)
+
+        var nextGuards = new Dictionary<int, D3D12MaterialBindingProfileTexture>();
+        int CaptureSlot(EditorSourceChoice? choice, string slotLabel)
         {
-            case 2:
-                string pipeline = Pipeline();
-                var encoding = pipeline switch { "genshin" => D3D12FaceSdfEncoding.GenshinSoftFace, "endfield" => D3D12FaceSdfEncoding.EndfieldRgbCmM, _ => D3D12FaceSdfEncoding.GrayRed };
-                var oldFace = original?.Face;
-                var face = oldFace is not null && oldFace.PipelineId == pipeline ? oldFace : new D3D12MaterialBindingProfileFace(pipeline,
-                    Texture(PrimaryTexture, "FaceSDF 主图"), null, fixedForward, fixedRight,
-                    pipeline == "genshin" ? .001f : 1f, pipeline == "genshin" ? .55f : 1f, encoding);
-                row = row with { Face = face with { Primary = Texture(PrimaryTexture, "FaceSDF 主图"),
-                    Secondary = pipeline is "genshin" or "endfield" ? Texture(SecondaryTexture, "FaceSDF 副图") : null,
-                    HeadWorldForward = fixedForward, HeadWorldRight = fixedRight } }; break;
-            case 3:
-                row = row with { GenshinHair = (original?.GenshinHair ?? new(Texture(PrimaryTexture, "光照控制图（LightMap）"))) with { Texture = Texture(PrimaryTexture, "光照控制图（LightMap）") } }; break;
-            case 4:
-                row = row with { GenshinHairAtlas = (original?.GenshinHairAtlas ?? new(Texture(PrimaryTexture, "光照控制图（LightMap）"), Texture(SecondaryTexture, "明暗渐变图／图集"),
-                    D3D12GenshinAtlasColorEncoding.LinearRgb, 1, 0, .55f, .01f, 1, 1, 1, 0)) with
-                    { Lightmap = Texture(PrimaryTexture, "光照控制图（LightMap）"), Atlas = Texture(SecondaryTexture, "明暗渐变图／图集") } }; break;
-            case 5:
-                string hairPipeline = Pipeline();
-                if (hairPipeline is not ("star-rail" or "wuthering-waves")) throw Error("此头发数据只能显式选择星铁或鸣潮。");
-                var oldHair = original?.StarMcHair;
-                row = row with { StarMcHair = (oldHair is not null && oldHair.PipelineId == hairPipeline ? oldHair : new(hairPipeline,
-                    Texture(PrimaryTexture, "头发高光图"), Texture(SecondaryTexture, "头发阴影图"))) with
-                    { Highlight = Texture(PrimaryTexture, "头发高光图"), Shadow = Texture(SecondaryTexture, "头发阴影图") } }; break;
-            case 6:
-                row = row with { EndfieldHair = (original?.EndfieldHair ?? new(Texture(PrimaryTexture, "径向头发图"), Vector3.One)) with { Texture = Texture(PrimaryTexture, "径向头发图") } }; break;
+            if (choice is not { Index: >= 0 })
+                throw Error("{0}：请选择{1}。", Label, EditorLocalization.Label(slotLabel));
+            return CaptureOrdinal(choice.Index);
         }
-        if (ModeIndex == 0 && fixedBasisChanged && row.Face is { } retainedFace)
-            row = row with { Face = retainedFace with { HeadWorldForward = fixedForward, HeadWorldRight = fixedRight } };
+        int CaptureOrdinal(int ordinal)
+        {
+            var texture = layout.CaptureTexture(ordinal);
+            nextGuards[texture.SourceSceneTextureOrdinal] = texture;
+            return texture.SourceSceneTextureOrdinal;
+        }
+
+        IReadOnlyList<StyleMaterialBindingData> nextBindings;
+        IReadOnlyList<D3D12MaterialBindingProfileTexture> resultGuards;
+        D3D12PmxMaterialTreatment? nextTreatment = BuildPmxTreatment(role);
+
+        if (legacyModeEdited)
+        {
+            if (ModeIndex == 1)
+            {
+                nextBindings = [];
+                resultGuards = [];
+            }
+            else
+            {
+                var binding = ModeIndex switch
+                {
+                    2 => BuildFaceSdfBinding(CaptureSlot),
+                    3 => BuildRequiredStyleBinding("genshin", "hair", new() { ["texture"] = CaptureSlot(PrimaryTexture, "光照控制图（LightMap）") }),
+                    4 => BuildRequiredStyleBinding("genshin", "hair-atlas", new()
+                    {
+                        ["lightmap"] = CaptureSlot(PrimaryTexture, "光照控制图（LightMap）"),
+                        ["atlas"] = CaptureSlot(SecondaryTexture, "明暗渐变图／图集")
+                    }),
+                    5 => BuildHighlightShadowHairBinding(CaptureSlot),
+                    6 => BuildRequiredStyleBinding("endfield", "hair", new() { ["texture"] = CaptureSlot(PrimaryTexture, "径向头发图") }),
+                    _ => BuildDynamicModeBinding(GetDynamicMode(ModeIndex)!, CaptureSlot)
+                };
+                nextBindings = [binding];
+                resultGuards = nextGuards.Values.ToArray();
+            }
+        }
+        else if (dynamicModes.Count > 0)
+        {
+            var combined = new List<StyleMaterialBindingData>();
+            // Preserve dormant bindings from other rendering styles so temporary previews remain lossless.
+            if (original is not null)
+            {
+                foreach (var dormant in original.PluginBindings)
+                {
+                    if (string.Equals(dormant.StyleId, effectiveStyleId, StringComparison.Ordinal))
+                        continue;
+                    combined.Add(dormant);
+                    if (dormant.TextureSlots is not null)
+                    {
+                        foreach (int ordinal in dormant.TextureSlots.Values)
+                        {
+                            if (ordinal >= 0 && !nextGuards.ContainsKey(ordinal))
+                            {
+                                var existingGuard = original.TextureGuards.FirstOrDefault(g => g.SourceSceneTextureOrdinal == ordinal);
+                                nextGuards[ordinal] = existingGuard ?? layout.CaptureTexture(ordinal);
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (var modeItem in dynamicModes)
+            {
+                if (!modeItem.IsEnabled) continue;
+                var builtBinding = modeItem.BuildBindingData(Label, CaptureOrdinal, strictValidation: true);
+                if (fixedBasisChanged && modeItem.SupportsBoneTracking && modeItem.BoneTrackingModeIndex == 0)
+                {
+                    builtBinding = builtBinding with
+                    {
+                        BoneBinding = new StyleBoneAxisBinding(
+                            StyleBoneTrackingMode.FixedWorld,
+                            FixedWorldForward: fixedForward,
+                            FixedWorldRight: fixedRight)
+                    };
+                }
+                combined.Add(builtBinding);
+            }
+            nextBindings = combined;
+            resultGuards = nextGuards.Values.ToArray();
+        }
+        else
+        {
+            if (original is null)
+            {
+                nextBindings = [];
+                resultGuards = [];
+            }
+            else if (fixedBasisChanged)
+            {
+                var updated = new List<StyleMaterialBindingData>(original.PluginBindings.Count);
+                foreach (var binding in original.PluginBindings)
+                {
+                    updated.Add(string.Equals(binding.ModeId, "face-sdf", StringComparison.Ordinal)
+                        ? binding with
+                        {
+                            BoneBinding = new StyleBoneAxisBinding(
+                                StyleBoneTrackingMode.FixedWorld,
+                                FixedWorldForward: fixedForward,
+                                FixedWorldRight: fixedRight)
+                        }
+                        : binding);
+                }
+                nextBindings = updated;
+                resultGuards = original.TextureGuards;
+            }
+            else
+            {
+                nextBindings = original.PluginBindings;
+                resultGuards = original.TextureGuards;
+            }
+        }
+
+        var row = new D3D12MaterialBindingProfileRow(
+            LocalMaterialIndex,
+            role,
+            EditorModelPropertiesViewModel.Number(FaceNormal, "面部法线明暗"),
+            EditorModelPropertiesViewModel.Number(FaceShadow, "面部投影强度"),
+            EditorModelPropertiesViewModel.Number(EyeShadow, "眼睛投影强度"),
+            pmxMaterialTreatment: nextTreatment,
+            pluginBindings: nextBindings,
+            textureGuards: resultGuards,
+            explicitRole: true);
+
         row.Validate();
         return row == original ? original : row;
     }
+
+    private D3D12PmxMaterialTreatment? BuildPmxTreatment(D3D12CharacterMaterialRole role)
+    {
+        if (role is not (D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair))
+            return null;
+
+        float sat = EditorModelPropertiesViewModel.Number(PmxSaturation, Text("Mda.Text.ModelProps.PmxTreatmentSaturation"));
+        float transition = EditorModelPropertiesViewModel.Number(PmxTransitionWidthScale, Text("Mda.Text.ModelProps.PmxTreatmentTransition"));
+        float contrast = EditorModelPropertiesViewModel.Number(PmxValueContrast, Text("Mda.Text.ModelProps.PmxTreatmentContrast"));
+        float gamma = EditorModelPropertiesViewModel.Number(PmxShadeGamma, Text("Mda.Text.ModelProps.PmxTreatmentGamma"));
+        float hairStrength = role == D3D12CharacterMaterialRole.Hair
+            ? EditorModelPropertiesViewModel.Number(PmxHairHighlightStrength, Text("Mda.Text.ModelProps.PmxTreatmentHairStrength"))
+            : 0f;
+        float hairWidth = EditorModelPropertiesViewModel.Number(PmxHairHighlightWidth, Text("Mda.Text.ModelProps.PmxTreatmentHairWidth"));
+
+        var candidate = new D3D12PmxMaterialTreatment(sat, transition, contrast, gamma, hairStrength, hairWidth);
+        candidate.Validate();
+        if (original?.PmxMaterialTreatment is null && candidate == new D3D12PmxMaterialTreatment())
+            return null;
+        return candidate;
+    }
+
+    private void RebuildDynamicModes()
+    {
+        rebuildingDynamicModes = true;
+        try
+        {
+            dynamicModes.Clear();
+            var activeStyle = styleCatalog.FindStyle(effectiveStyleId);
+            if (activeStyle is not null)
+            {
+                foreach (var mode in activeStyle.MaterialModes)
+                {
+                    if (string.Equals(mode.ModeId, "default", StringComparison.Ordinal)
+                        && mode.Parameters.Count == 0
+                        && mode.TextureInputs.Count == 0
+                        && !mode.SupportsBoneTracking)
+                        continue;
+
+                    StyleMaterialBindingData? previous = null;
+                    if (!draftBindings.TryGetValue((activeStyle.StyleId, mode.ModeId), out previous) && mode.LegacyAliases is not null)
+                    {
+                        foreach (string alias in mode.LegacyAliases)
+                        {
+                            if (draftBindings.TryGetValue((activeStyle.StyleId, alias), out previous))
+                                break;
+                        }
+                    }
+
+                    dynamicModes.Add(new EditorStyleModeItem(
+                        activeStyle,
+                        mode,
+                        Textures,
+                        Bones,
+                        previous,
+                        () => IsMapped ? D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1)) : null,
+                        OnDynamicModeChanged));
+                }
+            }
+        }
+        finally
+        {
+            rebuildingDynamicModes = false;
+        }
+    }
+
+    private void SnapshotCurrentDynamicDrafts()
+    {
+        foreach (var modeItem in dynamicModes)
+        {
+            var key = (modeItem.StyleId, modeItem.ModeId);
+            if (modeItem.IsEnabled)
+                draftBindings[key] = modeItem.BuildBindingData(Label, static ordinal => ordinal, strictValidation: false);
+            else
+                draftBindings.Remove(key);
+        }
+    }
+
+    private void OnDynamicModeChanged()
+    {
+        if (rebuildingDynamicModes) return;
+        ValidateLive();
+        Changed(nameof(ExistingMapping));
+    }
+
+    private void ValidateLive()
+    {
+        string nextMessage = "";
+        if (IsMapped && styleCatalog.FindStyle(effectiveStyleId) is { } activeStyle)
+        {
+            var contractRole = D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1));
+            var enabledDrafts = dynamicModes
+                .Where(static m => m.IsEnabled)
+                .Select(m => m.BuildBindingData(Label, static ordinal => ordinal, strictValidation: false))
+                .ToArray();
+            if (enabledDrafts.Length > 0)
+            {
+                var validation = activeStyle.ValidateMaterial(new StyleMaterialValidationContext(
+                    objectId,
+                    LocalMaterialIndex,
+                    rawMaterialName,
+                    contractRole,
+                    enabledDrafts,
+                    textureDimensions.Count,
+                    textureDimensions));
+                if (!validation.IsValid)
+                {
+                    string? rawError = validation.LocalizedError?.Resolve(CurrentLanguage) ?? validation.ErrorMessage;
+                    if (!string.IsNullOrWhiteSpace(rawError))
+                        nextMessage = Format("Mda.Text.ModelProps.ValidationFailedBanner", rawError);
+                }
+            }
+        }
+        if (!string.Equals(styleValidationMessage, nextMessage, StringComparison.Ordinal))
+        {
+            styleValidationMessage = nextMessage;
+            Changed(nameof(StyleValidationMessage));
+            Changed(nameof(HasStyleValidationMessage));
+        }
+    }
+
+    private StyleMaterialBindingData BuildFaceSdfBinding(Func<EditorSourceChoice?, string, int> captureSlot)
+    {
+        var entry = SelectedPipelineEntry() ?? throw Error("请选择专用数据的画风。");
+        var style = entry.Definition ?? throw Error("Mda.Text.ModelProps.PluginStyleUnavailableError", entry.StyleId);
+        var mode = FindMode(style, "face-sdf") ?? throw Error("Mda.Text.ModelProps.StyleNoFaceSdfError", ResolvePipelineChoiceLabel(entry));
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["primary"] = captureSlot(PrimaryTexture, "FaceSDF 主图")
+        };
+        if (mode.TextureInputs.Count >= 2)
+            slots["secondary"] = captureSlot(SecondaryTexture, "FaceSDF 副图");
+
+        var boneBinding = new StyleBoneAxisBinding(
+            StyleBoneTrackingMode.FixedWorld,
+            FixedWorldForward: fixedForward,
+            FixedWorldRight: fixedRight);
+        return BuildBindingFromDescriptor(style, mode, slots, boneBinding, FindPreviousBinding(style.StyleId, mode));
+    }
+
+    private StyleMaterialBindingData BuildHighlightShadowHairBinding(Func<EditorSourceChoice?, string, int> captureSlot)
+    {
+        var entry = SelectedPipelineEntry() ?? throw Error("请选择专用数据的画风。");
+        var style = entry.Definition ?? throw Error("Mda.Text.ModelProps.PluginStyleUnavailableError", entry.StyleId);
+        var mode = FindMode(style, "hair");
+        bool hasHighlightShadow = mode is not null
+            && mode.TextureInputs.Any(slot => string.Equals(slot.SlotKey, "highlight", StringComparison.Ordinal))
+            && mode.TextureInputs.Any(slot => string.Equals(slot.SlotKey, "shadow", StringComparison.Ordinal));
+        if (!hasHighlightShadow || mode is null)
+            throw Error("Mda.Text.ModelProps.HighlightShadowHairStyleError");
+
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["highlight"] = captureSlot(PrimaryTexture, "头发高光图"),
+            ["shadow"] = captureSlot(SecondaryTexture, "头发阴影图")
+        };
+        return BuildBindingFromDescriptor(style, mode, slots, null, FindPreviousBinding(style.StyleId, mode));
+    }
+
+    private StyleMaterialBindingData BuildRequiredStyleBinding(string styleId, string modeId, Dictionary<string, int> slots)
+    {
+        var style = styleCatalog.FindStyle(styleId) ?? throw Error("Mda.Text.ModelProps.PluginStyleUnavailableError", styleId);
+        var mode = FindMode(style, modeId) ?? throw Error("Mda.Text.ModelProps.StyleModeNotProvidedError", styleId, modeId);
+        return BuildBindingFromDescriptor(style, mode, slots, null, FindPreviousBinding(style.StyleId, mode));
+    }
+
+    private StyleMaterialBindingData BuildDynamicModeBinding(DynamicModeEntry entry, Func<EditorSourceChoice?, string, int> captureSlot)
+    {
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (entry.Mode.TextureInputs.Count >= 1)
+        {
+            var first = entry.Mode.TextureInputs[0];
+            if (first.Required || PrimaryTexture is { Index: >= 0 })
+                slots[first.SlotKey] = captureSlot(PrimaryTexture, ResolveLocalized(first.DisplayName, first.SlotKey));
+        }
+        if (entry.Mode.TextureInputs.Count >= 2)
+        {
+            var second = entry.Mode.TextureInputs[1];
+            if (second.Required || SecondaryTexture is { Index: >= 0 })
+                slots[second.SlotKey] = captureSlot(SecondaryTexture, ResolveLocalized(second.DisplayName, second.SlotKey));
+        }
+        StyleBoneAxisBinding? boneBinding = entry.Mode.SupportsBoneTracking
+            ? new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld, FixedWorldForward: fixedForward, FixedWorldRight: fixedRight)
+            : null;
+        return BuildBindingFromDescriptor(entry.Definition, entry.Mode, slots, boneBinding, FindPreviousBinding(entry.StyleId, entry.Mode));
+    }
+
+    private StyleMaterialBindingData? FindPreviousBinding(string styleId, StyleMaterialModeDescriptor mode)
+        => original?.PluginBindings.FirstOrDefault(binding =>
+            string.Equals(binding.StyleId, styleId, StringComparison.Ordinal) && ModeMatches(mode, binding.ModeId));
+
+    private static StyleMaterialBindingData BuildBindingFromDescriptor(
+        IRenderingStyleDefinition style,
+        StyleMaterialModeDescriptor mode,
+        Dictionary<string, int> slots,
+        StyleBoneAxisBinding? boneBinding,
+        StyleMaterialBindingData? previous)
+    {
+        Dictionary<string, double>? numbers = null;
+        Dictionary<string, bool>? bools = null;
+        Dictionary<string, float[]>? vectors = null;
+        Dictionary<string, string>? strings = null;
+
+        foreach (var param in mode.Parameters)
+        {
+            switch (param.Kind)
+            {
+                case StyleParameterKind.Float:
+                case StyleParameterKind.Int:
+                    numbers ??= new(StringComparer.Ordinal);
+                    numbers[param.Key] = previous?.NumberValues is { } prevNums && prevNums.TryGetValue(param.Key, out double num)
+                        ? num
+                        : param.DefaultNumber;
+                    break;
+                case StyleParameterKind.Bool:
+                    bools ??= new(StringComparer.Ordinal);
+                    bools[param.Key] = previous?.BoolValues is { } prevBools && prevBools.TryGetValue(param.Key, out bool flag)
+                        ? flag
+                        : param.DefaultBool;
+                    break;
+                case StyleParameterKind.Vector2:
+                case StyleParameterKind.Vector3:
+                case StyleParameterKind.Vector4:
+                case StyleParameterKind.Color3:
+                case StyleParameterKind.Color4:
+                    if (previous?.VectorValues is { } prevVecs && prevVecs.TryGetValue(param.Key, out var vec) && vec is not null)
+                    {
+                        vectors ??= new(StringComparer.Ordinal);
+                        vectors[param.Key] = vec.ToArray();
+                    }
+                    else if (param.DefaultVector is not null)
+                    {
+                        vectors ??= new(StringComparer.Ordinal);
+                        vectors[param.Key] = param.DefaultVector.ToArray();
+                    }
+                    break;
+                case StyleParameterKind.Enum:
+                case StyleParameterKind.BoneName:
+                    if (previous?.StringValues is { } prevStrs && prevStrs.TryGetValue(param.Key, out var str) && str is not null)
+                    {
+                        strings ??= new(StringComparer.Ordinal);
+                        strings[param.Key] = str;
+                    }
+                    else if (param.DefaultString is not null)
+                    {
+                        strings ??= new(StringComparer.Ordinal);
+                        strings[param.Key] = param.DefaultString;
+                    }
+                    break;
+            }
+        }
+
+        return new StyleMaterialBindingData(
+            style.StyleId,
+            mode.ModeId,
+            slots.Count > 0 ? slots : null,
+            numbers,
+            bools,
+            vectors,
+            strings,
+            boneBinding);
+    }
+
+    private string[] BuildModeChoices()
+    {
+        List<string> choices =
+        [
+            Text("保留当前专用数据"),
+            Text("普通 PMX（清除专用数据）"),
+            "FaceSDF",
+            Text("Mda.Text.56322a44a09f"),
+            Text("Mda.Text.163107481cb7"),
+            Text("星铁／鸣潮 · 头发"),
+            Text("终末地 · 径向头发")
+        ];
+        foreach (var entry in legacyDynamicModes)
+            choices.Add(ResolveLocalized(entry.Mode.DisplayName, entry.Mode.ModeId));
+        return choices.ToArray();
+    }
+
+    private string BuildExistingMappingSummary()
+    {
+        var enabled = dynamicModes.Where(static m => m.IsEnabled).ToArray();
+        if (enabled.Length > 0)
+            return Format("Mda.Text.ModelProps.ExistingBindingsList", string.Join(" + ", enabled.Select(static m => m.DisplayName)));
+
+        if (original is null) return Text("此材质尚无显式映射。");
+        var bindings = original.PluginBindings;
+        if (bindings.Count == 0) return Text("当前：显式材质角色与普通 PMX 参数");
+
+        if (HasBinding(bindings, null, "face-sdf")) return Text("当前：FaceSDF");
+        if (HasBinding(bindings, "star-rail", "body") || HasBinding(bindings, "wuthering-waves", "body")) return Text("Mda.Text.1b1caee6a93f");
+        if (HasBinding(bindings, "endfield", "matcap")) return Text("Mda.Text.fbbacdc212d0");
+        if (HasBinding(bindings, "genshin", "metallic")) return Text("Mda.Text.37c4f44fe900");
+        if (HasBinding(bindings, "genshin", "hair-atlas")) return Text("Mda.Text.5bc3bbdf4dbf");
+        if (HasBinding(bindings, "genshin", "hair") || HasBinding(bindings, "genshin", "genshin-hair")) return Text("Mda.Text.cfb66317f18a");
+        if (HasBinding(bindings, "star-rail", "hair") || HasBinding(bindings, "wuthering-waves", "hair")) return Text("当前：星铁／鸣潮头发");
+        if (HasBinding(bindings, "endfield", "hair")) return Text("当前：终末地径向头发");
+
+        var names = bindings.Select(first =>
+        {
+            var def = styleCatalog.FindStyle(first.StyleId);
+            var mode = FindMode(def, first.ModeId);
+            return mode is not null ? ResolveLocalized(mode.DisplayName, mode.ModeId) : $"{first.StyleId} · {first.ModeId}";
+        });
+        return Format("Mda.Text.ModelProps.ExistingBindingsList", string.Join(" + ", names));
+
+        static bool HasBinding(IReadOnlyList<StyleMaterialBindingData> list, string? styleId, string modeId)
+            => list.Any(b => (styleId is null || string.Equals(b.StyleId, styleId, StringComparison.Ordinal))
+                && string.Equals(b.ModeId, modeId, StringComparison.Ordinal));
+    }
+
+    private PipelineEntry? SelectedPipelineEntry()
+        => (uint)pipelineIndex < (uint)pipelineEntries.Count ? pipelineEntries[pipelineIndex] : null;
+
+    private DynamicModeEntry? GetDynamicMode(int index)
+        => index >= 7 && index - 7 < legacyDynamicModes.Count ? legacyDynamicModes[index - 7] : null;
+
+    private string ResolvePipelineChoiceLabel(PipelineEntry entry)
+        => entry.Definition is { } def
+            ? ResolveLocalized(def.DisplayName, def.StyleId)
+            : Format("Mda.Text.Context.Inspector.Style.RetainedOption", entry.StyleId);
+
+    private static string ResolveLocalized(LocalizedText? text, string fallback)
+    {
+        string? resolved = text?.Resolve(CurrentLanguage);
+        return string.IsNullOrWhiteSpace(resolved) ? fallback : resolved;
+    }
+
+    private static StyleMaterialModeDescriptor? FindMode(IRenderingStyleDefinition? style, string modeId)
+        => style?.MaterialModes.FirstOrDefault(mode => ModeMatches(mode, modeId));
+
+    private static bool ModeMatches(StyleMaterialModeDescriptor mode, string modeId)
+        => string.Equals(mode.ModeId, modeId, StringComparison.Ordinal)
+            || (mode.LegacyAliases?.Any(alias => string.Equals(alias, modeId, StringComparison.Ordinal)) ?? false);
+
+    private static bool IsCoveredByBuiltInModeRows(string styleId, string modeId)
+    {
+        if (string.Equals(modeId, "default", StringComparison.Ordinal)
+            || string.Equals(modeId, "face-sdf", StringComparison.Ordinal))
+            return true;
+        if (string.Equals(styleId, "genshin", StringComparison.Ordinal) && modeId is "hair" or "genshin-hair" or "hair-atlas")
+            return true;
+        if (styleId is ("star-rail" or "wuthering-waves") && string.Equals(modeId, "hair", StringComparison.Ordinal))
+            return true;
+        if (string.Equals(styleId, "endfield", StringComparison.Ordinal) && string.Equals(modeId, "hair", StringComparison.Ordinal))
+            return true;
+        return false;
+    }
+
+    private static StyleMaterialBindingData? FindPrimaryEditableBinding(D3D12MaterialBindingProfileRow? row)
+    {
+        if (row is null || row.PluginBindings.Count == 0)
+            return null;
+        return row.PluginBindings.FirstOrDefault(static b => string.Equals(b.ModeId, "face-sdf", StringComparison.Ordinal))
+            ?? row.PluginBindings.FirstOrDefault(static b => b.ModeId is "hair" or "genshin-hair" or "hair-atlas")
+            ?? row.PluginBindings[0];
+    }
+
+    private static int ExtractTextureOrdinal(StyleMaterialBindingData? binding, D3D12ViewStyleCatalog catalog, int slotIndex)
+    {
+        if (binding?.TextureSlots is not { Count: > 0 } slots)
+            return -1;
+        var mode = FindMode(catalog.FindStyle(binding.StyleId), binding.ModeId);
+        if (mode is not null && slotIndex < mode.TextureInputs.Count)
+        {
+            if (slots.TryGetValue(mode.TextureInputs[slotIndex].SlotKey, out int mapped))
+                return mapped;
+        }
+
+        string[] keys = slotIndex == 0
+            ? ["primary", "texture", "lightmap", "highlight", "normal", "baseImage"]
+            : ["secondary", "atlas", "shadow", "matcap", "detail", "p"];
+        foreach (string key in keys)
+        {
+            if (slots.TryGetValue(key, out int ordinal))
+                return ordinal;
+        }
+        return -1;
+    }
+
     private void RefreshLocalization()
     {
         refreshingLocalization = true;
-        try { Changed(null); }
+        try
+        {
+            foreach (var mode in dynamicModes)
+                mode.RefreshLocalization();
+            Changed(null);
+        }
         finally { refreshingLocalization = false; }
         Changed(nameof(RoleIndex)); Changed(nameof(ModeIndex)); Changed(nameof(PipelineIndex));
+        ValidateLive();
     }
+
     private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new(property));
     public override string ToString() => Label;
 }

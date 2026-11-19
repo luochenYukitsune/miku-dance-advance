@@ -13,8 +13,7 @@ public sealed class D3D12PmxGenericHairTests
 
     public static IEnumerable<object[]> Families()
     {
-        foreach (var family in new[] { D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.StarRailPmx,
-            D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx }) yield return [family];
+        foreach (var family in T8cTestHelpers.ModernStyleIds) yield return [family];
     }
 
     public static IEnumerable<object[]> InvalidHairParameters()
@@ -58,7 +57,7 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void OrientedUvProducesANonzeroBandOnZeroSpecularHairAndPreservesStraightAlpha(D3D12SurfaceStyle family)
+    public void OrientedUvProducesANonzeroBandOnZeroSpecularHairAndPreservesStraightAlpha(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Surface(alpha: .6f);
@@ -74,7 +73,7 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void DegenerateUvAndProjectedTangentPassThroughExactly(D3D12SurfaceStyle family)
+    public void DegenerateUvAndProjectedTangentPassThroughExactly(string family)
     {
         using var session = new D3D12FrameSession();
         foreach (var frame in new[] { Surface(degenerateUv: true), Surface(projectedTangentDegenerate: true) })
@@ -87,7 +86,7 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void TinyAuthoredUvScalePreservesTheSameNonzeroBand(D3D12SurfaceStyle family)
+    public void TinyAuthoredUvScalePreservesTheSameNonzeroBand(string family)
     {
         using var session = new D3D12FrameSession();
         var map = Map(family, .3f);
@@ -100,12 +99,12 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
-    public void ComputedSelfShadowSuppressesTheProceduralBandWithTheAuthoredHighlight(D3D12SurfaceStyle family)
+    public void ComputedSelfShadowSuppressesTheProceduralBandWithTheAuthoredHighlight(string family)
     {
         using var session = new D3D12FrameSession();
         var frame = Surface(shadow: true);
-        var families = new[] { family, D3D12SurfaceStyle.Mmd };
-        D3D12SurfaceStyleMap ShadowMap(float strength) => new(families,
+        string[] families = [family, T8cTestHelpers.MmdStyleId];
+        D3D12SurfaceStyleMap ShadowMap(float strength) => T8cTestHelpers.CreateDirectMap(families,
             [new(D3D12CharacterMaterialRole.Hair, PmxMaterialTreatment: new(HairHighlightStrength: strength)), new()]);
         var baseline = session.Capture(frame, Width, Height, surfaceStyles: ShadowMap(0));
         var actual = session.Capture(frame, Width, Height, surfaceStyles: ShadowMap(.3f));
@@ -119,15 +118,9 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families))]
-    public void ShaderGuardsDerivativeDegeneracyAndKeepsExistingHighlightVisibility(D3D12SurfaceStyle family)
+    public void ShaderGuardsDerivativeDegeneracyAndKeepsExistingHighlightVisibility(string family)
     {
-        string source = family switch
-        {
-            D3D12SurfaceStyle.GenshinPmx => OriginalFrameShaders.GenshinSurfaceSource(false, false, false, false),
-            D3D12SurfaceStyle.StarRailPmx => OriginalFrameShaders.StarRailSurfaceSource(false, false, false, false),
-            D3D12SurfaceStyle.WutheringPmx => OriginalFrameShaders.WutheringSurfaceSource(false, false, false, false),
-            _ => OriginalFrameShaders.EndfieldSurfaceSource(false, false, false, false),
-        };
+        string source = T8cTestHelpers.AssemblePluginSurfaceSource(family, "default", "PSSurface", false, false, false, false);
         Assert.Contains("if(abs(determinant)<1e-8) return 0;", source);
         Assert.Contains("if(uvScale<=0) return 0;", source);
         Assert.Contains("float2 ux=duvdx/uvScale, uy=duvdy/uvScale;", source);
@@ -138,8 +131,8 @@ public sealed class D3D12PmxGenericHairTests
         Assert.Contains("float3 tint=max(baseColor,0)/max(1,max(baseColor.r,max(baseColor.g,baseColor.b)));", source);
         Assert.True(source.IndexOf("if(length2<1e-12) return 0;", StringComparison.Ordinal)
             < source.IndexOf("tangent*=rsqrt(length2);", StringComparison.Ordinal));
-        Assert.Contains("if(PmxMaterialTreatmentParams.z>0) highlight+=PmxGenericHair(v,n,h,l,baseColor);", source);
-        Assert.Contains("+highlight*originalC;", source);
+        Assert.Contains("if (PmxMaterialTreatmentParams.z > 0) highlight += PmxGenericHair(v, n, h, l, baseColor);", source);
+        Assert.Contains("+ highlight * originalC;", source);
     }
 
     private static OriginalFrameScene Surface(float alpha = 1, bool degenerateUv = false,
@@ -166,8 +159,8 @@ public sealed class D3D12PmxGenericHairTests
                 : [new(false, false, false)]);
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, float strength = 0, float width = .12f)
-        => new([family], [new(D3D12CharacterMaterialRole.Hair,
+    private static D3D12SurfaceStyleMap Map(string family, float strength = 0, float width = .12f)
+        => T8cTestHelpers.CreateDirectMap([family], [new(D3D12CharacterMaterialRole.Hair,
             PmxMaterialTreatment: new(HairHighlightStrength: strength, HairHighlightWidth: width))]);
     private static byte[] Pixel(RenderedFrame frame) => frame.Rgba.AsSpan((Height / 2 * Width + Width / 2) * 4, 4).ToArray();
     private static void AssertPixel(RenderedFrame frame, Vector3 rgb, float alpha = 1)

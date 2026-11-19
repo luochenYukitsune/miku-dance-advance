@@ -17,6 +17,24 @@ public sealed partial class EditorShellViewModel
 
     public EditorStyleInspectorViewModel StyleInspector { get; } = new();
     public EditorMaterialInspectorViewModel MaterialInspector { get; } = new();
+    internal EditorPluginService? PluginService { get; private set; }
+
+    internal void AttachPluginService(EditorPluginService? service)
+    {
+        PluginService = service;
+        Workspace.AttachPluginService(service);
+        StyleInspector.AttachWorkspace(Workspace);
+        StyleInspector.AttachPluginService(service);
+        MaterialInspector.AttachPluginService(service);
+        RefreshInspectorPages();
+    }
+
+    internal void OnPluginsChanged()
+    {
+        RenderBindingRevision++;
+        RefreshInspectorPages();
+        ViewStateChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public EditorInspectorPage InspectorPage => inspectorPage;
     public int RightInspectorPageIndex
@@ -54,6 +72,7 @@ public sealed partial class EditorShellViewModel
         // A shell constructed before Avalonia initialization (headless tooling) has no resource catalog yet;
         // page context is filled again by the next selection/workspace refresh after the host attaches.
         if (Avalonia.Application.Current is null) return;
+        StyleInspector.AttachWorkspace(Workspace);
         StyleInspector.Refresh(Workspace.Session, Browser.SelectedModel?.ObjectId, !IsBusy, HasProject);
         // The material row draft is only materialized for the visible page; other pages keep selection cheap.
         MaterialInspector.Refresh(Workspace, Browser.SelectedModel?.ObjectId, !IsBusy, InspectorPage == EditorInspectorPage.Material);

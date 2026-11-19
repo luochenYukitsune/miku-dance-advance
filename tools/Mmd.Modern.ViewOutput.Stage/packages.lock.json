@@ -125,6 +125,9 @@
       "mmd.modern.physics": {
         "type": "Project"
       },
+      "mmd.modern.plugins.contracts": {
+        "type": "Project"
+      },
       "mmd.modern.rendering.d3d12": {
         "type": "Project",
         "dependencies": {
@@ -142,6 +145,7 @@
       "mmd.modern.viewoutput.d3d12": {
         "type": "Project",
         "dependencies": {
+          "Mmd.Modern.Plugins.Contracts": "[1.0.0, )",
           "Mmd.Modern.Rendering.D3D12": "[1.0.0, )",
           "Mmd.Modern.ViewOutput": "[1.0.0, )"
         }

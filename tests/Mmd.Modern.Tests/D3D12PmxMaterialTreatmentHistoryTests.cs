@@ -11,11 +11,11 @@ public sealed class D3D12PmxMaterialTreatmentHistoryTests
     private const int Width = 96, Height = 72;
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void SuccessfulScalarEditsResetBothHistoriesOnceAndValidationRetainsTheSubmittedKey(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.GenshinStyleId)]
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    [InlineData(T8cTestHelpers.EndfieldStyleId)]
+    public void SuccessfulScalarEditsResetBothHistoriesOnceAndValidationRetainsTheSubmittedKey(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
@@ -65,11 +65,11 @@ public sealed class D3D12PmxMaterialTreatmentHistoryTests
     }
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.GenshinPmx)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void AbortedEditsKeepTheSuccessfulKeyAndRetryMatchesAFreshCapture(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.GenshinStyleId)]
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    [InlineData(T8cTestHelpers.EndfieldStyleId)]
+    public void AbortedEditsKeepTheSuccessfulKeyAndRetryMatchesAFreshCapture(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
@@ -124,8 +124,8 @@ public sealed class D3D12PmxMaterialTreatmentHistoryTests
         return new() { Mode = D3D12TemporalUpscalingMode.Fsr, QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
     }
 
-    private static D3D12SurfaceStyleMap Map(D3D12PmxMaterialTreatment? treatment, D3D12SurfaceStyle family)
-        => new([family, D3D12SurfaceStyle.Mmd], [new(PmxMaterialTreatment: treatment), new()]);
+    private static D3D12SurfaceStyleMap Map(D3D12PmxMaterialTreatment? treatment, string family)
+        => T8cTestHelpers.CreateDirectMap([family, T8cTestHelpers.MmdStyleId], [new(PmxMaterialTreatment: treatment), new()]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 31, MaxRayDistance: 30, RayEpsilon: .001f,

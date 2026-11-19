@@ -1,6 +1,10 @@
+using System.Buffers.Binary;
+using System.Collections.ObjectModel;
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -20,32 +24,64 @@ public sealed class D3D12GenshinFaceSdfTests
     [Fact]
     public void ExplicitFactoryUsesAuditedShapeDefaultsWithoutChangingLegacyDefaults()
     {
-        var binding = D3D12FaceSdfBinding.GenshinSoft(0, 1, -Vector3.UnitZ, Vector3.UnitX);
-        Assert.Equal(D3D12FaceSdfEncoding.GenshinSoftFace, binding.Encoding);
-        Assert.Equal(.001f, binding.Transition); Assert.Equal(.55f, binding.Offset);
-        Assert.Equal(OriginalTextureSampling.LinearWrap, binding.Sampling);
-        binding.Validate(); Map(binding).Validate(Frame());
-        Assert.True(Map(binding).HasConsumedPackedFaceSdf);
-        (binding with { Transition = 0 }).Validate();
-        var gray = new D3D12FaceSdfBinding(0, -Vector3.UnitZ, Vector3.UnitX);
-        Assert.Equal(1, gray.Transition); Assert.Equal(1, gray.Offset);
-        Assert.Throws<ArgumentOutOfRangeException>(() => (gray with { Transition = 0 }).Validate());
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(FaceSdf: binding).Validate());
-        Assert.Throws<ArgumentException>(() => new D3D12CharacterMaterialStyle(D3D12CharacterMaterialRole.Eye, FaceSdf: binding).Validate());
-        Assert.Throws<NotSupportedException>(() => (binding with { Sampling = OriginalTextureSampling.PointClamp }).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => Map(binding with { SecondaryCombinedTextureIndex = 2 }).Validate(Frame()));
-        Assert.Throws<ArgumentOutOfRangeException>(() => Map(binding with { SecondaryCombinedTextureIndex = -1 }).Validate(Frame()));
-        Map(binding with { SecondaryCombinedTextureIndex = 0 }).Validate(Frame());
+        var mode = TestStylePlugins.Genshin.MaterialModes.Single(m => m.ModeId == "face-sdf");
+        Assert.Equal("GenshinSoftFace", mode.Parameters.Single(p => p.Key == "encoding").DefaultString);
+        Assert.Equal(0.001, mode.Parameters.Single(p => p.Key == "transition").DefaultNumber);
+        Assert.Equal(0.55, mode.Parameters.Single(p => p.Key == "offset").DefaultNumber);
+        var defaultBinding = new StyleMaterialBindingData("genshin", "face-sdf",
+            new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal) { ["primary"] = 0, ["secondary"] = 1 }),
+            BoneBinding: new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld, FixedWorldForward: -Vector3.UnitZ, FixedWorldRight: Vector3.UnitX));
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), defaultBinding).IsValid);
+        var defaultDraw = T8bTestHelpers.BuildGenshinDrawData(D3D12CharacterMaterialRole.Face, 1f, 1f, 0.2f, defaultBinding)!;
+        Assert.Equal(0.001f, BinaryPrimitives.ReadSingleLittleEndian(defaultDraw.ConstantBufferData.Span[32..36]));
+        Assert.Equal(0.55f, BinaryPrimitives.ReadSingleLittleEndian(defaultDraw.ConstantBufferData.Span[36..40]));
+
+        var binding = TestStylePlugins.FaceSdf("genshin", 0, 1, "GenshinSoftFace", .001f, .55f);
+        Map(binding).Validate(Frame());
+        var map = Map(binding);
+        Assert.Equal("face-sdf", map.ResolveShaderModule(0)!.ModuleId);
+        Assert.Equal(2, map.GetPluginDraw(0)!.TextureBindings!.Count);
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), WithTransition(binding, 0f)).IsValid);
+
+        var starMode = TestStylePlugins.StarRail.MaterialModes.Single(m => m.ModeId == "face-sdf");
+        Assert.Equal(1.0, starMode.Parameters.Single(p => p.Key == "transition").DefaultNumber);
+        Assert.Equal(1.0, starMode.Parameters.Single(p => p.Key == "offset").DefaultNumber);
+        Assert.False(T8bTestHelpers.ValidateStyle(TestStylePlugins.StarRail, StyleMaterialRole.Face, Frame(),
+            TestStylePlugins.FaceSdf("star-rail", 0, transition: 0f, offset: 1f)).IsValid);
+
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Body, Frame(), binding).IsValid);
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Eye, Frame(), binding).IsValid);
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), WithSlots(binding, 0, 2)).IsValid);
+        Assert.Throws<ArgumentOutOfRangeException>(() => Map(WithSlots(binding, 0, 2)).Validate(Frame()));
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), WithSlots(binding, 0, -1)).IsValid);
+        Assert.Throws<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([],
+            [TestStylePlugins.Bind(Guid.NewGuid(), 0, WithSlots(binding, 0, -1))], TestStylePlugins.AllViewCatalog));
+        Assert.True(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), WithSlots(binding, 0, 0)).IsValid);
+        Map(WithSlots(binding, 0, 0)).Validate(Frame());
     }
 
     [Theory]
-    [InlineData(D3D12SurfaceStyle.Mmd)]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    [InlineData(D3D12SurfaceStyle.EndfieldPmx)]
-    public void GenshinShapeCannotBeMisinterpretedByAnotherFamily(D3D12SurfaceStyle family)
-        => Assert.Throws<NotSupportedException>(() => new D3D12SurfaceStyleMap([family, family],
-            [new(D3D12CharacterMaterialRole.Face, 1, 1, Binding()), new()]).Validate(Frame()));
+    [InlineData("mmd")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void GenshinShapeCannotBeMisinterpretedByAnotherFamily(string styleId)
+    {
+        var genshinBinding = Binding();
+        if (styleId == "mmd")
+        {
+            var draw = T8bTestHelpers.BuildGenshinDrawData(D3D12CharacterMaterialRole.Face, 1f, 1f, 0.2f, genshinBinding);
+            Assert.Throws<NotSupportedException>(() => new D3D12SurfaceStyleMap(["mmd", "mmd"],
+                [new(D3D12CharacterMaterialRole.Face, 1, 1, PluginDraw: draw), new()], TestStylePlugins.AllPresetCatalog).Validate(Frame()));
+        }
+        else
+        {
+            Assert.False(T8bTestHelpers.ValidateStyle(TestStylePlugins.GetStyle(styleId), StyleMaterialRole.Face, Frame(), genshinBinding).IsValid);
+            string foreignEncoding = styleId == "endfield" ? "EndfieldRgbCmM" : "GrayRed";
+            Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(),
+                TestStylePlugins.FaceSdf("genshin", 0, 1, encoding: foreignEncoding)).IsValid);
+        }
+    }
 
     [Theory]
     [InlineData(-.001f)]
@@ -53,37 +89,40 @@ public sealed class D3D12GenshinFaceSdfTests
     [InlineData(float.NaN)]
     [InlineData(float.PositiveInfinity)]
     public void InvalidSoftnessIsRejectedBeforeRecording(float value)
-        => Assert.Throws<ArgumentOutOfRangeException>(() => (Binding() with { Transition = value }).Validate());
+    {
+        var invalid = WithTransition(Binding(), value);
+        Assert.False(T8bTestHelpers.ValidateGenshin(StyleMaterialRole.Face, Frame(), invalid).IsValid);
+        Assert.ThrowsAny<ArgumentException>(() => D3D12ViewPluginMaterialBindings.Validate([],
+            [TestStylePlugins.Bind(Guid.NewGuid(), 0, invalid)], TestStylePlugins.AllViewCatalog));
+    }
 
     [Fact]
     public void DetachedEqualityConsumesPrimaryRgbAndMaskGreenAlphaAndSupportsRebasedIndices()
     {
         var binding = Binding(); var map = Map(binding); var frame = Frame();
-        var captured = map.CaptureFaceTextures(frame);
+        var captured = map.CaptureResolvedInputs(frame);
         foreach (var changed in new[] { (Texture: 0, Channel: 0), (Texture: 0, Channel: 1),
             (Texture: 0, Channel: 2), (Texture: 1, Channel: 1), (Texture: 1, Channel: 3) })
         {
             byte[] primary = [.. Lightmap], secondary = [.. Mask];
             (changed.Texture == 0 ? primary : secondary)[changed.Channel]++;
-            Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureFaceTextures(Frame(primary, secondary))));
+            Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureResolvedInputs(Frame(primary, secondary))));
         }
-        byte[] unusedPrimary = [.. Lightmap], unusedMask = [.. Mask];
-        for (int i = 0; i < unusedPrimary.Length; i += 4) unusedPrimary[i + 3] ^= 255;
-        for (int i = 0; i < unusedMask.Length; i += 4) { unusedMask[i] ^= 255; unusedMask[i + 2] ^= 255; }
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureFaceTextures(Frame(unusedPrimary, unusedMask))));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureFaceTextures(frame)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureResolvedInputs(Frame([.. Lightmap], [.. Mask]))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, map.CaptureResolvedInputs(frame)));
         var original = frame.Surface.Snapshot;
         var reordered = new SceneSnapshot(original.Vertices, original.Indices, original.Materials,
             original.Textures.Reverse(), world: original.World, camera: original.Camera, lightDirection: original.LightDirection);
         var rebasedFrame = new OriginalFrameScene(new(reordered, frame.Surface.Materials, frame.Surface.Profile), options: frame.Options);
-        var rebasedMap = Map(binding with { CombinedTextureIndex = 1, SecondaryCombinedTextureIndex = 0 });
+        var rebasedMap = Map(WithSlots(binding, 1, 0));
         rebasedMap.Validate(rebasedFrame);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(map, rebasedMap));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, rebasedMap.CaptureFaceTextures(rebasedFrame)));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, Map(binding with { Transition = .3f }).CaptureFaceTextures(frame)));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, Map(binding with { Offset = .6f }).CaptureFaceTextures(frame)));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(captured, rebasedMap.CaptureResolvedInputs(rebasedFrame)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, Map(WithTransition(binding, .3f)).CaptureResolvedInputs(frame)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(captured, Map(WithOffset(binding, .6f)).CaptureResolvedInputs(frame)));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(Map(binding, 0), Map(null, 0)));
-        Assert.False(Map(binding, 0).HasConsumedPackedFaceSdf);
+        Assert.Equal("default", Map(binding, 0).ResolveShaderModule(0)!.ModuleId);
+        Assert.Null(Map(binding, 0).GetPluginDraw(0)?.TextureBindings);
     }
 
     public static IEnumerable<object[]> Variants()
@@ -98,25 +137,24 @@ public sealed class D3D12GenshinFaceSdfTests
     public void AllGenshinSoftVariantsCompileWithSharedLightConsumersAndCubicRepeat(bool native, bool gi, bool morph, bool sub)
     {
         string entry = native ? gi ? "PSSurfaceGiNative" : "PSSurfaceNative" : gi ? "PSSurfaceGi" : "PSSurface";
-        var shader = OriginalFrameShaders.CompileFaceSdfSurface(D3D12SurfaceStyle.GenshinPmx, entry, native, gi, morph, sub);
+        var shader = T8bTestHelpers.CompileGenshinPixel("face-sdf", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
-        string source = OriginalFrameShaders.FaceSdfSurfaceSource(D3D12SurfaceStyle.GenshinPmx, native, gi, morph, sub);
-        Assert.Contains("FaceSdfConstants:register(b4)", source);
-        Assert.Contains("FaceSdfMap:register(t7)", source); Assert.Contains("FaceCombinedMap:register(t8)", source);
-        Assert.Contains("image.GetDimensions(width,height)", source);
-        Assert.Contains("FaceSdfSampler:register(s2)", source);
-        Assert.Contains("float2 horizontal=towardLight.xz", source);
-        Assert.Contains("if(side<=0) faceUv.x=-faceUv.x;", source);
-        Assert.Contains("FaceCubicRepeat(FaceCombinedMap,v.Uv)", source);
-        Assert.Contains("float3(.2126,.7152,.0722)", source);
-        Assert.Contains("upper==lower?0:saturate", source);
-        Assert.DoesNotContain("GenshinLightResponse(dot(n,l)", source);
-        Assert.DoesNotContain("GenshinLightResponse(dot(normalize(v.Normal),IncomingLight.xyz)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,1)", source);
-        Assert.Contains("FaceSdfLightResponse(v,l,visibility)", source);
-        Assert.Contains("+highlight*originalC;", source);
-        if (native || gi) Assert.Contains("FaceSdfLightResponse(v,IncomingLight.xyz,visibility)", source);
-        if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
+        string source = T8bTestHelpers.AssembleGenshinPixelSource("face-sdf", entry, native, gi, morph, sub);
+        Assert.Contains("cbuffer PluginStyleConstants : register(b0, space2)", source);
+        Assert.Contains("FaceSdfMap : register(t0, space2)", source); Assert.Contains("FaceCombinedMap : register(t1, space2)", source);
+        Assert.Contains("image.GetDimensions(width, height)", source);
+        Assert.Contains("MdaLinearWrapSampler : register(s0, space2)", source);
+        Assert.Contains("float2 horizontal = l.xz;", source);
+        Assert.Contains("if (side <= 0) faceUv.x = -faceUv.x;", source);
+        Assert.Contains("FaceCubicRepeat(FaceCombinedMap, v.Uv)", source);
+        Assert.Contains("float3(.2126, .7152, .0722)", source);
+        Assert.Contains("upper == lower ? 0 : saturate", source);
+        Assert.DoesNotContain("GenshinLightResponse", source);
+        Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)", source);
+        Assert.Contains("highlight * originalC", source);
+        if (native) Assert.Contains("#define NATIVE_LIGHT_RESPONSE(v, n, l) MdaStyleLightResponse(v, n, l, 1)", source);
+        if (gi) Assert.Contains("MdaStyleLightResponse(v, n, l, visibility)", source);
+        if (sub) Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)", source);
     }
 
     [Fact, Trait("Category", "Gpu")]
@@ -128,7 +166,7 @@ public sealed class D3D12GenshinFaceSdfTests
         foreach (var forward in new[] { -Vector3.UnitZ, Vector3.Normalize(new Vector3(0, 1, -1)), Vector3.UnitY })
         {
             // Forward=Y is valid with right=X and is zero only after fixed-plane projection.
-            var selected = binding with { HeadWorldForward = forward };
+            var selected = WithForward(binding, forward);
             var frame = Frame(light: light);
             AssertFace(session.Capture(frame, Width, Height, surfaceStyles: Map(selected)),
                 Expected(Lightmap, Mask, Uv, selected, light));
@@ -153,7 +191,7 @@ public sealed class D3D12GenshinFaceSdfTests
         var warm = session.Statistics!; long readbacks = session.Runtime.Readbacks;
         for (int i = 0; i < 6; i++)
         {
-            using var rendered = session.Render(Frame(), Width, Height, surfaceStyles: Map(binding with { Offset = .5f + .01f * i }));
+            using var rendered = session.Render(Frame(), Width, Height, surfaceStyles: Map(WithOffset(binding, .5f + .01f * i)));
             Assert.Equal(warm.ShaderCompilations, rendered.Statistics.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations, rendered.Statistics.PipelineCreations);
             Assert.Equal(0, rendered.Statistics.ReadbackCount);
@@ -171,7 +209,7 @@ public sealed class D3D12GenshinFaceSdfTests
         {
             byte[] primary = Enumerable.Repeat(new byte[] { value, value, value, 0 }, 8).SelectMany(x => x).ToArray();
             byte[] mask = Enumerable.Repeat(new byte[] { 25, 255, 75, 0 }, 6).SelectMany(x => x).ToArray();
-            var selected = binding with { Offset = pair.Position, Transition = pair.Softness };
+            var selected = WithTransition(WithOffset(binding, pair.Position), pair.Softness);
             AssertFace(session.Capture(Frame(primary, mask, Vector3.UnitZ), Width, Height, surfaceStyles: Map(selected)),
                 Expected(primary, mask, Uv, selected, Vector3.UnitZ));
         }
@@ -187,7 +225,7 @@ public sealed class D3D12GenshinFaceSdfTests
         foreach (bool sub in new[] { false, true })
         {
             var frame = Frame(subTexture: sub, highlight: true);
-            var selected = binding with { CombinedTextureIndex = sub ? 2 : 0, SecondaryCombinedTextureIndex = sub ? 3 : 1 };
+            var selected = WithSlots(binding, sub ? 2 : 0, sub ? 3 : 1);
             var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(null));
             var shaped = session.Capture(frame, Width, Height, surfaceStyles: Map(selected));
             for (int p = 3; p < shaped.Rgba.Length; p += 4) Assert.Equal(ordinary.Rgba[p], shaped.Rgba[p]);
@@ -239,10 +277,25 @@ public sealed class D3D12GenshinFaceSdfTests
         }
     }
 
-    private static D3D12FaceSdfBinding Binding() => D3D12FaceSdfBinding.GenshinSoft(0, 1, -Vector3.UnitZ, Vector3.UnitX, .4f, .55f);
-    private static D3D12SurfaceStyleMap Map(D3D12FaceSdfBinding? binding, float strength = 1)
-        => new([D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx],
-            [new(D3D12CharacterMaterialRole.Face, strength, 1, binding), new()]);
+    private static StyleMaterialBindingData Binding() => TestStylePlugins.FaceSdf("genshin", 0, 1, "GenshinSoftFace", .4f, .55f);
+    private static StyleMaterialBindingData WithSlots(StyleMaterialBindingData b, int primary, int secondary)
+        => b with { TextureSlots = new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal) { ["primary"] = primary, ["secondary"] = secondary }) };
+    private static StyleMaterialBindingData WithTransition(StyleMaterialBindingData b, float transition)
+    {
+        var d = new Dictionary<string, double>(b.NumberValues!, StringComparer.Ordinal) { ["transition"] = transition };
+        return b with { NumberValues = new ReadOnlyDictionary<string, double>(d) };
+    }
+    private static StyleMaterialBindingData WithOffset(StyleMaterialBindingData b, float offset)
+    {
+        var d = new Dictionary<string, double>(b.NumberValues!, StringComparer.Ordinal) { ["offset"] = offset };
+        return b with { NumberValues = new ReadOnlyDictionary<string, double>(d) };
+    }
+    private static StyleMaterialBindingData WithForward(StyleMaterialBindingData b, Vector3 forward)
+        => b with { BoneBinding = b.BoneBinding! with { FixedWorldForward = forward } };
+
+    private static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding, float strength = 1)
+        => T8bTestHelpers.CreateGenshinTwoMap("genshin", D3D12CharacterMaterialRole.Face, binding is null ? null : [binding],
+            faceNormalShadeStrength0: strength, faceGeometricShadowStrength0: 1f);
 
     private static OriginalFrameScene TemporalFrame(byte[]? mask = null)
     {
@@ -280,9 +333,18 @@ public sealed class D3D12GenshinFaceSdfTests
             options: new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: Vector4.Zero));
     }
 
-    private static float Expected(byte[] lightmap, byte[] mask, Vector2 uv, D3D12FaceSdfBinding binding, Vector3 light)
+    private static float Expected(byte[] lightmap, byte[] mask, Vector2 uv, StyleMaterialBindingData binding, Vector3 light)
     {
-        var (forward, right) = binding.OrthonormalBasis();
+        var rawF = binding.BoneBinding?.FixedWorldForward ?? -Vector3.UnitZ;
+        var rawR = binding.BoneBinding?.FixedWorldRight ?? Vector3.UnitX;
+        var forward = Vector3.Normalize(rawF);
+        var right = Vector3.Normalize(rawR);
+        right -= forward * Vector3.Dot(forward, right);
+        right = right.LengthSquared() < 1e-8f
+            ? Vector3.Normalize(Vector3.Cross(forward, MathF.Abs(forward.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX))
+            : Vector3.Normalize(right);
+        float transition = (float)binding.NumberValues!["transition"];
+        float offset = (float)binding.NumberValues["offset"];
         var horizontal = new Vector2(light.X, light.Z);
         if (horizontal != Vector2.Zero) horizontal = Vector2.Normalize(horizontal);
         float d = Vector2.Dot(new(forward.X, forward.Z), horizontal);
@@ -293,9 +355,9 @@ public sealed class D3D12GenshinFaceSdfTests
         if (Vector2.Dot(new(right.X, right.Z), horizontal) <= 0) originalUv.X = -originalUv.X;
         var combined = Cubic(mask, 2, 3, originalUv);
         float a = MathF.Min((d + 1) * .5f, .999f);
-        float e = MathF.Pow(1.5f - binding.Offset, 3);
+        float e = MathF.Pow(1.5f - offset, 3);
         float p = e == 0 ? 1 : a == 0 ? 0 : MathF.Pow(a, e);
-        float lower = p - binding.Transition, upper = p + binding.Transition;
+        float lower = p - transition, upper = p + transition;
         float luminance = Vector3.Dot(new(color.X, color.Y, color.Z), new(.2126f, .7152f, .0722f));
         float t = lower == upper ? 0 : Math.Clamp((luminance - lower) / (upper - lower), 0, 1);
         float extra = Math.Clamp(((1 - p) - .71f) / (.8f - .71f), 0, 1)

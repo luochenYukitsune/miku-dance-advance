@@ -55,59 +55,87 @@ public sealed class D3D12StylePresetResult
     public D3D12StylePresetStatus Status { get; }
     public D3D12StylePresetDefinition? Definition { get; }
     public string Diagnostic { get; }
+    public D3D12PluginStyleRegistration? PluginRegistration { get; }
+    public D3D12StylizedShading? DefaultStylizedShading => PluginRegistration?.DefaultStylizedShading;
     public bool IsAvailable => Status == D3D12StylePresetStatus.Available;
 
     internal D3D12StylePresetResult(string? stableId, D3D12StylePresetStatus status,
-        D3D12StylePresetDefinition? definition, string diagnostic)
-    { StableId = stableId; Status = status; Definition = definition; Diagnostic = diagnostic; }
-
-    internal static D3D12StylePresetResult Resolve(D3D12StylePresetDefinition definition)
+        D3D12StylePresetDefinition? definition, string diagnostic,
+        D3D12PluginStyleRegistration? pluginRegistration = null)
     {
-        var status = definition.SchemaVersion != D3D12StylePresetDefinition.CurrentSchemaVersion
-            ? D3D12StylePresetStatus.IncompatibleSchema : definition.PipelineId switch
-            {
-                "mmd" or "genshin" or "star-rail" or "wuthering-waves" or "endfield" => D3D12StylePresetStatus.Available,
-                _ => D3D12StylePresetStatus.UnsupportedPipeline,
-            };
-        string diagnostic = status switch
-        {
-            D3D12StylePresetStatus.Available when definition.PipelineId == "genshin"
-                => "Genshin ordinary PMX basic body surface is character-only. Explicit soft-face numerical shape is available through a separate RGB/GA binding. Dedicated face/hair color palettes, body LightMap and ramp paths are not implemented.",
-            D3D12StylePresetStatus.Available when definition.PipelineId == "star-rail"
-                => "Star Rail ordinary PMX basic body surface is character-only: one-sided diffuse ramp and bounded authored specular with a fixed 0.45-0.55 band. Explicit gray FaceSDF is available through a separate binding. Dedicated face/hair color palettes, body LightMap, MatCap and ramp-texture paths are not implemented.",
-            D3D12StylePresetStatus.Available when definition.PipelineId == "wuthering-waves"
-                => "Wuthering Waves ordinary PMX basic body surface is character-only: raw-NdotL front band and bounded authored specular with a fixed squared-lobe 0.10-0.30 gate and extra authored-lobe attenuation. Explicit gray FaceSDF is available through a separate binding. Dedicated face/hair color palettes, body LightMap, encoded RG normals, AO/HM and emission paths are not implemented.",
-            D3D12StylePresetStatus.Available when definition.PipelineId == "endfield"
-                => "Endfield ordinary PMX basic body surface is character-only: a three-knot palette with fixed dark/mid/lit weights 0/0.5/1 within the authored dark/lit colors and unchanged authored Blinn specular. Explicit RGB/cm_M numerical face shape is available through a separate binding. Reference ramp stops, complete face/hair palettes, body LightMap, PMap, MatCap and ramp-texture paths are not implemented.",
-            D3D12StylePresetStatus.Available => "",
-            D3D12StylePresetStatus.IncompatibleSchema => $"Preset schema {definition.SchemaVersion} is not supported.",
-            D3D12StylePresetStatus.PipelineUnavailable => $"Pipeline '{definition.PipelineId}' is planned and has not been implemented.",
-            _ => $"Pipeline '{definition.PipelineId}' is not supported by this renderer.",
-        };
-        return new(definition.StableId, status, definition, diagnostic);
+        StableId = stableId; Status = status; Definition = definition; Diagnostic = diagnostic;
+        PluginRegistration = pluginRegistration;
+    }
+
+    internal static D3D12StylePresetResult Resolve(
+        D3D12StylePresetDefinition definition,
+        IReadOnlyDictionary<string, D3D12PluginStyleRegistration>? plugins = null)
+    {
+        if (definition.SchemaVersion != D3D12StylePresetDefinition.CurrentSchemaVersion)
+            return new(definition.StableId, D3D12StylePresetStatus.IncompatibleSchema, definition,
+                $"Preset schema {definition.SchemaVersion} is not supported.");
+
+        if (string.Equals(definition.PipelineId, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal))
+            return new(definition.StableId, D3D12StylePresetStatus.Available, definition, "");
+
+        if (plugins is not null && plugins.TryGetValue(definition.PipelineId, out var plugin))
+            return new(definition.StableId, D3D12StylePresetStatus.Available, definition,
+                plugin.Diagnostic ?? "", plugin);
+
+        return new(definition.StableId, D3D12StylePresetStatus.UnsupportedPipeline, definition,
+            $"Pipeline '{definition.PipelineId}' is not supported by this renderer.");
     }
 }
 
 /// <summary>A detached, bounded catalog snapshot. Reading it never opens a device or changes scene materials.
-/// The five built-in IDs are reserved; local files cannot replace them.</summary>
+/// The built-in "mmd" ID is reserved; local files cannot replace built-in or registered plugin IDs.</summary>
 public sealed class D3D12StylePresetCatalog
 {
     private readonly ReadOnlyCollection<D3D12StylePresetResult> entries;
     private readonly IReadOnlyDictionary<string, D3D12StylePresetResult> byId;
     private readonly D3D12StylePresetResult? loadFailure;
+    public IReadOnlyDictionary<string, D3D12PluginStyleRegistration> Plugins { get; }
     public static D3D12StylePresetCatalog BuiltIn { get; } = new([]);
 
-    internal D3D12StylePresetCatalog(IEnumerable<D3D12StylePresetResult> local)
+    public static D3D12StylePresetCatalog WithPlugins(
+        IEnumerable<D3D12PluginStyleRegistration> plugins,
+        IEnumerable<D3D12StylePresetResult>? local = null)
     {
-        var all = new List<D3D12StylePresetResult>();
-        foreach (var (id, name) in new[] { ("mmd", "MMD"), ("genshin", "Genshin"), ("star-rail", "Star Rail"),
-            ("wuthering-waves", "Wuthering Waves"), ("endfield", "Endfield") })
-            // The default MMD family inherits original material shading and edge data.
-            // Only explicitly selected alternative families supply modern toon/outline parameters.
-            all.Add(D3D12StylePresetResult.Resolve(new(id, name, id,
-                id == "mmd" ? null : new CharacterOutlineStyle(),
-                id == "mmd" ? null : new CharacterToonResponse())));
-        all.AddRange(local);
+        ArgumentNullException.ThrowIfNull(plugins);
+        return new(local ?? [], plugins);
+    }
+
+    internal D3D12StylePresetCatalog(
+        IEnumerable<D3D12StylePresetResult> local,
+        IEnumerable<D3D12PluginStyleRegistration>? plugins = null)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        Plugins = D3D12PluginStyleRegistration.BuildDictionary(plugins);
+
+        var all = new List<D3D12StylePresetResult>
+        {
+            // The default MMD pipeline inherits original material shading and edge data.
+            D3D12StylePresetResult.Resolve(new(D3D12SurfaceStyleMap.DefaultStyleId, "MMD",
+                D3D12SurfaceStyleMap.DefaultStyleId, null, null))
+        };
+
+        foreach (var plugin in Plugins.Values)
+        {
+            all.Add(D3D12StylePresetResult.Resolve(
+                new(plugin.StyleId, plugin.DisplayName, plugin.StyleId,
+                    plugin.DefaultOutline, plugin.DefaultToonResponse),
+                Plugins));
+        }
+
+        foreach (var entry in local)
+        {
+            if (entry is null) continue;
+            if (entry.Definition is { } definition)
+                all.Add(D3D12StylePresetResult.Resolve(definition, Plugins));
+            else
+                all.Add(entry);
+        }
+
         entries = all.AsReadOnly();
         loadFailure = all.FirstOrDefault(entry => entry.StableId is null
             && entry.Status is D3D12StylePresetStatus.IoFailure or D3D12StylePresetStatus.CapacityExceeded);
@@ -127,5 +155,11 @@ public sealed class D3D12StylePresetCatalog
             : new(stableId, D3D12StylePresetStatus.Missing, null, $"Preset '{stableId}' is not installed.");
     }
 
-    internal static bool IsBuiltIn(string id) => id is "mmd" or "genshin" or "star-rail" or "wuthering-waves" or "endfield";
+    public D3D12PluginStyleRegistration? FindPlugin(string styleId)
+    {
+        D3D12StylePresetDefinition.ValidateIdentifier(styleId, nameof(styleId));
+        return Plugins.TryGetValue(styleId, out var plugin) ? plugin : null;
+    }
+
+    internal static bool IsBuiltIn(string id) => string.Equals(id, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal);
 }

@@ -1,6 +1,8 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Text.Json;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 
 namespace Mmd.Modern.ViewOutput.D3D12;
@@ -60,7 +62,8 @@ public sealed class D3D12GeneratedEndfieldMaterialPreparationResult
         // A reopened profile can also use a generated slot in its palette/base-image inputs.
         // Refresh the complete selected image graph rather than only the three root guards.
         var rows = Profile.Materials.Select(row => D3D12GeneratedStyleMaterialResult.RefreshGuards(row, layout));
-        var profile = new D3D12MaterialBindingProfile(Profile.StableId, Profile.Name, layout.Fingerprint, rows, layout.Version, Profile.OutlineWidths);
+        var profile = new D3D12MaterialBindingProfile(Profile.StableId, Profile.Name, layout.Fingerprint, rows, layout.Version,
+            Profile.OutlineWidths, Profile.PipelineId, Profile.GuessMaterialRoles);
         return new(frame, profile, updated);
     }
 }
@@ -130,15 +133,51 @@ public static class D3D12GeneratedEndfieldMaterialPreparation
         {
             var eg = OriginalStyleMath.ResolveHostColors(source.Materials[item.LocalMaterialIndex], sourceRest.Surface.Profile).EgColor;
             var baseColor = Vector3.Clamp(new(eg.X, eg.Y, eg.Z), Vector3.Zero, Vector3.One);
-            rows.Add(new(item.LocalMaterialIndex,
+            var light = Vector3.Normalize(source.LightDirection);
+            var normalGuard = layout.CaptureTexture(item.NormalOrdinal);
+            var pGuard = layout.CaptureTexture(item.POrdinal);
+            var matcapGuard = layout.CaptureTexture(item.MatcapOrdinal);
+
+            var slots = new ReadOnlyDictionary<string, int>(new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["normal"] = item.NormalOrdinal,
+                ["p"] = item.POrdinal,
+                ["matcap"] = item.MatcapOrdinal
+            });
+            var numbers = new ReadOnlyDictionary<string, double>(new Dictionary<string, double>(StringComparer.Ordinal)
+            {
+                ["uvChannel"] = 0,
+                ["normalStrength"] = 1,
+                ["rotationRadians"] = 0,
+                ["highlightCoefficient"] = 0,
+                ["shadowHardness"] = 0.5,
+                ["baselineStrength"] = 0.35
+            });
+            var bools = new ReadOnlyDictionary<string, bool>(new Dictionary<string, bool>(StringComparer.Ordinal)
+            {
+                ["coupleEndfieldPalette"] = false
+            });
+            var vectors = new ReadOnlyDictionary<string, float[]>(new Dictionary<string, float[]>(StringComparer.Ordinal)
+            {
+                ["baseColor"] = [baseColor.X, baseColor.Y, baseColor.Z],
+                ["highlightColor"] = [0f, 0f, 0f],
+                ["lightControlDirection"] = [light.X, light.Y, light.Z]
+            });
+            var strings = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["matcapEncoding"] = "LinearRgb",
+                ["generatorRevision"] = "mikk-v1"
+            });
+
+            var binding = new StyleMaterialBindingData("endfield", "matcap", slots, numbers, bools, vectors, strings);
+            rows.Add(new(
+                item.LocalMaterialIndex,
                 item.Options.Kind == D3D12GeneratedPmxSurfaceKind.Hair ? D3D12CharacterMaterialRole.Hair : D3D12CharacterMaterialRole.Body,
-                EndfieldMatcap: new(layout.CaptureTexture(item.NormalOrdinal), layout.CaptureTexture(item.POrdinal),
-                    layout.CaptureTexture(item.MatcapOrdinal), D3D12MatcapColorEncoding.LinearRgb, 0, baseColor,
-                    Vector3.Zero, NormalStrength: 1f, BaselineStrength: .35f,
-                    LightControlDirection: Vector3.Normalize(source.LightDirection))));
+                pluginBindings: [binding],
+                textureGuards: [normalGuard, pGuard, matcapGuard]));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        return new(frame, new(stableId, name, layout.Fingerprint, rows, layout.Version), provenance.ToArray());
+        return new(frame, new(stableId, name, layout.Fingerprint, rows, layout.Version, pipelineId: "endfield"), provenance.ToArray());
     }
 
     internal static OriginalFrameScene ReplaceTextures(OriginalFrameScene original, IEnumerable<SceneTexture> textures)

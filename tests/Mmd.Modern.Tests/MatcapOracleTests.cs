@@ -1,5 +1,4 @@
 using System.Numerics;
-using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -105,17 +104,31 @@ public sealed class MatcapOracleTests
     [Fact]
     public void BindingRejectsMissingIndicesEncodingUvAndNonfiniteInputsBeforeGpu()
     {
-        var binding = new D3D12EndfieldMatcapBinding(0, 1, 2, D3D12MatcapColorEncoding.SrgbRgb, 0, new(.2f), Vector3.Zero);
-        binding.Validate(); Assert.Equal(Vector3.UnitZ, binding.EffectiveLightControlDirection);
-        foreach (var bad in new[] { binding with { NormalCombinedTextureIndex = -1 }, binding with { PCombinedTextureIndex = -1 },
-            binding with { MatcapCombinedTextureIndex = -1 }, binding with { UvChannel = -1 }, binding with { UvChannel = 5 },
-            binding with { MatcapEncoding = (D3D12MatcapColorEncoding)99 }, binding with { NormalStrength = float.NaN },
-            binding with { RotationRadians = float.PositiveInfinity }, binding with { HighlightCoefficient = float.NaN },
-            binding with { ShadowHardness = float.NaN }, binding with { BaselineStrength = float.NaN },
-            binding with { LightControlDirection = Vector3.Zero }, binding with { BaseColor = new(-1) },
-            binding with { HighlightColor = new(float.NaN) } })
-            Assert.Throws<ArgumentOutOfRangeException>(bad.Validate);
-        (binding with { NormalStrength = -2, BaselineStrength = -2, HighlightColor = new(16), UvChannel = 4 }).Validate();
+        var valid = T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero);
+        Assert.True(T8dTestHelpers.ValidateEndfield(valid).IsValid);
+        var draw = T8dTestHelpers.BuildEndfieldDrawData([valid]);
+        Assert.NotNull(draw);
+        Assert.Equal(new Vector4(Vector3.UnitZ, 0), T8dTestHelpers.ReadCbvVectors(draw)[3]);
+        foreach (var bad in new[]
+        {
+            T8dTestHelpers.EndfieldMatcap(-1, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, -1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, -1, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, -1, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 5, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, "InvalidEncoding", 0, new(.2f), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, normalStrength: float.NaN),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, rotationRadians: float.PositiveInfinity),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, highlightCoefficient: float.NaN),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, shadowHardness: float.NaN),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, baselineStrength: float.NaN),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), Vector3.Zero, lightControlDirection: Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(-1), Vector3.Zero),
+            T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 0, new(.2f), new(float.NaN)),
+        })
+            Assert.False(T8dTestHelpers.ValidateEndfield(bad).IsValid);
+        var edgeValid = T8dTestHelpers.EndfieldMatcap(0, 1, 2, T8dTestHelpers.EncodingSrgbRgb, 4, new(.2f), new(16), normalStrength: -2, baselineStrength: -2);
+        Assert.True(T8dTestHelpers.ValidateEndfield(edgeValid).IsValid);
     }
 
     private static void Near(Vector3 expected, Vector3 actual) => Assert.InRange(Vector3.Distance(expected, actual), 0, 2e-6f);

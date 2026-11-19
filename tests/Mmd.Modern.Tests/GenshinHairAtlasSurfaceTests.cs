@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -10,8 +11,12 @@ public sealed class GenshinHairAtlasSurfaceTests
 {
     private const int Width=97,Height=73;
     internal static readonly Vector3 Dark=new(.2f,.25f,.3f);
-    internal static D3D12GenshinHairShadowAtlasBinding Binding => new(0,1,
-        D3D12GenshinAtlasColorEncoding.LinearRgb,1,.25f,.8f,.5f,1,1,0,0);
+    internal static StyleMaterialBindingData AtlasBinding(int lightmapSlot=0,int atlasSlot=1,string atlasEncoding="LinearRgb",
+        float explicitRowId=1f,float dayNight=.25f,float shadowPosition=.8f,float shadowRampWidth=.5f,
+        float vertexWidth=1f,float vertexAo=1f,float useLightmapAo=0f,float useVertexColorAo=0f)
+        => TestStylePlugins.GenshinHairAtlas(lightmapSlot,atlasSlot,atlasEncoding,explicitRowId,dayNight,
+            shadowPosition,shadowRampWidth,vertexWidth,vertexAo,useLightmapAo,useVertexColorAo);
+    internal static StyleMaterialBindingData Binding => AtlasBinding();
 
     public static IEnumerable<object[]> Variants()
     {
@@ -22,16 +27,21 @@ public sealed class GenshinHairAtlasSurfaceTests
     [Theory,MemberData(nameof(Variants))]
     public void ActualShaderVariantsCompileWithIndependentAtlasAndOptionalSingleRbLobe(string entry,bool native,bool gi,bool morph,bool sub,bool rb)
     {
-        var bytes=OriginalFrameShaders.CompileGenshinHairAtlasSurface(entry,native,gi,morph,sub,rb);
+        string moduleId=rb?"hair-atlas-rb":"hair-atlas";
+        var bytes=T8bTestHelpers.CompileGenshinPixel(moduleId,entry,native,gi,morph,sub);
         Assert.Equal(new byte[]{68,88,66,67},bytes[..4]);
-        var source=OriginalFrameShaders.GenshinHairAtlasSurfaceSource(native,gi,morph,sub,rb);
-        Assert.Contains("register(b9)",source); Assert.Contains("register(t13)",source);
-        Assert.Contains("register(t14)",source); Assert.Contains("register(s6)",source);
-        Assert.Contains("GenshinAtlasColor.Load(int3(pixel,0)).rgb",source);
-        Assert.Contains("+highlight*originalC;",source);
-        if(native) Assert.DoesNotContain("GenshinPaletteFactor(GenshinPrimaryBlend(v))",source);
-        if(rb) Assert.Contains("float3 highlight=GenshinHairHighlight(v,n,h);",source);
-        else Assert.Contains("float3 highlight=saturate(pow",source);
+        var source=T8bTestHelpers.AssembleGenshinPixelSource(moduleId,entry,native,gi,morph,sub);
+        Assert.Contains("PluginStyleConstants : register(b0, space2)",source); Assert.Contains("GenshinAtlasLightmap : register(t1, space2)",source);
+        Assert.Contains("GenshinAtlasColor : register(t2, space2)",source); Assert.Contains("MdaLinearWrapSampler : register(s0, space2)",source);
+        Assert.Contains("GenshinAtlasColor.Load(int3(pixel, 0)).rgb",source);
+        Assert.Contains("+ (inShadowMap ? highlight * originalC : highlight);",source);
+        if(native)
+        {
+            string nativeSection=source[source.IndexOf("float3 NativeDirect(SurfaceOutput v) {",StringComparison.Ordinal)..];
+            Assert.DoesNotContain("MdaStylePaletteFactor",nativeSection);
+        }
+        if(rb) Assert.Contains("float3 highlight = GenshinHairHighlight(v, n, h);",source);
+        else Assert.Contains("float3 highlight = saturate(pow",source);
     }
 
     [Theory,InlineData(false),InlineData(true)]
@@ -44,16 +54,14 @@ public sealed class GenshinHairAtlasSurfaceTests
         foreach(float row in new[]{1f,2f,3f,4f,5f,2.25f})
         foreach(float dayNight in new[]{0f,.25f,1f})
         {
-            var binding=Binding with {ExplicitRowId=row,DayNight=dayNight,
-                AtlasEncoding=srgb?D3D12GenshinAtlasColorEncoding.SrgbRgb:D3D12GenshinAtlasColorEncoding.LinearRgb};
-            var coordinate=GenshinHairAtlasOracle.Coordinates(0,128/255f,row,binding.ShadowPosition,
-                binding.ShadowRampWidth,binding.VertexWidth,binding.VertexAo,binding.UseLightmapAo,binding.UseVertexColorAo);
+            var binding=AtlasBinding(explicitRowId:row,dayNight:dayNight,atlasEncoding:srgb?"SrgbRgb":"LinearRgb");
+            var coordinate=GenshinHairAtlasOracle.Coordinates(0,128/255f,row,.8f,.5f,1f,1f,0f,0f);
             var day=GenshinHairAtlasOracle.ClosestExtend(atlas,4,10,coordinate.Q,coordinate.DayY,srgb);
             var night=GenshinHairAtlasOracle.ClosestExtend(atlas,4,10,coordinate.Q,coordinate.NightY,srgb);
             var expected=GenshinHairAtlasOracle.Palette(day,night,dayNight,coordinate.Gate)*new Vector3(.6f,.5f,.4f);
             AssertPixel(session.Capture(frame,Width,Height,surfaceStyles:Map(binding)),expected);
         }
-        var zero=Binding with {ShadowRampWidth=0};
+        var zero=AtlasBinding(shadowRampWidth:0f);
         var edge=GenshinHairAtlasOracle.Coordinates(0,128/255f,1,.8f,0,1,1,0,0);
         Assert.Equal(1,edge.Q);
         AssertPixel(session.Capture(frame,Width,Height,surfaceStyles:Map(zero)),
@@ -68,8 +76,8 @@ public sealed class GenshinHairAtlasSurfaceTests
         using var session=new D3D12FrameSession();
         var frame=Frame(Atlas(),native:native,specular:new(.4f,.3f,.2f),light:-Vector3.UnitZ);
         var options=gi?new RayGiOptions(LightingMode.SoftwareRayTracing,SamplesPerPixel:2,Seed:43,Composition:RayGiComposition.ToonPalette):null;
-        var atlas=Binding with {ShadowPosition=1.1f};
-        var rb=new D3D12GenshinNonMetallicSpecularBinding(0,1,0,.1f);
+        var atlas=AtlasBinding(shadowPosition:1.1f);
+        var rb=TestStylePlugins.GenshinHair(0,multiplier:.1f);
         var withoutSpecular=session.Capture(Frame(Atlas(),native:native,light:-Vector3.UnitZ),Width,Height,options,surfaceStyles:Map(atlas,rb));
         var actual=session.Capture(frame,Width,Height,options,surfaceStyles:Map(atlas,rb));
         var a=Pixel(actual);var b=Pixel(withoutSpecular);
@@ -83,7 +91,7 @@ public sealed class GenshinHairAtlasSurfaceTests
         long reads=session.Runtime.Readbacks;
         for(int i=0;i<3;i++)
         {
-            using var output=session.Render(frame,Width,Height,options,surfaceStyles:Map(atlas with {DayNight=i*.25f}));
+            using var output=session.Render(frame,Width,Height,options,surfaceStyles:Map(AtlasBinding(shadowPosition:1.1f,dayNight:i*.25f)));
             Assert.Equal(0,output.Statistics.ReadbackCount);
             Assert.Equal(warm.ShaderCompilations,output.Statistics.ShaderCompilations);
             Assert.Equal(warm.PipelineCreations,output.Statistics.PipelineCreations);
@@ -129,7 +137,7 @@ public sealed class GenshinHairAtlasSurfaceTests
             var source=Frame(new byte[4*10*4],native:true,light:-Vector3.UnitZ);
             var light=source.Lighting!.Lights[0] with {Color=Vector3.One,Intensity=20};
             var frame=new OriginalFrameScene(source.Surface,options:source.Options,lighting:new([light]));
-            var binding=Binding with {ShadowPosition=1.1f};
+            var binding=AtlasBinding(shadowPosition:1.1f);
             // An authored black atlas under a lit normal is genuinely black before
             // added light. It is not a missing-texture fallback to the old palette.
             AssertPixel(session.Capture(Frame(new byte[4*10*4],light:-Vector3.UnitZ),Width,Height,
@@ -154,9 +162,11 @@ public sealed class GenshinHairAtlasSurfaceTests
             camera:old.Camera,lightDirection:old.LightDirection);
         var surface=new OriginalStyleScene(scene,Enumerable.Repeat(source.Surface.Materials[0],3).ToArray(),source.Surface.Profile);
         var frame=new OriginalFrameScene(surface,options:source.Options);
-        var families=new[]{D3D12SurfaceStyle.GenshinPmx,D3D12SurfaceStyle.Mmd,D3D12SurfaceStyle.GenshinPmx};
-        var off=new D3D12SurfaceStyleMap(families);
-        var on=new D3D12SurfaceStyleMap(families,[new(D3D12CharacterMaterialRole.Hair,GenshinHairShadowAtlas:Binding),new(),new()]);
+        var off=T8bTestHelpers.CreateDirectMap("genshin","mmd","genshin");
+        var on=T8bTestHelpers.CreateDirectMap(["genshin","mmd","genshin"],
+            (D3D12CharacterMaterialRole.Hair,[Binding],.35f,1f,.2f),
+            (D3D12CharacterMaterialRole.Body,null,.35f,1f,.2f),
+            (D3D12CharacterMaterialRole.Body,null,.35f,1f,.2f));
         var before=session.Capture(frame,Width,Height,surfaceStyles:off);
         var after=session.Capture(frame,Width,Height,surfaceStyles:on);
         int changed=0;
@@ -170,9 +180,8 @@ public sealed class GenshinHairAtlasSurfaceTests
         Assert.Equal(before.Rgba,session.Capture(frame,Width,Height,surfaceStyles:off).Rgba);
     }
 
-    internal static D3D12SurfaceStyleMap Map(D3D12GenshinHairShadowAtlasBinding? binding,D3D12GenshinNonMetallicSpecularBinding? rb=null)
-        => new([D3D12SurfaceStyle.GenshinPmx],[new(D3D12CharacterMaterialRole.Hair,
-            GenshinNonMetallicSpecular:rb,GenshinHairShadowAtlas:binding)]);
+    internal static D3D12SurfaceStyleMap Map(StyleMaterialBindingData? binding,StyleMaterialBindingData? rb=null)
+        => T8bTestHelpers.CreateGenshinMap(D3D12CharacterMaterialRole.Hair,binding,rb);
 
     internal static byte[] Atlas()
     {

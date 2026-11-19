@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -16,43 +17,43 @@ public sealed class D3D12StarMcHairSurfaceTests
     public static IEnumerable<object[]> Variants()
     {
         foreach (var family in Families())
-        foreach (var variant in D3D12GenshinSurfaceTests.SurfaceVariants())
+        foreach (var variant in T8cTestHelpers.SurfaceVariants())
             yield return [family, .. variant];
     }
 
     [Theory, MemberData(nameof(Variants))]
     public void AllTwentyFourVariantsCompileWithSeparateResourcesAndOneLightDrivenHighlight(
-        D3D12SurfaceStyle family, string entry, bool native, bool gi, bool morph, bool sub)
+        string family, string entry, bool native, bool gi, bool morph, bool sub)
     {
-        var shader = OriginalFrameShaders.CompileStarMcHairSurface(family, entry, native, gi, morph, sub);
+        var shader = T8cTestHelpers.CompilePluginSurface(family, "hair", entry, native, gi, morph, sub);
         Assert.Equal(new byte[] { 68, 88, 66, 67 }, shader[..4]);
-        string source = OriginalFrameShaders.StarMcHairSurfaceSource(family, native, gi, morph, sub);
-        Assert.Contains("StarMcHairConstants:register(b6)", source);
-        Assert.Contains("StarMcHighlightMap:register(t10)", source);
-        Assert.Contains("StarMcShadowMap:register(t11)", source);
-        Assert.Contains("StarMcHairSampler:register(s4)", source);
-        Assert.Contains("StarMcHairHighlight(v,n,l)", source);
-        Assert.Contains("SampleLevel(StarMcHairSampler,v.Uv,0)", source);
-        Assert.Contains("gate*(k+StarMcHairParameters.y)", source);
-        Assert.DoesNotContain("float authoredLobe=", source);
-        Assert.DoesNotContain("pow(max(0,dot(n,h)),SpecularPower.w)", source);
-        Assert.Equal(1, source.Split("float3 highlight=", StringSplitOptions.None).Length - 1);
-        Assert.Contains("+highlight*originalC;", source);
-        Assert.DoesNotContain("FaceSdfConstants:register(b4)", source);
-        Assert.DoesNotContain("GenshinHairConstants:register(b5)", source);
-        if (family == D3D12SurfaceStyle.StarRailPmx)
-            Assert.Contains("q*3.333333969116211-2.000000476837158", source);
-        else Assert.Contains("float response=q;", source);
-        if (sub) Assert.Contains("originalC<1) alpha*=originalC+ToonShadowColor.w*(1-originalC)", source);
+        string source = T8cTestHelpers.AssemblePluginSurfaceSource(family, "hair", entry, native, gi, morph, sub);
+        Assert.Contains("cbuffer PluginStyleConstants : register(b0, space2)", source);
+        Assert.Contains("Texture2D<float4> StarMcHighlightMap : register(t0, space2);", source);
+        Assert.Contains("Texture2D<float4> StarMcShadowMap : register(t1, space2);", source);
+        Assert.Contains("SamplerState MdaLinearWrapSampler : register(s0, space2);", source);
+        Assert.Contains("MdaStyleSpecular(v, n, h, l, baseColor)", source);
+        Assert.Contains("StarMcHighlightMap.SampleLevel(MdaLinearWrapSampler, v.Uv, 0)", source);
+        Assert.Contains("gate * (k + StarMcHairParameters.y)", source);
+        Assert.DoesNotContain("float authoredLobe =", source);
+        Assert.DoesNotContain("pow(max(0, dot(n, h)), SpecularPower.w)", source);
+        Assert.Equal(1, source.Split("float3 highlight =", StringSplitOptions.None).Length - 1);
+        Assert.Contains("+ highlight * originalC;", source);
+        Assert.DoesNotContain("FaceSdfParameters", source);
+        Assert.DoesNotContain("GenshinHairParameters", source);
+        if (family == T8cTestHelpers.StarRailStyleId)
+            Assert.Contains("q * 3.333333969116211 - 2.000000476837158", source);
+        else Assert.Contains("float response = q;", source);
+        if (sub) Assert.Contains("originalC < 1) alpha *= originalC + ToonShadowColor.w * (1 - originalC)", source);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void FixedViewLightSweepMatchesMapRangeAndDistinguishesStarRampFromMcAndHalfVector(D3D12SurfaceStyle family)
+    public void FixedViewLightSweepMatchesMapRangeAndDistinguishesStarRampFromMcAndHalfVector(string family)
     {
         using var session = new D3D12FrameSession();
-        var binding = new D3D12StarMcHairBinding(0, 1, HighlightCoefficient: .15f,
-            HighlightBrightness: 2, ShadowCoefficient: .25f, ShadowSoftness: .7f);
+        var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, highlightCoefficient: .15f,
+            highlightBrightness: 2, shadowCoefficient: .25f, shadowSoftness: .7f);
         var increments = new List<float>();
         foreach (float d in new[] { .2f, .4f, .6f, .85f, 1f })
         {
@@ -78,15 +79,15 @@ public sealed class D3D12StarMcHairSurfaceTests
         }
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void CoefficientClampBrightnessAndFinalPaletteSaturationDoNotAddTheOldLobe(D3D12SurfaceStyle family)
+    public void CoefficientClampBrightnessAndFinalPaletteSaturationDoNotAddTheOldLobe(string family)
     {
         using var session = new D3D12FrameSession();
         foreach (var parameters in new (float C, float B, float I)[] { (0f, -1f, .1f), (.8f, 0f, .1f), (.8f, 10f, .1f), (1f, 10f, 2f) })
         {
-            var binding = new D3D12StarMcHairBinding(0, 1, HighlightCoefficient: parameters.C,
-                HighlightBrightness: parameters.B, Intensity: parameters.I);
+            var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, highlightCoefficient: parameters.C,
+                highlightBrightness: parameters.B, intensity: parameters.I);
             var actual = session.Capture(Frame([20, 91, 128, 0], [255, 0, 0, 255]), Width, Height, surfaceStyles: Map(family, binding));
             var baseline = session.Capture(Frame([20, 91, 128, 0], [255, 0, 0, 255], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(family, binding));
             AssertIncrement(baseline, actual, Oracle(family, binding, 128 / 255d, 1, 1) * 255);
@@ -94,7 +95,7 @@ public sealed class D3D12StarMcHairSurfaceTests
         }
         // k=0 suppresses every selected response even at NdotH=1. The ordinary
         // shader remains observably bright, catching an accidentally retained lobe.
-        var zero = new D3D12StarMcHairBinding(0, 1);
+        var zero = T8cTestHelpers.StarMcHairBinding(family, 0, 1);
         var black = Frame([0, 200, 0, 255], [255, 0, 0, 255]);
         Assert.Equal(session.Capture(Frame([0, 200, 0, 255], [255, 0, 0, 255], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(family, zero)).Rgba,
             session.Capture(black, Width, Height, surfaceStyles: Map(family, zero)).Rgba);
@@ -105,9 +106,9 @@ public sealed class D3D12StarMcHairSurfaceTests
             session.Capture(zeroSpec, Width, Height, surfaceStyles: Map(family, zero)).Rgba);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx), InlineData(D3D12SurfaceStyle.WutheringPmx)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId), InlineData(T8cTestHelpers.WutheringStyleId)]
     [Trait("Category", "Gpu")]
-    public void SeparateHighlightAndShadowImagesUseExplicitLinearRepeatAndShadowSoftness(D3D12SurfaceStyle family)
+    public void SeparateHighlightAndShadowImagesUseExplicitLinearRepeatAndShadowSoftness(string family)
     {
         using var session = new D3D12FrameSession();
         byte[] highlight = [11, 91, 8, 255, 31, 81, 247, 32, 51, 71, 118, 64, 71, 61, 198, 128];
@@ -117,35 +118,35 @@ public sealed class D3D12StarMcHairSurfaceTests
         foreach (float softness in new[] { .2f, .8f })
         foreach (var uv in new[] { new Vector2(.23f, .42f), new Vector2(1.23f, -.58f), new Vector2(-.08f, 1.07f) })
         {
-            var binding = new D3D12StarMcHairBinding(0, 1, HighlightBrightness: 2,
-                ShadowCoefficient: .7f, ShadowSoftness: softness);
+            var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, highlightBrightness: 2,
+                shadowCoefficient: .7f, shadowSoftness: softness);
             var actual = session.Capture(Frame(highlight, shadow, uv: uv, textureWidth: 2, textureHeight: 2, light: light), Width, Height, surfaceStyles: Map(family, binding));
             var baseline = session.Capture(Frame(highlight, shadow, uv: uv, textureWidth: 2, textureHeight: 2, light: light, specular: Vector3.Zero), Width, Height, surfaceStyles: Map(family, binding));
             AssertIncrement(baseline, actual, Oracle(family, binding, LinearChannel(highlight, uv, 2), LinearChannel(shadow, uv, 0), d) * 255);
         }
     }
 
-    [Theory, InlineData(D3D12HairHighlightChannel.Blue), InlineData(D3D12HairHighlightChannel.Alpha)]
+    [Theory, InlineData("Blue"), InlineData("Alpha")]
     [Trait("Category", "Gpu")]
-    public void McCanExplicitlySelectBlueOrNumericalAlphaWithoutChangingCoverage(D3D12HairHighlightChannel channel)
+    public void McCanExplicitlySelectBlueOrNumericalAlphaWithoutChangingCoverage(string channel)
     {
         using var session = new D3D12FrameSession();
-        var binding = new D3D12StarMcHairBinding(0, 1, channel);
-        var actual = session.Capture(Frame([0, 0, 51, 204], [255, 0, 0, 0]), Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, binding));
-        var baseline = session.Capture(Frame([0, 0, 51, 204], [255, 0, 0, 0], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(D3D12SurfaceStyle.WutheringPmx, binding));
-        AssertIncrement(baseline, actual, Oracle(D3D12SurfaceStyle.WutheringPmx, binding, (channel == D3D12HairHighlightChannel.Blue ? 51 : 204) / 255d, 1, 1) * 255);
+        var binding = T8cTestHelpers.StarMcHairBinding(T8cTestHelpers.WutheringStyleId, 0, 1, channel);
+        var actual = session.Capture(Frame([0, 0, 51, 204], [255, 0, 0, 0]), Width, Height, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, binding));
+        var baseline = session.Capture(Frame([0, 0, 51, 204], [255, 0, 0, 0], specular: Vector3.Zero), Width, Height, surfaceStyles: Map(T8cTestHelpers.WutheringStyleId, binding));
+        AssertIncrement(baseline, actual, Oracle(T8cTestHelpers.WutheringStyleId, binding, (channel == "Blue" ? 51 : 204) / 255d, 1, 1) * 255);
         Assert.Equal(255, Pixel(actual)[3]);
     }
 
-    [Theory, InlineData(D3D12SurfaceStyle.StarRailPmx, false), InlineData(D3D12SurfaceStyle.StarRailPmx, true)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx, false), InlineData(D3D12SurfaceStyle.WutheringPmx, true)]
+    [Theory, InlineData(T8cTestHelpers.StarRailStyleId, false), InlineData(T8cTestHelpers.StarRailStyleId, true)]
+    [InlineData(T8cTestHelpers.WutheringStyleId, false), InlineData(T8cTestHelpers.WutheringStyleId, true)]
     [Trait("Category", "Gpu")]
-    public void OriginalCAndOutsideProjectionRetainTheirExistingComposition(D3D12SurfaceStyle family, bool outside)
+    public void OriginalCAndOutsideProjectionRetainTheirExistingComposition(string family, bool outside)
     {
         using var session = new D3D12FrameSession();
         const float d = .175f;
         var normal = new Vector3(d, 0, -MathF.Sqrt(1 - d * d));
-        var binding = new D3D12StarMcHairBinding(0, 1, ShadowCoefficient: .5f, ShadowSoftness: 1);
+        var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1, shadowCoefficient: .5f, shadowSoftness: 1);
         var actual = session.Capture(Frame([0, 0, 128, 255], [255, 0, 0, 255], normal: normal, light: Vector3.UnitX, outside: outside), Width, Height, surfaceStyles: Map(family, binding));
         var baseline = session.Capture(Frame([0, 0, 128, 255], [255, 0, 0, 255], normal: normal, light: Vector3.UnitX, outside: outside, specular: Vector3.Zero), Width, Height, surfaceStyles: Map(family, binding));
         AssertIncrement(baseline, actual, Oracle(family, binding, 128 / 255d, 1, d) * (outside ? 1 : 3 * d) * 255);
@@ -158,7 +159,7 @@ public sealed class D3D12StarMcHairSurfaceTests
         using var session = new D3D12FrameSession();
         foreach (var family in Families())
         {
-            var binding = new D3D12StarMcHairBinding(0, 1);
+            var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1);
             var actual = session.Capture(Frame([0, 0, 128, 255], [255, 0, 0, 255], projectedDepth: depth), Width, Height, surfaceStyles: Map(family, binding));
             var baseline = session.Capture(Frame([0, 0, 128, 255], [255, 0, 0, 255], projectedDepth: depth, specular: Vector3.Zero), Width, Height, surfaceStyles: Map(family, binding));
             AssertIncrement(baseline, actual, Oracle(family, binding, 128 / 255d, 1, 1) * OriginalFrameMath.Visibility(depth, 1, .5f, false) * 255);
@@ -174,7 +175,7 @@ public sealed class D3D12StarMcHairSurfaceTests
             Composition: RayGiComposition.ToonPalette) : null;
         foreach (var family in Families())
         {
-            var binding = new D3D12StarMcHairBinding(0, 1);
+            var binding = T8cTestHelpers.StarMcHairBinding(family, 0, 1);
             var frame = Frame([0, 77, 128, 0], [255, 1, 2, 0], native: native);
             var actual = session.Capture(frame, Width, Height, options, surfaceStyles: Map(family, binding));
             var baseline = session.Capture(Frame([0, 77, 128, 0], [255, 1, 2, 0], native: native, specular: Vector3.Zero), Width, Height, options, surfaceStyles: Map(family, binding));
@@ -183,7 +184,7 @@ public sealed class D3D12StarMcHairSurfaceTests
             for (int i = 0; i < 8; i++)
             {
                 using var rendered = session.Render(frame, Width, Height, options,
-                    surfaceStyles: Map(family, binding with { HighlightBrightness = -1 + i, Intensity = .03f + i * .01f }));
+                    surfaceStyles: Map(family, T8cTestHelpers.StarMcHairBinding(family, 0, 1, highlightBrightness: -1 + i, intensity: .03f + i * .01f)));
                 Assert.Equal(0, rendered.Statistics.ReadbackCount);
                 Assert.Equal(warm.ShaderCompilations, rendered.Statistics.ShaderCompilations);
                 Assert.Equal(warm.PipelineCreations, rendered.Statistics.PipelineCreations);
@@ -202,16 +203,16 @@ public sealed class D3D12StarMcHairSurfaceTests
         {
             var frame = Frame([128, 255, 255, 0], [255, 0, 0, 255], transparent: true, straight: straight, sub: sub, sphere: !sub);
             var ordinary = session.Capture(frame, Width, Height, surfaceStyles: Map(family, null));
-            var binding = new D3D12StarMcHairBinding(2, 3);
+            var binding = T8cTestHelpers.StarMcHairBinding(family, 2, 3);
             var selected = session.Capture(frame, Width, Height, surfaceStyles: Map(family, binding));
             for (int i = 3; i < ordinary.Rgba.Length; i += 4) Assert.Equal(ordinary.Rgba[i], selected.Rgba[i]);
             var changedUnused = Frame([0, 0, 255, 255], [255, 255, 255, 0], transparent: true, straight: straight, sub: sub, sphere: !sub);
             Assert.Equal(selected.Rgba, session.Capture(changedUnused, Width, Height, surfaceStyles: Map(family, binding)).Rgba);
             Assert.Equal(ordinary.Rgba, session.Capture(frame, Width, Height, surfaceStyles: Map(family, null)).Rgba);
             Assert.InRange(Pixel(selected)[3], 15, 64);
-            if (family == D3D12SurfaceStyle.WutheringPmx)
+            if (family == T8cTestHelpers.WutheringStyleId)
             {
-                var alpha = session.Capture(frame, Width, Height, surfaceStyles: Map(family, binding with { HighlightChannel = D3D12HairHighlightChannel.Alpha }));
+                var alpha = session.Capture(frame, Width, Height, surfaceStyles: Map(family, T8cTestHelpers.StarMcHairBinding(family, 2, 3, "Alpha")));
                 for (int i = 3; i < alpha.Rgba.Length; i += 4) Assert.Equal(selected.Rgba[i], alpha.Rgba[i]);
                 Assert.NotEqual(Pixel(selected), Pixel(alpha));
             }
@@ -239,16 +240,20 @@ public sealed class D3D12StarMcHairSurfaceTests
         var scene = new SceneSnapshot(vertices.ToArray(), indices, materials, textures, camera: old.Camera, lightDirection: old.LightDirection);
         var frame = new OriginalFrameScene(new(scene, Enumerable.Repeat(source.Surface.Materials[0] with { DoubleSided = both }, count).ToArray(), source.Surface.Profile),
             options: source.Options, lighting: source.Lighting);
-        D3D12SurfaceStyle[] families = [D3D12SurfaceStyle.Mmd, D3D12SurfaceStyle.GenshinPmx, D3D12SurfaceStyle.GenshinPmx,
-            D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx, D3D12SurfaceStyle.EndfieldPmx, D3D12SurfaceStyle.StarRailPmx];
-        D3D12CharacterMaterialStyle[] ordinary = [new(), new(D3D12CharacterMaterialRole.Face, 1, 1, D3D12FaceSdfBinding.GenshinSoft(2, 3, -Vector3.UnitZ, Vector3.UnitX)),
-            new(D3D12CharacterMaterialRole.Hair, GenshinNonMetallicSpecular: new(4)), new(), new(), new(), new()];
+        string[] families = [T8cTestHelpers.MmdStyleId, T8cTestHelpers.GenshinStyleId, T8cTestHelpers.GenshinStyleId,
+            T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId, T8cTestHelpers.EndfieldStyleId, T8cTestHelpers.StarRailStyleId];
+        D3D12CharacterMaterialStyle[] ordinary = [
+            new(),
+            T8cTestHelpers.MaterialWithBinding(T8cTestHelpers.GenshinStyleId, T8cTestHelpers.GenshinSoftFaceBinding(2, 3, -Vector3.UnitZ, Vector3.UnitX), D3D12CharacterMaterialRole.Face, 1, 1, frame: frame),
+            T8cTestHelpers.MaterialWithBinding(T8cTestHelpers.GenshinStyleId, TestStylePlugins.GenshinHair(4), D3D12CharacterMaterialRole.Hair, frame: frame),
+            new(), new(), new(), new()
+        ];
         var selected = ordinary.ToArray();
-        selected[3] = new(D3D12CharacterMaterialRole.Hair, StarMcHair: new(0, 1));
-        selected[4] = new(D3D12CharacterMaterialRole.Hair, StarMcHair: new(0, 1, D3D12HairHighlightChannel.Alpha));
+        selected[3] = T8cTestHelpers.MaterialWithBinding(T8cTestHelpers.StarRailStyleId, T8cTestHelpers.StarMcHairBinding(T8cTestHelpers.StarRailStyleId, 0, 1), D3D12CharacterMaterialRole.Hair, frame: frame);
+        selected[4] = T8cTestHelpers.MaterialWithBinding(T8cTestHelpers.WutheringStyleId, T8cTestHelpers.StarMcHairBinding(T8cTestHelpers.WutheringStyleId, 0, 1, "Alpha"), D3D12CharacterMaterialRole.Hair, frame: frame);
         var giOptions = gi ? new RayGiOptions(LightingMode.SoftwareRayTracing, SamplesPerPixel: 4, Seed: 17, Composition: RayGiComposition.ToonPalette) : null;
-        var before = session.Capture(frame, Width, Height, giOptions, surfaceStyles: new(families, ordinary));
-        var after = session.Capture(frame, Width, Height, giOptions, surfaceStyles: new(families, selected));
+        var before = session.Capture(frame, Width, Height, giOptions, surfaceStyles: T8cTestHelpers.CreateDirectMap(families, ordinary));
+        var after = session.Capture(frame, Width, Height, giOptions, surfaceStyles: T8cTestHelpers.CreateDirectMap(families, selected));
         for (int row = 0; row < count; row++)
         {
             var clip = Vector4.Transform(new Vector4(0, .72f - row * .24f, 0, 1), old.Camera.ViewProjection(Width, Height));
@@ -258,26 +263,32 @@ public sealed class D3D12StarMcHairSurfaceTests
             if (row is 3 or 4) Assert.NotEqual(a, b); else Assert.Equal(a, b);
         }
         for (int i = 3; i < after.Rgba.Length; i += 4) Assert.Equal(before.Rgba[i], after.Rgba[i]);
-        Assert.Equal(before.Rgba, session.Capture(frame, Width, Height, giOptions, surfaceStyles: new(families, ordinary)).Rgba);
+        Assert.Equal(before.Rgba, session.Capture(frame, Width, Height, giOptions, surfaceStyles: T8cTestHelpers.CreateDirectMap(families, ordinary)).Rgba);
     }
 
-    private static D3D12SurfaceStyle[] Families() => [D3D12SurfaceStyle.StarRailPmx, D3D12SurfaceStyle.WutheringPmx];
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12StarMcHairBinding? binding)
-        => new([family], [new(D3D12CharacterMaterialRole.Hair, StarMcHair: binding)]);
+    private static string[] Families() => [T8cTestHelpers.StarRailStyleId, T8cTestHelpers.WutheringStyleId];
+    private static D3D12SurfaceStyleMap Map(string family, StyleMaterialBindingData? binding)
+        => T8cTestHelpers.CreateSingleBindingMap(family, binding, D3D12CharacterMaterialRole.Hair);
 
-    private static Vector3 Oracle(D3D12SurfaceStyle family, D3D12StarMcHairBinding binding, double highlight, double shadow, double d)
+    private static Vector3 Oracle(string family, StyleMaterialBindingData binding, double highlight, double shadow, double d)
     {
         // Independent double-precision evaluation of the source's scalar math;
         // the exact stored float ramp coefficients are intentionally preserved.
-        double k = Math.Clamp(highlight + binding.HighlightCoefficient, 0, 1);
-        double edge = 1 - Math.Clamp(shadow * binding.ShadowCoefficient, 0, 1);
-        double u = Math.Clamp((d * .5 + .5 - (edge - binding.ShadowSoftness)) / binding.ShadowSoftness, 0, 1);
+        var n = binding.NumberValues!;
+        double highlightCoeff = n["highlightCoefficient"];
+        double highlightBright = n["highlightBrightness"];
+        double shadowCoeff = n["shadowCoefficient"];
+        double shadowSoftness = n["shadowSoftness"];
+        double intensity = n["intensity"];
+        double k = Math.Clamp(highlight + highlightCoeff, 0, 1);
+        double edge = 1 - Math.Clamp(shadow * shadowCoeff, 0, 1);
+        double u = Math.Clamp((d * .5 + .5 - (edge - shadowSoftness)) / shadowSoftness, 0, 1);
         double q = .05000000074505806 + (1 - .05000000074505806) * u;
-        double response = family == D3D12SurfaceStyle.StarRailPmx ? Math.Clamp(q * 3.333333969116211 - 2.000000476837158, 0, 1) * (.2126 + .7152 + .0722) : q;
-        double brightness = Math.Clamp(response * k, 0, 1) * (k + binding.HighlightBrightness);
-        return new((float)Math.Clamp(Specular.X * brightness * binding.Intensity, 0, 1),
-            (float)Math.Clamp(Specular.Y * brightness * binding.Intensity, 0, 1),
-            (float)Math.Clamp(Specular.Z * brightness * binding.Intensity, 0, 1));
+        double response = family == T8cTestHelpers.StarRailStyleId ? Math.Clamp(q * 3.333333969116211 - 2.000000476837158, 0, 1) * (.2126 + .7152 + .0722) : q;
+        double brightness = Math.Clamp(response * k, 0, 1) * (k + highlightBright);
+        return new((float)Math.Clamp(Specular.X * brightness * intensity, 0, 1),
+            (float)Math.Clamp(Specular.Y * brightness * intensity, 0, 1),
+            (float)Math.Clamp(Specular.Z * brightness * intensity, 0, 1));
     }
 
     private static OriginalFrameScene Frame(byte[] highlight, byte[] shadow, Vector3? specular = null, Vector2? uv = null,

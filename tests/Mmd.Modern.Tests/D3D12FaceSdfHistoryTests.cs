@@ -1,5 +1,6 @@
 using System.Numerics;
 using Mmd.Modern.Core;
+using Mmd.Modern.Plugins.Contracts;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -11,9 +12,9 @@ public sealed class D3D12FaceSdfHistoryTests
     private const int Width = 96, Height = 72;
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    public void SubmittedFaceDataResetsBothHistoriesOnceAndUnusedBindingsRetainThem(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    public void SubmittedFaceDataResetsBothHistoriesOnceAndUnusedBindingsRetainThem(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
@@ -22,16 +23,15 @@ public sealed class D3D12FaceSdfHistoryTests
         var editedFrame = Frame(Mask(invert: true));
         var sdf = Binding(family);
         var baseline = Map(family, sdf);
-        var head = Map(family, sdf with { HeadWorldRight = -Vector3.UnitX });
-        var transition = Map(family, sdf with { Transition = sdf.Transition * 1.5f });
+        var head = Map(family, Binding(family, right: -Vector3.UnitX));
+        var transition = Map(family, Binding(family, transition: (family == T8cTestHelpers.WutheringStyleId ? .1f : 1f) * 1.5f));
         var disabled = Map(family, sdf, strength: 0);
         var ordinary = Map(family, null);
         var gi = Gi();
         long readbacks = session.Runtime.Readbacks;
 
         Render(frame, baseline, 1, "FirstFrame", "FirstFrame");
-        Render(frame, Map(family, sdf with { HeadWorldForward = sdf.HeadWorldForward * 2,
-            HeadWorldRight = sdf.HeadWorldRight * 3 }), 2, "None", "None");
+        Render(frame, Map(family, Binding(family, forward: -Vector3.UnitZ * 2, right: Vector3.UnitX * 3)), 2, "None", "None");
         // Reuse the same public map with a different immutable numerical texture.
         // The renderer must compare against the detached last submitted texture data.
         Render(editedFrame, baseline, 1, "ExplicitReset", "ExplicitRequest");
@@ -41,8 +41,8 @@ public sealed class D3D12FaceSdfHistoryTests
         Render(editedFrame, transition, 1, "ExplicitReset", "ExplicitRequest");
         Render(editedFrame, transition, 2, "None", "None");
         Render(editedFrame, disabled, 1, "ExplicitReset", "ExplicitRequest");
-        Render(editedFrame, Map(family, sdf with { Offset = -.25f,
-            HeadWorldRight = -Vector3.UnitX, Transition = sdf.Transition * 2 }, strength: 0), 2, "None", "None");
+        Render(editedFrame, Map(family, Binding(family, offset: -.25f, right: -Vector3.UnitX,
+            transition: (family == T8cTestHelpers.WutheringStyleId ? .1f : 1f) * 2f), strength: 0), 2, "None", "None");
         Render(editedFrame, Map(family, null, strength: 0), 3, "None", "None");
         Render(editedFrame, ordinary, 1, "ExplicitReset", "ExplicitRequest");
         Render(editedFrame, ordinary, 2, "None", "None");
@@ -91,9 +91,9 @@ public sealed class D3D12FaceSdfHistoryTests
     }
 
     [Theory, Trait("Category", "Gpu")]
-    [InlineData(D3D12SurfaceStyle.StarRailPmx)]
-    [InlineData(D3D12SurfaceStyle.WutheringPmx)]
-    public void AbortedMaskDoesNotCommitAndRetryMatchesAFreshFirstFrame(D3D12SurfaceStyle family)
+    [InlineData(T8cTestHelpers.StarRailStyleId)]
+    [InlineData(T8cTestHelpers.WutheringStyleId)]
+    public void AbortedMaskDoesNotCommitAndRetryMatchesAFreshFirstFrame(string family)
     {
         using var session = new D3D12FrameSession();
         RequireSoftwareGi(session);
@@ -135,17 +135,17 @@ public sealed class D3D12FaceSdfHistoryTests
     }
 
     [Fact]
-    public void CapturedFaceDataUsesActualRedSamplesRatherThanTextureOwnerOrUnusedChannels()
+    public void CapturedFaceDataTracksBoundTexturePixelsRatherThanTextureOwnerLabel()
     {
-        var sdf = Binding(D3D12SurfaceStyle.StarRailPmx);
-        var map = Map(D3D12SurfaceStyle.StarRailPmx, sdf);
-        var first = map.CaptureFaceTextures(Frame(Mask()));
-        var equalOwner = Map(D3D12SurfaceStyle.StarRailPmx, sdf).CaptureFaceTextures(Frame(Mask(name: "different label")));
+        var sdf = Binding(T8cTestHelpers.StarRailStyleId);
+        var map = Map(T8cTestHelpers.StarRailStyleId, sdf);
+        var first = map.CaptureResolvedInputs(Frame(Mask()));
+        var equalOwner = Map(T8cTestHelpers.StarRailStyleId, sdf).CaptureResolvedInputs(Frame(Mask(name: "different label")));
         Assert.True(D3D12SurfaceStyleMap.Equivalent(first, equalOwner));
-        var alternateChannels = map.CaptureFaceTextures(Frame(Mask(otherChannels: true)));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, alternateChannels));
-        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame(Mask(invert: true)))));
-        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureFaceTextures(Frame(Mask()))));
+        var alternateChannels = map.CaptureResolvedInputs(Frame(Mask(otherChannels: true)));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, alternateChannels));
+        Assert.False(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame(Mask(invert: true)))));
+        Assert.True(D3D12SurfaceStyleMap.Equivalent(first, map.CaptureResolvedInputs(Frame(Mask()))));
         // This is the surface-key contract. Actual AA/GI retains its pre-existing
         // conservative scene-texture identity reset when the texture owner changes.
     }
@@ -160,12 +160,27 @@ public sealed class D3D12FaceSdfHistoryTests
         return new() { Mode = D3D12TemporalUpscalingMode.Fsr, QualityPreset = D3D12FsrQualityPreset.NativeAa, LoaderPath = loader };
     }
 
-    private static D3D12FaceSdfBinding Binding(D3D12SurfaceStyle family)
-        => new(0, -Vector3.UnitZ, Vector3.UnitX, family == D3D12SurfaceStyle.WutheringPmx ? .1f : 1);
+    private static StyleMaterialBindingData Binding(
+        string family,
+        Vector3? forward = null,
+        Vector3? right = null,
+        float? transition = null,
+        float offset = 1f)
+        => T8cTestHelpers.FaceSdfBinding(
+            family,
+            0,
+            forward: forward ?? -Vector3.UnitZ,
+            right: right ?? Vector3.UnitX,
+            transition: transition ?? (family == T8cTestHelpers.WutheringStyleId ? .1f : 1f),
+            offset: offset);
 
-    private static D3D12SurfaceStyleMap Map(D3D12SurfaceStyle family, D3D12FaceSdfBinding? sdf, float strength = .75f)
-        => new([family, D3D12SurfaceStyle.Mmd],
-            [new(D3D12CharacterMaterialRole.Face, strength, .35f, sdf), new()]);
+    private static D3D12SurfaceStyleMap Map(string family, StyleMaterialBindingData? sdf, float strength = .75f)
+        => T8cTestHelpers.CreateDirectMap(
+            [family, T8cTestHelpers.MmdStyleId],
+            [
+                T8cTestHelpers.MaterialWithBinding(family, sdf, D3D12CharacterMaterialRole.Face, strength, .35f, buildWhenNull: true),
+                new(),
+            ]);
 
     private static RayGiOptions Gi() => new(LightingMode.SoftwareRayTracing,
         SamplesPerPixel: 4, Seed: 31, MaxRayDistance: 30, RayEpsilon: .001f,

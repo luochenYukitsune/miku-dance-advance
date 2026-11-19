@@ -105,6 +105,9 @@
       "mmd.modern.physics": {
         "type": "Project"
       },
+      "mmd.modern.plugins.contracts": {
+        "type": "Project"
+      },
       "mmd.modern.rendering.d3d12": {
         "type": "Project",
         "dependencies": {

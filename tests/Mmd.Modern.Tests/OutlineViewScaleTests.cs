@@ -23,9 +23,9 @@ public sealed class OutlineViewScaleTests
     {
         var source = Frame();
         var objects = Objects(preset);
-        var baseline = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn, objects);
-        var result = D3D12ViewRenderingStyles.Resolve(source, D3D12StylePresetCatalog.BuiltIn, objects,
-            outlineWidths: [new(First, 0, .25f)]);
+        var baseline = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog, objects, styleCatalog: TestStylePlugins.AllViewCatalog);
+        var result = D3D12ViewRenderingStyles.Resolve(source, TestStylePlugins.AllPresetCatalog, objects,
+            outlineWidths: [new(First, 0, .25f)], styleCatalog: TestStylePlugins.AllViewCatalog);
 
         Assert.Equal(baseline.Scene.Materials[0].CharacterOutlineStyle, result.Scene.Materials[0].CharacterOutlineStyle);
         Assert.Same(baseline.Scene.Outline, result.Scene.Outline);
@@ -36,7 +36,7 @@ public sealed class OutlineViewScaleTests
         }
         Assert.Equal(baseline.Scene.Materials[0] with
         { OutlineWidthScale = .25f }, result.Scene.Materials[0]);
-        Assert.Equal(baseline.SurfaceStyles.Materials, result.SurfaceStyles.Materials);
+        Assert.Equal(baseline.SurfaceStyles.StyleIds, result.SurfaceStyles.StyleIds);
         Assert.Same(source.Surface, result.Scene.Surface);
         Assert.Same(source.Outline!.Vertices, result.Scene.Outline!.Vertices);
         Assert.Equal(source.Outline.VertexRevision, result.Scene.Outline.VertexRevision);
@@ -127,7 +127,7 @@ public sealed class OutlineViewScaleTests
 
         Assert.Equal(source.Materials[0] with { OutlineWidthScale = .25f }, result.Scene.Materials[0]);
         for (int index = 1; index < source.Materials.Count; index++) Assert.Same(source.Materials[index], result.Scene.Materials[index]);
-        Assert.Equal(baseline.SurfaceStyles.Materials, result.SurfaceStyles.Materials);
+        Assert.Equal(baseline.SurfaceStyles.StyleIds, result.SurfaceStyles.StyleIds);
         Assert.Equal(baseline.SurfaceStyles.CharacterMaterials, result.SurfaceStyles.CharacterMaterials);
         Assert.Same(source.Outline, result.Scene.Outline);
     }

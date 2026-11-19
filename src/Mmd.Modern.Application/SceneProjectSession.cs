@@ -315,6 +315,7 @@ public sealed partial class SceneProjectSession : IDisposable
     { RequireAlive(); if (editing) throw new InvalidOperationException("A project transaction cannot be nested or evaluated while preparing."); }
     internal void RequireDisposalAllowed()
     { if (editing) throw new InvalidOperationException("Cannot dispose the owner inside its edit transaction."); }
+    public bool IsDisposed => disposed;
     public void Dispose()
     {
         if (disposed) return;

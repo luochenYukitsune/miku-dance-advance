@@ -9,4 +9,70 @@
     <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
   </ItemGroup>
+  <ItemGroup>
+    <_DemoStylePlugin Include="../Mda.StylePlugin.Genshin/Mda.StylePlugin.Genshin.csproj"
+                      PluginId="mda.style.genshin"
+                      ProjectName="Mda.StylePlugin.Genshin" />
+    <_DemoStylePlugin Include="../Mda.StylePlugin.StarRail/Mda.StylePlugin.StarRail.csproj"
+                      PluginId="mda.style.star-rail"
+                      ProjectName="Mda.StylePlugin.StarRail" />
+    <_DemoStylePlugin Include="../Mda.StylePlugin.WutheringWaves/Mda.StylePlugin.WutheringWaves.csproj"
+                      PluginId="mda.style.wuthering-waves"
+                      ProjectName="Mda.StylePlugin.WutheringWaves" />
+    <_DemoStylePlugin Include="../Mda.StylePlugin.Endfield/Mda.StylePlugin.Endfield.csproj"
+                      PluginId="mda.style.endfield"
+                      ProjectName="Mda.StylePlugin.Endfield" />
+    <_DemoStylePlugin Include="../../examples/Mda.CustomStylePlugin/Mda.CustomStylePlugin.csproj"
+                      PluginId="mda.style.custom-ink-cel"
+                      ProjectName="Mda.CustomStylePlugin" />
+  </ItemGroup>
+  <Target Name="_BuildDemoStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_PluginPlatformSegment Condition="'$(Platform)' != '' and '$(Platform)' != 'AnyCPU' and '$(Platform)' != 'Any CPU'">$(Platform)/</_PluginPlatformSegment>
+      <_PluginCacheRoot Condition="'$(RuntimeIdentifier)' == ''">$(ModernCacheRoot)</_PluginCacheRoot>
+      <_PluginCacheRoot Condition="'$(RuntimeIdentifier)' != ''">$(ModernCacheRoot)/style-plugins</_PluginCacheRoot>
+      <_PluginRestoreLockedMode Condition="'$(RuntimeIdentifier)' == ''">true</_PluginRestoreLockedMode>
+      <_PluginRestoreLockedMode Condition="'$(RuntimeIdentifier)' != ''">false</_PluginRestoreLockedMode>
+    </PropertyGroup>
+    <ItemGroup>
+      <_DemoStylePluginToRestore Include="@(_DemoStylePlugin)"
+                                 Condition="!Exists('$(_PluginCacheRoot)/obj/%(ProjectName)/project.assets.json')" />
+    </ItemGroup>
+    <MSBuild Condition="'@(_DemoStylePluginToRestore)' != ''"
+             Projects="@(_DemoStylePluginToRestore)"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot);RestoreLockedMode=$(_PluginRestoreLockedMode)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+    <MSBuild Projects="@(_DemoStylePlugin)"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot)"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             BuildInParallel="false" />
+  </Target>
+  <Target Name="StageDemoStylePlugins"
+          AfterTargets="Build"
+          DependsOnTargets="_BuildDemoStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_DemoStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_DemoStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
+          DestinationFolder="$(TargetDir)plugins/%(_DemoStylePlugin.PluginId)"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_StrayDemoBuiltPluginFiles Include="$(TargetDir)plugins/*/*.pdb;$(TargetDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+    </ItemGroup>
+    <Delete Files="@(_StrayDemoBuiltPluginFiles)" />
+  </Target>
+  <Target Name="StageDemoStylePluginsForPublish"
+          AfterTargets="Publish"
+          DependsOnTargets="_BuildDemoStylePlugins"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != ''">
+    <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_DemoStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_DemoStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_DemoStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
+          DestinationFolder="$(PublishDir)plugins/%(_DemoStylePlugin.PluginId)"
+          SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <_StrayDemoPublishedPluginFiles Include="$(PublishDir)plugins/*/*.pdb;$(PublishDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+    </ItemGroup>
+    <Delete Files="@(_StrayDemoPublishedPluginFiles)" />
+  </Target>
 </Project>

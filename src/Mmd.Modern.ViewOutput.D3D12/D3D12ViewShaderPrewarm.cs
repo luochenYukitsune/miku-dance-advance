@@ -5,19 +5,12 @@ namespace Mmd.Modern.ViewOutput.D3D12;
 
 internal static class D3D12ViewShaderPrewarm
 {
-    internal static D3D12SurfaceStyle? ResolveStylizedFamily(string? pipelineId) => pipelineId switch
-    {
-        "genshin" => D3D12SurfaceStyle.GenshinPmx,
-        "star-rail" => D3D12SurfaceStyle.StarRailPmx,
-        "wuthering-waves" => D3D12SurfaceStyle.WutheringPmx,
-        "endfield" => D3D12SurfaceStyle.EndfieldPmx,
-        _ => null,
-    };
-
     internal static D3D12ShaderWarmupSpec BuildFromViewRequest(
         ViewQualityOptions quality,
-        IEnumerable<D3D12ViewCharacterMaterialBinding>? characterMaterials = null,
-        IEnumerable<D3D12ViewFaceSdfBinding>? faceDataBindings = null,
+        D3D12ViewStyleCatalog? styleCatalog = null,
+        IEnumerable<D3D12ViewCharacterMaterial>? characterMaterials = null,
+        IEnumerable<D3D12ViewPluginMaterialBinding>? pluginBindings = null,
+        D3D12StylePresetCatalog? stylePresets = null,
         bool hasNativeLights = false,
         bool hasTextureMorph = false,
         bool hasSubTexture = false,
@@ -35,6 +28,11 @@ internal static class D3D12ViewShaderPrewarm
         bool giEnabled = gi.Enabled && gi.Strength > 0;
         bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
 
+        bool anyMaterialToon = hasCharacterToon
+            || (characterMaterials?.Any(static m => m?.ToonResponse is not null) ?? false);
+        bool anyMaterialDirectPalette = hasCharacterDirectPalette
+            || (characterMaterials?.Any(static m => m?.PreserveDirectLightPalette == true) ?? false);
+
         IReadOnlyList<D3D12ShaderStyleWarmupVariant> variants;
         if (explicitStylizedVariants is not null)
         {
@@ -42,42 +40,13 @@ internal static class D3D12ViewShaderPrewarm
         }
         else
         {
-            var set = new HashSet<D3D12ShaderStyleWarmupVariant>();
-            if (characterMaterials is not null)
-            {
-                foreach (var binding in characterMaterials)
-                {
-                    var s = binding.Style;
-                    if (s.GenshinNonMetallicSpecular is not null || s.GenshinHairShadowAtlas is not null || s.GenshinMetallic is not null)
-                    {
-                        set.Add(new D3D12ShaderStyleWarmupVariant(
-                            D3D12SurfaceStyle.GenshinPmx,
-                            GenshinHair: s.GenshinNonMetallicSpecular is not null,
-                            GenshinAtlas: s.GenshinHairShadowAtlas is not null,
-                            GenshinMetallic: s.GenshinMetallic is not null,
-                            GenshinMetallicSpecular: s.GenshinMetallic?.Specular is not null));
-                    }
-                    if (s.EndfieldHair is not null || s.EndfieldRim is not null || s.EndfieldMatcap is not null)
-                    {
-                        set.Add(new D3D12ShaderStyleWarmupVariant(
-                            D3D12SurfaceStyle.EndfieldPmx,
-                            EndfieldHair: s.EndfieldHair is not null,
-                            EndfieldRim: s.EndfieldRim is not null,
-                            EndfieldMatcap: s.EndfieldMatcap is not null,
-                            EndfieldPalette: s.EndfieldMatcap?.Palette is not null,
-                            EndfieldBaseImage: s.EndfieldMatcap?.Palette?.BaseImage is not null));
-                    }
-                }
-            }
-            if (faceDataBindings is not null)
-            {
-                foreach (var face in faceDataBindings)
-                {
-                    if (face.Encoding == D3D12FaceSdfEncoding.GenshinSoftFace)
-                        set.Add(new D3D12ShaderStyleWarmupVariant(D3D12SurfaceStyle.GenshinPmx, FaceSdf: true));
-                }
-            }
-            variants = set.ToArray();
+            variants = CollectStyleVariants(
+                styleCatalog,
+                stylePresets,
+                pluginBindings,
+                hasSubTexture,
+                anyMaterialToon,
+                anyMaterialDirectPalette);
         }
 
         return new D3D12ShaderWarmupSpec
@@ -92,8 +61,8 @@ internal static class D3D12ViewShaderPrewarm
             NativeLights = hasNativeLights,
             TextureMorph = hasTextureMorph,
             SubTexture = hasSubTexture,
-            CharacterToon = hasCharacterToon,
-            CharacterDirectPalette = hasCharacterDirectPalette,
+            CharacterToon = anyMaterialToon,
+            CharacterDirectPalette = anyMaterialDirectPalette,
             Outline = hasOutline,
             CharacterOutline = hasCharacterOutline,
             StylizedVariants = variants,
@@ -112,5 +81,89 @@ internal static class D3D12ViewShaderPrewarm
             IncludeLightGizmos = hasLightGizmos,
             IncludeGpuSkinning = hasDynamicVertices,
         };
+    }
+
+    private static D3D12ShaderStyleWarmupVariant[] CollectStyleVariants(
+        D3D12ViewStyleCatalog? styleCatalog,
+        D3D12StylePresetCatalog? stylePresets,
+        IEnumerable<D3D12ViewPluginMaterialBinding>? pluginBindings,
+        bool hasSubTexture,
+        bool anyMaterialToon,
+        bool anyMaterialDirectPalette)
+    {
+        var registrations = new Dictionary<string, D3D12PluginStyleRegistration>(StringComparer.Ordinal);
+        if (styleCatalog is not null)
+        {
+            foreach (var reg in styleCatalog.Registrations)
+                registrations[reg.StyleId] = reg;
+        }
+        if (stylePresets is not null)
+        {
+            foreach (var (styleId, reg) in stylePresets.Plugins)
+                registrations.TryAdd(styleId, reg);
+        }
+
+        if (registrations.Count == 0)
+            return [];
+
+        HashSet<string>? referencedStyles = null;
+        if (pluginBindings is not null)
+        {
+            foreach (var binding in pluginBindings)
+            {
+                if (binding?.Binding is not null && !string.IsNullOrWhiteSpace(binding.Binding.StyleId))
+                    (referencedStyles ??= new HashSet<string>(StringComparer.Ordinal)).Add(binding.Binding.StyleId);
+            }
+        }
+
+        var variants = new List<D3D12ShaderStyleWarmupVariant>();
+        var seen = new HashSet<(string StyleId, string ModuleId, string ContentHash, D3D12StyleShaderHookMask Hooks, D3D12StyleGeometryRequirements Geom, bool Toon, bool DirectPalette)>();
+
+        void AddModule(string styleId, D3D12PluginShaderModule module, CharacterToonResponse? defaultToon)
+        {
+            var hooks = module.EffectiveHooks;
+            var geom = D3D12StyleShaderAssembler.ResolveEffectiveGeometry(module, hasSubTexture);
+            bool matToon = anyMaterialToon
+                || defaultToon is not null
+                || hooks.HasFlag(D3D12StyleShaderHookMask.AllowStylizedShadingWrapper)
+                || hooks.HasFlag(D3D12StyleShaderHookMask.LightResponse);
+            bool preserveDirect = anyMaterialDirectPalette
+                || hooks.HasFlag(D3D12StyleShaderHookMask.PreserveDirectLightPalette);
+
+            var dedupKey = (styleId, module.ModuleId, module.EffectiveContentHash, hooks, geom, matToon, preserveDirect);
+            if (seen.Add(dedupKey))
+            {
+                variants.Add(new D3D12ShaderStyleWarmupVariant(
+                    styleId,
+                    module,
+                    hooks,
+                    geom,
+                    matToon,
+                    preserveDirect));
+            }
+        }
+
+        foreach (var reg in registrations.Values)
+        {
+            if (string.Equals(reg.StyleId, D3D12SurfaceStyleMap.DefaultStyleId, StringComparison.Ordinal))
+                continue;
+
+            // Warm all active registered styles (and ensure any explicitly referenced active style is included).
+            _ = referencedStyles;
+            if (reg.ShaderModules is { Count: > 0 } modules)
+            {
+                foreach (var module in modules.Values)
+                    AddModule(reg.StyleId, module, reg.DefaultToonResponse);
+
+                if (!modules.ContainsKey("default"))
+                    AddModule(reg.StyleId, D3D12StyleShaderAssembler.DefaultStylizedHostModule, reg.DefaultToonResponse);
+            }
+            else
+            {
+                AddModule(reg.StyleId, D3D12StyleShaderAssembler.DefaultStylizedHostModule, reg.DefaultToonResponse);
+            }
+        }
+
+        return variants.ToArray();
     }
 }
