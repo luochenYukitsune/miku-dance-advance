@@ -243,15 +243,21 @@ public sealed class FfmpegTests
         var tools = Tools(); string directory = Path.Combine(ArtifactDirectory(), "active-cancel-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory); string path = Path.Combine(directory, "existing.avi");
         byte[] original = [44, 55, 66]; await File.WriteAllBytesAsync(path, original, Token);
-        var plan = new OfflineFramePlan(2048, 2048, new(30), 0, 0);
+        var plan = new OfflineFramePlan(2048, 2048, new(30), 0, 15);
         using var frame = new FrameBufferLease(2048, 2048, 8192, new byte[2048 * 2048 * 4]);
         for (int attempt = 0; attempt < 3; attempt++)
         {
             await using var sink = new FfmpegFrameSink(tools, new(path, VideoEncoder.RawVideo));
             await sink.BeginAsync(new(plan), Token);
+            await sink.WriteAsync(plan.GetSample(0), frame, Token);
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Token);
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(2));
-            var failure = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sink.WriteAsync(plan.GetSample(0), frame, cancellation.Token).AsTask());
+            var failure = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                for (long i = 1; i < plan.FrameCount; i++)
+                    await sink.WriteAsync(plan.GetSample(i), frame, cancellation.Token);
+                await sink.CompleteAsync(cancellation.Token);
+            });
             Assert.True(cancellation.IsCancellationRequested);
             Assert.True(failure.CancellationToken.IsCancellationRequested);
             Assert.IsType<string>(failure.Data["FfmpegDiagnostic"]);
