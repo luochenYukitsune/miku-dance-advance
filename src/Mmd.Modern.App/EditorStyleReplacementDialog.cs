@@ -2,7 +2,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Mmd.Modern.Application;
 using Mmd.Modern.Plugins;
 using Mmd.Modern.Rendering.D3D12;
@@ -52,6 +54,7 @@ internal sealed class EditorStyleReplacementDialog : Window
         FontSize = 13;
         UseLayoutRounding = true;
         EditorDialogTheme.Apply(this, owner);
+        AddPrimaryButtonStyles();
 
         summaryText.Text = Text("Mda.Text.StyleReplacement.Subtitle");
         statusText.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("EditorMuted"));
@@ -187,10 +190,17 @@ internal sealed class EditorStyleReplacementDialog : Window
         card.Bind(Border.BackgroundProperty, this.GetResourceObservable("EditorPanelSurface"));
         card.Bind(Border.BorderBrushProperty, this.GetResourceObservable("EditorBorder"));
 
+        var discoveredPlugin = pluginService?.FindPluginForStyle(missing.Preset.StableId);
+        string? discoveredName = discoveredPlugin?.GetDisplayName(lang);
+        string headerTitle = !string.IsNullOrWhiteSpace(discoveredName)
+            && !string.Equals(discoveredName, missing.Preset.StableId, StringComparison.Ordinal)
+            ? $"{discoveredName} ({missing.Preset.StableId})"
+            : missing.Preset.StableId;
+
         var headerRow = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8 };
         headerRow.Children.Add(new TextBlock
         {
-            Text = missing.Preset.StableId,
+            Text = headerTitle,
             FontWeight = FontWeight.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
             TextWrapping = TextWrapping.Wrap
@@ -224,7 +234,6 @@ internal sealed class EditorStyleReplacementDialog : Window
         var cardStack = new StackPanel { Spacing = 8 };
         cardStack.Children.Add(headerRow);
 
-        var discoveredPlugin = pluginService?.FindPluginForStyle(missing.Preset.StableId);
         var detailRow = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8 };
         string detailMessage = discoveredPlugin is { State: PluginState.Disabled }
             ? Format("Mda.Text.StyleReplacement.PluginDisabledDetail", discoveredPlugin.GetDisplayName(lang))
@@ -247,9 +256,9 @@ internal sealed class EditorStyleReplacementDialog : Window
             {
                 Content = Text("Mda.Text.Context.Inspector.Style.EnablePluginAndApply"),
                 IsEnabled = !busy,
-                Padding = new Thickness(10, 4)
+                Padding = new Thickness(12, 4)
             };
-            enableBtn.Classes.Add("action");
+            enableBtn.Classes.Add("primary");
             enableBtn.Click += async (_, _) => await EnablePluginAsync(missing.Preset.StableId);
             detailRow.Children.Add(enableBtn);
             Grid.SetColumn(enableBtn, 1);
@@ -266,6 +275,7 @@ internal sealed class EditorStyleReplacementDialog : Window
         {
             ItemsSource = availableChoices,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = Text("Mda.Text.Ux.StyleReplacement.ChooseTarget"),
             IsEnabled = !busy
         };
         if (selectedReplacements.TryGetValue(missing.Preset.StableId, out string? existingTarget))
@@ -393,5 +403,54 @@ internal sealed class EditorStyleReplacementDialog : Window
         {
             statusText.Text = error.Message;
         }
+    }
+
+    private void AddPrimaryButtonStyles()
+    {
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary"))
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension("MdaAccent")),
+                new Setter(TemplatedControl.ForegroundProperty, new DynamicResourceExtension("MdaAccentText")),
+                new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent)
+            }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary").Class(":pointerover"))
+        {
+            Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension("MdaAccentHover")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary").Class(":pressed"))
+        {
+            Setters = { new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension("MdaAccent")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary").Class(":disabled"))
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.BackgroundProperty, new DynamicResourceExtension("MdaButtonDisabled")),
+                new Setter(TemplatedControl.ForegroundProperty, new DynamicResourceExtension("EditorDisabledText"))
+            }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary").Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(TextBlock.ForegroundProperty, new DynamicResourceExtension("MdaAccentText")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().PropertyEquals(Button.IsDefaultProperty, true).Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(TextBlock.ForegroundProperty, new DynamicResourceExtension("MdaAccentText")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class(":disabled").Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(TextBlock.ForegroundProperty, new DynamicResourceExtension("EditorDisabledText")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().Class("primary").Class(":disabled").Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(TextBlock.ForegroundProperty, new DynamicResourceExtension("EditorDisabledText")) }
+        });
+        Styles.Add(new Style(x => x.OfType<Button>().PropertyEquals(Button.IsDefaultProperty, true).Class(":disabled").Descendant().OfType<TextBlock>())
+        {
+            Setters = { new Setter(TextBlock.ForegroundProperty, new DynamicResourceExtension("EditorDisabledText")) }
+        });
     }
 }

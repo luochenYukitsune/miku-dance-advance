@@ -137,6 +137,7 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
     public string SubjectLabel => Text("绑定对象");
     public string TargetModelLabel => Text("目标模型");
     public string TargetBoneLabel => Text("目标骨骼");
+    public string TargetBonePlaceholder => Text(HasTargetModel ? "Mda.Text.Ux.Rig.SelectTargetBone" : "Mda.Text.Ux.Rig.SelectTargetModelFirst");
     public string KeepWorldLabel => Text("绑定时保持世界姿态");
     public string RemoveLabel => Text("移除外亲");
     public string OutsideParentHelp => CanEditOutsideParents
@@ -144,6 +145,8 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
         : Text("此工程的外亲由 PMM 时间轨道管理；此处显示当前绑定，不能覆盖原轨道。");
     public string RemoveHelp => Text("移除后恢复原有模型与骨骼变换；不会自动登记补偿关键帧。");
     public string IkTitle => Text("当前帧 IK 开关");
+    public string EnableAllIkLabel => Text("Mda.Text.Ux.Rig.EnableAllIk");
+    public string DisableAllIkLabel => Text("Mda.Text.Ux.Rig.DisableAllIk");
     public string IkHelp => Text("按模型实际 IK 控制骨逐项开关；应用时登记到当前帧，已有关键帧需确认覆盖。");
     public string NoIkMessage => Text("此模型没有 IK 控制骨。");
     public string AmbiguousIkMessage => Text("此模型包含同名 IK 控制骨；VMD 无法区分，不能逐项登记。");
@@ -171,7 +174,7 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
             RebuildTargetBones();
             if (!loading && subject is not null)
             { parents[subject.Index].ParentObjectId = value.ObjectId; parents[subject.Index].ParentBoneIndex = null; }
-            Changed(nameof(HasTargetModel));
+            Changed(nameof(HasTargetModel)); Changed(nameof(TargetBonePlaceholder));
         }
     }
     public EditorRigBoneChoice? SelectedTargetBone
@@ -193,6 +196,13 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
     {
         if (!CanEditOutsideParents) return;
         SelectedTargetModel = TargetModels[0];
+    }
+
+    public void SetAllIkEnabled(bool enabled)
+    {
+        if (!CanEditIk) return;
+        foreach (var controller in IkControllers)
+            controller.Enabled = enabled;
     }
 
     public void SetValidationMessage(string message)
@@ -265,7 +275,7 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
             targetModel = TargetModels.FirstOrDefault(item => item.ObjectId == state.ParentObjectId) ?? TargetModels[0];
             Changed(nameof(SelectedTargetModel)); RebuildTargetBones();
             targetBone = TargetBones.FirstOrDefault(item => item.Index == state.ParentBoneIndex);
-            Changed(nameof(SelectedTargetBone)); Changed(nameof(KeepWorld)); Changed(nameof(HasTargetModel));
+            Changed(nameof(SelectedTargetBone)); Changed(nameof(KeepWorld)); Changed(nameof(HasTargetModel)); Changed(nameof(TargetBonePlaceholder));
         }
         finally { loading = false; }
     }

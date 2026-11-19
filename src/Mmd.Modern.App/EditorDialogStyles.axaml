@@ -38,21 +38,39 @@
   <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
   <Style Selector="Button:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Opacity" Value="1" /><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
   <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Background" Value="Transparent" /></Style>
+  <Style Selector="Button:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
   <Style Selector="Button[IsDefault=True]">
     <Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" />
   </Style>
   <Style Selector="Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+  <Style Selector="Button[IsDefault=True] TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
   <Style Selector="Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
   <Style Selector="Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
   <Style Selector="Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
-  <!-- Cancel and other quiet actions: flat, no border. -->
-  <Style Selector="Button[IsCancel=True]"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-  <Style Selector="Button[IsCancel=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+  <Style Selector="Button[IsDefault=True]:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" />
+  </Style>
+  <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+  <Style Selector="Button.primary TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+  <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+  <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+  <Style Selector="Button.primary:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+  <!-- Cancel and other quiet actions: flat at rest with subtle border and clear hover feedback. -->
+  <Style Selector="Button[IsCancel=True]"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /></Style>
+  <Style Selector="Button[IsCancel=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /></Style>
+  <Style Selector="Button[IsCancel=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /></Style>
   <!-- Destructive confirm (e.g. delete pages): accent swapped for the error tone. -->
   <Style Selector="Button.danger"><Setter Property="Background" Value="{DynamicResource MdaDanger}" /><Setter Property="Foreground" Value="#FFFFFF" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
   <Style Selector="Button.danger /template/ ContentPresenter"><Setter Property="Foreground" Value="#FFFFFF" /></Style>
+  <Style Selector="Button.danger TextBlock"><Setter Property="Foreground" Value="#FFFFFF" /></Style>
   <Style Selector="Button.danger:pointerover"><Setter Property="Background" Value="{DynamicResource MdaDangerHover}" /></Style>
+  <Style Selector="Button.danger:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+  <Style Selector="Button.danger:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+  <Style Selector="Button.danger:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
 
   <Style Selector="ListBox">
     <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />

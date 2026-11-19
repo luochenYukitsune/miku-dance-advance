@@ -25,6 +25,16 @@ public partial class EditorWindow : Window
     private long _mappedRevision = -1;
     private long _mappedBindingRevision = -1;
     private SceneProjectSession? _mappedSession;
+    private const double DefaultLeftRailWidth = 220;
+    private const double DefaultRightRailWidth = 292;
+    private const double DefaultTimelineHeight = 220;
+    private const double DefaultSplitterSize = 4;
+    private bool _isLeftRailVisible = true;
+    private bool _isRightRailVisible = true;
+    private bool _isTimelineVisible = true;
+    private double _savedLeftRailWidth = DefaultLeftRailWidth;
+    private double _savedRightRailWidth = DefaultRightRailWidth;
+    private double _savedTimelineHeight = DefaultTimelineHeight;
 
     public EditorWindow() : this(true) { }
     public EditorWindow(bool persistPreferences) : this(persistPreferences, null) { }
@@ -38,6 +48,14 @@ public partial class EditorWindow : Window
         InitializeComponent();
         InitializeFileDrop();
         InitializeClassicEffects();
+        var modelBrowser = this.FindControl<EditorModelBrowser>("ModelBrowserSurface")!;
+        modelBrowser.OpenModelPropertiesRequested += (_, _) => OpenModelProperties(this, new Avalonia.Interactivity.RoutedEventArgs());
+        modelBrowser.OpenRigSettingsRequested += (_, _) => OpenRigSettings(this, new Avalonia.Interactivity.RoutedEventArgs());
+        modelBrowser.ImportMotionRequested += (_, _) =>
+        {
+            if (_shell?.ImportMotionCommand.CanExecute(null) == true)
+                _shell.ImportMotionCommand.Execute(null);
+        };
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
@@ -51,6 +69,7 @@ public partial class EditorWindow : Window
             finally { old?.Dispose(); }
         };
         Closing += CheckClosing;
+        AddHandler(KeyDownEvent, OnEditorPreviewKeyDown, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         KeyDown += OnEditorKeyDown;
         AddHandler(EditorNumericUpDown.InputValidityChangedEvent, (_, _) =>
         { _shell?.Animation.RefreshInputValidation(); _shell?.SceneInspector.RefreshInputValidation(); });
@@ -164,6 +183,142 @@ public partial class EditorWindow : Window
     private void ToggleTheme(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
     {
         if (_shell is not null) _shell.SelectedThemeIndex = 1 - _shell.SelectedThemeIndex;
+    }
+
+    private void ToggleLeftRail(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => SetLeftRailVisible(!_isLeftRailVisible);
+
+    private void ToggleRightRail(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => SetRightRailVisible(!_isRightRailVisible);
+
+    private void ToggleTimeline(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => SetTimelineVisible(!_isTimelineVisible);
+
+    private void ResetPanelLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+    {
+        _savedLeftRailWidth = DefaultLeftRailWidth;
+        _savedRightRailWidth = DefaultRightRailWidth;
+        _savedTimelineHeight = DefaultTimelineHeight;
+        SetLeftRailVisible(true);
+        SetRightRailVisible(true);
+        SetTimelineVisible(true);
+        GetColumn("LeftRailColumn", 0).Width = new GridLength(DefaultLeftRailWidth);
+        GetColumn("RightRailColumn", 4).Width = new GridLength(DefaultRightRailWidth);
+        GetRow("TimelineRow", 2).Height = new GridLength(DefaultTimelineHeight);
+    }
+
+    private ColumnDefinition GetColumn(string name, int index)
+        => NameScope.GetNameScope(this)?.Find(name) as ColumnDefinition
+            ?? this.FindControl<Grid>("WorkspaceColumnsGrid")!.ColumnDefinitions[index];
+
+    private RowDefinition GetRow(string name, int index)
+        => NameScope.GetNameScope(this)?.Find(name) as RowDefinition
+            ?? this.FindControl<Grid>("WorkbenchGrid")!.RowDefinitions[index];
+
+    private void SetLeftRailVisible(bool visible)
+    {
+        var panel = this.FindControl<Border>("LeftRailPanel")!;
+        var line = this.FindControl<Border>("LeftSplitterLine")!;
+        var splitter = this.FindControl<GridSplitter>("LeftRailSplitter")!;
+        var column = GetColumn("LeftRailColumn", 0);
+        var splitterColumn = GetColumn("LeftSplitterColumn", 1);
+        if (!visible && _isLeftRailVisible)
+        {
+            double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;
+            if (width > 0) _savedLeftRailWidth = width;
+        }
+        _isLeftRailVisible = visible;
+        panel.IsVisible = visible;
+        line.IsVisible = visible;
+        splitter.IsVisible = visible;
+        column.Width = visible ? new GridLength(_savedLeftRailWidth > 0 ? _savedLeftRailWidth : DefaultLeftRailWidth) : new GridLength(0);
+        splitterColumn.Width = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
+        if (this.FindControl<MenuItem>("ShowLeftRailMenuItem") is { } menuItem)
+            menuItem.IsChecked = visible;
+    }
+
+    private void SetRightRailVisible(bool visible)
+    {
+        var panel = this.FindControl<Border>("RightRailPanel")!;
+        var line = this.FindControl<Border>("RightSplitterLine")!;
+        var splitter = this.FindControl<GridSplitter>("RightRailSplitter")!;
+        var column = GetColumn("RightRailColumn", 4);
+        var splitterColumn = GetColumn("RightSplitterColumn", 3);
+        if (!visible && _isRightRailVisible)
+        {
+            double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;
+            if (width > 0) _savedRightRailWidth = width;
+        }
+        _isRightRailVisible = visible;
+        panel.IsVisible = visible;
+        line.IsVisible = visible;
+        splitter.IsVisible = visible;
+        column.Width = visible ? new GridLength(_savedRightRailWidth > 0 ? _savedRightRailWidth : DefaultRightRailWidth) : new GridLength(0);
+        splitterColumn.Width = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
+        if (this.FindControl<MenuItem>("ShowRightRailMenuItem") is { } menuItem)
+            menuItem.IsChecked = visible;
+    }
+
+    private void SetTimelineVisible(bool visible)
+    {
+        var panel = this.FindControl<Border>("TimelinePanel")!;
+        var line = this.FindControl<Border>("TimelineSplitterLine")!;
+        var splitter = this.FindControl<GridSplitter>("TimelineSplitter")!;
+        var row = GetRow("TimelineRow", 2);
+        var splitterRow = GetRow("TimelineSplitterRow", 1);
+        if (!visible && _isTimelineVisible)
+        {
+            double height = row.Height.IsAbsolute && row.Height.Value > 0 ? row.Height.Value : panel.Bounds.Height;
+            if (height > 0) _savedTimelineHeight = height;
+        }
+        _isTimelineVisible = visible;
+        panel.IsVisible = visible;
+        line.IsVisible = visible;
+        splitter.IsVisible = visible;
+        row.Height = visible ? new GridLength(_savedTimelineHeight > 0 ? _savedTimelineHeight : DefaultTimelineHeight) : new GridLength(0);
+        splitterRow.Height = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
+        if (this.FindControl<MenuItem>("ShowTimelineMenuItem") is { } menuItem)
+            menuItem.IsChecked = visible;
+    }
+
+    private void ZoomTimelineOut(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => StepTimelineZoom(1.0 / 1.25);
+
+    private void ZoomTimelineIn(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => StepTimelineZoom(1.25);
+
+    private void StepTimelineZoom(double factor)
+    {
+        if (_shell is not { } shell) return;
+        double currentZoom = Math.Clamp(shell.PixelsPerFrame, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
+        double nextZoom = Math.Clamp(currentZoom * factor, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
+        if (Math.Abs(nextZoom - currentZoom) < 1e-6) return;
+        var timeline = this.FindControl<EditorTimeline>("FrameTimeline");
+        if (timeline is not null && timeline.Bounds.Width > timeline.TrackHeaderWidth + 16)
+        {
+            double rulerWidth = timeline.Bounds.Width - timeline.TrackHeaderWidth;
+            double playheadX = (shell.CurrentFrame - shell.FirstVisibleFrame) * currentZoom;
+            double anchorX = playheadX >= 0 && playheadX <= rulerWidth ? playheadX : rulerWidth * 0.5;
+            shell.FirstVisibleFrame = Math.Max(0, shell.FirstVisibleFrame + anchorX / currentZoom - anchorX / nextZoom);
+        }
+        shell.PixelsPerFrame = nextZoom;
+    }
+
+    private void ZoomTimelineFit(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+    {
+        if (_shell is not { } shell) return;
+        var timeline = this.FindControl<EditorTimeline>("FrameTimeline");
+        double rulerWidth = timeline is not null ? timeline.Bounds.Width - timeline.TrackHeaderWidth : 0;
+        uint duration = shell.Workspace.Session?.DurationFrames ?? 0;
+        if (rulerWidth <= 16 || duration == 0)
+        {
+            shell.FirstVisibleFrame = 0;
+            shell.PixelsPerFrame = EditorTimeline.DefaultPixelsPerFrame;
+            return;
+        }
+        double targetWidth = Math.Max(32, rulerWidth - 16);
+        shell.FirstVisibleFrame = 0;
+        shell.PixelsPerFrame = Math.Clamp(targetWidth / duration, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
     }
 
     private async void OpenOutputSettings(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
@@ -300,13 +455,19 @@ public partial class EditorWindow : Window
     }
 
     private async void OpenModelProperties(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => await OpenModelPropertiesAsync(0);
+
+    private async void OpenModelMaterialProperties(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+        => await OpenModelPropertiesAsync(1);
+
+    private async Task OpenModelPropertiesAsync(int initialTabIndex)
     {
         if (_shell is not { IsBusy: false } shell || shell.Browser.SelectedModel is not { } selected) return;
         shell.SynchronizePendingScrub();
         if (!await CheckPoseDraftsAsync()) return;
         try
         {
-            var draft = await new EditorModelPropertiesWindow(shell.Workspace, selected.ObjectId).ShowDialog<EditorModelPropertiesDraft?>(this);
+            var draft = await new EditorModelPropertiesWindow(shell.Workspace, selected.ObjectId, initialTabIndex).ShowDialog<EditorModelPropertiesDraft?>(this);
             if (draft is null) return;
             shell.Workspace.ApplyModelProperties(draft);
             shell.OperationStatus = EditorLocalization.Text("模型属性已应用。");
@@ -533,17 +694,68 @@ public partial class EditorWindow : Window
         if (_operationCancellation is not null && _shell?.RequestOperationCancellation() == true)
             _operationCancellation.Cancel();
     }
+    private void OnEditorPreviewKeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Handled || args.Key != Key.Space || args.KeyModifiers != KeyModifiers.None) return;
+        if (!IsEditableTextFocused() && !IsButtonActionFocused() && ExecuteEditorKey(Key.Space, KeyModifiers.None, false))
+            args.Handled = true;
+    }
     private void OnEditorKeyDown(object? sender, KeyEventArgs args)
     {
-        if (ExecuteEditorKey(args.Key, args.KeyModifiers, false)) args.Handled = true;
+        if (!args.Handled && ExecuteEditorKey(args.Key, args.KeyModifiers, false)) args.Handled = true;
     }
     private void OnViewportKeyPressed(object? sender, EditorViewportKeyEventArgs args)
     {
         if (ExecuteEditorKey(args.Key, args.Modifiers, true)) args.Handled = true;
     }
+    private bool IsEditableTextFocused()
+    {
+        var focused = FocusManager?.GetFocusedElement();
+        if (focused is TextBox or NumericUpDown) return true;
+        if (focused is ComboBox combo && (combo.IsEditable || combo.IsDropDownOpen)) return true;
+        return focused is Avalonia.Visual visual
+            && (visual.FindAncestorOfType<TextBox>() is not null
+                || visual.FindAncestorOfType<NumericUpDown>() is not null);
+    }
+    private bool IsButtonActionFocused() => FocusManager?.GetFocusedElement() is CheckBox or ToggleButton or Button;
+    private bool IsSliderFocused() => FocusManager?.GetFocusedElement() is Slider;
     private bool TextInputHasFocus() => FocusManager?.GetFocusedElement() is TextBox or NumericUpDown or ComboBox or ListBox
         or ListBoxItem or TreeView or TreeViewItem or Button or ToggleButton or Slider
         || (FocusManager?.GetFocusedElement() as Avalonia.Visual)?.FindAncestorOfType<TextBox>() is not null;
+    private bool TryExecuteGizmoModeShortcut(Key key, EditorShellViewModel shell)
+    {
+        if (key is not (Key.Q or Key.W or Key.E)) return false;
+        if (shell.IsModernLightingPage || shell.IsLightingPage)
+        {
+            if (lightController is null) return false;
+            switch (key)
+            {
+                case Key.W: SetLightTransformMode(false); return true;
+                case Key.E: SetLightTransformMode(true); return true;
+                default: return false;
+            }
+        }
+        if (boneController is null) return false;
+        switch (key)
+        {
+            case Key.Q:
+                boneController.IsManipulationEnabled = false;
+                SynchronizeBoneTools();
+                return true;
+            case Key.W:
+                boneController.IsManipulationEnabled = true;
+                boneController.RotateHandle = false;
+                SynchronizeBoneTools();
+                return true;
+            case Key.E:
+                boneController.IsManipulationEnabled = true;
+                boneController.RotateHandle = true;
+                SynchronizeBoneTools();
+                return true;
+            default:
+                return false;
+        }
+    }
     private bool ExecuteEditorKey(Key key, KeyModifiers modifiers, bool fromViewport)
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
@@ -551,7 +763,8 @@ public partial class EditorWindow : Window
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
-        if (key == Key.E && control && modifiers.HasFlag(KeyModifiers.Shift)
+        bool shift = modifiers.HasFlag(KeyModifiers.Shift);
+        if (key == Key.E && control && shift
             && shell.Workspace.RenderEngine is EditorClassicRenderEngine)
         { ToggleClassicEffects(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         // Saving needs a complete light draft. History navigation keeps unfinished modern
@@ -559,15 +772,26 @@ public partial class EditorWindow : Window
         // committing a new transaction (or blocking Undo on a half-typed colour).
         bool commitLightInput = key == Key.S || (key is Key.Z or Key.Y && !shell.IsModernLightingPage);
         if (control && commitLightInput && !CommitPendingInlineLighting()) return true;
-        System.Windows.Input.ICommand? command = (key, control, modifiers.HasFlag(KeyModifiers.Shift)) switch
+        if (modifiers == KeyModifiers.None && shell.HasProject && !IsEditableTextFocused()
+            && TryExecuteGizmoModeShortcut(key, shell))
+            return true;
+        bool allowFrameNavigation = (modifiers & ~KeyModifiers.Shift) == KeyModifiers.None
+            && !IsEditableTextFocused() && !IsSliderFocused() && shell.HasProject;
+        System.Windows.Input.ICommand? command = (key, control, shift) switch
         {
             (Key.O, true, _) => shell.OpenProjectCommand, (Key.N, true, _) => shell.NewProjectCommand,
             (Key.S, true, true) => shell.SaveAsCommand, (Key.S, true, false) => shell.SaveProjectCommand,
             (Key.Z, true, true) => shell.RedoCommand, (Key.Z, true, false) => shell.UndoCommand,
             (Key.Y, true, _) => shell.RedoCommand,
             (Key.Enter or Key.K, false, false) when fromViewport => shell.Animation.RegisterKeyframeCommand,
+            (Key.Space, false, false) when modifiers == KeyModifiers.None && !IsEditableTextFocused() && !IsButtonActionFocused() => shell.PlayCommand,
+            (Key.Left, false, false) when allowFrameNavigation => shell.PreviousFrameCommand,
+            (Key.Right, false, false) when allowFrameNavigation => shell.NextFrameCommand,
+            (Key.Left, false, true) when allowFrameNavigation => shell.StepBackCommand,
+            (Key.Right, false, true) when allowFrameNavigation => shell.StepForwardCommand,
+            (Key.Home, false, false) when allowFrameNavigation => shell.GoToStartCommand,
+            (Key.End, false, false) when allowFrameNavigation => shell.GoToEndCommand,
             // Editing keys never act while a text field or list owns the keyboard (they keep their own copy/paste/space).
-            (Key.Space, false, false) when !TextInputHasFocus() => shell.PlayCommand,
             (Key.C, true, false) when !TextInputHasFocus() => shell.Animation.CopyKeyframesCommand,
             (Key.V, true, false) when !TextInputHasFocus() => shell.Animation.PasteKeyframesCommand,
             (Key.Delete, false, false) when !TextInputHasFocus() => shell.Animation.DeleteKeyframesCommand,

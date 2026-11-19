@@ -30,6 +30,10 @@ public partial class EditorInterpolationWindow : Window
     private void CancelInterpolation(object? sender, RoutedEventArgs args) => Close(null);
     private void ResetChannel(object? sender, RoutedEventArgs args) => ViewModel.SelectedChannel.Reset();
     private void SetLinear(object? sender, RoutedEventArgs args) => ViewModel.SelectedChannel.SetLinear();
+    private void SetEaseInOut(object? sender, RoutedEventArgs args) => ViewModel.SelectedChannel.SetEaseInOut();
+    private void SetEaseOut(object? sender, RoutedEventArgs args) => ViewModel.SelectedChannel.SetEaseOut();
+    private void SetEaseIn(object? sender, RoutedEventArgs args) => ViewModel.SelectedChannel.SetEaseIn();
+    private void ApplyAllChannels(object? sender, RoutedEventArgs args) => ViewModel.ApplySelectedChannelToAll();
     private void ApplyInterpolation(object? sender, RoutedEventArgs args)
     {
         if (this.GetVisualDescendants().OfType<Control>().Any(c => c.IsEffectivelyEnabled && DataValidationErrors.GetHasErrors(c)))
@@ -47,6 +51,10 @@ public sealed class EditorInterpolationCurve : TemplatedControl
         AvaloniaProperty.Register<EditorInterpolationCurve, IBrush?>(nameof(GridBrush), new SolidColorBrush(Color.Parse("#46545F")));
     public static readonly StyledProperty<IBrush?> CurveBrushProperty =
         AvaloniaProperty.Register<EditorInterpolationCurve, IBrush?>(nameof(CurveBrush), new SolidColorBrush(Color.Parse("#A8BBC9")));
+    public static readonly StyledProperty<IBrush?> Handle1BrushProperty =
+        AvaloniaProperty.Register<EditorInterpolationCurve, IBrush?>(nameof(Handle1Brush), new SolidColorBrush(Color.Parse("#2BB673")));
+    public static readonly StyledProperty<IBrush?> Handle2BrushProperty =
+        AvaloniaProperty.Register<EditorInterpolationCurve, IBrush?>(nameof(Handle2Brush), new SolidColorBrush(Color.Parse("#38BDF8")));
 
     private IPointer? dragPointer;
     private EditorInterpolationChannelViewModel? observedChannel, dragChannel;
@@ -59,11 +67,13 @@ public sealed class EditorInterpolationCurve : TemplatedControl
         MinWidthProperty.OverrideDefaultValue<EditorInterpolationCurve>(200);
         MinHeightProperty.OverrideDefaultValue<EditorInterpolationCurve>(200);
         AffectsRender<EditorInterpolationCurve>(ChannelProperty, GridBrushProperty, CurveBrushProperty,
-            ForegroundProperty, BackgroundProperty, BoundsProperty, IsFocusedProperty);
+            Handle1BrushProperty, Handle2BrushProperty, ForegroundProperty, BackgroundProperty, BoundsProperty, IsFocusedProperty);
     }
     public EditorInterpolationChannelViewModel? Channel { get => GetValue(ChannelProperty); set => SetValue(ChannelProperty, value); }
     public IBrush? GridBrush { get => GetValue(GridBrushProperty); set => SetValue(GridBrushProperty, value); }
     public IBrush? CurveBrush { get => GetValue(CurveBrushProperty); set => SetValue(CurveBrushProperty, value); }
+    public IBrush? Handle1Brush { get => GetValue(Handle1BrushProperty); set => SetValue(Handle1BrushProperty, value); }
+    public IBrush? Handle2Brush { get => GetValue(Handle2BrushProperty); set => SetValue(Handle2BrushProperty, value); }
 
     public override void Render(DrawingContext context)
     {
@@ -91,7 +101,13 @@ public sealed class EditorInterpolationCurve : TemplatedControl
             var curve = channel.GetCurve();
             Point start = PointOnGraph(0, 0), end = PointOnGraph(127, 127);
             Point one = PointOnGraph(curve.X1, curve.Y1), two = PointOnGraph(curve.X2, curve.Y2);
-            context.DrawLine(gridPen, start, one); context.DrawLine(gridPen, end, two);
+            var h1Brush = Handle1Brush ?? CurveBrush ?? Foreground;
+            var h2Brush = Handle2Brush ?? CurveBrush ?? Foreground;
+            using (context.PushOpacity(.75))
+            {
+                context.DrawLine(new Pen(h1Brush, 1.5), start, one);
+                context.DrawLine(new Pen(h2Brush, 1.5), end, two);
+            }
             var path = new StreamGeometry();
             using (var geometry = path.Open())
             {
@@ -100,7 +116,17 @@ public sealed class EditorInterpolationCurve : TemplatedControl
                 geometry.EndFigure(false);
             }
             context.DrawGeometry(null, new Pen(CurveBrush ?? Foreground, 2), path);
-            DrawHandle(context, one, SelectedHandle == 1); DrawHandle(context, two, SelectedHandle == 2);
+            bool overlap = DistanceSquared(one, two) <= 49;
+            if (SelectedHandle == 1)
+            {
+                DrawHandle(context, two, h2Brush, selected: false, outerRing: overlap);
+                DrawHandle(context, one, h1Brush, selected: true, outerRing: false);
+            }
+            else
+            {
+                DrawHandle(context, one, h1Brush, selected: false, outerRing: overlap);
+                DrawHandle(context, two, h2Brush, selected: true, outerRing: false);
+            }
         }
     }
 
@@ -198,11 +224,22 @@ public sealed class EditorInterpolationCurve : TemplatedControl
         if (pointer?.Captured == this) pointer.Capture(null);
         InvalidateVisual();
     }
-    private void DrawHandle(DrawingContext context, Point position, bool selected)
+    private void DrawHandle(DrawingContext context, Point position, IBrush? brush, bool selected, bool outerRing)
     {
-        var brush = CurveBrush ?? Foreground;
-        context.DrawEllipse(Background, new Pen(brush, selected ? 2 : 1), position, selected ? 5 : 4, selected ? 5 : 4);
-        if (IsFocused && selected) context.DrawRectangle(new Pen(Foreground, 1), new Rect(position.X - 8, position.Y - 8, 16, 16));
+        var stroke = brush ?? CurveBrush ?? Foreground;
+        if (outerRing)
+        {
+            context.DrawEllipse(Background, new Pen(stroke, 2.2), position, 6.5, 6.5);
+        }
+        else if (selected)
+        {
+            context.DrawEllipse(stroke, new Pen(Background ?? Brushes.Transparent, 1.5), position, 5.5, 5.5);
+        }
+        else
+        {
+            context.DrawEllipse(Background, new Pen(stroke, 2), position, 4.5, 4.5);
+        }
+        if (IsFocused && selected) context.DrawRectangle(new Pen(stroke, 1), new Rect(position.X - 8, position.Y - 8, 16, 16));
     }
     private void DrawLabel(DrawingContext context, string text, Point position) => context.DrawText(new FormattedText(text,
         CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(FontFamily), 11, Foreground), position);

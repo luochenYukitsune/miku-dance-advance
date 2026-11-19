@@ -187,6 +187,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
         builtSession = null;
         hasProject = false;
         built = false;
+        Changed(nameof(CanManagePlugins));
     }
 
     internal void AttachPluginService(EditorPluginService? service)
@@ -258,10 +259,12 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     public string SelectedStyleAuthor => SelectedChoice?.Author ?? "";
     public string SelectedStyleVersion => SelectedChoice?.Version ?? "";
     public string SelectedStyleDescription => SelectedChoice?.Description ?? "";
+    public string SelectedStyleMetaSummary => BuildSelectedStyleMetaSummary();
     public bool HasSelectedStyleMetadata => SelectedChoice is { IsRetained: false };
     public bool HasSelectedStyleAuthor => !string.IsNullOrWhiteSpace(SelectedStyleAuthor);
     public bool HasSelectedStyleVersion => !string.IsNullOrWhiteSpace(SelectedStyleVersion);
     public bool HasSelectedStyleDescription => !string.IsNullOrWhiteSpace(SelectedStyleDescription);
+    public bool CanManagePlugins => pluginService is not null;
     public string? MissingStyleId => missingStyleId;
     public string? MissingStylePluginId => missingStylePluginId;
     public string MissingStylePluginName => missingStylePluginName;
@@ -481,8 +484,12 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             modelStatus = !modelSelected
                 ? Text("Mda.Text.Context.Inspector.Style.NoModel")
                 : modelOverride
-                    ? Format("Mda.Text.Context.Inspector.Style.ModelOverride", StyleLabel(modelStyle, liveCatalog, lang))
-                    : Format("Mda.Text.Context.Inspector.Style.ModelInherit", StyleLabel(defaultStyle, liveCatalog, lang));
+                    ? FormatModelStyleStatus(modelStyle, liveCatalog, lang,
+                        "Mda.Text.Context.Inspector.Style.ModelOverride",
+                        "Mda.Text.Ux.Inspector.Style.ModelOverrideMissing")
+                    : FormatModelStyleStatus(defaultStyle, liveCatalog, lang,
+                        "Mda.Text.Context.Inspector.Style.ModelInherit",
+                        "Mda.Text.Ux.Inspector.Style.ModelInheritMissing");
 
             notice = BuildNotice(liveCatalog, missingPlugin, lang);
             hasNotice = notice.Length > 0;
@@ -497,6 +504,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             Changed(nameof(MissingStylePluginName)); Changed(nameof(MissingStyleCount));
             Changed(nameof(HasMissingStyle)); Changed(nameof(HasMissingStylePlugin));
             Changed(nameof(CanEnableMissingStylePlugin)); Changed(nameof(CanOpenStyleReplacementDialog));
+            Changed(nameof(CanManagePlugins));
             NotifySelectedStyleMetadata();
         }
         finally { refreshing = wasRefreshing; }
@@ -582,10 +590,38 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
         Changed(nameof(SelectedStyleAuthor));
         Changed(nameof(SelectedStyleVersion));
         Changed(nameof(SelectedStyleDescription));
+        Changed(nameof(SelectedStyleMetaSummary));
         Changed(nameof(HasSelectedStyleMetadata));
         Changed(nameof(HasSelectedStyleAuthor));
         Changed(nameof(HasSelectedStyleVersion));
         Changed(nameof(HasSelectedStyleDescription));
+    }
+
+    private string BuildSelectedStyleMetaSummary()
+    {
+        if (!HasSelectedStyleMetadata) return "";
+        var parts = new List<string>(3);
+        if (!string.IsNullOrWhiteSpace(SelectedStyleSourceTag))
+            parts.Add(SelectedStyleSourceTag);
+        if (!string.IsNullOrWhiteSpace(SelectedStyleVersion))
+            parts.Add(SelectedStyleVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase)
+                ? SelectedStyleVersion
+                : "v" + SelectedStyleVersion);
+        if (!string.IsNullOrWhiteSpace(SelectedStyleAuthor))
+            parts.Add(SelectedStyleAuthor);
+        return string.Join(" · ", parts);
+    }
+
+    private static string FormatModelStyleStatus(
+        RenderingPresetReference? reference,
+        D3D12ViewStyleCatalog catalog,
+        string language,
+        string knownFormatKey,
+        string missingFormatKey)
+    {
+        if (reference is { } value && !IsKnownActive(value, catalog))
+            return Format(missingFormatKey, value.StableId);
+        return Format(knownFormatKey, StyleLabel(reference, catalog, language));
     }
 
     /// <summary>Combo-box labels are resources; the stored selection and session reference stay untouched.</summary>

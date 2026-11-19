@@ -6,13 +6,14 @@
              x:DataType="local:EditorSceneInspectorViewModel">
   <!-- The main VMD light owns direction/color/intensity and its registration contract.
        It is hosted by the right-rail Lighting page; camera/world stay in EditorSceneInspector. -->
-  <StackPanel Spacing="16">
-    <StackPanel Spacing="6" IsEnabled="{Binding CanEdit}">
-      <validated:EditorLightDirectionPad Name="MainLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=TwoWay}" Height="128"
-                   ToolTip.Tip="{DynamicResource Mda.Text.9ab4d3b625f0}" />
-      <TextBlock Text="{DynamicResource Mda.Text.LightAim.PadHint}" Classes="caption" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+  <StackPanel Spacing="10">
+    <StackPanel Spacing="5" IsEnabled="{Binding CanEdit}">
+      <validated:EditorLightDirectionPad Name="MainLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=TwoWay}" Height="104" MinHeight="104"
+                   ToolTip.Tip="{DynamicResource Mda.Text.LightAim.PadHint}" />
+      <TextBlock Text="{DynamicResource Mda.Text.Ux.MainLight.CompactHint}" Classes="caption" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                 ToolTip.Tip="{DynamicResource Mda.Text.LightAim.PadHint}" />
       <!-- Source angles: where the light comes from, as seen from the default camera. -->
-      <Grid ColumnDefinitions="Auto,10,*,10,64" RowDefinitions="28,6,28" Margin="0,4,0,0">
+      <Grid ColumnDefinitions="Auto,8,*,8,64" RowDefinitions="Auto,4,Auto" Margin="0,2,0,0">
         <TextBlock Text="{DynamicResource Mda.Text.LightAim.Azimuth}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.AzimuthHint}" />
         <validated:EditorValueSlider Name="LightAzimuthSlider" Grid.Column="2" Minimum="0" Maximum="360" SmallChange="1" LargeChange="15" Step="0.5"
             Number="{Binding LightAzimuth, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.AzimuthHint}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Azimuth}" />
@@ -25,7 +26,7 @@
             Value="{Binding LightElevation, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.Elevation}" />
       </Grid>
       <!-- One-click aims. Each is one draft change; registering it is still one undo step. -->
-      <UniformGrid Name="MainLightAimPresets" Columns="4" Margin="0,4,0,0">
+      <UniformGrid Name="MainLightAimPresets" Columns="4" Margin="0,2,0,0">
         <UniformGrid.Styles><Style Selector="Button"><Setter Property="Margin" Value="2" /><Setter Property="Padding" Value="2,0" /><Setter Property="MinHeight" Value="26" /><Setter Property="FontSize" Value="12" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Center" /></Style></UniformGrid.Styles>
         <Button Classes="action" Tag="top" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Top}" />
         <Button Classes="action" Tag="front" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Front}" />
@@ -36,18 +37,36 @@
         <Button Classes="action" Tag="back" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Back}" />
         <Button Classes="action" Tag="default" Click="AimMainLight" Content="{DynamicResource Mda.Text.LightAim.Default}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.DefaultHint}" />
       </UniformGrid>
-      <Button Name="MainLightFromCameraButton" Classes="action" Click="AimMainLightFromCamera" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0"
-              Content="{DynamicResource Mda.Text.LightAim.FromCamera}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FromCameraHint}" />
-      <Button Name="MainLightFlipHemisphereButton" Classes="action" Click="FlipMainLightHemisphere" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0"
-              Content="{Binding MainLightHemisphereLabel}" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FlipHemisphereHint}" />
+      <UniformGrid Columns="2" Margin="0,2,0,0">
+        <Button Name="MainLightFromCameraButton" Classes="action" Click="AimMainLightFromCamera"
+                Margin="2,0" Padding="6,4" Height="NaN" MinHeight="28"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FromCameraHint}"
+                AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.FromCamera}">
+          <TextBlock Text="{DynamicResource Mda.Text.LightAim.FromCamera}" FontSize="12" LineHeight="15"
+                     TextWrapping="Wrap" TextAlignment="Center" />
+        </Button>
+        <Button Name="MainLightFlipHemisphereButton" Classes="action" Click="FlipMainLightHemisphere"
+                Margin="2,0" Padding="6,4" Height="NaN" MinHeight="28"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                ToolTip.Tip="{DynamicResource Mda.Text.LightAim.FlipHemisphereHint}"
+                AutomationProperties.Name="{Binding MainLightHemisphereLabel}">
+          <TextBlock Text="{Binding MainLightHemisphereLabel}" FontSize="12" LineHeight="15"
+                     TextWrapping="Wrap" TextAlignment="Center" />
+        </Button>
+      </UniformGrid>
     </StackPanel>
-    <Grid ColumnDefinitions="*,10,*" IsEnabled="{Binding CanEdit}">
-      <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
-      <validated:EditorNumericUpDown Name="LightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
-    </Grid>
-    <validated:EditorValueSlider Name="LightIntensitySlider" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="1"
-                 Number="{Binding LightIntensity, Mode=TwoWay}" IsEnabled="{Binding CanEdit}" Margin="0,-8,0,0"
-                 ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a2846644a638}" />
+    <StackPanel Spacing="2" IsEnabled="{Binding CanEdit}">
+      <Grid ColumnDefinitions="*,8,*">
+        <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
+        <validated:EditorNumericUpDown Name="LightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
+      </Grid>
+      <validated:EditorValueSlider Name="LightIntensitySlider" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="1"
+                   Number="{Binding LightIntensity, Mode=TwoWay}"
+                   ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a2846644a638}" />
+    </StackPanel>
     <Grid ColumnDefinitions="*,Auto" IsEnabled="{Binding CanEdit}">
       <TextBlock Text="{DynamicResource Mda.Text.8d044de8374c}" Classes="caption" VerticalAlignment="Center" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
@@ -57,16 +76,16 @@
       </StackPanel>
     </Grid>
     <Expander Name="MainLightAdvanced" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.4db33ee938e5}" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-      <StackPanel Spacing="12" IsEnabled="{Binding CanEdit}">
-        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+      <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="Auto,Auto">
           <TextBlock Text="R" Classes="axis" /><TextBlock Grid.Column="2" Text="G" Classes="axis" /><TextBlock Grid.Column="4" Text="B" Classes="axis" />
           <validated:EditorNumericUpDown Name="LightColorR" Grid.Row="1" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorR, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.0e3dc4e4702b}" />
           <validated:EditorNumericUpDown Name="LightColorG" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorG, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.c2cd977aedb7}" />
           <validated:EditorNumericUpDown Name="LightColorB" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.05" Value="{Binding LightColorB, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.f405daeb6e23}" />
         </Grid>
-        <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+        <StackPanel Spacing="6" IsEnabled="{Binding CanEdit}">
           <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.704b81765878}" Classes="group" /></Border>
-          <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
+          <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="Auto,Auto">
             <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
             <validated:EditorNumericUpDown Name="LightDirectionX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.bdaee3e1a863}" />
             <validated:EditorNumericUpDown Name="LightDirectionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding LightDirectionY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.d24d0eadb9f7}" />
@@ -78,8 +97,14 @@
     </Expander>
     <TextBlock Text="{Binding LightValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasLightValidation}" />
     <Grid ColumnDefinitions="*,8,Auto">
-      <Button Name="RegisterLightKeyframeButton" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}" Command="{Binding RegisterLightKeyframeCommand}" HorizontalAlignment="Stretch" />
-      <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertLightDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
+      <Button Name="RegisterLightKeyframeButton" Classes="action" Command="{Binding RegisterLightKeyframeCommand}"
+              HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Height="NaN" MinHeight="28" Padding="8,4"
+              AutomationProperties.Name="{DynamicResource Mda.Text.e4b84a93325e}">
+        <TextBlock Text="{DynamicResource Mda.Text.e4b84a93325e}" TextWrapping="Wrap" TextAlignment="Center" />
+      </Button>
+      <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertLightDraftCommand}"
+              VerticalAlignment="Stretch" Height="NaN" MinHeight="28" Padding="9,4"
+              ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
     </Grid>
     <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
   </StackPanel>

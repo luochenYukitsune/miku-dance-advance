@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Mmd.Modern.Application;
@@ -71,6 +72,9 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     private bool ikEnabled, morphsEnabled, physicsEnabled;
     private bool? environmentIndoor;
     private EditorMaterialPropertiesItem? selectedMaterial;
+    private readonly ObservableCollection<EditorMaterialPropertiesItem> filteredMaterials = [];
+    private string materialSearchText = "";
+    private bool filteringMaterials;
     private readonly bool supportsOutlineScaling;
 
     public EditorModelPropertiesViewModel(EditorProjectWorkspace workspace, Guid objectId)
@@ -125,11 +129,29 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public Guid ObjectId => source.Id;
     public string SourcePath => source.SourcePath;
+    public bool HasSourcePath => !string.IsNullOrWhiteSpace(SourcePath);
     public string[] RoleChoices => [Text("角色"), Text("场景"), Text("道具")];
     public IReadOnlyList<EditorModelStyleChoice> StyleChoices { get; }
     public IReadOnlyList<EditorSourceChoice> Textures { get; }
     public IReadOnlyList<EditorSourceChoice> Bones { get; }
     public ObservableCollection<EditorMaterialPropertiesItem> Materials { get; } = [];
+    public ObservableCollection<EditorMaterialPropertiesItem> FilteredMaterials => IsMaterialSearchActive ? filteredMaterials : Materials;
+    public bool IsMaterialSearchActive => !string.IsNullOrWhiteSpace(materialSearchText);
+    public bool HasFilteredMaterials => FilteredMaterials.Count > 0;
+    public bool ShowNoMatchingMaterials => HasMaterials && FilteredMaterials.Count == 0;
+    public string MaterialFilterSummary => IsMaterialSearchActive
+        ? Format("Mda.Text.Ux.ModelProps.FilteredMaterialsSummary", FilteredMaterials.Count, Materials.Count)
+        : "";
+    public string MaterialSearchText
+    {
+        get => materialSearchText;
+        set
+        {
+            string next = value ?? "";
+            if (Set(ref materialSearchText, next))
+                ApplyMaterialFilter();
+        }
+    }
     public bool HasMaterials => Materials.Count != 0;
     public bool HasSelectedMaterial => SelectedMaterial is not null;
     public string ProfileSummary => profile is null ? Text("未设置显式映射；沿用原始材质。")
@@ -174,7 +196,14 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     { get => validationError?.Message ?? Text(validationMessage); private set { validationError = null; validationMessage = value; Changed(); Changed(nameof(HasValidationMessage)); } }
     public bool HasValidationMessage => ValidationMessage.Length > 0;
     public EditorMaterialPropertiesItem? SelectedMaterial
-    { get => selectedMaterial; set { if (Set(ref selectedMaterial, value)) Changed(nameof(HasSelectedMaterial)); } }
+    {
+        get => selectedMaterial;
+        set
+        {
+            if (filteringMaterials) return;
+            if (Set(ref selectedMaterial, value)) Changed(nameof(HasSelectedMaterial));
+        }
+    }
     public void SetValidationMessage(string message) => ValidationMessage = message;
 
     public bool TryCreate(out EditorModelPropertiesDraft? draft)
@@ -291,13 +320,53 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         for (int index = 0; index < source.Source.Materials.Count; index++)
         {
             // Display names come from the actual PMX table; no role or style is inferred from them.
-            string materialName = index < actor.Model.Materials.Count ? actor.Model.Materials[index].Name : source.Source.Surface.Snapshot.Materials[index].Name;
+            var pmxMaterial = index < actor.Model.Materials.Count ? actor.Model.Materials[index] : null;
+            string materialName = pmxMaterial?.Name ?? source.Source.Surface.Snapshot.Materials[index].Name;
+            string materialEnglishName = pmxMaterial?.EnglishName ?? "";
             Materials.Add(new(index, materialName, existing.GetValueOrDefault(index), layout, Textures, Bones,
                 outlines.GetValueOrDefault(index)?.Scale ?? 1f, supportsOutlineScaling, styleCatalog, effectiveStyleId,
-                source.Id, textureDimensions));
+                source.Id, textureDimensions, materialEnglishName));
         }
-        SelectedMaterial = Materials.FirstOrDefault(item => item.LocalMaterialIndex == oldIndex) ?? Materials.FirstOrDefault();
+        selectedMaterial = Materials.FirstOrDefault(item => item.LocalMaterialIndex == oldIndex) ?? Materials.FirstOrDefault();
+        ApplyMaterialFilter();
+        Changed(nameof(SelectedMaterial));
+        Changed(nameof(HasSelectedMaterial));
         Changed(nameof(HasMaterials));
+    }
+
+    private void ApplyMaterialFilter()
+    {
+        var previousSelected = selectedMaterial;
+        filteringMaterials = true;
+        try
+        {
+            string query = materialSearchText.Trim();
+            if (query.Length == 0)
+            {
+                filteredMaterials.Clear();
+            }
+            else
+            {
+                var matches = Materials.Where(item => item.MatchesSearch(query)).ToArray();
+                filteredMaterials.Clear();
+                foreach (var item in matches)
+                    filteredMaterials.Add(item);
+            }
+            Changed(nameof(IsMaterialSearchActive));
+            Changed(nameof(FilteredMaterials));
+            Changed(nameof(HasFilteredMaterials));
+            Changed(nameof(ShowNoMatchingMaterials));
+            Changed(nameof(MaterialFilterSummary));
+        }
+        finally
+        {
+            filteringMaterials = false;
+        }
+        if (previousSelected is not null && ReferenceEquals(selectedMaterial, previousSelected)
+            && FilteredMaterials.Contains(previousSelected))
+        {
+            Changed(nameof(SelectedMaterial));
+        }
     }
 
     internal static float Number(decimal? value, string name)
@@ -342,11 +411,13 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     private readonly List<DynamicModeEntry> legacyDynamicModes = [];
     private readonly Dictionary<(string StyleId, string ModeId), StyleMaterialBindingData> draftBindings = [];
     private readonly ObservableCollection<EditorStyleModeItem> dynamicModes = [];
+    private readonly ObservableCollection<EditorStyleModeItem> visibleDynamicModes = [];
+    private readonly ObservableCollection<EditorStyleModeItem> incompatibleDynamicModes = [];
     private string effectiveStyleId;
     private int roleIndex, modeIndex, pipelineIndex;
     private EditorSourceChoice? primaryTexture, secondaryTexture;
     private Vector3 fixedForward, fixedRight;
-    private bool fixedBasisChanged, legacyModeEdited;
+    private bool fixedBasisChanged, legacyModeEdited, showIncompatibleModes;
     private bool refreshingLocalization, rebuildingDynamicModes;
     private decimal? faceNormal, faceShadow, eyeShadow;
     private decimal? outlinePercent;
@@ -368,10 +439,12 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         D3D12ViewStyleCatalog? styleCatalog = null,
         string? effectiveStyleId = null,
         Guid objectId = default,
-        IReadOnlyList<(int Width, int Height)>? textureDimensions = null)
+        IReadOnlyList<(int Width, int Height)>? textureDimensions = null,
+        string englishName = "")
     {
         LocalMaterialIndex = index;
         rawMaterialName = name;
+        EnglishName = englishName ?? "";
         Label = $"{index} · {name}";
         original = row;
         this.layout = layout;
@@ -444,15 +517,36 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public int LocalMaterialIndex { get; }
+    public string Name => rawMaterialName;
+    public string EnglishName { get; }
     public string Label { get; }
+    public string ToolTipText => string.IsNullOrWhiteSpace(EnglishName)
+        || string.Equals(EnglishName, rawMaterialName, StringComparison.Ordinal)
+        ? Label
+        : $"{Label} ({EnglishName})";
     public string[] RoleChoices => [Text("沿用原材质（不映射）"), Text("Mda.Text.6f93b2ca1bb0"), Text("Mda.Text.68fa14a6d0cf"), Text("Mda.Text.4f550cf482e7"), Text("Mda.Text.982acfe3cb07")];
     public string[] ModeChoices => BuildModeChoices();
     public string[] PipelineChoices => pipelineEntries.Select(ResolvePipelineChoiceLabel).ToArray();
     public IReadOnlyList<EditorSourceChoice> Textures { get; }
     public IReadOnlyList<EditorSourceChoice> Bones { get; }
     public ObservableCollection<EditorStyleModeItem> DynamicModes => dynamicModes;
+    public ObservableCollection<EditorStyleModeItem> VisibleDynamicModes => visibleDynamicModes;
+    public ObservableCollection<EditorStyleModeItem> IncompatibleDynamicModes => incompatibleDynamicModes;
     public bool HasDynamicModes => dynamicModes.Count > 0;
     public bool HasNoDynamicModes => !HasDynamicModes;
+    public bool HasVisibleDynamicModes => visibleDynamicModes.Count > 0;
+    public bool HasIncompatibleDynamicModes => incompatibleDynamicModes.Count > 0;
+    public string IncompatibleDynamicModesHeader => Format("Mda.Text.Ux.ModelProps.IncompatibleModesHeader", incompatibleDynamicModes.Count);
+    public bool ShowIncompatibleModes
+    {
+        get => showIncompatibleModes;
+        set
+        {
+            if (showIncompatibleModes == value) return;
+            showIncompatibleModes = value;
+            Changed();
+        }
+    }
     public bool ShowMapRoleHint => !IsMapped && HasDynamicModes;
     public string EffectiveStyleDisplayName => styleCatalog.FindStyle(effectiveStyleId) is { } def
         ? ResolveLocalized(def.DisplayName, def.StyleId)
@@ -465,6 +559,27 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         : Format("Mda.Text.ModelProps.ModelStyleNoPluginNotice", EffectiveStyleDisplayName);
     public string StyleValidationMessage => styleValidationMessage;
     public bool HasStyleValidationMessage => !string.IsNullOrWhiteSpace(styleValidationMessage);
+    public string ValidationMessage => StyleValidationMessage;
+    public bool HasValidationMessage => HasStyleValidationMessage;
+    public bool HasCustomization =>
+        IsMapped
+        || OutlinePercent != 100m
+        || dynamicModes.Any(static m => m.IsEnabled)
+        || HasDormantPluginBindings
+        || (legacyModeEdited && ModeIndex > 1)
+        || fixedBasisChanged
+        || faceNormal != (decimal).35f
+        || faceShadow != 1m
+        || eyeShadow != (decimal).2f
+        || pmxSaturation != 1m
+        || pmxTransitionWidthScale != 1m
+        || pmxValueContrast != 0m
+        || pmxShadeGamma != 1m
+        || pmxHairHighlightStrength != 0m
+        || pmxHairHighlightWidth != (decimal).12f;
+    private bool HasDormantPluginBindings => dynamicModes.Count > 0
+        ? draftBindings.Keys.Any(k => !string.Equals(k.StyleId, effectiveStyleId, StringComparison.Ordinal))
+        : draftBindings.Count > 0;
 
     public EditorSourceChoice? SelectedBone { get; set; }
     public int RoleIndex
@@ -483,7 +598,9 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             Changed(nameof(IsMappedAndNotHair));
             foreach (var mode in dynamicModes)
                 mode.NotifyRoleChanged();
+            RefreshDynamicModePartitions();
             ValidateLive();
+            Changed(nameof(HasCustomization));
         }
     }
     public int ModeIndex
@@ -501,6 +618,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             Changed(nameof(IsFace));
             Changed(nameof(PrimaryLabel));
             Changed(nameof(SecondaryLabel));
+            Changed(nameof(HasCustomization));
         }
     }
     public int PipelineIndex
@@ -518,15 +636,15 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     }
     public EditorSourceChoice? PrimaryTexture { get => primaryTexture; set { primaryTexture = value; Changed(); } }
     public EditorSourceChoice? SecondaryTexture { get => secondaryTexture; set { secondaryTexture = value; Changed(); } }
-    public decimal? FaceNormal { get => faceNormal; set { faceNormal = value; Changed(); } }
-    public decimal? FaceShadow { get => faceShadow; set { faceShadow = value; Changed(); } }
-    public decimal? EyeShadow { get => eyeShadow; set { eyeShadow = value; Changed(); } }
-    public decimal? PmxSaturation { get => pmxSaturation; set { pmxSaturation = value; Changed(); } }
-    public decimal? PmxTransitionWidthScale { get => pmxTransitionWidthScale; set { pmxTransitionWidthScale = value; Changed(); } }
-    public decimal? PmxValueContrast { get => pmxValueContrast; set { pmxValueContrast = value; Changed(); } }
-    public decimal? PmxShadeGamma { get => pmxShadeGamma; set { pmxShadeGamma = value; Changed(); } }
-    public decimal? PmxHairHighlightStrength { get => pmxHairHighlightStrength; set { pmxHairHighlightStrength = value; Changed(); } }
-    public decimal? PmxHairHighlightWidth { get => pmxHairHighlightWidth; set { pmxHairHighlightWidth = value; Changed(); } }
+    public decimal? FaceNormal { get => faceNormal; set { faceNormal = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? FaceShadow { get => faceShadow; set { faceShadow = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? EyeShadow { get => eyeShadow; set { eyeShadow = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxSaturation { get => pmxSaturation; set { pmxSaturation = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxTransitionWidthScale { get => pmxTransitionWidthScale; set { pmxTransitionWidthScale = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxValueContrast { get => pmxValueContrast; set { pmxValueContrast = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxShadeGamma { get => pmxShadeGamma; set { pmxShadeGamma = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxHairHighlightStrength { get => pmxHairHighlightStrength; set { pmxHairHighlightStrength = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxHairHighlightWidth { get => pmxHairHighlightWidth; set { pmxHairHighlightWidth = value; Changed(); Changed(nameof(HasCustomization)); } }
     public bool IsMapped => RoleIndex > 0;
     public bool IsBodyOrHair => RoleIndex is 1 or 4;
     public bool IsNotBodyOrHair => IsMapped && !IsBodyOrHair;
@@ -534,7 +652,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     public bool IsMappedAndNotHair => IsMapped && IsBodyOrHair && !IsHairRole;
     public bool SupportsOutlineScaling { get; }
     public bool OutlineScalingUnavailable => !SupportsOutlineScaling;
-    public decimal? OutlinePercent { get => outlinePercent; set { outlinePercent = value; Changed(); } }
+    public decimal? OutlinePercent { get => outlinePercent; set { outlinePercent = value; Changed(); Changed(nameof(HasCustomization)); } }
 
     public void ResetPmxTreatment()
     {
@@ -560,6 +678,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         Changed(nameof(HasDynamicModes));
         Changed(nameof(HasNoDynamicModes));
         Changed(nameof(ShowMapRoleHint));
+        Changed(nameof(HasCustomization));
     }
 
     public D3D12MaterialBindingProfileOutline? BuildOutline()
@@ -632,7 +751,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     {
         if (!float.IsFinite(forward.LengthSquared()) || !float.IsFinite(right.LengthSquared()) || forward.LengthSquared() < 1e-8f || right.LengthSquared() < 1e-8f)
             throw Error("所选骨骼的朝向无效。");
-        fixedForward = Vector3.Normalize(forward); fixedRight = Vector3.Normalize(right); fixedBasisChanged = true; Changed(nameof(FixedBasisSummary));
+        fixedForward = Vector3.Normalize(forward); fixedRight = Vector3.Normalize(right); fixedBasisChanged = true; Changed(nameof(FixedBasisSummary)); Changed(nameof(HasCustomization));
     }
 
     public D3D12MaterialBindingProfileRow? Build()
@@ -841,6 +960,52 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         {
             rebuildingDynamicModes = false;
         }
+        RefreshDynamicModePartitions();
+    }
+
+    internal bool MatchesSearch(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return true;
+        string trimmed = query.Trim();
+        string indexText = LocalMaterialIndex.ToString(CultureInfo.InvariantCulture);
+        if (indexText.Contains(trimmed, StringComparison.OrdinalIgnoreCase)) return true;
+        if (trimmed.StartsWith('#') && trimmed.Length > 1
+            && indexText.Contains(trimmed[1..], StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (Label.Contains(trimmed, StringComparison.OrdinalIgnoreCase)) return true;
+        if (Name.Contains(trimmed, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.IsNullOrEmpty(EnglishName)
+            && EnglishName.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private void RefreshDynamicModePartitions()
+    {
+        var nextVisible = dynamicModes
+            .Where(static m => m.IsEnabled || m.IsRoleAllowed)
+            .OrderByDescending(static m => m.IsEnabled)
+            .ToArray();
+        var nextIncompatible = dynamicModes
+            .Where(static m => !m.IsEnabled && !m.IsRoleAllowed)
+            .ToArray();
+
+        if (!visibleDynamicModes.SequenceEqual(nextVisible))
+        {
+            visibleDynamicModes.Clear();
+            foreach (var item in nextVisible)
+                visibleDynamicModes.Add(item);
+            Changed(nameof(HasVisibleDynamicModes));
+        }
+
+        if (!incompatibleDynamicModes.SequenceEqual(nextIncompatible))
+        {
+            incompatibleDynamicModes.Clear();
+            foreach (var item in nextIncompatible)
+                incompatibleDynamicModes.Add(item);
+            Changed(nameof(HasIncompatibleDynamicModes));
+            Changed(nameof(IncompatibleDynamicModesHeader));
+        }
     }
 
     private void SnapshotCurrentDynamicDrafts()
@@ -858,8 +1023,10 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     private void OnDynamicModeChanged()
     {
         if (rebuildingDynamicModes) return;
+        RefreshDynamicModePartitions();
         ValidateLive();
         Changed(nameof(ExistingMapping));
+        Changed(nameof(HasCustomization));
     }
 
     private void ValidateLive()
@@ -895,6 +1062,8 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             styleValidationMessage = nextMessage;
             Changed(nameof(StyleValidationMessage));
             Changed(nameof(HasStyleValidationMessage));
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
         }
     }
 

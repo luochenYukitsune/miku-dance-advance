@@ -16,13 +16,15 @@
           <SolidColorBrush x:Key="OutputMuted" Color="#A4ACB6" /><SolidColorBrush x:Key="OutputDisabled" Color="#69717B" />
           <SolidColorBrush x:Key="OutputBorder" Color="#2B333D" /><SolidColorBrush x:Key="OutputFocus" Color="#3DD68C" />
           <SolidColorBrush x:Key="OutputHover" Color="#222A34" /><SolidColorBrush x:Key="OutputSelected" Color="#19302A" />
-          <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
+          <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" />
+          <SolidColorBrush x:Key="CurveHandle1Brush" Color="#2BB673" /><SolidColorBrush x:Key="CurveHandle2Brush" Color="#38BDF8" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="OutputSurface" Color="#F6F7F9" /><SolidColorBrush x:Key="OutputText" Color="#1A1D21" />
           <SolidColorBrush x:Key="OutputMuted" Color="#5B636E" /><SolidColorBrush x:Key="OutputDisabled" Color="#9AA1AA" />
           <SolidColorBrush x:Key="OutputBorder" Color="#D9DEE5" /><SolidColorBrush x:Key="OutputFocus" Color="#12844A" />
           <SolidColorBrush x:Key="OutputHover" Color="#E9EDF2" /><SolidColorBrush x:Key="OutputSelected" Color="#DFF2E7" />
-          <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
+          <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" />
+          <SolidColorBrush x:Key="CurveHandle1Brush" Color="#2BB673" /><SolidColorBrush x:Key="CurveHandle2Brush" Color="#0284C7" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Window.Resources>
@@ -222,14 +224,19 @@
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
-    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled TextBlock, Button:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.compact"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="10,0" /></Style>
+    <Style Selector="Button.compact TextBlock"><Setter Property="FontSize" Value="13" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button.primary AccessText, Button[IsDefault=True] TextBlock, Button[IsDefault=True] AccessText"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -255,16 +262,26 @@
         </ListBox>
       </Grid>
       <Border Grid.Column="1" Background="{DynamicResource OutputBorder}" />
-      <Grid Grid.Column="2" Margin="20,16" RowDefinitions="Auto,12,*,12,Auto">
+      <Grid Grid.Column="2" Margin="20,14" RowDefinitions="Auto,10,Auto,10,*,10,Auto">
         <TextBlock Text="{Binding SegmentDescription}" Classes="caption" />
-        <Grid Grid.Row="2" ColumnDefinitions="*,20,176">
+        <WrapPanel Grid.Row="2" Orientation="Horizontal">
+          <Button Name="EaseInOutPresetButton" Content="{DynamicResource Mda.Text.Ux.Interpolation.EaseInOut}" Click="SetEaseInOut" Classes="action compact" Margin="0,0,6,2" ToolTip.Tip="(42, 0, 85, 127)" />
+          <Button Name="EaseOutPresetButton" Content="{DynamicResource Mda.Text.Ux.Interpolation.EaseOut}" Click="SetEaseOut" Classes="action compact" Margin="0,0,6,2" ToolTip.Tip="(0, 0, 58, 127)" />
+          <Button Name="EaseInPresetButton" Content="{DynamicResource Mda.Text.Ux.Interpolation.EaseIn}" Click="SetEaseIn" Classes="action compact" Margin="0,0,6,2" ToolTip.Tip="(69, 0, 127, 127)" />
+          <Button Name="LinearPresetButton" Content="{DynamicResource Mda.Text.078e4caeda5c}" Click="SetLinear" Classes="action compact" Margin="0,0,0,2" ToolTip.Tip="(20, 20, 107, 107)" />
+        </WrapPanel>
+        <Grid Grid.Row="4" ColumnDefinitions="*,20,200">
           <local:EditorInterpolationCurve Name="InterpolationGraph" Channel="{Binding SelectedChannel}"
               Background="{DynamicResource OutputSurface}" Foreground="{DynamicResource OutputText}"
               GridBrush="{DynamicResource OutputBorder}" CurveBrush="{DynamicResource OutputText}"
+              Handle1Brush="{DynamicResource CurveHandle1Brush}" Handle2Brush="{DynamicResource CurveHandle2Brush}"
               AutomationProperties.Name="{DynamicResource Mda.Text.9ac701a5a520}"
               ToolTip.Tip="{DynamicResource Mda.Text.2db8f928f49f}" />
-          <Grid Grid.Column="2" RowDefinitions="Auto,8,Auto,6,Auto,20,Auto,8,Auto,6,Auto,*,Auto,8,Auto">
-            <TextBlock Text="{DynamicResource Mda.Text.3adffb4dc4e2}" Classes="section" />
+          <Grid Grid.Column="2" RowDefinitions="Auto,6,Auto,6,Auto,14,Auto,6,Auto,6,Auto,*,Auto,6,Auto">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <Ellipse Width="10" Height="10" Fill="{DynamicResource CurveHandle1Brush}" VerticalAlignment="Center" />
+              <TextBlock Text="{DynamicResource Mda.Text.3adffb4dc4e2}" Classes="section" />
+            </StackPanel>
             <Grid Grid.Row="2" ColumnDefinitions="36,*">
               <TextBlock Text="X1" Classes="label" />
               <validated:EditorNumericUpDown Grid.Column="1" Name="CurveX1" Value="{Binding SelectedChannel.X1, Mode=TwoWay}"
@@ -275,7 +292,10 @@
               <validated:EditorNumericUpDown Grid.Column="1" Name="CurveY1" Value="{Binding SelectedChannel.Y1, Mode=TwoWay}"
                   FormatString="0.############################" Increment="1" Watermark="{DynamicResource Mda.Text.2707cce9a775}" AutomationProperties.Name="{DynamicResource Mda.Text.2c51b2f0f56a}" />
             </Grid>
-            <TextBlock Grid.Row="6" Text="{DynamicResource Mda.Text.48287033c06e}" Classes="section" />
+            <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <Ellipse Width="10" Height="10" Fill="{DynamicResource CurveHandle2Brush}" VerticalAlignment="Center" />
+              <TextBlock Text="{DynamicResource Mda.Text.48287033c06e}" Classes="section" />
+            </StackPanel>
             <Grid Grid.Row="8" ColumnDefinitions="36,*">
               <TextBlock Text="X2" Classes="label" />
               <validated:EditorNumericUpDown Grid.Column="1" Name="CurveX2" Value="{Binding SelectedChannel.X2, Mode=TwoWay}"
@@ -286,11 +306,11 @@
               <validated:EditorNumericUpDown Grid.Column="1" Name="CurveY2" Value="{Binding SelectedChannel.Y2, Mode=TwoWay}"
                   FormatString="0.############################" Increment="1" Watermark="{DynamicResource Mda.Text.2707cce9a775}" AutomationProperties.Name="{DynamicResource Mda.Text.89badd53708a}" />
             </Grid>
-            <Button Grid.Row="12" Content="{DynamicResource Mda.Text.078e4caeda5c}" Click="SetLinear" Classes="action" HorizontalAlignment="Stretch" />
+            <Button Grid.Row="12" Name="ApplyAllChannelsButton" Content="{DynamicResource Mda.Text.Ux.Interpolation.ApplyAll}" Click="ApplyAllChannels" IsEnabled="{Binding SelectedChannel.IsCurveValid}" HorizontalAlignment="Stretch" />
             <Button Grid.Row="14" Content="{DynamicResource Mda.Text.3f5ebc60eaec}" Click="ResetChannel" HorizontalAlignment="Stretch" />
           </Grid>
         </Grid>
-        <TextBlock Grid.Row="4" Text="{Binding SelectedChannel.CurveHint}" Classes="caption" MinHeight="36" />
+        <TextBlock Grid.Row="6" Text="{Binding SelectedChannel.CurveHint}" Classes="caption" MinHeight="32" />
       </Grid>
     </Grid>
     <Border Grid.Row="2" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,1,0,0" Padding="20,12">

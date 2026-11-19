@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Mmd.Modern.App.EditorRenderEngineSelectionWindow" x:ClassModifier="internal"
         Title="{DynamicResource Mda.Text.RenderEngineSelection.Title}"
-        Width="600" Height="460" MinWidth="480" MinHeight="420"
+        Width="600" Height="360" MinWidth="480" MinHeight="320"
         Icon="avares://Mmd.Modern.App/Assets/Branding/mda.ico"
         WindowStartupLocation="CenterOwner" CanMinimize="False" CanMaximize="False"
         Background="{DynamicResource SelectionSurface}" Foreground="{DynamicResource SelectionText}"
@@ -55,23 +55,26 @@
       <Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" />
     </Style>
     <Style Selector="ListBoxItem">
-      <Setter Property="Padding" Value="12" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="MinHeight" Value="76" />
-      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionBorder}" />
-      <Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="12,10" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="MinHeight" Value="64" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Background" Value="{DynamicResource SelectionInput}" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionBorder}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Template"><ControlTemplate>
         <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
           <ContentPresenter Background="Transparent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
                             Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Stretch" />
         </Border>
       </ControlTemplate></Setter>
     </Style>
-    <Style Selector="ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource SelectionHover}" /></Style>
-    <Style Selector="ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /><Setter Property="Foreground" Value="{DynamicResource SelectionText}" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionAccent}" /><Setter Property="BorderThickness" Value="2,0,0,1" /></Style>
+    <Style Selector="ListBoxItem:pointerover"><Setter Property="Background" Value="{DynamicResource SelectionHover}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /></Style>
+    <Style Selector="ListBoxItem:selected"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /><Setter Property="Foreground" Value="{DynamicResource SelectionText}" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionAccent}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="ListBoxItem:selected:pointerover"><Setter Property="Background" Value="{DynamicResource SelectionSelected}" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionAccent}" /></Style>
     <Style Selector="ListBoxItem:selected TextBlock.engineName"><Setter Property="Foreground" Value="{DynamicResource SelectionText}" /></Style>
     <Style Selector="ListBoxItem:selected TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
     <Style Selector="ListBoxItem:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /><Setter Property="BorderThickness" Value="1" /></Style>
-    <Style Selector="ListBoxItem:disabled"><Setter Property="Opacity" Value="1" /></Style>
+    <Style Selector="ListBoxItem:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionBorder}" /></Style>
     <Style Selector="ListBoxItem:disabled TextBlock.engineName"><Setter Property="Foreground" Value="{DynamicResource SelectionMuted}" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="32" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="14,0" />
@@ -100,20 +103,26 @@
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
     <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
-    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="Button:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button[IsDefault=True] TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:focus-visible, Button[IsDefault=True]:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button[IsDefault=True]:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource SelectionBorder}" /></Style>
+    <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /></Style>
+    <Style Selector="Button.quiet:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /></Style>
+    <Style Selector="Button.quiet:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource SelectionText}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
     <Style Selector="TabItem:selected /template/ Border"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
   </Window.Styles>
-  <Grid RowDefinitions="Auto,*,Auto" Margin="24">
-    <TextBlock Name="RenderEngineSelectionPrompt" Text="{DynamicResource Mda.Text.RenderEngineSelection.Prompt}" Margin="0,0,0,20" />
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24,20">
+    <TextBlock Name="RenderEngineSelectionPrompt" Text="{DynamicResource Mda.Text.RenderEngineSelection.Prompt}" Margin="0,0,0,14" />
     <Grid Grid.Row="1">
       <ListBox Name="RenderEngineChoices" SelectionMode="Single"
                ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
@@ -121,7 +130,7 @@
       <TextBlock Name="RenderEngineSelectionEmpty" Text="{DynamicResource Mda.Text.RenderEngineSelection.Empty}"
                  Classes="muted" IsVisible="False" Margin="12" />
     </Grid>
-    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,20,0,0">
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,14,0,0">
       <Button Classes="quiet" Name="CancelRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Cancel}" MinWidth="80" IsCancel="True" Click="CancelSelection" />
       <Button Name="ConfirmRenderEngineButton" Content="{DynamicResource Mda.Text.RenderEngineSelection.Confirm}" MinWidth="104" IsDefault="True" Classes="primary" Click="ConfirmSelection" />
     </StackPanel>

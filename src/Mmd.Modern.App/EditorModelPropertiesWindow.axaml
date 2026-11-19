@@ -8,6 +8,164 @@
         FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
         UseLayoutRounding="True" RenderOptions.TextRenderingMode="Antialias">
   <!-- Shared visual contracts copied from the verified native OutputSettingsWindow. -->
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type local:EditorStyleModeItem}" x:DataType="local:EditorStyleModeItem">
+      <Border Background="{DynamicResource OutputSurface}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}">
+              <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+            </CheckBox>
+            <Button Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetModeDefaults}"
+                    IsVisible="{Binding IsEnabled}" IsEnabled="{Binding IsEnabled}" Click="ResetStyleMode" />
+          </Grid>
+          <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+          <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="8,6"
+                  IsVisible="{Binding ShowRoleRequirementNote}">
+            <TextBlock Text="{Binding RoleRequirementNote}" Classes="caption" TextWrapping="Wrap" />
+          </Border>
+          <StackPanel Spacing="12" IsVisible="{Binding IsEnabled}">
+            <ItemsControl ItemsSource="{Binding TextureSlots}" IsVisible="{Binding HasTextureSlots}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:EditorStyleTextureSlotItem">
+                  <StackPanel Spacing="6" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding PrimaryDisplayName}" Classes="label" TextWrapping="Wrap" ToolTip.Tip="{Binding Description}" />
+                    <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                    <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedPrimary, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                      <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <StackPanel Spacing="6" IsVisible="{Binding SupportsSecondaryTexture}">
+                      <TextBlock Text="{Binding SecondaryDisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedSecondary, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </StackPanel>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Spacing="8" IsVisible="{Binding SupportsBoneTracking}">
+              <TextBlock Text="{DynamicResource Mda.Text.ModelProps.BoneTrackingMode}" Classes="label" />
+              <ComboBox ItemsSource="{Binding BoneTrackingModes}" SelectedIndex="{Binding BoneTrackingModeIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+              <StackPanel Spacing="8" IsVisible="{Binding IsFixedWorldTracking}">
+                <TextBlock Text="{Binding FixedBasisSummary}" Classes="caption" TextWrapping="Wrap" />
+                <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
+                  <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Content="{DynamicResource Mda.Text.ModelProps.SampleBoneButton}" Click="SampleModeBoneBasis" HorizontalAlignment="Left" Classes="action" />
+                <TextBlock Text="{DynamicResource Mda.Text.df7052f91b93}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+              <StackPanel Spacing="6" IsVisible="{Binding IsSelectedBoneTracking}">
+                <TextBlock Text="{DynamicResource Mda.Text.ModelProps.TargetBoneLabel}" Classes="label" />
+                <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
+                  <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="{Binding LocalAxisSummary}" Classes="caption" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Parameters}" IsVisible="{Binding HasParameters}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:EditorStyleParameterItem">
+                  <StackPanel Spacing="6" Margin="0,4,0,6">
+                    <StackPanel Spacing="4" IsVisible="{Binding IsFloat}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <Grid ColumnDefinitions="*,10,96">
+                        <validated:EditorValueSlider Minimum="{Binding MinValue}" Maximum="{Binding MaxValue}" Step="{Binding StepSize}"
+                                                     DefaultValue="{Binding DefaultDouble}" Number="{Binding DecimalValue, Mode=TwoWay}"
+                                                     ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                        <validated:EditorNumericUpDown Grid.Column="2" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
+                                                       Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0.###" />
+                      </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsInt}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <validated:EditorNumericUpDown Width="136" HorizontalAlignment="Left" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
+                                                     Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0" />
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsBool}">
+                      <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}" ToolTip.Tip="{Binding Description}">
+                        <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                      </CheckBox>
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsEnum}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <ComboBox ItemsSource="{Binding EnumChoices}" SelectedItem="{Binding SelectedEnumChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorStyleEnumChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsColor}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <Grid ColumnDefinitions="Auto,*,6,*,6,*,6,*">
+                        <Border Width="26" Height="26" CornerRadius="4" Margin="0,16,8,0" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1"
+                                Background="{Binding ColorPreviewBrush}" ToolTip.Tip="{DynamicResource Mda.Text.ModelProps.ColorPreviewTooltip}" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <TextBlock Text="R" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="3" Spacing="2">
+                          <TextBlock Text="G" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="5" Spacing="2">
+                          <TextBlock Text="B" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="7" Spacing="2" IsVisible="{Binding IsColor4}">
+                          <TextBlock Text="A" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="0" Maximum="1" Increment="0.02" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                      </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsVector}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <Grid ColumnDefinitions="*,6,*,6,*,6,*">
+                        <StackPanel Spacing="2">
+                          <TextBlock Text="X" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="2">
+                          <TextBlock Text="Y" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4" Spacing="2" IsVisible="{Binding ShowVectorZ}">
+                          <TextBlock Text="Z" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="6" Spacing="2" IsVisible="{Binding ShowVectorW}">
+                          <TextBlock Text="W" Classes="caption" />
+                          <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
+                        </StackPanel>
+                      </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsTextureSlot}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedTextureChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </StackPanel>
+                    <StackPanel Spacing="4" IsVisible="{Binding IsBoneName}">
+                      <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBoneChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                      </ComboBox>
+                    </StackPanel>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </Window.DataTemplates>
   <Window.Resources>
     <ResourceDictionary>
       <FontFamily x:Key="OutputFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
@@ -76,7 +234,7 @@
                               VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
                               IsScrollChainingEnabled="{TemplateBinding (ScrollViewer.IsScrollChainingEnabled)}">
                   <Panel>
-                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{TemplateBinding Foreground}"
+                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{DynamicResource OutputMuted}"
                                FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}"
                                TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}"
                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
@@ -225,12 +383,16 @@
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
     <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.compact"><Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="10,0" /></Style>
+    <Style Selector="Button.compact TextBlock"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="16" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button[IsDefault=True] TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button[IsDefault=True]:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -241,8 +403,8 @@
     <TabControl Name="ModelPropertiesTabs">
       <TabItem Header="{DynamicResource Mda.Text.c98e118e0a43}">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="24" Spacing="24">
-            <StackPanel Spacing="12">
+          <StackPanel Margin="24,18,24,18" Spacing="16">
+            <StackPanel Spacing="10">
               <TextBlock Text="{DynamicResource Mda.Text.f98c5746576c}" Classes="section" />
               <Grid ColumnDefinitions="120,*,120"><TextBlock Text="{DynamicResource Mda.Text.0db718df3d49}" Classes="label" /><TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.0db718df3d49}" /></Grid>
               <Grid ColumnDefinitions="120,260,*"><TextBlock Text="{DynamicResource Mda.Text.eb7f45c914b5}" Classes="label" /><ComboBox Grid.Column="1" ItemsSource="{Binding RoleChoices}" SelectedIndex="{Binding RoleIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.eb7f45c914b5}" /></Grid>
@@ -256,7 +418,7 @@
               <TextBlock Text="{DynamicResource Mda.Text.f36b2dcfe015}" Classes="caption" Margin="120,0,0,0" />
             </StackPanel>
             <Separator />
-            <StackPanel Spacing="12">
+            <StackPanel Spacing="10">
               <TextBlock Text="{DynamicResource Mda.Text.0c2370d56d98}" Classes="section" />
               <Grid ColumnDefinitions="120,*,8,*,8,*" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto">
                 <TextBlock Grid.Column="1" Text="X" Classes="caption" /><TextBlock Grid.Column="3" Text="Y" Classes="caption" /><TextBlock Grid.Column="5" Text="Z" Classes="caption" />
@@ -274,26 +436,55 @@
               <TextBlock Text="{DynamicResource Mda.Text.68344c74f266}" Classes="caption" Margin="120,0,0,0" />
             </StackPanel>
             <Separator />
-            <StackPanel Spacing="12">
+            <StackPanel Spacing="10">
               <TextBlock Text="{DynamicResource Mda.Text.09b015983303}" Classes="section" />
               <StackPanel Orientation="Horizontal" Spacing="28">
                 <CheckBox Content="IK" IsChecked="{Binding IkEnabled, Mode=TwoWay}" />
                 <CheckBox Content="{DynamicResource Mda.Text.c762ed73d49b}" IsChecked="{Binding MorphsEnabled, Mode=TwoWay}" />
                 <CheckBox Content="{DynamicResource Mda.Text.a454f17872a1}" IsChecked="{Binding PhysicsEnabled, Mode=TwoWay}" />
               </StackPanel>
-              <TextBlock Text="{Binding SourcePath}" Classes="caption" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourcePath}" />
+              <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8">
+                <TextBlock Text="{DynamicResource Mda.Text.Ux.ModelProps.ModelPathLabel}" Classes="label" />
+                <TextBlock Grid.Column="1" Text="{Binding SourcePath}" Classes="caption" VerticalAlignment="Center"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourcePath}" />
+                <Button Name="CopyModelPathButton" Grid.Column="2" Classes="compact"
+                        Content="{DynamicResource Mda.Text.Ux.ModelProps.CopyPath}"
+                        ToolTip.Tip="{DynamicResource Mda.Text.Ux.ModelProps.CopyPathTooltip}"
+                        IsEnabled="{Binding HasSourcePath}" Click="CopyModelPath" />
+              </Grid>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
       <TabItem Header="{DynamicResource Mda.Text.e2102c085d2e}">
         <Grid ColumnDefinitions="260,1,*" Margin="0,12,0,0">
-          <Grid RowDefinitions="Auto,*" Margin="16,0,12,16">
-            <TextBlock Text="{DynamicResource Mda.Text.d9aed99189bf}" Classes="caption" Margin="8,0,0,8" />
-            <ListBox Grid.Row="1" ItemsSource="{Binding Materials}" SelectedItem="{Binding SelectedMaterial, Mode=TwoWay}"
+          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16,0,12,16">
+            <TextBlock Text="{DynamicResource Mda.Text.d9aed99189bf}" Classes="caption" Margin="8,0,0,6" />
+            <TextBox Name="MaterialSearchBox" Grid.Row="1" Margin="0,0,0,8"
+                     Text="{Binding MaterialSearchText, Mode=TwoWay}"
+                     Watermark="{DynamicResource Mda.Text.Ux.ModelProps.SearchMaterialsWatermark}"
+                     AutomationProperties.Name="{DynamicResource Mda.Text.Ux.ModelProps.SearchMaterialsWatermark}" />
+            <ListBox Name="MaterialsList" Grid.Row="2" ItemsSource="{Binding FilteredMaterials}" SelectedItem="{Binding SelectedMaterial, Mode=TwoWay}"
                      Background="{DynamicResource OutputSurface}" BorderThickness="0" AutomationProperties.Name="{DynamicResource Mda.Text.4da2e36af414}">
-              <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ListBox.ItemTemplate>
+              <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" ToolTip.Tip="{Binding ToolTipText}">
+                  <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                  <Ellipse Grid.Column="1" Width="7" Height="7" VerticalAlignment="Center"
+                           Fill="{DynamicResource MdaAccentSoft}"
+                           IsVisible="{Binding HasCustomization}"
+                           ToolTip.Tip="{DynamicResource Mda.Text.Ux.ModelProps.CustomizedMaterialHint}" />
+                  <Ellipse Grid.Column="2" Width="7" Height="7" VerticalAlignment="Center"
+                           Fill="{DynamicResource MdaDanger}"
+                           IsVisible="{Binding HasValidationMessage}"
+                           ToolTip.Tip="{Binding ValidationMessage}" />
+                </Grid>
+              </DataTemplate></ListBox.ItemTemplate>
             </ListBox>
+            <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.Ux.ModelProps.NoMatchingMaterials}"
+                       Classes="caption" Margin="8,12" IsVisible="{Binding ShowNoMatchingMaterials}"
+                       HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
+            <TextBlock Grid.Row="3" Text="{Binding MaterialFilterSummary}" Classes="caption" Margin="8,6,0,0"
+                       IsVisible="{Binding IsMaterialSearchActive}" />
           </Grid>
           <Border Grid.Column="1" Background="{DynamicResource OutputBorder}" />
           <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -324,166 +515,13 @@
                       <TextBlock Text="{DynamicResource Mda.Text.ModelProps.DynamicModesHeader}" Classes="section" />
                       <TextBlock Text="{Binding DynamicModesHeaderHint}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDynamicModes}" />
                       <TextBlock Text="{Binding NoDynamicModesNotice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasNoDynamicModes}" />
-                      <ItemsControl ItemsSource="{Binding DynamicModes}" IsVisible="{Binding HasDynamicModes}">
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="local:EditorStyleModeItem">
-                            <Border Background="{DynamicResource OutputSurface}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
-                              <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                  <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}">
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                  </CheckBox>
-                                  <Button Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetModeDefaults}"
-                                          IsEnabled="{Binding IsEnabled}" Click="ResetStyleMode" />
-                                </Grid>
-                                <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="8,6"
-                                        IsVisible="{Binding ShowRoleRequirementNote}">
-                                  <TextBlock Text="{Binding RoleRequirementNote}" Classes="caption" TextWrapping="Wrap" />
-                                </Border>
-                                <StackPanel Spacing="12" IsVisible="{Binding IsEnabled}">
-                                  <ItemsControl ItemsSource="{Binding TextureSlots}" IsVisible="{Binding HasTextureSlots}">
-                                    <ItemsControl.ItemTemplate>
-                                      <DataTemplate x:DataType="local:EditorStyleTextureSlotItem">
-                                        <StackPanel Spacing="6" Margin="0,0,0,8">
-                                          <TextBlock Text="{Binding PrimaryDisplayName}" Classes="label" TextWrapping="Wrap" ToolTip.Tip="{Binding Description}" />
-                                          <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                          <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedPrimary, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                                            <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                          </ComboBox>
-                                          <StackPanel Spacing="6" IsVisible="{Binding SupportsSecondaryTexture}">
-                                            <TextBlock Text="{Binding SecondaryDisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedSecondary, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                          </StackPanel>
-                                        </StackPanel>
-                                      </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                  </ItemsControl>
-                                  <StackPanel Spacing="8" IsVisible="{Binding SupportsBoneTracking}">
-                                    <TextBlock Text="{DynamicResource Mda.Text.ModelProps.BoneTrackingMode}" Classes="label" />
-                                    <ComboBox ItemsSource="{Binding BoneTrackingModes}" SelectedIndex="{Binding BoneTrackingModeIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
-                                    <StackPanel Spacing="8" IsVisible="{Binding IsFixedWorldTracking}">
-                                      <TextBlock Text="{Binding FixedBasisSummary}" Classes="caption" TextWrapping="Wrap" />
-                                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
-                                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                      </ComboBox>
-                                      <Button Content="{DynamicResource Mda.Text.ModelProps.SampleBoneButton}" Click="SampleModeBoneBasis" HorizontalAlignment="Left" Classes="action" />
-                                      <TextBlock Text="{DynamicResource Mda.Text.df7052f91b93}" Classes="caption" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Spacing="6" IsVisible="{Binding IsSelectedBoneTracking}">
-                                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.TargetBoneLabel}" Classes="label" />
-                                      <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBone, Mode=TwoWay}" PlaceholderText="{DynamicResource Mda.Text.12edb066408d}" HorizontalAlignment="Stretch">
-                                        <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                      </ComboBox>
-                                      <TextBlock Text="{Binding LocalAxisSummary}" Classes="caption" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                  </StackPanel>
-                                  <ItemsControl ItemsSource="{Binding Parameters}" IsVisible="{Binding HasParameters}">
-                                    <ItemsControl.ItemTemplate>
-                                      <DataTemplate x:DataType="local:EditorStyleParameterItem">
-                                        <StackPanel Spacing="6" Margin="0,4,0,6">
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsFloat}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <Grid ColumnDefinitions="*,10,96">
-                                              <validated:EditorValueSlider Minimum="{Binding MinValue}" Maximum="{Binding MaxValue}" Step="{Binding StepSize}"
-                                                                           DefaultValue="{Binding DefaultDouble}" Number="{Binding DecimalValue, Mode=TwoWay}"
-                                                                           ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                                              <validated:EditorNumericUpDown Grid.Column="2" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
-                                                                             Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0.###" />
-                                            </Grid>
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsInt}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <validated:EditorNumericUpDown Width="136" HorizontalAlignment="Left" Minimum="{Binding MinDecimal}" Maximum="{Binding MaxDecimal}"
-                                                                           Increment="{Binding StepDecimal}" Value="{Binding DecimalValue, Mode=TwoWay}" FormatString="0" />
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsBool}">
-                                            <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}" ToolTip.Tip="{Binding Description}">
-                                              <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
-                                            </CheckBox>
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsEnum}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <ComboBox ItemsSource="{Binding EnumChoices}" SelectedItem="{Binding SelectedEnumChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorStyleEnumChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsColor}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <Grid ColumnDefinitions="Auto,*,6,*,6,*,6,*">
-                                              <Border Width="26" Height="26" CornerRadius="4" Margin="0,16,8,0" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1"
-                                                      Background="{Binding ColorPreviewBrush}" ToolTip.Tip="{DynamicResource Mda.Text.ModelProps.ColorPreviewTooltip}" />
-                                              <StackPanel Grid.Column="1" Spacing="2">
-                                                <TextBlock Text="R" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="3" Spacing="2">
-                                                <TextBlock Text="G" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="5" Spacing="2">
-                                                <TextBlock Text="B" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="0" Maximum="{Binding ColorChannelMaxDecimal}" Increment="0.02" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="7" Spacing="2" IsVisible="{Binding IsColor4}">
-                                                <TextBlock Text="A" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="0" Maximum="1" Increment="0.02" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                            </Grid>
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsVector}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <Grid ColumnDefinitions="*,6,*,6,*,6,*">
-                                              <StackPanel Spacing="2">
-                                                <TextBlock Text="X" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecX, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="2" Spacing="2">
-                                                <TextBlock Text="Y" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecY, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="4" Spacing="2" IsVisible="{Binding ShowVectorZ}">
-                                                <TextBlock Text="Z" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecZ, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                              <StackPanel Grid.Column="6" Spacing="2" IsVisible="{Binding ShowVectorW}">
-                                                <TextBlock Text="W" Classes="caption" />
-                                                <validated:EditorNumericUpDown Minimum="-10000" Maximum="10000" Increment="0.05" Value="{Binding VecW, Mode=TwoWay}" FormatString="0.###" />
-                                              </StackPanel>
-                                            </Grid>
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsTextureSlot}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <ComboBox ItemsSource="{Binding Textures}" SelectedItem="{Binding SelectedTextureChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                          </StackPanel>
-                                          <StackPanel Spacing="4" IsVisible="{Binding IsBoneName}">
-                                            <TextBlock Text="{Binding DisplayName}" Classes="label" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
-                                            <ComboBox ItemsSource="{Binding Bones}" SelectedItem="{Binding SelectedBoneChoice, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                                              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSourceChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
-                                            </ComboBox>
-                                          </StackPanel>
-                                        </StackPanel>
-                                      </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                  </ItemsControl>
-                                </StackPanel>
-                              </StackPanel>
-                            </Border>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
+                      <ItemsControl ItemsSource="{Binding VisibleDynamicModes}" IsVisible="{Binding HasVisibleDynamicModes}" />
+                      <Expander Name="IncompatibleDynamicModesExpander" Classes="outputAdvanced"
+                                Header="{Binding IncompatibleDynamicModesHeader}"
+                                IsExpanded="{Binding ShowIncompatibleModes, Mode=TwoWay}"
+                                IsVisible="{Binding HasIncompatibleDynamicModes}">
+                        <ItemsControl ItemsSource="{Binding IncompatibleDynamicModes}" />
+                      </Expander>
                     </StackPanel>
                     <Separator />
                     <StackPanel Spacing="10">
@@ -533,8 +571,10 @@
         <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24,20,24,24">
           <StackPanel Spacing="6" Margin="0,0,0,12"><TextBlock Text="{DynamicResource Mda.Text.d142c7fa4f24}" Classes="section" /><TextBlock Text="{Binding ProfileSummary}" Classes="caption" /><TextBlock Text="{DynamicResource Mda.Text.a6136d33bb49}" Classes="caption" /></StackPanel>
           <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
-            <Button Content="{DynamicResource Mda.Text.d99a10e23577}" Click="ImportMapping" Classes="action" /><Button Content="{DynamicResource Mda.Text.b59c656f3dc5}" Click="ExportMapping" />
-            <Button Content="{DynamicResource Mda.Text.fdd71675e53a}" Click="RefreshJson" /><Button Content="{DynamicResource Mda.Text.2d35cd3c3e35}" Click="ApplyJson" />
+            <Button Content="{DynamicResource Mda.Text.d99a10e23577}" Click="ImportMapping" />
+            <Button Content="{DynamicResource Mda.Text.b59c656f3dc5}" Click="ExportMapping" />
+            <Button Content="{DynamicResource Mda.Text.fdd71675e53a}" Click="RefreshJson" />
+            <Button Name="ApplyJsonDraftButton" Content="{DynamicResource Mda.Text.2d35cd3c3e35}" Click="ApplyJson" Classes="primary" />
           </StackPanel>
           <TextBox Name="ModelProfileJsonBox" Grid.Row="2" Height="NaN" MinHeight="180" AcceptsReturn="True" AcceptsTab="False" TextWrapping="NoWrap"
                    VerticalContentAlignment="Top" Padding="10" MaxLength="1048576" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="{DynamicResource Mda.Text.8f696546156c}" />

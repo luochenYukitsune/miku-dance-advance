@@ -53,29 +53,65 @@ internal sealed class EditorClassicEffectsWindow : Window
         root.Children.Add(sections); Grid.SetRow(sections, 1);
         var lists = new Grid { ColumnDefinitions = new("200,*"), ColumnSpacing = 12 };
         objects.ItemsSource = rows;
-        lists.Children.Add(objects); lists.Children.Add(assignments); Grid.SetColumn(assignments, 1);
+        lists.Children.Add(objects);
+        var assignmentHeader = new Border
+        {
+            BorderThickness = new(1),
+            CornerRadius = new(4),
+            Padding = new(16, 6),
+            Child = new Grid
+            {
+                ColumnDefinitions = new("150,*,80"),
+                ColumnSpacing = 12,
+                Children =
+                {
+                    HeaderText("Mda.Text.Ux.Mme.ColumnObject", 0),
+                    HeaderText("Mda.Text.Ux.Mme.ColumnEffect", 1),
+                    HeaderText("Mda.Text.Ux.Mme.ColumnVisibility", 2)
+                }
+            }
+        };
+        assignmentHeader.Bind(Border.BackgroundProperty, this.GetResourceObservable("EditorInputSurface"));
+        assignmentHeader.Bind(Border.BorderBrushProperty, this.GetResourceObservable("EditorBorder"));
+        var assignmentPane = new Grid { RowDefinitions = new("Auto,*"), RowSpacing = 4 };
+        assignmentPane.Children.Add(assignmentHeader);
+        assignmentPane.Children.Add(assignments); Grid.SetRow(assignments, 1);
+        lists.Children.Add(assignmentPane); Grid.SetColumn(assignmentPane, 1);
         root.Children.Add(lists); Grid.SetRow(lists, 2);
         assignments.ItemTemplate = new FuncDataTemplate<AssignmentRow>((row, _) => row is null ? null : new Grid
         {
-            ColumnDefinitions = new("150,*,Auto"), ColumnSpacing = 12, Margin = new(4, 6), Children =
+            ColumnDefinitions = new("150,*,80"), ColumnSpacing = 12, Margin = new(4, 6), Children =
             {
                 new TextBlock { Text = row.Name, TextTrimming = TextTrimming.CharacterEllipsis },
                 At(new TextBlock { Text = row.Effect, TextTrimming = TextTrimming.CharacterEllipsis }, 1),
-                At(new TextBlock { Text = row.Visibility, FontSize = 12 }, 2)
+                At(new TextBlock { Text = row.Visibility, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }, 2)
             }
         });
+        var effectButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var visibilityButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var groupDivider = new Border
+        {
+            Width = 1,
+            Height = 20,
+            Margin = new(10, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        groupDivider.Bind(Border.BackgroundProperty, this.GetResourceObservable("EditorBorder"));
         var actions = new WrapPanel { Orientation = Orientation.Horizontal };
-        Add("SetEffect", async () =>
+        actions.Children.Add(effectButtons);
+        actions.Children.Add(groupDivider);
+        actions.Children.Add(visibilityButtons);
+        Add(effectButtons, "SetEffect", async () =>
         {
             var files = await StorageProvider.OpenFilePickerAsync(new() { Title = T("SetEffect"), AllowMultiple = false,
                 FileTypeFilter = [new("MMEffect") { Patterns = ["*.fx"] }] });
             if (files.FirstOrDefault()?.TryGetLocalPath() is { } path) EditEffect(path);
         });
-        Add("NoEffect", () => { EditEffect("none"); return Task.CompletedTask; });
-        Add("Reset", () => { EditEffect(null); return Task.CompletedTask; });
-        Add("Show", () => { EditShown(true); return Task.CompletedTask; });
-        Add("Hide", () => { EditShown(false); return Task.CompletedTask; });
-        Add("InheritVisibility", () => { EditShown(null); return Task.CompletedTask; });
+        Add(effectButtons, "NoEffect", () => { EditEffect("none"); return Task.CompletedTask; });
+        Add(effectButtons, "Reset", () => { EditEffect(null); return Task.CompletedTask; });
+        Add(visibilityButtons, "Show", () => { EditShown(true); return Task.CompletedTask; });
+        Add(visibilityButtons, "Hide", () => { EditShown(false); return Task.CompletedTask; });
+        Add(visibilityButtons, "InheritVisibility", () => { EditShown(null); return Task.CompletedTask; });
         var controls = new StackPanel { Spacing = 10, Children = { actions, status } };
         root.Children.Add(controls); Grid.SetRow(controls, 3);
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10 };
@@ -135,11 +171,24 @@ internal sealed class EditorClassicEffectsWindow : Window
         objects.SelectedIndex = rows.Length > 0 ? 0 : -1;
         if (rows.Length == 0) status.Text = T("NoObjects");
 
-        void Add(string key, Func<Task> action)
+        TextBlock HeaderText(string key, int column)
         {
-            var button = new Button { Content = T(key), Margin = new(0, 0, 8, 6), Padding = new(12, 6) };
+            var text = new TextBlock
+            {
+                Text = EditorLocalization.Text(key),
+                FontSize = 12,
+                FontWeight = FontWeight.Medium,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            text.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("EditorMuted"));
+            return At(text, column);
+        }
+
+        void Add(Panel container, string key, Func<Task> action)
+        {
+            var button = new Button { Content = T(key), Padding = new(10, 0) };
             button.Click += async (_, _) => { try { await action(); } catch (Exception error) { status.Text = error.Message; } };
-            actions.Children.Add(button);
+            container.Children.Add(button);
         }
     }
 

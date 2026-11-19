@@ -212,14 +212,17 @@
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
-    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled TextBlock, Button:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button.primary AccessText, Button[IsDefault=True] TextBlock, Button[IsDefault=True] AccessText"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -254,6 +257,7 @@
               <TextBlock Text="{Binding TemporalLabel}" Classes="section" />
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ReconstructionLabel}" Classes="label" /><ComboBox Name="PreviewTemporalModeBox" Grid.Column="1" ItemsSource="{Binding TemporalModes}" SelectedIndex="{Binding TemporalIndex}" AutomationProperties.Name="{Binding TemporalLabel}" /></Grid>
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding QualityLabel}" Classes="label" /><ComboBox Name="PreviewTemporalQualityBox" Grid.Column="1" ItemsSource="{Binding TemporalQualities}" SelectedIndex="{Binding TemporalQualityIndex}" IsEnabled="{Binding IsTemporal}" AutomationProperties.Name="{Binding QualityLabel}" /></Grid>
+              <TextBlock Name="PreviewCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
               <TextBlock Text="{Binding ReconstructionHint}" Classes="caption" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedSampling" Header="{Binding AdvancedSamplingLabel}" IsExpanded="False">
@@ -265,7 +269,14 @@
                 <TextBlock Text="{Binding RcasHint}" Classes="caption" Margin="188,0,0,0" />
               </StackPanel>
             </Expander>
-            <Expander Classes="outputAdvanced" Header="{Binding SupportLabel}" IsExpanded="False"><TextBlock Text="{Binding CapabilityHint}" Classes="caption" /></Expander>
+            <Expander Classes="outputAdvanced" Header="{Binding SupportLabel}" IsExpanded="False">
+              <StackPanel Spacing="8">
+                <TextBlock Text="{Binding CapabilityHint}" Classes="caption" />
+                <Button Name="RefreshCapabilitiesButton" Classes="action" Content="{Binding RefreshCapabilitiesLabel}"
+                        Click="RefreshCapabilities" IsVisible="{Binding CanRefreshCapabilities}"
+                        IsEnabled="{Binding CapabilitiesReady}" HorizontalAlignment="Left" />
+              </StackPanel>
+            </Expander>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
@@ -278,6 +289,7 @@
               <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiStrengthBox" Grid.Column="1" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="10" SmallChange="0.1" LargeChange="1" Step="0.05" DefaultValue="4" Number="{Binding GiStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
               <CheckBox Name="PreviewGiAccelerationBox" Content="{Binding PreviewGiAccelerationLabel}" IsChecked="{Binding PreviewGiAcceleration}" IsEnabled="{Binding IsGiEnabled}" Margin="188,0,0,0" />
               <TextBlock Text="{Binding PreviewGiAccelerationHint}" Classes="caption" Margin="188,0,0,0" />
+              <TextBlock Name="PreviewGiCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
               <TextBlock Text="{Binding GiHint}" Classes="caption" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedLighting" Header="{Binding AdvancedLightingLabel}" IsExpanded="False">

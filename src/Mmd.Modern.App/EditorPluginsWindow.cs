@@ -32,6 +32,7 @@ internal sealed class EditorPluginsWindow : Window
     private readonly Button rescan = new() { Name = "RescanPluginsButton" }, run = new() { Name = "RunPluginCommandButton" };
     private readonly Button import = new() { Name = "ImportPluginButton" };
     private readonly Button directory = new(), close = new() { Name = "ClosePluginsButton" };
+    private readonly Grid commandRow = new() { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8 };
     private readonly TextBlock intro = new() { TextWrapping = TextWrapping.Wrap }, commandLabel = new();
     private readonly TextBlock importHint = new() { Name = "PluginImportHint", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = .8 };
     private readonly TextBlock heading = new() { FontSize = 22, FontWeight = FontWeight.SemiBold };
@@ -40,7 +41,7 @@ internal sealed class EditorPluginsWindow : Window
     private readonly TextBlock pluginState = new() { Name = "SelectedPluginState", FontSize = 12, TextWrapping = TextWrapping.Wrap };
     private readonly WrapPanel pluginBadges = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock sceneWarningText = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
-    private readonly Border sceneWarningBanner = new() { CornerRadius = new(4), Padding = new(10, 8), BorderThickness = new(1), IsVisible = false };
+    private readonly Border sceneWarningBanner = new() { Name = "PluginDetailActiveWarning", CornerRadius = new(4), Padding = new(10, 6), BorderThickness = new(1), IsVisible = false };
     private readonly TextBlock pluginDescription = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock providedStylesHeader = new() { FontSize = 12, FontWeight = FontWeight.SemiBold };
     private readonly TextBlock providedStylesText = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
@@ -52,7 +53,7 @@ internal sealed class EditorPluginsWindow : Window
     {
         this.service = service;
         this.workspace = workspace;
-        Width = 860; Height = 620; MinWidth = 680; MinHeight = 560;
+        Width = 860; Height = 680; MinWidth = 680; MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false; RequestedThemeVariant = owner.ActualThemeVariant;
         FontFamily = owner.FontFamily; FontSize = 14; FontWeight = FontWeight.Normal;
@@ -67,6 +68,14 @@ internal sealed class EditorPluginsWindow : Window
         sceneWarningBanner.Bind(Border.BorderBrushProperty, this.GetResourceObservable("MdaDanger"));
         sceneWarningBanner.Child = sceneWarningText;
         foreach (var button in new[] { enable, disable, rescan, run, directory, close, import }) button.MinWidth = 80;
+        plugins.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 4)),
+                new Setter(Layoutable.MinHeightProperty, 0d)
+            }
+        });
         plugins.ItemTemplate = new FuncDataTemplate<PluginInfo>((plugin, _) =>
         {
             if (plugin is null) return null;
@@ -81,7 +90,7 @@ internal sealed class EditorPluginsWindow : Window
             var subline = new TextBlock { Text = $"{plugin.Version} · {StateText(plugin.State)}", FontSize = 12, Opacity = .8 };
             return new StackPanel
             {
-                Spacing = 4, Margin = new(6), Children =
+                Spacing = 2, Margin = new(4, 3), Children =
                 {
                     new TextBlock { Text = plugin.GetDisplayName(lang), FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis },
                     subline,
@@ -89,9 +98,9 @@ internal sealed class EditorPluginsWindow : Window
                 }
             };
         });
-        var root = new Grid { Margin = new(20), RowDefinitions = new("Auto,*,Auto,Auto"), RowSpacing = 14 };
+        var root = new Grid { Margin = new(20, 16), RowDefinitions = new("Auto,*,Auto,Auto"), RowSpacing = 10 };
         var header = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 20 };
-        var description = new StackPanel { Spacing = 8 };
+        var description = new StackPanel { Spacing = 4 };
         description.Children.Add(heading); description.Children.Add(intro); description.Children.Add(importHint);
         header.Children.Add(description); header.Children.Add(import); Grid.SetColumn(import, 1);
         import.VerticalAlignment = VerticalAlignment.Top;
@@ -101,7 +110,7 @@ internal sealed class EditorPluginsWindow : Window
         location.Children.Add(directory); Grid.SetColumn(directory, 1);
         locationExpander.Content = location;
         var body = new Grid { ColumnDefinitions = new("250,*"), ColumnSpacing = 16, MinHeight = 240 };
-        var list = new Grid { RowDefinitions = new("Auto,*"), RowSpacing = 10 };
+        var list = new Grid { RowDefinitions = new("Auto,*"), RowSpacing = 8 };
         var listHeader = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8 };
         rescan.MinWidth = 64; rescan.FontSize = 12; rescan.Padding = new(8, 5);
         listHeader.Children.Add(installedLabel); listHeader.Children.Add(rescan); Grid.SetColumn(rescan, 1);
@@ -110,19 +119,21 @@ internal sealed class EditorPluginsWindow : Window
         empty.Margin = new(20); empty.TextAlignment = TextAlignment.Center; empty.VerticalAlignment = VerticalAlignment.Center;
         empty.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("EditorMuted"));
         body.Children.Add(list);
-        var right = new Grid { RowDefinitions = new("Auto,Auto,*,Auto,Auto"), RowSpacing = 10 };
+        var right = new Grid { RowDefinitions = new("Auto,Auto,*,Auto"), RowSpacing = 8 };
         right.Children.Add(pluginName);
         var stateAndBadges = new StackPanel { Spacing = 6, Children = { pluginState, pluginBadges } };
-        right.Children.Add(stateAndBadges); Grid.SetRow(stateAndBadges, 1);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(enable); actions.Children.Add(disable);
+        var topSection = new StackPanel { Spacing = 8, Children = { stateAndBadges, actions, sceneWarningBanner } };
+        right.Children.Add(topSection); Grid.SetRow(topSection, 1);
 
         var detailContent = new StackPanel
         {
-            Spacing = 10,
+            Spacing = 8,
             Children =
             {
-                sceneWarningBanner,
                 pluginDescription,
-                new StackPanel { Spacing = 3, Children = { providedStylesHeader, providedStylesText } },
+                new StackPanel { Spacing = 2, Children = { providedStylesHeader, providedStylesText } },
                 details
             }
         };
@@ -134,16 +145,12 @@ internal sealed class EditorPluginsWindow : Window
         };
         right.Children.Add(detailScroll); Grid.SetRow(detailScroll, 2);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        actions.Children.Add(enable); actions.Children.Add(disable);
-        right.Children.Add(actions); Grid.SetRow(actions, 3);
-        var commandPanel = new StackPanel { Spacing = 8 };
+        var commandPanel = new StackPanel { Spacing = 6 };
         commandPanel.Children.Add(commandLabel);
-        var commandRow = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 8 };
         commandRow.Children.Add(commands); commandRow.Children.Add(run); Grid.SetColumn(run, 1);
         commandPanel.Children.Add(commandRow); commandPanel.Children.Add(noCommands);
-        right.Children.Add(commandPanel); Grid.SetRow(commandPanel, 4);
-        var detailSurface = new Border { Padding = new(16), Child = right, CornerRadius = new(4) };
+        right.Children.Add(commandPanel); Grid.SetRow(commandPanel, 3);
+        var detailSurface = new Border { Padding = new(16, 12), Child = right, CornerRadius = new(4) };
         detailSurface.Bind(Border.BackgroundProperty, this.GetResourceObservable("EditorPanelSurface"));
         body.Children.Add(detailSurface); Grid.SetColumn(detailSurface, 1);
         root.Children.Add(body); Grid.SetRow(body, 1);
@@ -289,9 +296,10 @@ internal sealed class EditorPluginsWindow : Window
             commands.SelectedItem = choices.FirstOrDefault(choice => choice.RegistrationId == prior?.RegistrationId) ?? choices.FirstOrDefault();
         }
         catch (Exception error) { commands.ItemsSource = Array.Empty<CommandChoice>(); result.Text = error.Message; }
+        bool hasCommands = commands.ItemCount > 0;
         noCommands.Text = Text(selected?.State == PluginState.Active ? "NoCommands" : "EnableForCommands");
-        noCommands.IsVisible = commands.ItemCount == 0;
-        commands.IsVisible = run.IsVisible = commands.ItemCount > 0;
+        noCommands.IsVisible = !hasCommands;
+        commandLabel.IsVisible = commandRow.IsVisible = hasCommands;
         RefreshAvailability();
     }
 
@@ -333,8 +341,8 @@ internal sealed class EditorPluginsWindow : Window
         var border = new Border
         {
             CornerRadius = new(4),
-            Padding = new(6, 2),
-            Margin = new(0, 2, 6, 2),
+            Padding = new(6, 1),
+            Margin = new(0, 1, 5, 1),
             BorderThickness = new(1),
             Child = new TextBlock { Text = label, FontSize = 11 }
         };
