@@ -19,7 +19,7 @@ public sealed class BulletProjectPlaybackTests
         var worlds = new List<BulletCharacterPhysicsBackend>();
         using var session = new SceneAnimationSession(layout.Objects,
             [new(a.Id, model, Motion(2)), new(b.Id, model, Motion(30))],
-            _ => { var world = new BulletCharacterPhysicsBackend(new(0, -9.8f, 0), null); worlds.Add(world); return world; },
+            _ => { var world = new BulletCharacterPhysicsBackend(new(0, -98f, 0), null); worlds.Add(world); return world; },
             cancellationToken: Token);
         Assert.Equal(2, worlds.Count);
         Assert.All(session.Actors, actor => Assert.Contains("Bullet 2.75", actor.PhysicsBackend));
@@ -49,7 +49,7 @@ public sealed class BulletProjectPlaybackTests
         var worlds = new List<BulletCharacterPhysicsBackend>();
         using var cancel = new CancellationTokenSource(); bool cancelCandidate = false;
         using var session = new SceneAnimationSession(layout.Objects, [new(a.Id, model, Motion(30))],
-            _ => { var world = new BulletCharacterPhysicsBackend(new(0, -9.8f, 0), null); worlds.Add(world);
+            _ => { var world = new BulletCharacterPhysicsBackend(new(0, -98f, 0), null); worlds.Add(world);
                 if (cancelCandidate) cancel.Cancel(); return world; }, cancellationToken: Token);
         session.Advance(1.0 / 30, Token);
         var before = session.Frame; var actorStates = session.Actors;
