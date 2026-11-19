@@ -40,8 +40,9 @@ public partial class EditorWindow
             "Ctrl+N — " + Text("新建工程") + "\nCtrl+O — " + Text("打开工程…") + "\nCtrl+S — " + Text("保存工程")
             + "\nCtrl+Shift+S — " + Text("另存为…") + "\nCtrl+Z / Ctrl+Y — " + Text("撤销") + " / " + Text("重做")
             + "\nEnter / K — " + Text("登记骨骼关键帧（视口焦点）")
-            + "\n" + Text("Mda.Text.Shortcuts.Playback") + "\n" + Text("Mda.Text.Shortcuts.Keyframes")
-            + "\n" + Text("Mda.Text.Shortcuts.Timeline") + "\n" + Text("Mda.Text.Shortcuts.Slider")
+            + "\n" + Text("Mda.Text.Shortcuts.Playback") + "\n" + Text("Mda.Text.Shortcuts.Timeline")
+            + "\n" + Text("Mda.Text.Ux.Shortcuts.Gizmo") + "\n" + Text("Mda.Text.Shortcuts.Keyframes")
+            + "\n" + Text("Mda.Text.Shortcuts.Slider")
             + "\nEsc — " + Text("取消"), [Text("关闭")]);
 
     private async void OpenPreviewSettings(object? sender, RoutedEventArgs args) => await OpenPreviewSettingsAsync(this);
@@ -59,13 +60,15 @@ public partial class EditorWindow
     {
         if (_shell is not { IsBusy: false } shell) return;
         shell.StopPlayback();
+        if (!owner.IsVisible) return;
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
-        EditorPreviewCapabilities? capabilities = null;
         var runtime = CapturePreviewRuntimeInfo();
-        await ExecuteAsync(Text("正在检查预览能力…"), async token =>
-            capabilities = await Task.Run(() => EditorPreviewCapabilities.QueryInstalled(runtime.Width, runtime.Height, token), token), owner);
-        if (capabilities is null || !owner.IsVisible) return;
-        var quality = await new EditorPreviewSettingsWindow(viewport.Quality, capabilities, CapturePreviewRuntimeInfo()).ShowDialog<ViewQualityOptions?>(owner);
+        EditorPreviewCapabilities.TryGetCached(EditorOptionalRuntimePaths.Resolve(), runtime.AdapterName, out var cached);
+        var viewModel = new EditorPreviewSettingsViewModel(viewport.Quality, cached, runtime, capabilitiesPending: cached is null);
+        var dialog = new EditorPreviewSettingsWindow(viewModel,
+            (forceRefresh, token) => Task.Run(() =>
+                EditorPreviewCapabilities.QueryInstalledCached(runtime.Width, runtime.Height, runtime.AdapterName, forceRefresh, token), token));
+        var quality = await dialog.ShowDialog<ViewQualityOptions?>(owner);
         if (quality is null) return;
         try
         {

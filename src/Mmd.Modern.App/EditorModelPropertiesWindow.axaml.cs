@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -14,10 +15,20 @@ namespace Mmd.Modern.App;
 /// <summary>Protected detached edit; the owner alone publishes the returned coherent workspace transaction.</summary>
 public partial class EditorModelPropertiesWindow : Window
 {
+    private static readonly JsonSerializerOptions DisplayJsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     private readonly EditorProjectWorkspace? workspace;
     private string jsonSnapshot = "";
     private string? importedProfilePath;
     private bool browsing;
+    private bool closed;
+    private CancellationTokenSource? copyPathFeedbackCts;
+    private bool copyPathFeedbackActive;
+    private bool copyPathFeedbackInitialized;
     private Func<string>? windowValidation;
     private string lastWindowValidation = "";
 
@@ -37,6 +48,13 @@ public partial class EditorModelPropertiesWindow : Window
         {
             RequestedThemeVariant = Owner?.ActualThemeVariant ?? ThemeVariant.Dark;
             if (Owner is { } owner) { FontFamily = owner.FontFamily; Resources["OutputFont"] = owner.FontFamily; }
+        };
+        Closed += (_, _) =>
+        {
+            closed = true;
+            copyPathFeedbackCts?.Cancel();
+            copyPathFeedbackCts?.Dispose();
+            copyPathFeedbackCts = null;
         };
         KeyDown += (_, args) =>
         {
@@ -65,6 +83,60 @@ public partial class EditorModelPropertiesWindow : Window
     }
 
     private void CancelProperties(object? sender, RoutedEventArgs args) { if (!browsing) Close(null); }
+
+    private async void CopyModelPath(object? sender, RoutedEventArgs args)
+    {
+        if (browsing || closed) return;
+        string path = ViewModel.SourcePath;
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            SetValidationMessage("Mda.Text.Ux.ModelProps.CopyPathUnavailable");
+            return;
+        }
+        try
+        {
+            await clipboard.SetTextAsync(path);
+        }
+        catch (Exception error) when (error is InvalidOperationException or NotSupportedException or System.Runtime.InteropServices.COMException)
+        {
+            if (!closed) SetValidationMessage("Mda.Text.Ux.ModelProps.CopyPathUnavailable");
+            return;
+        }
+        if (closed) return;
+
+        copyPathFeedbackCts?.Cancel();
+        copyPathFeedbackCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        copyPathFeedbackCts = cts;
+        copyPathFeedbackInitialized = true;
+        copyPathFeedbackActive = true;
+        UpdateCopyPathButtonText();
+        try
+        {
+            await Task.Delay(1800, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (!closed && ReferenceEquals(copyPathFeedbackCts, cts))
+        {
+            copyPathFeedbackActive = false;
+            UpdateCopyPathButtonText();
+        }
+    }
+
+    private void UpdateCopyPathButtonText()
+    {
+        if (!copyPathFeedbackInitialized) return;
+        CopyModelPathButton.Content = Text(copyPathFeedbackActive
+            ? "Mda.Text.Ux.ModelProps.PathCopied"
+            : "Mda.Text.Ux.ModelProps.CopyPath");
+        ToolTip.SetTip(CopyModelPathButton, Text(copyPathFeedbackActive
+            ? "Mda.Text.Ux.ModelProps.PathCopied"
+            : "Mda.Text.Ux.ModelProps.CopyPathTooltip"));
+    }
 
     private void QuarterOutline(object? sender, RoutedEventArgs args)
     { if (ViewModel.SelectedMaterial is { SupportsOutlineScaling: true } material) material.OutlinePercent = 25; }
@@ -201,7 +273,7 @@ public partial class EditorModelPropertiesWindow : Window
     private void SetJson(byte[] bytes)
     {
         using var document = JsonDocument.Parse(bytes);
-        jsonSnapshot = JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        jsonSnapshot = JsonSerializer.Serialize(document.RootElement, DisplayJsonOptions);
         ModelProfileJsonBox.Text = jsonSnapshot;
     }
     private void SetBrowsing(bool value) { browsing = value; ModelPropertiesTabs.IsEnabled = !value; ApplyModelPropertiesButton.IsEnabled = !value; }
@@ -216,6 +288,7 @@ public partial class EditorModelPropertiesWindow : Window
     }
     private void RefreshLocalization()
     {
+        UpdateCopyPathButtonText();
         // Keep the JSON editor, material selection and unfinished numeric draft untouched.
         // A later validation produced by the view model takes precedence over a window message.
         if (windowValidation is null) return;

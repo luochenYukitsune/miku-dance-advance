@@ -217,14 +217,17 @@
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
-    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled TextBlock, Button:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button.primary AccessText, Button[IsDefault=True] TextBlock, Button[IsDefault=True] AccessText"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -341,10 +344,20 @@
                   <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.8e467ca6d8ce}" Classes="label" /><validated:EditorNumericUpDown Name="VideoThreadsBox" Grid.Column="1" Value="{Binding Threads}" Minimum="1" Maximum="64" FormatString="0" /></Grid>
                   <Grid ColumnDefinitions="104,*"><TextBlock Text="{DynamicResource Mda.Text.edee58aa040d}" Classes="label" /><validated:EditorNumericUpDown Name="VideoTimeoutBox" Grid.Column="1" Value="{Binding TimeoutSeconds}" Minimum="0.001" Maximum="86400" FormatString="0.###" /></Grid>
                 </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="12">
+                <StackPanel Grid.Column="2" Spacing="12" Grid.IsSharedSizeScope="True">
                   <CheckBox Content="{DynamicResource Mda.Text.298911e577cf}" IsChecked="{Binding LimitBitrate}" IsEnabled="{Binding IsCompressed}" />
-                  <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.713bee780c91}" Classes="label" /><validated:EditorNumericUpDown Name="MaximumBitrateBox" Grid.Column="1" Value="{Binding MaximumBitrate}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" /></Grid>
-                  <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.b3de6a18d60e}" Classes="label" /><validated:EditorNumericUpDown Name="VideoBufferSizeBox" Grid.Column="1" Value="{Binding BufferSize}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" /></Grid>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="132" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" SharedSizeGroup="BitrateHint" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="{DynamicResource Mda.Text.713bee780c91}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="MaximumBitrateBox" Grid.Column="1" Value="{Binding MaximumBitrate}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" />
+                    <TextBlock Name="MaximumBitrateHintText" Grid.Column="2" Text="{Binding MaximumBitrateHint}" Classes="caption" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </Grid>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="132" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" SharedSizeGroup="BitrateHint" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="{DynamicResource Mda.Text.b3de6a18d60e}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="VideoBufferSizeBox" Grid.Column="1" Value="{Binding BufferSize}" Minimum="1000" Maximum="2000000000" FormatString="0" IsEnabled="{Binding IsLimitedBitrate}" />
+                    <TextBlock Name="VideoBufferSizeHintText" Grid.Column="2" Text="{Binding BufferSizeHint}" Classes="caption" TextWrapping="NoWrap" VerticalAlignment="Center" Margin="8,0,0,0" />
+                  </Grid>
                   <CheckBox Content="{DynamicResource Mda.Text.8e168cebc78e}" IsChecked="{Binding CustomKeyframeInterval}" IsEnabled="{Binding IsCompressed}" />
                   <Grid ColumnDefinitions="132,*"><TextBlock Text="{DynamicResource Mda.Text.575132526fcb}" Classes="label" /><validated:EditorNumericUpDown Name="VideoKeyframeIntervalBox" Grid.Column="1" Value="{Binding KeyframeInterval}" Minimum="1" Maximum="10000" FormatString="0" IsEnabled="{Binding IsCustomKeyframeInterval}" /></Grid>
                 </StackPanel>
@@ -359,7 +372,7 @@
         <TextBlock Name="OutputValidationMessage" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" TextWrapping="Wrap" />
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Spacing="2" VerticalAlignment="Center"><TextBlock Text="{Binding Summary}" Classes="caption" /><TextBlock Name="ExportAvailability" Text="{DynamicResource Mda.Text.981dc755b98a}" Classes="caption" /><TextBlock Name="OutputGiPaletteNotice" Text="{Binding GiPaletteNotice}" IsVisible="{Binding ShowGiPaletteNotice}" Classes="caption" /></StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Name="StartExportButton" Content="{DynamicResource Mda.Text.88da633ca773}" Click="StartExport" IsEnabled="False" /><Button Classes="quiet" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelConfiguration" IsCancel="True" /><Button Name="ApplyOutputSettingsButton" Classes="primary" Content="{DynamicResource Mda.Text.670f0a1d31c0}" Click="ApplyConfiguration" IsDefault="True" /></StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Classes="quiet" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelConfiguration" IsCancel="True" /><Button Name="ApplyOutputSettingsButton" Classes="primary" Content="{DynamicResource Mda.Text.670f0a1d31c0}" Click="ApplyConfiguration" IsDefault="True" /><Button Name="StartExportButton" Content="{DynamicResource Mda.Text.88da633ca773}" Click="StartExport" IsEnabled="False" /></StackPanel>
         </Grid>
       </StackPanel>
     </Border>

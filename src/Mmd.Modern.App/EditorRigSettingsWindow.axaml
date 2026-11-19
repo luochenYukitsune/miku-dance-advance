@@ -223,14 +223,19 @@
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
-    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled TextBlock, Button:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.compact"><Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="8,0" /></Style>
+    <Style Selector="Button.compact TextBlock"><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button.primary AccessText, Button[IsDefault=True] TextBlock, Button[IsDefault=True] AccessText"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -267,6 +272,7 @@
             <StackPanel Spacing="6">
               <TextBlock Text="{Binding TargetBoneLabel}" Classes="label" />
               <ComboBox Name="RigTargetBoneBox" ItemsSource="{Binding TargetBones}" SelectedItem="{Binding SelectedTargetBone, Mode=TwoWay}"
+                        PlaceholderText="{Binding TargetBonePlaceholder}"
                         IsEnabled="{Binding HasTargetModel}" AutomationProperties.Name="{Binding TargetBoneLabel}">
                 <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorRigBoneChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
               </ComboBox>
@@ -279,7 +285,13 @@
       </ScrollViewer>
       <Border Grid.Column="1" Background="{DynamicResource OutputBorder}" />
       <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,*" Margin="24,20,20,20">
-        <TextBlock Text="{Binding IkTitle}" Classes="section" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <TextBlock Text="{Binding IkTitle}" Classes="section" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasIkControllers}">
+            <Button Name="EnableAllIkButton" Classes="compact" Content="{Binding EnableAllIkLabel}" Click="EnableAllIk" IsEnabled="{Binding CanEditIk}" />
+            <Button Name="DisableAllIkButton" Classes="compact" Content="{Binding DisableAllIkLabel}" Click="DisableAllIk" IsEnabled="{Binding CanEditIk}" />
+          </StackPanel>
+        </Grid>
         <TextBlock Grid.Row="1" Text="{Binding IkHelp}" Classes="caption" Margin="0,12,0,12" />
         <TextBlock Grid.Row="2" Text="{Binding AmbiguousIkMessage}" Classes="caption" IsVisible="{Binding HasAmbiguousIkNames}" Margin="0,0,0,12" />
         <Grid Grid.Row="3">

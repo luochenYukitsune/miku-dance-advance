@@ -1,5 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using static Mmd.Modern.App.EditorLocalization;
 
 namespace Mmd.Modern.App;
@@ -273,6 +277,21 @@ public partial class EditorWindow
             if (sender is CheckBox box)
                 box.IsChecked = shell.Workspace.GuessMaterialRoles;
         }
+    }
+
+    private void MaterialListDoubleTapped(object? sender, TappedEventArgs args)
+    {
+        if (_shell is not { IsBusy: false } shell || !shell.MaterialInspector.CanEdit) return;
+        if (args.Source is Visual source
+            && (source.FindAncestorOfType<Button>() is not null
+                || source.FindAncestorOfType<ScrollBar>() is not null))
+            return;
+        if ((args.Source as Visual)?.FindAncestorOfType<ListBoxItem>()?.DataContext is EditorMaterialPropertiesItem item)
+            shell.MaterialInspector.SelectedMaterial = item;
+        else if (shell.MaterialInspector.SelectedMaterial is null)
+            return;
+        args.Handled = true;
+        EditSelectedMaterial(sender, args);
     }
 
     /// <summary>Opens the existing model-properties window on its material tab, focused on the page's row.</summary>

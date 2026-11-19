@@ -125,6 +125,20 @@ public sealed class EditorInterpolationViewModel : INotifyPropertyChanged
     public bool HasValidationMessage => ValidationMessage.Length != 0;
     public void SetValidationMessage(string message) => ValidationMessage = message;
 
+    public bool ApplySelectedChannelToAll()
+    {
+        if (!SelectedChannel.IsCurveValid)
+        {
+            SetValidationMessage("Mda.Text.Ux.Interpolation.InvalidApplyAll");
+            return false;
+        }
+        var curve = SelectedChannel.GetCurve();
+        foreach (var channel in Channels)
+            channel.SetCurve(curve.X1, curve.Y1, curve.X2, curve.Y2);
+        ValidationMessage = string.Empty;
+        return true;
+    }
+
     /// <summary>Null means a byte-preserving no-op; changed channels must each contain four integral control bytes.</summary>
     public bool TryCreateDraft(out EditorInterpolationDraft? draft)
     {
@@ -185,7 +199,16 @@ public sealed class EditorInterpolationChannelViewModel : INotifyPropertyChanged
         if (handle == 1) { X1 = x; Y1 = y; } else { X2 = x; Y2 = y; }
     }
     public void Reset() { X1 = initial[0]; Y1 = initial[1]; X2 = initial[2]; Y2 = initial[3]; }
-    public void SetLinear() { X1 = 20; Y1 = 20; X2 = 107; Y2 = 107; }
+    public void SetLinear() => SetCurve(20, 20, 107, 107);
+    public void SetEaseInOut() => SetCurve(42, 0, 85, 127);
+    public void SetEaseOut() => SetCurve(0, 0, 58, 127);
+    public void SetEaseIn() => SetCurve(69, 0, 127, 127);
+    public void SetCurve(int x1, int y1, int x2, int y2)
+    {
+        if (x1 is < 0 or > 127 || y1 is < 0 or > 127 || x2 is < 0 or > 127 || y2 is < 0 or > 127)
+            throw new ArgumentOutOfRangeException(nameof(x1), "Curve controls must be integral bytes in [0,127].");
+        X1 = x1; Y1 = y1; X2 = x2; Y2 = y2;
+    }
     internal void RefreshLanguage() { Changed(nameof(Name)); Changed(nameof(CurveHint)); }
     private static bool Valid(decimal? value) => value is >= 0 and <= 127 && decimal.Truncate(value.Value) == value.Value;
     private void Set(ref decimal? field, decimal? value, [CallerMemberName] string? name = null)

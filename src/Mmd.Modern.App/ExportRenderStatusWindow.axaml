@@ -95,20 +95,50 @@
       </Style.Animations>
     </Style>
   
+    <Style Selector="Expander.editorAdvanced:down">
+      <Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" />
+      <Setter Property="ContentTransition" Value="{x:Null}" />
+      <Setter Property="Template"><ControlTemplate><Grid RowDefinitions="Auto,Auto">
+        <ToggleButton Name="PART_toggle" Classes="editorDisclosure" Content="{TemplateBinding Header}" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+        <ContentPresenter Name="PART_ContentPresenter" Grid.Row="1" Margin="0,8,0,0" Content="{TemplateBinding Content}"
+                          ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="Stretch"
+                          Foreground="{TemplateBinding Foreground}" IsVisible="{TemplateBinding IsExpanded}" Opacity="1" />
+      </Grid></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.editorDisclosure">
+      <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" />
+      <Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" /><Setter Property="Foreground" Value="{DynamicResource StatusMuted}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+        <Grid ColumnDefinitions="20,*"><Path Width="5" Height="8" Data="M 0 0 L 4 4 L 0 8" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.2" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="50%,50%" />
+          <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+        </Grid>
+      </Border></ControlTemplate></Setter>
+    </Style>
+    <Style Selector="ToggleButton.editorDisclosure TextBlock"><Setter Property="Foreground" Value="{DynamicResource StatusMuted}" /><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="ToggleButton.editorDisclosure:pointerover"><Setter Property="Background" Value="{DynamicResource StatusHover}" /></Style>
+    <Style Selector="ToggleButton.editorDisclosure:pointerover TextBlock"><Setter Property="Foreground" Value="{DynamicResource StatusText}" /></Style>
+    <Style Selector="ToggleButton.editorDisclosure:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource StatusProgress}" /></Style>
+    <Style Selector="ToggleButton.editorDisclosure:checked /template/ Path"><Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter></Style>
+
     <!-- MDA shared button roles (same in every window):
          default  = input surface + border; .primary = solid brand green; .quiet = flat (cancel/close). -->
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter, ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource MdaButtonPressed}" /></Style>
-    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
-    <Style Selector="Button.primary"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
-    <Style Selector="Button.primary /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
-    <Style Selector="Button.primary:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
-    <Style Selector="Button.primary:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
-    <Style Selector="Button.primary:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /></Style>
-    <Style Selector="Button.primary:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button:disabled TextBlock, Button:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary, Button[IsDefault=True]"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.primary /template/ ContentPresenter, Button[IsDefault=True] /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary TextBlock, Button.primary AccessText, Button[IsDefault=True] TextBlock, Button[IsDefault=True] AccessText"><Setter Property="Foreground" Value="{DynamicResource MdaAccentText}" /></Style>
+    <Style Selector="Button.primary:pointerover, Button[IsDefault=True]:pointerover"><Setter Property="Background" Value="{DynamicResource MdaAccentHover}" /></Style>
+    <Style Selector="Button.primary:pressed, Button[IsDefault=True]:pressed"><Setter Property="Background" Value="{DynamicResource MdaAccent}" /></Style>
+    <Style Selector="Button.primary:disabled, Button[IsDefault=True]:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter, Button[IsDefault=True]:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
+    <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
@@ -140,31 +170,37 @@
 
         <Border BorderBrush="{DynamicResource StatusBorder}" BorderThickness="0,1,0,0" Margin="0,22,0,18" />
         <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Resources}" Classes="section" />
-        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,12,0,0" RowSpacing="8" ColumnSpacing="24">
-          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Cpu}" Classes="label" />
-          <TextBlock Grid.Column="1" Text="{Binding CpuText}" ToolTip.Tip="{Binding CpuUnavailableReason}" />
-          <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.Memory}" Classes="label" />
-          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding WorkingSetText}" ToolTip.Tip="{Binding MemoryUnavailableReason}" />
-          <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ExportStatus.MemoryPeak}" Classes="label" />
-          <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PeakWorkingSetText}" />
-          <TextBlock Grid.Row="3" Text="{DynamicResource Mda.Text.ExportStatus.Adapter}" Classes="label" />
-          <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AdapterText}" TextWrapping="Wrap" />
-          <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ExportStatus.Gpu}" Classes="label" />
-          <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding GpuText}" ToolTip.Tip="{Binding GpuUnavailableReason}" />
-          <TextBlock Grid.Row="5" Text="{DynamicResource Mda.Text.ExportStatus.VideoMemory}" Classes="label" />
-          <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding VideoMemoryText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
-          <TextBlock Grid.Row="6" Text="{DynamicResource Mda.Text.ExportStatus.VideoBudget}" Classes="label" />
-          <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding VideoMemoryBudgetText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
-          <TextBlock Grid.Row="7" Text="{DynamicResource Mda.Text.ExportStatus.VideoPeak}" Classes="label" />
-          <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding PeakVideoMemoryText}" />
+        <Grid ColumnDefinitions="*,28,*" Margin="0,12,0,0">
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="16" VerticalAlignment="Top">
+            <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Cpu}" Classes="label" />
+            <TextBlock Grid.Column="1" Text="{Binding CpuText}" ToolTip.Tip="{Binding CpuUnavailableReason}" />
+            <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.Memory}" Classes="label" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding WorkingSetText}" ToolTip.Tip="{Binding MemoryUnavailableReason}" />
+            <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ExportStatus.MemoryPeak}" Classes="label" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PeakWorkingSetText}" />
+          </Grid>
+          <Grid Grid.Column="2" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="16" VerticalAlignment="Top">
+            <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Adapter}" Classes="label" />
+            <TextBlock Grid.Column="1" Text="{Binding AdapterText}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.Gpu}" Classes="label" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GpuText}" ToolTip.Tip="{Binding GpuUnavailableReason}" />
+            <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ExportStatus.VideoMemory}" Classes="label" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding VideoMemoryText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
+            <TextBlock Grid.Row="3" Text="{DynamicResource Mda.Text.ExportStatus.VideoBudget}" Classes="label" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding VideoMemoryBudgetText}" ToolTip.Tip="{Binding VideoMemoryUnavailableReason}" />
+            <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ExportStatus.VideoPeak}" Classes="label" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PeakVideoMemoryText}" />
+          </Grid>
         </Grid>
-        <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Scope}" Classes="caption" Margin="0,14,0,0" />
-        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" Margin="0,8,0,0">
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" RowSpacing="4" ColumnSpacing="12" Margin="0,14,0,0">
           <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.SampleTime}" Classes="caption" />
           <TextBlock Grid.Column="1" Text="{Binding SampleTimeText}" Classes="caption" />
           <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ExportStatus.VideoSampleTime}" Classes="caption" />
           <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding VideoMemorySampleTimeText}" Classes="caption" />
         </Grid>
+        <Expander Name="ResourceGlossaryExpander" Classes="editorAdvanced" Header="{DynamicResource Mda.Text.Ux.ExportStatus.Glossary}" IsExpanded="False" Margin="0,10,0,0">
+          <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Scope}" Classes="caption" />
+        </Expander>
         <StackPanel IsVisible="{Binding HasError}" Margin="0,20,0,0" Spacing="8">
           <TextBlock Text="{DynamicResource Mda.Text.ExportStatus.Error}" Classes="section" />
           <Border Background="{DynamicResource StatusInput}" Padding="10" BorderBrush="{DynamicResource StatusBorder}" BorderThickness="1">

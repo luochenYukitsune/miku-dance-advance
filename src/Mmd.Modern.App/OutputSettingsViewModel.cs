@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Mmd.Modern.Application;
@@ -253,6 +254,8 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     public decimal? TargetBitrate { get => _targetBitrate; set => Set(ref _targetBitrate, value); }
     public decimal? MaximumBitrate { get => _maximumBitrate; set => Set(ref _maximumBitrate, value); }
     public decimal? BufferSize { get => _bufferSize; set => Set(ref _bufferSize, value); }
+    public string MaximumBitrateHint => FormatBitrateHint(MaximumBitrate);
+    public string BufferSizeHint => FormatBufferSizeHint(BufferSize);
     public decimal? KeyframeInterval { get => _keyframeInterval; set => Set(ref _keyframeInterval, value); }
     public decimal? DiffusionStrength { get => _diffusionStrength; set => Set(ref _diffusionStrength, value); }
     public decimal? DiffusionExtent { get => _diffusionExtent; set => Set(ref _diffusionExtent, value); }
@@ -482,8 +485,27 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     private static readonly string[] DerivedProperties = [nameof(IsVideo), nameof(IsImage), nameof(IsSequence), nameof(IsInterval),
         nameof(IsCompressed), nameof(IsConstantQuality), nameof(IsTargetBitrate), nameof(IsLimitedBitrate), nameof(IsCustomKeyframeInterval),
         nameof(IsSmaa), nameof(IsGiEnabled), nameof(IsGiDenoiserEnabled), nameof(ShowGiPaletteNotice), nameof(RequiredExtension), nameof(DestinationLabel), nameof(DestinationHint),
-        nameof(QualityHint), nameof(CaptureMemoryHint), nameof(Summary), nameof(HasValidationMessage)];
+        nameof(QualityHint), nameof(MaximumBitrateHint), nameof(BufferSizeHint), nameof(CaptureMemoryHint), nameof(Summary), nameof(HasValidationMessage)];
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private static string FormatBitrateHint(decimal? bitsPerSecond)
+    {
+        if (bitsPerSecond is not { } value || value <= 0) return string.Empty;
+        var culture = CultureInfo.GetCultureInfo(CurrentLanguage);
+        if (value >= 1_000_000m) return string.Concat("≈ ", (value / 1_000_000m).ToString("0.0#", culture), " Mbps");
+        if (value >= 1_000m) return string.Concat("≈ ", (value / 1_000m).ToString("0.0#", culture), " kbps");
+        return string.Concat("≈ ", value.ToString("0", culture), " bps");
+    }
+
+    private static string FormatBufferSizeHint(decimal? bits)
+    {
+        if (bits is not { } value || value <= 0) return string.Empty;
+        var culture = CultureInfo.GetCultureInfo(CurrentLanguage);
+        decimal bytes = value / 8m;
+        if (bytes >= 1_000_000m) return string.Concat("≈ ", (bytes / 1_000_000m).ToString("0.0#", culture), " MB");
+        if (bytes >= 1_000m) return string.Concat("≈ ", (bytes / 1_000m).ToString("0.0#", culture), " KB");
+        return string.Concat("≈ ", bytes.ToString("0.#", culture), " B");
+    }
 
     private void RefreshLocalization()
     {

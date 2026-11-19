@@ -26,7 +26,23 @@ public partial class OutputSettingsWindow : Window
         this.canExport = canExport;
         this.queryGiCapabilities = queryGiCapabilities
             ?? (token => Task.Run(() => EditorOutputCapabilities.QueryInstalledGi(token), token));
-        this.FindControl<Button>("StartExportButton")!.IsEnabled = canExport;
+        var startButton = this.FindControl<Button>("StartExportButton")!;
+        var applyButton = this.FindControl<Button>("ApplyOutputSettingsButton")!;
+        startButton.IsEnabled = canExport;
+        if (canExport)
+        {
+            applyButton.Classes.Remove("primary");
+            applyButton.IsDefault = false;
+            if (!startButton.Classes.Contains("primary")) startButton.Classes.Add("primary");
+            startButton.IsDefault = true;
+        }
+        else
+        {
+            if (!applyButton.Classes.Contains("primary")) applyButton.Classes.Add("primary");
+            applyButton.IsDefault = true;
+            startButton.Classes.Remove("primary");
+            startButton.IsDefault = false;
+        }
         RefreshLocalization();
         Observe(this, static window => window.RefreshLocalization());
         Opened += async (_, _) =>

@@ -56,6 +56,7 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
     public bool HasModel => modelId is not null;
     public bool HasNoModel => !HasModel;
     public bool HasMaterials => editor?.HasMaterials == true;
+    public bool HasExplicitProfile => builtProfile is not null;
     /// <summary>A selected model without a readable material draft must say so instead of showing blank rows.</summary>
     public bool NeedsMaterialData => HasModel && !HasMaterials;
     public bool CanEdit => allowEdit && editor is not null && editor.HasMaterials;
@@ -147,7 +148,7 @@ public sealed class EditorMaterialInspectorViewModel : INotifyPropertyChanged
         try
         {
             foreach (string name in new[] { nameof(Materials), nameof(SelectedMaterial), nameof(SelectedMaterialIndex),
-                nameof(ModelObjectId), nameof(HasModel), nameof(HasNoModel), nameof(HasMaterials), nameof(NeedsMaterialData),
+                nameof(ModelObjectId), nameof(HasModel), nameof(HasNoModel), nameof(HasMaterials), nameof(HasExplicitProfile), nameof(NeedsMaterialData),
                 nameof(CanEdit), nameof(ModelSummary), nameof(ProfileSummary), nameof(SelectedMaterialMapping) })
                 Changed(name);
         }

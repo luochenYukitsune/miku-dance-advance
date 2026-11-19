@@ -24,6 +24,8 @@ public partial class EditorRigSettingsWindow : Window
     public Func<MotionEditPlan, Task<bool>>? ConfirmOverwriteAsync
     { get => ViewModel.ConfirmOverwriteAsync; set => ViewModel.ConfirmOverwriteAsync = value; }
     private void RemoveOutsideParent(object? sender, RoutedEventArgs args) => ViewModel.RemoveSelectedOutsideParent();
+    private void EnableAllIk(object? sender, RoutedEventArgs args) => ViewModel.SetAllIkEnabled(true);
+    private void DisableAllIk(object? sender, RoutedEventArgs args) => ViewModel.SetAllIkEnabled(false);
     private void CancelRigSettings(object? sender, RoutedEventArgs args) { if (!ViewModel.IsBusy) Close(null); }
     private async void ApplyRigSettings(object? sender, RoutedEventArgs args)
     {

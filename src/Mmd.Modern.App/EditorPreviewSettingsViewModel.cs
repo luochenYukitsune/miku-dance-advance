@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Mmd.Modern.Core;
@@ -59,6 +60,56 @@ public sealed record EditorPreviewCapabilities(
         .Where(reason => !string.IsNullOrWhiteSpace(reason)).Select(reason => reason!).ToArray();
     public string UnavailableReason => string.Join(Environment.NewLine, Reasons);
 
+    private readonly record struct CapabilityCacheKey(
+        string FsrPath,
+        string XessPath,
+        string DlssBridge,
+        string DlssSdkDirectory,
+        string AdapterName);
+
+    private static readonly ConcurrentDictionary<CapabilityCacheKey, EditorPreviewCapabilities> CapabilityCache = new();
+
+    private static string NormalizeKeyPart(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToUpperInvariant();
+
+    private static CapabilityCacheKey MakeCacheKey(EditorOptionalRuntimePaths paths, string? adapterName) => new(
+        NormalizeKeyPart(paths.FsrLoaderPath),
+        NormalizeKeyPart(paths.XessLibraryPath),
+        NormalizeKeyPart(paths.DlssBridgePath),
+        NormalizeKeyPart(paths.DlssSdkDirectory),
+        NormalizeKeyPart(adapterName));
+
+    /// <summary>Returns cached hardware/component capability probe results for the current runtime paths and adapter.</summary>
+    public static bool TryGetCached(EditorOptionalRuntimePaths paths, string? adapterName, out EditorPreviewCapabilities? cached)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        return CapabilityCache.TryGetValue(MakeCacheKey(paths, adapterName), out cached);
+    }
+
+    internal static void ClearCapabilityCache() => CapabilityCache.Clear();
+
+    /// <summary>Reuses session-cached capabilities unless <paramref name="forceRefresh"/> is requested.</summary>
+    public static EditorPreviewCapabilities QueryInstalledCached(int displayWidth, int displayHeight, string? adapterName,
+        bool forceRefresh = false, CancellationToken cancellationToken = default)
+    {
+        var paths = EditorOptionalRuntimePaths.Resolve();
+        if (!forceRefresh && TryGetCached(paths, adapterName, out var cached) && cached is not null)
+            return cached;
+
+        var result = QueryInstalled(displayWidth, displayHeight, paths, cancellationToken);
+        if (result.DeviceUnavailableReason is null)
+        {
+            if (!string.IsNullOrWhiteSpace(adapterName) || string.IsNullOrWhiteSpace(result.AdapterName))
+                CapabilityCache[MakeCacheKey(paths, adapterName)] = result;
+            else
+                CapabilityCache[MakeCacheKey(paths, "")] = result;
+
+            if (!string.IsNullOrWhiteSpace(result.AdapterName))
+                CapabilityCache[MakeCacheKey(paths, result.AdapterName)] = result;
+        }
+        return result;
+    }
+
     /// <summary>Blocking native probes; run on a worker. No application frame or project is created.</summary>
     public static EditorPreviewCapabilities QueryInstalled(CancellationToken cancellationToken = default)
         => QueryInstalled(1280, 720, cancellationToken);
@@ -117,10 +168,14 @@ public sealed record EditorPreviewCapabilities(
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        queries.Add(renderer.QueryXeSsCapabilities(displayWidth, displayHeight, new()
+                        var query = renderer.QueryXeSsCapabilities(displayWidth, displayHeight, new()
                         {
                             Mode = D3D12TemporalUpscalingMode.XeSs, LoaderPath = xessPath, XeSsQuality = quality
-                        }));
+                        });
+                        queries.Add(query);
+                        // Context creation failure is device-wide; skip probing further quality tiers.
+                        if (query.CreateCode is { } createCode && createCode != 0)
+                            break;
                     }
                     catch (Exception error) when (RecoverableProbeError(error))
                     { queries.Add(new(renderer.AdapterName, quality) { Failure = error.Message }); }
@@ -139,11 +194,15 @@ public sealed record EditorPreviewCapabilities(
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        queries.Add(renderer.QueryDlssCapabilities(displayWidth, displayHeight, new()
+                        var query = renderer.QueryDlssCapabilities(displayWidth, displayHeight, new()
                         {
                             Mode = D3D12TemporalUpscalingMode.Dlss, LoaderPath = dlssBridge,
                             DlssSdkDirectory = dlssDirectory, DlssQuality = quality
-                        }));
+                        });
+                        queries.Add(query);
+                        // Adapter/driver unavailability applies uniformly to all DLSS quality tiers.
+                        if (!query.Available || query.NeedsUpdatedDriver)
+                            break;
                     }
                     catch (Exception error) when (RecoverableProbeError(error))
                     { queries.Add(new(renderer.AdapterName, quality) { Failure = error.Message }); }
@@ -189,34 +248,29 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 {
     private static readonly int[] SampleValues = [1, 2, 4, 8, 16, 32];
     private readonly ViewQualityOptions source;
-    private readonly EditorPreviewCapabilities capabilities;
     private readonly EditorPreviewRuntimeInfo? runtime;
-    private readonly LightingMode[] giValues;
-    private readonly ViewTemporalUpscalingMode[] temporalValues;
+    private EditorPreviewCapabilities capabilities;
+    private LightingMode[] giValues;
+    private ViewTemporalUpscalingMode[] temporalValues;
     private int giIndex, antialiasingIndex, smaaIndex, spatialIndex, upscalingIndex, fsr1QualityIndex, surfaceOrderIndex;
     private int temporalIndex, temporalQualityIndex, giCompositionIndex, giDenoiserIndex;
     private decimal? giStrength, giSamples, diffusionStrength, diffusionExtent, rcasSharpness;
     private bool previewGiAcceleration, diffusionEnabled, rcasEnabled, refreshingLocalization;
+    private bool isProbingCapabilities, canRefreshCapabilities;
     private Exception? validationError;
     private string validationMessage = "";
 
     public EditorPreviewSettingsViewModel(ViewQualityOptions? current = null, EditorPreviewCapabilities? capabilities = null,
-        EditorPreviewRuntimeInfo? runtime = null)
+        EditorPreviewRuntimeInfo? runtime = null, bool capabilitiesPending = false)
     {
         source = current ?? new(); source.Validate();
         this.capabilities = capabilities ?? new();
         this.runtime = runtime;
-        var modes = new List<LightingMode> { LightingMode.Legacy };
-        if (this.capabilities.Gi?.SoftwareAvailable == true) modes.Add(LightingMode.SoftwareRayTracing);
-        if (this.capabilities.Gi?.HardwareAvailable == true) modes.Add(LightingMode.HardwareRayTracing);
-        if (!modes.Contains(source.EffectiveGi.Mode)) modes.Add(source.EffectiveGi.Mode);
-        giValues = modes.ToArray(); giIndex = Array.IndexOf(giValues, source.EffectiveGi.Mode);
-        var temporal = new List<ViewTemporalUpscalingMode> { ViewTemporalUpscalingMode.Off };
-        if (this.capabilities.FsrAvailable) temporal.Add(ViewTemporalUpscalingMode.Fsr);
-        if (this.capabilities.XeSsAvailable) temporal.Add(ViewTemporalUpscalingMode.XeSs);
-        if (this.capabilities.DlssAvailable) temporal.Add(ViewTemporalUpscalingMode.Dlss);
-        if (!temporal.Contains(source.EffectiveTemporalUpscaling.Mode)) temporal.Add(source.EffectiveTemporalUpscaling.Mode);
-        temporalValues = temporal.ToArray(); temporalIndex = Array.IndexOf(temporalValues, source.EffectiveTemporalUpscaling.Mode);
+        isProbingCapabilities = capabilitiesPending;
+        giValues = BuildGiValues(this.capabilities, source.EffectiveGi.Mode);
+        giIndex = Array.IndexOf(giValues, source.EffectiveGi.Mode);
+        temporalValues = BuildTemporalValues(this.capabilities, source.EffectiveTemporalUpscaling.Mode);
+        temporalIndex = Array.IndexOf(temporalValues, source.EffectiveTemporalUpscaling.Mode);
         temporalQualityIndex = InitialTemporalQualityIndex;
         antialiasingIndex = source.Antialiasing switch { null => 0, FrameAntialiasing.Off => 1, _ => 2 };
         smaaIndex = source.SmaaQuality is { } smaa ? (int)smaa + 1 : 0;
@@ -232,6 +286,46 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         diffusionStrength = (decimal)source.EffectiveDiffusion.Strength; diffusionExtent = (decimal)source.EffectiveDiffusion.Extent;
         Observe(this, static model => model.RefreshLocalization());
     }
+
+    private static LightingMode[] BuildGiValues(EditorPreviewCapabilities caps, params LightingMode[] preserve)
+    {
+        var modes = new List<LightingMode> { LightingMode.Legacy };
+        if (caps.Gi?.SoftwareAvailable == true) modes.Add(LightingMode.SoftwareRayTracing);
+        if (caps.Gi?.HardwareAvailable == true) modes.Add(LightingMode.HardwareRayTracing);
+        foreach (var extra in preserve)
+            if (!modes.Contains(extra)) modes.Add(extra);
+        return modes.ToArray();
+    }
+
+    private static ViewTemporalUpscalingMode[] BuildTemporalValues(EditorPreviewCapabilities caps, params ViewTemporalUpscalingMode[] preserve)
+    {
+        var temporal = new List<ViewTemporalUpscalingMode> { ViewTemporalUpscalingMode.Off };
+        if (caps.FsrAvailable) temporal.Add(ViewTemporalUpscalingMode.Fsr);
+        if (caps.XeSsAvailable) temporal.Add(ViewTemporalUpscalingMode.XeSs);
+        if (caps.DlssAvailable) temporal.Add(ViewTemporalUpscalingMode.Dlss);
+        foreach (var extra in preserve)
+            if (!temporal.Contains(extra)) temporal.Add(extra);
+        return temporal.ToArray();
+    }
+
+    public bool IsProbingCapabilities => isProbingCapabilities;
+    public bool CapabilitiesReady => !isProbingCapabilities;
+    public bool CanRefreshCapabilities
+    {
+        get => canRefreshCapabilities;
+        set
+        {
+            if (canRefreshCapabilities == value) return;
+            canRefreshCapabilities = value;
+            Changed(nameof(CanRefreshCapabilities));
+        }
+    }
+    public string CapabilityProbingNotice => Text("Mda.Text.Ux.Preview.ProbingCapabilities");
+    public string RefreshCapabilitiesLabel => Text("Mda.Text.Ux.Preview.RefreshCapabilities");
+    public bool NeedsCapabilitiesForApply => isProbingCapabilities && (
+        (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != source.EffectiveGi.Mode)
+        || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != source.EffectiveTemporalUpscaling.Mode)
+        || (IsFsr1 && source.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
 
     public string Title => Text("预览画质");
     public string RuntimeLabel => Text("当前视口");
@@ -272,8 +366,10 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string SharpnessLabel => Text("锐化衰减");
     public string RcasHint => Text("0 最锐利，2 最柔和。");
     public string TemporalHint => Text("时域重建启用时，使用独立历史并关闭 SMAA、SSAA 和空间超分。");
-    public string CapabilityHint => string.Join(Environment.NewLine,
-        new[] { Text("仅显示通过当前设备与已安装组件检查的选项。") }.Concat(capabilities.Reasons.Select(Text)));
+    public string CapabilityHint => isProbingCapabilities
+        ? Text("Mda.Text.Ux.Preview.CheckingCapabilitiesHint")
+        : string.Join(Environment.NewLine,
+            new[] { Text("仅显示通过当前设备与已安装组件检查的选项。") }.Concat(capabilities.Reasons.Select(Text)));
     public string DiffusionLabel => Text("柔光");
     public string DiffusionEnabledLabel => Text("Mda.Text.1251a1baefb5");
     public string ExtentLabel => Text("范围");
@@ -290,8 +386,8 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     { LightingMode.Legacy => Text("Mda.Text.Context.OptionOff"), LightingMode.SoftwareRayTracing => Text("软件一次 GI"), _ => Text("硬件一次 GI") }, GiAvailable(mode))).ToArray();
     public IReadOnlyList<string> GiCompositions => [Text("原色叠加"), Text("卡通色阶")];
     public IReadOnlyList<string> GiDenoisers => [Text("Mda.Text.Context.OptionOff"), Text("空间降噪"), Text("时空降噪")];
-    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
-        ? [Text("Mda.Text.Context.OptionOff"), WithAvailability("FSR 1", capabilities.SpatialUpscalingAvailable)]
+    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || isProbingCapabilities || source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
+        ? [Text("Mda.Text.Context.OptionOff"), WithAvailability("FSR 1", isProbingCapabilities || capabilities.SpatialUpscalingAvailable)]
         : [Text("Mda.Text.Context.OptionOff")];
     public IReadOnlyList<string> Fsr1Qualities => [Text("超画质"), Text("画质"), Text("均衡"), Text("性能")];
     public IReadOnlyList<string> TemporalModes => temporalValues.Select(mode => WithAvailability(mode switch
@@ -336,6 +432,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string ValidationMessage => validationError?.Message ?? Text(validationMessage);
     public bool HasValidationMessage => ValidationMessage.Length > 0;
 
+    private LightingMode CurrentGiMode => giIndex >= 0 && giIndex < giValues.Length ? giValues[giIndex] : LightingMode.Legacy;
     private ViewTemporalUpscalingMode CurrentTemporalMode => temporalIndex >= 0 && temporalIndex < temporalValues.Length
         ? temporalValues[temporalIndex] : ViewTemporalUpscalingMode.Off;
     private int[] CurrentTemporalQualityValues
@@ -361,17 +458,21 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
       ViewTemporalUpscalingMode.Dlss => (int)source.EffectiveTemporalUpscaling.DlssQuality,
       _ => (int)source.EffectiveTemporalUpscaling.QualityPreset };
     private int InitialTemporalQualityIndex => Math.Max(0, Array.IndexOf(CurrentTemporalQualityValues, SourceTemporalQuality));
-    private bool GiAvailable(LightingMode mode) => mode switch
+    private bool ActualGiAvailable(LightingMode mode) => mode switch
     { LightingMode.Legacy => true, LightingMode.SoftwareRayTracing => capabilities.Gi?.SoftwareAvailable == true, _ => capabilities.Gi?.HardwareAvailable == true };
-    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => mode switch
+    private bool GiAvailable(LightingMode mode) => ActualGiAvailable(mode) || (isProbingCapabilities && mode == source.EffectiveGi.Mode);
+    private bool ActualTemporalAvailable(ViewTemporalUpscalingMode mode) => mode switch
     { ViewTemporalUpscalingMode.Off => true, ViewTemporalUpscalingMode.Fsr => capabilities.FsrAvailable, ViewTemporalUpscalingMode.XeSs => capabilities.XeSsAvailable, _ => capabilities.DlssAvailable };
-    private bool TemporalQualityAvailable(int value) => CurrentTemporalMode switch
+    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => ActualTemporalAvailable(mode) || (isProbingCapabilities && mode == source.EffectiveTemporalUpscaling.Mode);
+    private bool ActualTemporalQualityAvailable(int value) => CurrentTemporalMode switch
     {
         ViewTemporalUpscalingMode.XeSs => (capabilities.XeSsQueries ?? []).Any(query => query.Initialized && query.Failure is null
             && (query.Quality == D3D12XeSsQuality.AntiAliasing ? (int)ViewXeSsQuality.NativeAa : (int)query.Quality - 100) == value),
         ViewTemporalUpscalingMode.Dlss => (capabilities.DlssQueries ?? []).Any(query => query.Available && query.Initialized && query.Failure is null && (int)query.Quality == value),
         _ => true
     };
+    private bool TemporalQualityAvailable(int value) => ActualTemporalQualityAvailable(value)
+        || (isProbingCapabilities && CurrentTemporalMode == source.EffectiveTemporalUpscaling.Mode && value == SourceTemporalQuality);
     private string TemporalQualityName(int value) => CurrentTemporalMode switch
     {
         ViewTemporalUpscalingMode.XeSs => Text(((ViewXeSsQuality)value) switch
@@ -385,14 +486,71 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 
     public void SetValidationMessage(string message) { validationError = null; validationMessage = message; Changed(nameof(ValidationMessage)); Changed(nameof(HasValidationMessage)); }
 
+    public void BeginCapabilitiesProbe()
+    {
+        isProbingCapabilities = true;
+        NotifyCapabilitiesUpdated();
+    }
+
+    public void ApplyCapabilities(EditorPreviewCapabilities updatedCapabilities)
+    {
+        ArgumentNullException.ThrowIfNull(updatedCapabilities);
+        var selectedGi = CurrentGiMode;
+        var selectedTemporal = CurrentTemporalMode;
+        int[] priorQualities = CurrentTemporalQualityValues;
+        int selectedTemporalQuality = temporalQualityIndex >= 0 && temporalQualityIndex < priorQualities.Length
+            ? priorQualities[temporalQualityIndex] : SourceTemporalQuality;
+        bool selectedFsr1 = !IsTemporal && upscalingIndex == 1;
+
+        capabilities = updatedCapabilities;
+        isProbingCapabilities = false;
+        giValues = BuildGiValues(updatedCapabilities, source.EffectiveGi.Mode, selectedGi);
+        giIndex = Array.IndexOf(giValues, selectedGi);
+        temporalValues = BuildTemporalValues(updatedCapabilities, source.EffectiveTemporalUpscaling.Mode, selectedTemporal);
+        temporalIndex = Array.IndexOf(temporalValues, selectedTemporal);
+
+        int[] updatedQualities = CurrentTemporalQualityValues;
+        int qualityMatch = Array.IndexOf(updatedQualities, selectedTemporalQuality);
+        temporalQualityIndex = qualityMatch >= 0
+            ? qualityMatch
+            : Math.Max(0, Array.IndexOf(updatedQualities, SourceTemporalQuality));
+        upscalingIndex = selectedFsr1 && (updatedCapabilities.SpatialUpscalingAvailable || source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1)
+            ? 1 : 0;
+
+        NotifyCapabilitiesUpdated();
+    }
+
+    private void NotifyCapabilitiesUpdated()
+    {
+        // Guard index TwoWay bindings while ComboBox ItemsSource collections swap to updated arrays.
+        refreshingLocalization = true;
+        try
+        {
+            Changed(nameof(GiModes));
+            Changed(nameof(TemporalModes));
+            Changed(nameof(TemporalQualities));
+            Changed(nameof(UpscalingModes));
+        }
+        finally { refreshingLocalization = false; }
+
+        Changed(nameof(IsProbingCapabilities));
+        Changed(nameof(CapabilitiesReady));
+        Changed(nameof(CapabilityHint));
+        Changed(nameof(GiIndex));
+        Changed(nameof(TemporalIndex));
+        Changed(nameof(TemporalQualityIndex));
+        Changed(nameof(UpscalingIndex));
+        foreach (string property in DerivedProperties) Changed(property);
+    }
+
     public bool TryCreate(out ViewQualityOptions? result)
     {
         result = null;
         try
         {
-            if (giIndex < 0 || giIndex >= giValues.Length || !GiAvailable(giValues[giIndex])) throw Error("请选择当前设备可用的 GI 模式。");
-            if (temporalIndex < 0 || temporalIndex >= temporalValues.Length || !TemporalAvailable(CurrentTemporalMode)) throw Error("请选择当前设备可用的时域重建模式。");
-            if (!IsTemporal && (UpscalingIndex < 0 || UpscalingIndex > 1 || UpscalingIndex == 1 && !capabilities.SpatialUpscalingAvailable)) throw Error("请选择当前设备可用的空间超分模式。");
+            if (giIndex < 0 || giIndex >= giValues.Length || (!isProbingCapabilities && !GiAvailable(giValues[giIndex]))) throw Error("请选择当前设备可用的 GI 模式。");
+            if (temporalIndex < 0 || temporalIndex >= temporalValues.Length || (!isProbingCapabilities && !TemporalAvailable(CurrentTemporalMode))) throw Error("请选择当前设备可用的时域重建模式。");
+            if (!IsTemporal && (UpscalingIndex < 0 || UpscalingIndex > 1 || (!isProbingCapabilities && UpscalingIndex == 1 && !capabilities.SpatialUpscalingAvailable))) throw Error("请选择当前设备可用的空间超分模式。");
             var gi = source.EffectiveGi with { Mode = giValues[giIndex], PreviewAcceleration = PreviewGiAcceleration };
             if (IsGiEnabled)
             {
@@ -408,7 +566,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             if (IsTemporal)
             {
                 int[] values = CurrentTemporalQualityValues;
-                if (TemporalQualityIndex < 0 || TemporalQualityIndex >= values.Length || !TemporalQualityAvailable(values[TemporalQualityIndex])) throw Error("请选择当前设备可用的重建画质。");
+                if (TemporalQualityIndex < 0 || TemporalQualityIndex >= values.Length || (!isProbingCapabilities && !TemporalQualityAvailable(values[TemporalQualityIndex]))) throw Error("请选择当前设备可用的重建画质。");
                 int value = values[TemporalQualityIndex];
                 temporal = CurrentTemporalMode switch
                 { ViewTemporalUpscalingMode.XeSs => temporal with { XeSsQuality = (ViewXeSsQuality)value },

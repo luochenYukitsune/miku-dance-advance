@@ -28,7 +28,8 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             Assert.False(window.FindControl<ComboBox>("CurrentModelSelector")!.IsEffectivelyVisible);
             Assert.False(window.FindControl<Button>("InspectorModelPropertiesButton")!.IsEffectivelyVisible);
-            Assert.False(window.FindControl<TabControl>("InspectorPageTabs")!.IsEffectivelyVisible);
+            Assert.True(window.FindControl<TabControl>("InspectorPageTabs")!.IsEffectivelyVisible);
+            Assert.Equal(3, window.FindControl<TabControl>("InspectorPageTabs")!.SelectedIndex);
             var tabs = window.FindControl<TabControl>("WorkspaceModeTabs");
             Assert.NotNull(tabs); Assert.Equal(1, tabs.SelectedIndex);
             Assert.True(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
