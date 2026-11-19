@@ -106,6 +106,8 @@ public sealed partial class CharacterAnimationController
         return true;
     }
 
+    private static readonly IReadOnlySet<int> EmptyIntSet = new HashSet<int>();
+
     /// <summary>Prepares all morph channels and animation-before-physics before the world can mutate.</summary>
     internal SharedPreparedPhysicsSample BeginSharedPhysicsSample(double frame, bool enableIk, bool enableMorphs,
         IReadOnlySet<int>? disabledBoneIndices = null, bool frozen = false,
@@ -113,11 +115,25 @@ public sealed partial class CharacterAnimationController
     {
         ObjectDisposedException.ThrowIf(disposed, this); ValidateFrame(frame); frame = Math.Min(frame, DurationFrames);
         if (physics is not null) throw new InvalidOperationException("An independent solver is already attached.");
-        disabledBoneIndices ??= new HashSet<int>();
-        if (disabledBoneIndices.Any(index => (uint)index >= (uint)model.Bones.Count)) throw new ArgumentException("Invalid disabled physics bone.", nameof(disabledBoneIndices));
-        var prepared = PrepareMorphs(frame, enableMorphs);
-        var driven = model.RigidBodies.Where(body => body.BoneIndex >= 0 && body.Operation != Formats.PmxRigidBodyOperation.Static
-                && !disabledBoneIndices.Contains(body.BoneIndex)).Select(body => body.BoneIndex).Distinct().ToArray();
+        disabledBoneIndices ??= EmptyIntSet;
+        int[] driven;
+        if (disabledBoneIndices.Count > 0)
+        {
+            foreach (int index in disabledBoneIndices)
+                if ((uint)index >= (uint)model.Bones.Count)
+                    throw new ArgumentException("Invalid disabled physics bone.", nameof(disabledBoneIndices));
+            var filtered = new List<int>(defaultDrivenBoneIndices.Length);
+            for (int i = 0; i < defaultDrivenBoneIndices.Length; i++)
+            {
+                int bone = defaultDrivenBoneIndices[i];
+                if (!disabledBoneIndices.Contains(bone)) filtered.Add(bone);
+            }
+            driven = filtered.Count == 0 ? [] : filtered.ToArray();
+        }
+        else driven = defaultDrivenBoneIndices;
+        PreparedMorphs prepared;
+        using (PoseEvaluationMetrics.Measure("actor.prepare.morphs"))
+            prepared = PrepareMorphs(frame, enableMorphs);
         var options = Evaluation(frame, enableIk, enableMorphs) with
             { PhysicsDrivenBoneIndices = driven, LocalBoneOverrides = localBoneOverrides };
         bool canDeferPreview = !frozen && localBoneOverrides is null && outsideParents is null
@@ -127,7 +143,9 @@ public sealed partial class CharacterAnimationController
             if (BoneWorldMatrices.Count != model.Bones.Count) throw new InvalidOperationException("A frozen actor needs a previously completed pose.");
             return new(this, frame, enableIk, enableMorphs, prepared, null, BoneWorldMatrices.ToArray(), driven, options.Morphs, false);
         }
-        var evaluation = animator.BeginPhysicsSample(frame, options);
+        CharacterPhysicsSample evaluation;
+        using (PoseEvaluationMetrics.Measure("actor.prepare.bones"))
+            evaluation = animator.BeginPhysicsSample(frame, options);
         try { return new(this, frame, enableIk, enableMorphs, prepared, evaluation, evaluation.BeforePhysicsBoneWorldMatrices.ToArray(), driven, options.Morphs, canDeferPreview); }
         catch { evaluation.Dispose(); throw; }
     }
@@ -139,8 +157,7 @@ public sealed partial class CharacterAnimationController
         private bool completed;
         public Matrix4x4[] BeforePhysicsBoneWorlds { get; } = before;
         public SceneVertex[] BeforePhysicsVertices() => owner.animator.SkinWorldPose(BeforePhysicsBoneWorlds, morphPose).Vertices;
-        public CharacterBodyImpulse[] Impulses { get; } = prepared.Channels.Impulses.Select(value =>
-            new CharacterBodyImpulse(value.RigidBodyIndex, value.Local, value.TranslationVelocity, value.RotationTorque)).ToArray();
+        public CharacterBodyImpulse[] Impulses { get; } = CreateBodyImpulses(prepared.Channels.Impulses);
         /// <summary>Unpublished rigid intermediate boundary. Retain the completed bone snapshot for
         /// outside parents while deferring the rigid skin, scene and outline until the final boundary.</summary>
         public void CompleteRigidBoneWorlds(Matrix4x4[] worlds)

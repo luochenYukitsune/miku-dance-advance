@@ -13,7 +13,8 @@ namespace Mmd.Modern.Application;
 /// <summary>Copies supported PMX offsets once. Samples contain only format-neutral deltas, before skinning.</summary>
 public sealed class PmxMorphAdapter
 {
-    private sealed record Definition(int Index, PmxMorph.PositionOffset[] Positions, PmxMorph.BoneOffset[] Bones, PmxMorph.UvOffset[] Uvs);
+    private sealed record Definition(int Index, PmxMorph.PositionOffset[] Positions, PmxMorph.BoneOffset[] Bones, PmxMorph.UvOffset[] Uvs,
+        int FirstVertex, int EndVertex);
     private sealed record EvaluationCacheEntry(PmxMorphWeights.Contribution[] Contributions, MorphPose Pose);
     private const long MaxCachedBytes = 4L * 1024 * 1024;
     private const int MaxCachedContributions = 65_536;
@@ -52,9 +53,14 @@ public sealed class PmxMorphAdapter
             foreach (var offset in uvs)
                 if (offset.VertexIndex < 0 || offset.VertexIndex >= vertexCount || !Finite(offset.Uv))
                     throw new ArgumentException($"PMX morph '{morph.Name}' has an invalid UV offset.", nameof(model));
+            int firstVertex = positions.Length == 0 ? int.MaxValue : vertexCount, endVertex = 0;
             foreach (var offset in positions)
+            {
                 if (offset.VertexIndex < 0 || offset.VertexIndex >= vertexCount || !Finite(offset.Position))
                     throw new ArgumentException($"PMX morph '{morph.Name}' has an invalid vertex offset.", nameof(model));
+                if (offset.VertexIndex < firstVertex) firstVertex = offset.VertexIndex;
+                if (offset.VertexIndex + 1 > endVertex) endVertex = offset.VertexIndex + 1;
+            }
             for (int i = 0; i < bones.Length; i++)
             {
                 var offset = bones[i];
@@ -65,7 +71,7 @@ public sealed class PmxMorphAdapter
                 if (Math.Abs(lengthSquared - 1) > 1e-5)
                     diagnostics.Add($"PMX bone morph '{morph.Name}' contains a non-unit rotation; its raw finite components are retained for original MMD weighting.");
             }
-            definitions[index] = new(index, positions, bones, uvs);
+            definitions[index] = new(index, positions, bones, uvs, firstVertex, endVertex);
         }
         foreach (var unsupported in model.Morphs.Where(m => m.Type is not (PmxMorphType.Group or PmxMorphType.Flip or PmxMorphType.Position or PmxMorphType.Bone or PmxMorphType.Uv)).GroupBy(m => m.Type))
             diagnostics.Add($"PMX morph type '{unsupported.Key}' ({unsupported.Count()} morphs) is not evaluated by the vertex/bone morph adapter; it supports Group expansion into Position, Bone and base Uv morphs. AdditionalUv1..4 require additional shader UV channels.");
@@ -88,16 +94,26 @@ public sealed class PmxMorphAdapter
         // Expand validates all input and derived weights first. Only an absence of active
         // UV offsets proves this channel is immutable zero; zero-valued UV math still runs normally.
         bool hasUvOffsets = false;
+        int first = vertexCount, end = 0;
         foreach (var contribution in contributions)
-            if (definitions[contribution.Index]!.Uvs.Length != 0) { hasUvOffsets = true; break; }
-        var vertices = new Vector3[vertexCount]; var translations = new Vector3[boneCount];
+        {
+            var definition = definitions[contribution.Index]!;
+            if (definition.Uvs.Length != 0) { hasUvOffsets = true; first = 0; end = vertexCount; break; }
+            if (definition.Positions.Length != 0)
+            {
+                if (definition.FirstVertex < first) first = definition.FirstVertex;
+                if (definition.EndVertex > end) end = definition.EndVertex;
+            }
+        }
+        if (end == 0) first = 0;
+        var vertices = new Vector3[end - first]; var translations = new Vector3[boneCount];
         var uvs = hasUvOffsets ? new Vector2[vertexCount] : null;
         var rotations = new Quaternion[boneCount]; Array.Fill(rotations, Quaternion.Identity);
         foreach (var contribution in contributions)
         {
             var definition = definitions[contribution.Index]!;
             float weight = contribution.Weight;
-            foreach (var offset in definition.Positions) vertices[offset.VertexIndex] += offset.Position * weight;
+            foreach (var offset in definition.Positions) vertices[offset.VertexIndex - first] += offset.Position * weight;
             // Saba accumulates the Vector4 offset but rendering consumes only its X/Y components.
             foreach (var offset in definition.Uvs) uvs![offset.VertexIndex] += new Vector2(offset.Uv.X, offset.Uv.Y) * weight;
             foreach (var offset in definition.Bones)
@@ -109,7 +125,7 @@ public sealed class PmxMorphAdapter
             }
         }
         var pose = uvs is null
-            ? MorphPose.FromOwnedArraysWithZeroUvs(vertices, translations, rotations, zeroUvChannel.Value)
+            ? MorphPose.FromOwnedPositionRange(vertices, first, translations, rotations, zeroUvChannel.Value)
             : MorphPose.FromOwnedArrays(vertices, translations, rotations, uvs);
         // Publish only after full finite validation and rotation normalization succeed. A precise
         // private fingerprint avoids retaining the expansion List's potentially larger capacity.

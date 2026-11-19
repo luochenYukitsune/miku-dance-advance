@@ -36,6 +36,9 @@ sealed class BenchConfig
     public string? Ffprobe { get; }
     public bool KeepVideo { get; }
     public string OutPath { get; }
+    public string? BoneAuditPath { get; }
+    public string? MorphAuditPath { get; }
+    public bool FrameTiming { get; }
     public Dictionary<string, string> Tags { get; }
     public Dictionary<string, string> Switches { get; }
 
@@ -71,6 +74,11 @@ sealed class BenchConfig
         Ffprobe = cli.Optional("ffprobe") ?? Environment.GetEnvironmentVariable("MMD_FFPROBE_PATH");
         KeepVideo = cli.Flags.Contains("keep-video");
         OutPath = Path.GetFullPath(cli.Required("out"));
+        BoneAuditPath = cli.Optional("bone-audit");
+        MorphAuditPath = cli.Optional("morph-audit");
+        FrameTiming = cli.Flags.Contains("frame-timing");
+        if (FrameTiming && (cli.Mode != "play" || Physics != "shared"))
+            throw new ArgumentException("--frame-timing requires play with --physics shared.");
         Tags = cli.Tags();
         // Optional runtime switches let a later branch expose experiments without changing this tool.
         Switches = cli.All("switch").Select(Cli.Split).ToDictionary(p => p.Key, p => p.Value);

@@ -85,6 +85,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\perf\bench\Run-Matrix.
 
 ## 指标说明
 
+表情一致性可在独立的 `play` 轮次加 `--morph-audit morph.bin`。每帧先写完整 CPU 顶点流（含 UV）的 SHA-256，再写变形区间数。每个区间记录起始顶点、顶点数、GPU 表情索引数（-1 表示无表情），存在表情时再写升序索引、位置偏移和 UV 偏移三段原始字节的合并 SHA-256。整数为小端 int32，摘要为 32 个字节。相同模型和动作可直接对比整份文件。此选项会强制生成 CPU 顶点，帧耗时应取关闭审计的单独轮次。
+
 - **姿态求值（`play.poseMs`）**：每源帧 `SceneAnimationSession.Advance` 的 P50 / P95 / P99（含动画、IK、物理、场景合并）。
 - **渲染 CPU 录制（`play.renderCallMs` / `play.stat.RecordCpuMilliseconds`）**：宿主 `Render` 调用时长与渲染器统计的录制 CPU 时长。
 - **GPU 帧耗时**：若公开 `Statistics` 暴露时间戳字段（`GpuFrameMilliseconds` / `GpuMilliseconds`）则直接读取，否则以串行 `serial.submitToFenceMs`（提交到完整围栏等待）作为 GPU 耗时代理。

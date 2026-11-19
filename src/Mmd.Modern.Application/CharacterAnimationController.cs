@@ -9,6 +9,8 @@ namespace Mmd.Modern.Application;
 /// <summary>MMD format-to-domain boundary. Owns no clock, controls, or GPU handles.</summary>
 public sealed partial class CharacterAnimationController : IDisposable
 {
+    private static readonly IReadOnlyDictionary<int, float> EmptyMorphWeights = new Dictionary<int, float>();
+    private static readonly IReadOnlyList<string> EmptyReadOnlyDiagnostics = Array.AsReadOnly(Array.Empty<string>());
     private readonly PmxModel model;
     private readonly CharacterAnimator animator;
     private readonly OriginalStyleScene restSurface;
@@ -20,14 +22,30 @@ public sealed partial class CharacterAnimationController : IDisposable
     private readonly PmxExtendedMorphAdapter extendedMorphs;
     private readonly PmxImpulseMorphAdapter impulseMorphs;
     private readonly MmdMorphMotionAdapter morphMotion;
+    private readonly int[] defaultDrivenBoneIndices;
     private readonly bool timeInvariantBoneTracks;
     private readonly IReadOnlyList<string> animationDiagnostics;
     private IReadOnlyList<string> physicsDiagnostics=Array.Empty<string>();
     private readonly List<string> physicsCleanupDiagnostics=[];
+    private sealed record DiagnosticsCache(
+        CharacterPhysicsPlayback? Physics,
+        SharedPhysicsStatus? SharedStatus,
+        IReadOnlyList<string> PhysicsDiagnostics,
+        PmxSoftBodyPlayback? SoftBodies,
+        PmxCoupledSoftBodyPlayback? CoupledSoftBodies,
+        bool DeferCpuSoftDiagnostic,
+        int CleanupCount,
+        string[] SharedStatusDiags,
+        string[] PhysicsBackendDiags,
+        string[] SoftBodyDiags,
+        string[] CoupledDiags,
+        IReadOnlyList<string> Result);
+    private DiagnosticsCache? diagnosticsCache;
     /// <summary>Cleanup failures after a committed replacement never invalidate the new solver.</summary>
     public IReadOnlyList<string> CleanupDiagnostics=>Array.AsReadOnly(physicsCleanupDiagnostics.ToArray());
     private CharacterPhysicsPlayback? physics;
     private ICharacterPhysicsBackend? physicsBackend;
+    internal bool SupportsConcurrentIndependentPhysics => physicsBackend is null || physicsBackend.SupportsConcurrentIndependentWorlds;
     private CharacterSample? sampledPose;
     private bool disposed;
     private double? sampledFrame;
@@ -53,15 +71,73 @@ public sealed partial class CharacterAnimationController : IDisposable
     public bool SupportsMorphs=>SupportedMorphCount>0;
     public int SupportedMorphCount {get;}
     public int MatchedMorphTrackCount=>morphMotion.MatchedTrackCount;
-    private IReadOnlyList<string> RigidDiagnostics=>sharedPhysicsStatus is not null
-        ? animationDiagnostics.Where(d=>!d.StartsWith("Physics is not evaluated;",StringComparison.Ordinal)).Concat(sharedPhysicsStatus.Diagnostics).ToArray()
-        :physics is null?animationDiagnostics:
-        animationDiagnostics.Where(d=>!d.StartsWith("Physics is not evaluated;",StringComparison.Ordinal))
-            .Concat(physicsDiagnostics).Concat(physics.Diagnostics).Distinct(StringComparer.Ordinal).ToArray();
-    public IReadOnlyList<string> Diagnostics=>(softBodies is null?RigidDiagnostics:RigidDiagnostics.Concat(softBodies.Diagnostics))
-        .Concat(CoupledSoftBodies?.Diagnostics??[])
-        .Concat(deferVertexSkinningRequested&&model.SoftBodies.Count!=0?new[]{SoftBodyCpuSkinningDiagnostic}:Array.Empty<string>())
-        .Concat(physicsCleanupDiagnostics).Distinct(StringComparer.Ordinal).ToArray();
+    public IReadOnlyList<string> Diagnostics
+    {
+        get
+        {
+            var currentShared = sharedPhysicsStatus;
+            var currentPhysics = physics;
+            var currentPhysicsDiags = physicsDiagnostics;
+            var currentSoft = softBodies;
+            var currentCoupled = CoupledSoftBodies;
+            bool currentDeferSoft = deferVertexSkinningRequested && model.SoftBodies.Count != 0;
+            int currentCleanupCount = physicsCleanupDiagnostics.Count;
+            var currentSharedDiags = currentShared?.Diagnostics;
+            var currentBackendDiags = currentPhysics?.Diagnostics;
+            var currentSoftDiags = currentSoft?.Diagnostics;
+            var currentCoupledDiags = currentCoupled?.Diagnostics;
+
+            var cached = Volatile.Read(ref diagnosticsCache);
+            if (cached is not null
+                && ReferenceEquals(cached.SharedStatus, currentShared)
+                && ReferenceEquals(cached.Physics, currentPhysics)
+                && ReferenceEquals(cached.PhysicsDiagnostics, currentPhysicsDiags)
+                && ReferenceEquals(cached.SoftBodies, currentSoft)
+                && ReferenceEquals(cached.CoupledSoftBodies, currentCoupled)
+                && cached.DeferCpuSoftDiagnostic == currentDeferSoft
+                && cached.CleanupCount == currentCleanupCount
+                && SameDiagnosticStrings(cached.SharedStatusDiags, currentSharedDiags)
+                && SameDiagnosticStrings(cached.PhysicsBackendDiags, currentBackendDiags)
+                && SameDiagnosticStrings(cached.SoftBodyDiags, currentSoftDiags)
+                && SameDiagnosticStrings(cached.CoupledDiags, currentCoupledDiags))
+            {
+                return cached.Result;
+            }
+
+            var rigid = currentShared is not null
+                ? animationDiagnostics.Where(d => !d.StartsWith("Physics is not evaluated;", StringComparison.Ordinal)).Concat(currentSharedDiags!).ToArray()
+                : currentPhysics is null ? animationDiagnostics
+                : animationDiagnostics.Where(d => !d.StartsWith("Physics is not evaluated;", StringComparison.Ordinal))
+                    .Concat(currentPhysicsDiags).Concat(currentBackendDiags!).Distinct(StringComparer.Ordinal).ToArray();
+            var combined = (currentSoft is null ? rigid : rigid.Concat(currentSoftDiags!))
+                .Concat(currentCoupledDiags ?? [])
+                .Concat(currentDeferSoft ? new[] { SoftBodyCpuSkinningDiagnostic } : Array.Empty<string>())
+                .Concat(physicsCleanupDiagnostics).Distinct(StringComparer.Ordinal).ToArray();
+            var result = combined.Length == 0 ? EmptyReadOnlyDiagnostics : Array.AsReadOnly(combined);
+            Volatile.Write(ref diagnosticsCache, new DiagnosticsCache(
+                currentPhysics, currentShared, currentPhysicsDiags, currentSoft, currentCoupled,
+                currentDeferSoft, currentCleanupCount,
+                SnapshotDiagnosticStrings(currentSharedDiags), SnapshotDiagnosticStrings(currentBackendDiags),
+                SnapshotDiagnosticStrings(currentSoftDiags), SnapshotDiagnosticStrings(currentCoupledDiags),
+                result));
+            return result;
+        }
+    }
+    private static bool SameDiagnosticStrings(string[] snapshot, IReadOnlyList<string>? current)
+    {
+        int count = current?.Count ?? 0;
+        if (snapshot.Length != count) return false;
+        for (int i = 0; i < count; i++)
+            if (!string.Equals(snapshot[i], current![i], StringComparison.Ordinal)) return false;
+        return true;
+    }
+    private static string[] SnapshotDiagnosticStrings(IReadOnlyList<string>? current)
+    {
+        if (current is null || current.Count == 0) return Array.Empty<string>();
+        var copy = new string[current.Count];
+        for (int i = 0; i < copy.Length; i++) copy[i] = current[i];
+        return copy;
+    }
     public bool SupportsPhysics=>model.RigidBodies.Count>0;
     internal const string SoftBodyCpuSkinningDiagnostic="This model has soft bodies; its vertices are skinned on the CPU, not by the renderer's GPU skinning.";
     private bool deferVertexSkinningRequested;
@@ -115,6 +191,18 @@ public sealed partial class CharacterAnimationController : IDisposable
         diagnostics.AddRange(materialMorphs.Diagnostics);diagnostics.AddRange(impulseMorphs.Diagnostics);diagnostics.AddRange(morphMotion.Diagnostics);
         if(model.Bones.Any(b=>(b.Flags&(PmxBoneFlags.FixedAxis|PmxBoneFlags.LocalAxis))!=0))diagnostics.Add("固定轴IK约束与局部轴编辑已实现；原函数单骨VMD／骨表情采样已验证这些标志不附加旋转约束或基底变换，IK／追加／物理等组合的完整原版一致性仍未全验。");
         animationDiagnostics=diagnostics.AsReadOnly();
+        if(model.RigidBodies.Count==0) defaultDrivenBoneIndices=[];
+        else
+        {
+            var seenDriven=new HashSet<int>(); var drivenList=new List<int>();
+            for(int i=0;i<model.RigidBodies.Count;i++)
+            {
+                var body=model.RigidBodies[i];
+                if(body.BoneIndex>=0&&body.Operation!=Formats.PmxRigidBodyOperation.Static&&seenDriven.Add(body.BoneIndex))
+                    drivenList.Add(body.BoneIndex);
+            }
+            defaultDrivenBoneIndices=drivenList.Count==0?[]:drivenList.ToArray();
+        }
     }
     public (OriginalStyleScene Surface,OriginalOutlineData Outline) Sample(uint frame,bool enableIk=true,bool enableMorphs=true)
         =>SampleAt(frame,enableIk,enableMorphs);
@@ -289,11 +377,24 @@ public sealed partial class CharacterAnimationController : IDisposable
             return SampleAt(frame,enableIk,enableMorphs);
         }
         var physicalMorphs=PrepareMorphs(frame,enableMorphs);
-        CharacterBodyImpulse[] impulses=applyImpulses ? physicalMorphs.Channels.Impulses
-            .Select(value=>new CharacterBodyImpulse(value.RigidBodyIndex,value.Local,value.TranslationVelocity,value.RotationTorque)).ToArray() : [];
+        CharacterBodyImpulse[] impulses=applyImpulses && physicalMorphs.Channels.Impulses.Count>0
+            ? CreateBodyImpulses(physicalMorphs.Channels.Impulses)
+            : Array.Empty<CharacterBodyImpulse>();
         return Store(physics.Advance(frame,elapsedSeconds,Evaluation(frame,enableIk,enableMorphs),impulses),frame,enableIk,enableMorphs,physicalMorphs,elapsedSeconds);
     }
-    private CharacterEvaluationOptions Evaluation(double frame,bool enableIk,bool enableMorphs)=>new(enableIk,ikSwitches.Evaluate((uint)Math.Floor(frame)),
+    private static CharacterBodyImpulse[] CreateBodyImpulses(IReadOnlyList<PmxRigidBodyImpulse> impulses)
+    {
+        if (impulses.Count == 0) return Array.Empty<CharacterBodyImpulse>();
+        var result = new CharacterBodyImpulse[impulses.Count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            var value = impulses[i];
+            result[i] = new CharacterBodyImpulse(value.RigidBodyIndex, value.Local, value.TranslationVelocity, value.RotationTorque);
+        }
+        return result;
+    }
+    private CharacterEvaluationOptions Evaluation(double frame,bool enableIk,bool enableMorphs)=>new(enableIk,
+        ikSwitches.HasMatchedSwitches?ikSwitches.Evaluate((uint)Math.Floor(frame)):null,
         PrepareMorphs(frame,enableMorphs).Pose,outsideParents);
     private static void ValidateFrame(double frame)
     {if(!double.IsFinite(frame)||frame<0||frame>uint.MaxValue)throw new ArgumentOutOfRangeException(nameof(frame));}
@@ -353,7 +454,7 @@ public sealed partial class CharacterAnimationController : IDisposable
         // cannot change its morph inputs. Keep only the most recent successful result.
         if(preparedMorphsCache is {} cached&&preparedMorphsFrame==frame&&preparedMorphsEnabled==enabled)
             return cached;
-        IReadOnlyDictionary<int,float> weights=enabled?morphMotion.Evaluate(frame):new Dictionary<int,float>();
+        IReadOnlyDictionary<int,float> weights=enabled?morphMotion.Evaluate(frame):EmptyMorphWeights;
         // Motion sampling owns this dictionary. Equal effective inputs can safely share one
         // immutable preparation across clocks; bone/IK/physics/parents still sample every time.
         // Compare float bits so negative zero and distinct numeric payloads are not conflated.
@@ -387,7 +488,15 @@ public sealed partial class CharacterAnimationController : IDisposable
         }
         // Attach the already evaluated local-material accumulators before project composition.
         // Identity retains the established binding instances and does not change core morph arithmetic.
-        if(channels.TextureFactors.Any(f=>f!=PmxMaterialTextureFactors.Identity))
+        bool hasTextureFactors=!ReferenceEquals(channels.TextureFactors,materialMorphs.IdentityTextureFactors);
+        if(hasTextureFactors)
+        {
+            hasTextureFactors=false;
+            var factors=channels.TextureFactors;
+            for(int i=0;i<factors.Count;i++)
+                if(factors[i]!=PmxMaterialTextureFactors.Identity){hasTextureFactors=true;break;}
+        }
+        if(hasTextureFactors)
         {
             var bindings=scene.Item1.Materials.ToArray();
             for(int i=0;i<bindings.Length;i++)

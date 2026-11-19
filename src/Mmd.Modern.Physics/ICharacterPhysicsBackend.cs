@@ -7,6 +7,7 @@ public interface ICharacterPhysicsBackend : IDisposable
 {
     string Name { get; }
     IReadOnlyList<string> Diagnostics { get; }
+    bool SupportsConcurrentIndependentWorlds => false;
     void Initialize(CharacterPhysicsDefinition definition, ReadOnlySpan<Matrix4x4> bodyWorldTransforms);
     void SetKinematicTarget(int bodyIndex, Matrix4x4 worldTransform, float stepSeconds);
     Matrix4x4 GetBodyWorldTransform(int bodyIndex);
@@ -39,3 +40,14 @@ public interface ICharacterPhysicsJointPullBackend
 
 /// <summary>A sampled impulse reapplied once per fixed step. Local vectors use the body's current orientation.</summary>
 public readonly record struct CharacterBodyImpulse(int BodyIndex, bool Local, Vector3 Linear, Vector3 Angular);
+
+public readonly record struct PhysicsKinematicTargetBatchItem(int BodyIndex, bool Kinematic, Matrix4x4 WorldTransform);
+public readonly record struct PhysicsJointPullBatchItem(int BodyA, int BodyB, float MaximumDistance);
+
+/// <summary>Optional batched FFI capability that reduces per-body and per-joint cross-boundary calls.</summary>
+public interface ICharacterPhysicsBatchedBackend : ICharacterPhysicsMutableBackend
+{
+    bool SupportsBatchedExecution => true;
+    void ApplyKinematicTargetsBatch(ReadOnlySpan<PhysicsKinematicTargetBatchItem> targets, float stepSeconds);
+    void CorrectJointsAndGetBodyTransforms(ReadOnlySpan<PhysicsJointPullBatchItem> joints, ReadOnlySpan<int> bodyIndices, Span<Matrix4x4> worldTransforms);
+}

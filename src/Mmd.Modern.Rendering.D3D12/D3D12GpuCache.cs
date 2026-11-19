@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Numerics;
 using Mmd.Modern.Core;
@@ -22,6 +23,13 @@ internal sealed class D3D12GpuCache:IDisposable
     private D3D12GpuSkinning? gpuSkinning;
     private long largeGiRetentionFrameId=-1;
     private bool retainLargeGiUploads;
+    private const int MaxAsBuffersPerBucket=4;
+    private const int MaxAsBufferBuckets=16;
+    private readonly object asBufferPoolGate=new();
+    private readonly Dictionary<(ulong ResultBytes,bool IsTopLevel),List<(ID3D12Resource Resource,ulong Fence)>> asBufferPool=[];
+    private readonly (ID3D12GraphicsCommandList? Raw,ID3D12GraphicsCommandList4? List4)[] cachedCommandLists4=
+        new (ID3D12GraphicsCommandList?,ID3D12GraphicsCommandList4?)[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];
+    private bool disposed;
     internal D3D12GpuCache(D3D12GpuRuntime runtime)
     {this.runtime=runtime;bufferUploadStaging=new(runtime);sceneVertexBuffers=new(runtime,bufferUploadStaging);expandedPositionBuffers=new(runtime,bufferUploadStaging);
         skinnedVertexBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);skinnedExpandedBuffers=new(runtime,bufferUploadStaging,unorderedAccess:true);
@@ -49,6 +57,120 @@ internal sealed class D3D12GpuCache:IDisposable
         =>writableGpuBuffers.GetWritable(stream,count,stride,out currentState,out replaced);
     internal void SetWritableGpuBufferState(string stream,ResourceStates state)=>writableGpuBuffers.SetWritableState(stream,state);
     internal D3D12BufferUploadStaging.Allocation StageFrameBytes(ReadOnlySpan<byte> bytes)=>bufferUploadStaging.Write(bytes);
+    internal unsafe D3D12BufferUploadStaging.Allocation StageFrameBytesAligned(ReadOnlySpan<byte> bytes,int alignment)
+    {
+        if(bytes.IsEmpty)throw new ArgumentException("A buffer upload must contain data.",nameof(bytes));
+        if(alignment<=0||!BitOperations.IsPow2((uint)alignment))
+            throw new ArgumentOutOfRangeException(nameof(alignment),"Alignment must be a positive power of two.");
+        if(alignment<=4)return bufferUploadStaging.Write(bytes);
+
+        int padding=alignment-1;
+        if(bytes.Length<=D3D12BufferUploadStaging.MaximumRetainedPageBytes-padding)
+        {
+            int shift=0;
+            fixed(byte* source=bytes)
+            {
+                nint sourceAddress=(nint)source;
+                int sourceLength=bytes.Length;
+                var allocation=bufferUploadStaging.Write(checked(sourceLength+padding),destination=>
+                {
+                    byte* dstPtr=(byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(destination));
+                    shift=(int)(((nuint)alignment-((nuint)dstPtr&(nuint)padding))&(nuint)padding);
+                    new ReadOnlySpan<byte>((void*)sourceAddress,sourceLength).CopyTo(destination.Slice(shift,sourceLength));
+                });
+                ulong offset=allocation.Offset+(ulong)shift;
+                if((offset&(ulong)padding)==0)return new(allocation.Resource,offset);
+            }
+        }
+
+        var direct=bufferUploadStaging.Write(bytes);
+        if((direct.Offset&(ulong)padding)==0)return direct;
+        ulong nextOffset=direct.Offset+(ulong)((bytes.Length+3)&~3);
+        int gap=(int)(((ulong)alignment-(nextOffset&(ulong)padding))&(ulong)padding);
+        if(gap>0)
+        {
+            Span<byte> scratch=gap<=256?stackalloc byte[gap]:new byte[gap];
+            scratch.Clear();
+            bufferUploadStaging.Write(scratch);
+        }
+        var aligned=bufferUploadStaging.Write(bytes);
+        if((aligned.Offset&(ulong)padding)==0)return aligned;
+        throw new InvalidOperationException($"Staging allocation offset {aligned.Offset} is not {alignment}-byte aligned.");
+    }
+    internal ID3D12GraphicsCommandList4 AcquireCommandList4(ID3D12GraphicsCommandList commands)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed),this);
+        int slot=runtime.SlotIndex;
+        if((uint)slot<(uint)cachedCommandLists4.Length)
+        {
+            ref var entry=ref cachedCommandLists4[slot];
+            if(ReferenceEquals(entry.Raw,commands)&&entry.List4 is not null)return entry.List4;
+            entry.List4?.Dispose();
+            var list4=commands.QueryInterface<ID3D12GraphicsCommandList4>();
+            entry=(commands,list4);
+            return list4;
+        }
+        throw new InvalidOperationException("Command list query requires an active GPU recording slot.");
+    }
+    internal ID3D12Resource AcquireAccelerationBuffer(ulong resultBytes,bool isTopLevel)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed),this);
+        ulong completed=runtime.CompletedFence;
+        if(completed!=ulong.MaxValue)
+        {
+            lock(asBufferPoolGate)
+            {
+                if(!disposed&&asBufferPool.TryGetValue((resultBytes,isTopLevel),out var bucket))
+                {
+                    for(int i=bucket.Count-1;i>=0;i--)
+                    {
+                        if(bucket[i].Fence<=completed)
+                        {
+                            var resource=bucket[i].Resource;
+                            bucket.RemoveAt(i);
+                            if(bucket.Count==0)asBufferPool.Remove((resultBytes,isTopLevel));
+                            return resource;
+                        }
+                    }
+                }
+            }
+        }
+        return runtime.Device.CreateCommittedResource(HeapType.Default,
+            ResourceDescription.Buffer(resultBytes,ResourceFlags.AllowUnorderedAccess),
+            ResourceStates.RaytracingAccelerationStructure);
+    }
+    internal bool TryRecycleAccelerationBuffer(ID3D12Resource resource,ulong resultBytes,bool isTopLevel,ulong fence)
+    {
+        if(Volatile.Read(ref disposed))return false;
+        lock(asBufferPoolGate)
+        {
+            if(disposed)return false;
+            var key=(resultBytes,isTopLevel);
+            if(!asBufferPool.TryGetValue(key,out var bucket))
+            {
+                if(asBufferPool.Count>=MaxAsBufferBuckets)
+                {
+                    foreach(var existingKey in asBufferPool.Keys)
+                    {
+                        if(asBufferPool.Remove(existingKey,out var evicted))
+                        {
+                            foreach(var item in evicted)item.Resource.Dispose();
+                        }
+                        break;
+                    }
+                }
+                bucket=new List<(ID3D12Resource Resource,ulong Fence)>(MaxAsBuffersPerBucket);
+                asBufferPool.Add(key,bucket);
+            }
+            while(bucket.Count>=MaxAsBuffersPerBucket)
+            {
+                bucket[0].Resource.Dispose();
+                bucket.RemoveAt(0);
+            }
+            bucket.Add((resource,fence));
+            return true;
+        }
+    }
     internal D3D12BufferUploadStatistics BufferUploadStatistics=>bufferUploadStaging.Statistics;
     internal void BeginFrame(bool retainLargeGiUploads)
     {
@@ -63,8 +185,12 @@ internal sealed class D3D12GpuCache:IDisposable
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> mipmappedTextureIdentities=new();
     // The same source bytes may be numerical UNorm and authored sRGB in one frame.
     // Separate identity and content namespaces prevent either role from changing the other.
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbColorTextureIdentities=new();
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneTexture,TextureIdentity> srgbMipmappedTextureIdentities=new();
+    private readonly ConditionalWeakTable<SceneTexture,TextureIdentity> srgbColorTextureIdentities=new();
+    private readonly ConditionalWeakTable<SceneTexture,TextureIdentity> srgbMipmappedTextureIdentities=new();
+    private readonly ConditionalWeakTable<SceneTexture,string> textureHashes=new();
+    internal static string GetOrComputeTextureSha256(ConditionalWeakTable<SceneTexture,string> table,SceneTexture texture)
+        =>table.GetValue(texture,static value=>Convert.ToHexString(SHA256.HashData(value.Rgba)));
+    private string GetTextureSha256(SceneTexture texture)=>GetOrComputeTextureSha256(textureHashes,texture);
     internal int LiveResourceCount=>objects.Count+dynamicBuffers.Count+replaceableObjects.Count+sceneVertexBuffers.RetainedBufferCount+expandedPositionBuffers.RetainedBufferCount
         +skinnedVertexBuffers.RetainedBufferCount+skinnedExpandedBuffers.RetainedBufferCount+staticOutlineBuffers.RetainedBufferCount+writableGpuBuffers.RetainedBufferCount;
     internal ID3D12Resource ExpandedPositionBuffer(string stream,Vector4[] positions)
@@ -157,6 +283,16 @@ internal sealed class D3D12GpuCache:IDisposable
     {
         if(retained.LastFrameId==runtime.FrameId)return;
         runtime.Own(retained.Lease());retained.LastFrameId=runtime.FrameId;
+        if(retained.Value is D3D12HardwareRayGi.AccelerationStructure acceleration)
+        {
+            ulong pendingFence=runtime.SubmittedFence+1;
+            ulong previousFence=acceleration.MaxSubmittedFence;
+            if(pendingFence>previousFence)
+            {
+                acceleration.MaxSubmittedFence=pendingFence;
+                runtime.OnAbort(()=>acceleration.MaxSubmittedFence=previousFence);
+            }
+        }
     }
     // Removing the cache owner never invalidates already recorded readers: every use
     // has its own fence lease. Optional identity retains compatible pool slots on resize.
@@ -253,7 +389,7 @@ internal sealed class D3D12GpuCache:IDisposable
             identities.Remove(texture);
         }
         string prefix=useMips?"texture-mip":"texture";
-        string key=$"{prefix}:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        string key=$"{prefix}:{texture.Width}:{texture.Height}:{GetTextureSha256(texture)}";
         if(objects.TryGetValue(key,out var found)){identities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;}
         var gpu=UploadTexture2D(texture.Width,texture.Height,4,Format.R8G8B8A8_UNorm,texture.Rgba,useMips,canBoxDownsample:true);
         objects.Add(key,gpu);identities.Add(texture,new(key,gpu));runtime.TextureUploads++;
@@ -279,7 +415,7 @@ internal sealed class D3D12GpuCache:IDisposable
             identities.Remove(texture);
         }
         string prefix=useMips?"texture-color-srgb-mip":"texture-color-srgb";
-        string key=$"{prefix}:{texture.Width}:{texture.Height}:{Convert.ToHexString(SHA256.HashData(texture.Rgba))}";
+        string key=$"{prefix}:{texture.Width}:{texture.Height}:{GetTextureSha256(texture)}";
         if(objects.TryGetValue(key,out var found))
         {
             identities.Add(texture,new(key,(ID3D12Resource)found));return (ID3D12Resource)found;
@@ -365,7 +501,7 @@ internal sealed class D3D12GpuCache:IDisposable
         dynamicBuffers[key]=(hash,gpu,identity);
         runtime.OnAbort(()=>{if(dynamicBuffers.Remove(key,out var aborted))aborted.Resource.Dispose();});return gpu;
     }
-    public void Dispose(){gpuSkinning?.Dispose();gpuSkinning=null;foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();skinnedVertexBuffers.Dispose();skinnedExpandedBuffers.Dispose();staticOutlineBuffers.Dispose();writableGpuBuffers.Dispose();bufferUploadStaging.Dispose();}
+    public void Dispose(){Volatile.Write(ref disposed,true);gpuSkinning?.Dispose();gpuSkinning=null;foreach(var value in replaceableObjects.Values)value.Dispose();replaceableObjects.Clear();foreach(var value in dynamicBuffers.Values)value.Resource.Dispose();dynamicBuffers.Clear();foreach(var value in objects.Values)value.Dispose();objects.Clear();for(int i=0;i<cachedCommandLists4.Length;i++){cachedCommandLists4[i].List4?.Dispose();cachedCommandLists4[i]=default;}lock(asBufferPoolGate){foreach(var bucket in asBufferPool.Values)foreach(var entry in bucket)entry.Resource.Dispose();asBufferPool.Clear();}sceneVertexBuffers.Dispose();expandedPositionBuffers.Dispose();skinnedVertexBuffers.Dispose();skinnedExpandedBuffers.Dispose();staticOutlineBuffers.Dispose();writableGpuBuffers.Dispose();bufferUploadStaging.Dispose();}
 }
 
 /// <summary>Snapshot topology arrays are private and immutable. Exact span origin permits constant-time reuse.</summary>

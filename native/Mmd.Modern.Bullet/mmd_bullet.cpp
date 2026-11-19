@@ -2,7 +2,9 @@
 // PMX joint-field mapping adapted from nanoem/ext/physics_bullet.cc @
 // 30acffaa29f5d2eb9e997d69418f2e4b97b5894f (MIT/X11).
 // Copyright and full permission notice: ../../src/Mmd.Modern.Physics.Bullet/LICENSE.Nanoem.txt.
+#include <BulletCollision/BroadphaseCollision/btAxisSweep3.h>
 #include <btBulletDynamicsCommon.h>
+#include "mmd_bullet_parallel.h"
 #include "../Mmd.Modern.Bullet.SoftBody/mmd_soft_plane_collision.h"
 #include "../Mmd.Modern.Bullet.SoftBody/mmd_soft_attachment.h"
 #include <algorithm>
@@ -15,7 +17,8 @@
 #include <vector>
 
 static_assert(sizeof(btScalar) == sizeof(float), "This ABI requires Bullet float32.");
-static_assert(sizeof(MmdBulletPose) == 28 && sizeof(MmdBulletBody) == 76 && sizeof(MmdBulletJoint) == 140, "Unexpected ABI layout.");
+static_assert(sizeof(MmdBulletPose) == 28 && sizeof(MmdBulletBody) == 76 && sizeof(MmdBulletJoint) == 140
+    && sizeof(MmdBulletKinematicTargetItem) == 36 && sizeof(MmdBulletJointPullItem) == 12, "Unexpected ABI layout.");
 namespace {
 thread_local char last_error[512] = {};
 void error(const char* message) noexcept { std::snprintf(last_error, sizeof(last_error), "%s", message); }
@@ -62,8 +65,11 @@ struct Context {
     Context(MmdBulletVector gravity, bool has_ground, float ground_y, bool coupled = false) {
         if(coupled)configuration.reset(new mmd_soft::PlaneSoftConfiguration());
         else configuration.reset(new btDefaultCollisionConfiguration());
-        dispatcher.reset(new btCollisionDispatcher(configuration.get()));
-        broadphase.reset(new btDbvtBroadphase()); solver.reset(new btSequentialImpulseConstraintSolver());
+        if(coupled)dispatcher.reset(new btCollisionDispatcher(configuration.get()));
+        else dispatcher.reset(new mmd_bullet_parallel::ParallelCollisionDispatcher(configuration.get()));
+        broadphase.reset(new btDbvtBroadphase());
+        if(coupled)solver.reset(new btSequentialImpulseConstraintSolver());
+        else solver.reset(new mmd_bullet_parallel::ParallelIslandSolver());
         if(coupled){
             softWorld=new mmd_soft::CoupledDynamicsWorld(dispatcher.get(),broadphase.get(),solver.get(),configuration.get());
             world.reset(softWorld);auto& info=softWorld->getWorldInfo();
@@ -76,7 +82,9 @@ struct Context {
             ground->shape.reset(new btStaticPlaneShape(btVector3(0, 1, 0), 0));
             ground->motion.reset(new btDefaultMotionState(btTransform(btQuaternion::getIdentity(), btVector3(0, ground_y, 0))));
             btRigidBody::btRigidBodyConstructionInfo info(0, ground->motion.get(), ground->shape.get(), btVector3(0, 0, 0));
-            ground->body.reset(new btRigidBody(info)); world->addRigidBody(ground->body.get());
+            ground->body.reset(new btRigidBody(info));
+            if (!coupled) ground->body->setUserPointer(&mmd_bullet_parallel::horizontalGround);
+            world->addRigidBody(ground->body.get());
         }
     }
     ~Context() {
@@ -94,6 +102,44 @@ Context& context(void* pointer) { if (!pointer) throw std::invalid_argument("Nul
 Body& body(Context& c, int32_t index) {
     if (index < 0 || static_cast<size_t>(index) >= c.bodies.size() || !c.bodies[index]) throw std::out_of_range("Body index out of range or removed.");
     return *c.bodies[index];
+}
+void set_body_kinematic_impl(Context& c, Body& value, int32_t enabled) {
+    if (enabled != 0 && enabled != 1) throw std::invalid_argument("Invalid kinematic switch.");
+    bool temporary = enabled != 0 && value.mode != 0;
+    if (temporary == value.temporary_kinematic) return;
+    c.world->removeRigidBody(value.body.get());
+    value.temporary_kinematic = temporary;
+    int flags = value.body->getCollisionFlags() & ~(btCollisionObject::CF_STATIC_OBJECT | btCollisionObject::CF_KINEMATIC_OBJECT);
+    bool kinematic = value.mode == 0 || temporary;
+    value.body->setMassProps(kinematic ? 0 : value.authored_mass, kinematic ? btVector3(0, 0, 0) : value.authored_inertia);
+    if (kinematic) flags |= btCollisionObject::CF_KINEMATIC_OBJECT;
+    else if (value.authored_mass == 0) flags |= btCollisionObject::CF_STATIC_OBJECT;
+    value.body->setCollisionFlags(flags); value.body->updateInertiaTensor();
+    value.body->clearForces(); value.body->setLinearVelocity(btVector3(0, 0, 0)); value.body->setAngularVelocity(btVector3(0, 0, 0));
+    value.body->setInterpolationWorldTransform(value.body->getWorldTransform());
+    value.body->setActivationState(DISABLE_DEACTIVATION);
+    c.world->addRigidBody(value.body.get(), value.group, value.mask);
+}
+void set_kinematic_target_impl(Body& value, const MmdBulletPose& target) {
+    if (value.mode != 0 && !value.temporary_kinematic) throw std::invalid_argument("Expected kinematic body and target pose.");
+    btTransform t = transform(target); value.motion->setWorldTransform(t); value.body->setWorldTransform(t); value.body->activate(true);
+}
+void correct_joint_overextension_impl(Context& c, int32_t body_a, int32_t body_b, float maximum_distance) {
+    auto& a = *body(c, body_a).body; auto& b = *body(c, body_b).body;
+    if (body_a == body_b || !std::isfinite(maximum_distance) || maximum_distance < 0)
+        throw std::invalid_argument("Invalid joint pull correction.");
+    const btVector3& pa = a.getWorldTransform().getOrigin();
+    const btVector3& pb = b.getWorldTransform().getOrigin();
+    const float dx = pa.x() - pb.x(), dy = pa.y() - pb.y(), dz = pa.z() - pb.z();
+    const float distance = std::sqrt((dx * dx + dy * dy) + dz * dz);
+    if (distance - maximum_distance >= 2.0f) {
+        const float ratio = maximum_distance / distance;
+        // Original C3460 mutates the simulation transform only, preserving its 3x3 basis,
+        // motion/interpolation state, contact cache and accumulated forces.
+        b.getWorldTransform().getOrigin().setValue(pa.x() + (pb.x() - pa.x()) * ratio,
+            pa.y() + (pb.y() - pa.y()) * ratio, pa.z() + (pb.z() - pa.z()) * ratio);
+        b.setLinearVelocity(btVector3(0, 0, 0)); b.setAngularVelocity(btVector3(0, 0, 0));
+    }
 }
 }
 int32_t mmd_bullet_get_abi(MmdBulletAbi* result) noexcept {
@@ -118,13 +164,23 @@ int32_t mmd_bullet_add_body(void* pointer, const MmdBulletBody* d) noexcept {
             throw std::invalid_argument("Invalid body description.");
         std::unique_ptr<Body> value(new Body()); value->mode = d->mode;
         switch (d->shape) {
-            case 0: value->shape.reset(new btSphereShape(d->size.x)); break;
+            case 0:
+                value->shape.reset(c.softWorld
+                    ? static_cast<btCollisionShape*>(new btSphereShape(d->size.x))
+                    : new mmd_bullet_parallel::ImmutableShape<btSphereShape>(d->size.x));
+                break;
             case 1:
                 if (d->size.y <= 0 || d->size.z <= 0) throw std::invalid_argument("Invalid box half extents.");
-                value->shape.reset(new btBoxShape(vector(d->size))); break;
+                value->shape.reset(c.softWorld
+                    ? static_cast<btCollisionShape*>(new btBoxShape(vector(d->size)))
+                    : new mmd_bullet_parallel::ImmutableShape<btBoxShape>(vector(d->size)));
+                break;
             case 2:
                 if (d->size.y < 0) throw std::invalid_argument("Invalid capsule cylinder height.");
-                value->shape.reset(new btCapsuleShape(d->size.x, d->size.y)); break;
+                value->shape.reset(c.softWorld
+                    ? static_cast<btCollisionShape*>(new btCapsuleShape(d->size.x, d->size.y))
+                    : new mmd_bullet_parallel::ImmutableShape<btCapsuleShape>(d->size.x, d->size.y));
+                break;
             default: throw std::invalid_argument("Unknown shape.");
         }
         const btScalar mass = d->mode == 0 ? 0 : d->mass;
@@ -197,8 +253,8 @@ int32_t mmd_bullet_add_joint(void* pointer, const MmdBulletJoint* d) noexcept {
 int32_t mmd_bullet_set_kinematic_target(void* pointer, int32_t index, const MmdBulletPose* target) noexcept {
     return guarded([&] {
         Body& value = body(context(pointer), index);
-        if (!target || (value.mode != 0 && !value.temporary_kinematic)) throw std::invalid_argument("Expected kinematic body and target pose.");
-        btTransform t = transform(*target); value.motion->setWorldTransform(t); value.body->setWorldTransform(t); value.body->activate(true);
+        if (!target) throw std::invalid_argument("Expected kinematic body and target pose.");
+        set_kinematic_target_impl(value, *target);
     });
 }
 int32_t mmd_bullet_get_body_pose(void* pointer, int32_t index, MmdBulletPose* result) noexcept {
@@ -288,44 +344,16 @@ int32_t mmd_bullet_reset_body(void* pointer, int32_t index, const MmdBulletPose*
 int32_t mmd_bullet_set_body_kinematic(void* pointer, int32_t index, int32_t enabled) noexcept {
     return guarded([&] {
         Context& c = context(pointer); Body& value = body(c, index);
-        if (enabled != 0 && enabled != 1) throw std::invalid_argument("Invalid kinematic switch.");
-        bool temporary = enabled != 0 && value.mode != 0;
-        if (temporary == value.temporary_kinematic) return;
-        c.world->removeRigidBody(value.body.get());
-        value.temporary_kinematic = temporary;
-        int flags = value.body->getCollisionFlags() & ~(btCollisionObject::CF_STATIC_OBJECT | btCollisionObject::CF_KINEMATIC_OBJECT);
-        bool kinematic = value.mode == 0 || temporary;
-        value.body->setMassProps(kinematic ? 0 : value.authored_mass, kinematic ? btVector3(0, 0, 0) : value.authored_inertia);
-        if (kinematic) flags |= btCollisionObject::CF_KINEMATIC_OBJECT;
-        else if (value.authored_mass == 0) flags |= btCollisionObject::CF_STATIC_OBJECT;
-        value.body->setCollisionFlags(flags); value.body->updateInertiaTensor();
-        value.body->clearForces(); value.body->setLinearVelocity(btVector3(0, 0, 0)); value.body->setAngularVelocity(btVector3(0, 0, 0));
-        value.body->setInterpolationWorldTransform(value.body->getWorldTransform());
-        value.body->setActivationState(DISABLE_DEACTIVATION);
-        c.world->addRigidBody(value.body.get(), value.group, value.mask);
+        set_body_kinematic_impl(c, value, enabled);
     });
 }
 
 int32_t mmd_bullet_correct_joint_overextension(void* pointer, int32_t body_a, int32_t body_b, float maximum_distance) noexcept {
     return guarded([&] {
-        Context& c = context(pointer); auto& a = *body(c, body_a).body; auto& b = *body(c, body_b).body;
-        if (body_a == body_b || !std::isfinite(maximum_distance) || maximum_distance < 0)
-            throw std::invalid_argument("Invalid joint pull correction.");
-        const btVector3& pa = a.getWorldTransform().getOrigin();
-        const btVector3& pb = b.getWorldTransform().getOrigin();
-        const float dx = pa.x() - pb.x(), dy = pa.y() - pb.y(), dz = pa.z() - pb.z();
-        const float distance = std::sqrt((dx * dx + dy * dy) + dz * dz);
-        if (distance - maximum_distance >= 2.0f) {
-            const float ratio = maximum_distance / distance;
-            // Original C3460 mutates the simulation transform only, preserving its 3x3 basis,
-            // motion/interpolation state, contact cache and accumulated forces.
-            b.getWorldTransform().getOrigin().setValue(pa.x() + (pb.x() - pa.x()) * ratio,
-                pa.y() + (pb.y() - pa.y()) * ratio, pa.z() + (pb.z() - pa.z()) * ratio);
-            b.setLinearVelocity(btVector3(0, 0, 0)); b.setAngularVelocity(btVector3(0, 0, 0));
-        }
+        correct_joint_overextension_impl(context(pointer), body_a, body_b, maximum_distance);
     });
 }
-int32_t mmd_bullet_features() noexcept {return 3;}
+int32_t mmd_bullet_features() noexcept {return 7;}
 int32_t mmd_bullet_create_coupled(MmdBulletVector gravity,int32_t has_ground,float ground_y,void** result) noexcept {
     if(result)*result=nullptr;
     return guarded([&]{if(!result||!finite(gravity)||!std::isfinite(ground_y))throw std::invalid_argument("Invalid coupled world settings.");
@@ -354,4 +382,27 @@ int32_t mmd_bullet_get_body_velocity(void* pointer,int32_t index,MmdBulletVector
     return guarded([&]{auto& value=body(context(pointer),index);if(!linear||!angular)throw std::invalid_argument("Null velocity output.");
         const auto& l=value.body->getLinearVelocity();const auto& a=value.body->getAngularVelocity();
         *linear={l.x(),l.y(),l.z()};*angular={a.x(),a.y(),a.z()};});
+}
+int32_t mmd_bullet_set_kinematic_targets_batch(void* pointer, const MmdBulletKinematicTargetItem* items, int32_t count) noexcept {
+    return guarded([&] {
+        Context& c = context(pointer);
+        if (count < 0 || (count > 0 && !items)) throw std::invalid_argument("Invalid kinematic target batch.");
+        for (int32_t i = 0; i < count; ++i) {
+            const MmdBulletKinematicTargetItem& item = items[i];
+            Body& value = body(c, item.body_index);
+            set_body_kinematic_impl(c, value, item.is_kinematic);
+            if (item.is_kinematic != 0) set_kinematic_target_impl(value, item.target);
+        }
+    });
+}
+int32_t mmd_bullet_correct_joints_and_get_poses(void* pointer, const MmdBulletJointPullItem* joints, int32_t joint_count, const int32_t* body_indices, int32_t body_count, MmdBulletPose* poses_out) noexcept {
+    return guarded([&] {
+        Context& c = context(pointer);
+        if (joint_count < 0 || (joint_count > 0 && !joints) || body_count < 0 || (body_count > 0 && (!body_indices || !poses_out)))
+            throw std::invalid_argument("Invalid joint pull or pose batch.");
+        for (int32_t i = 0; i < joint_count; ++i)
+            correct_joint_overextension_impl(c, joints[i].body_a, joints[i].body_b, joints[i].maximum_distance);
+        for (int32_t i = 0; i < body_count; ++i)
+            poses_out[i] = pose(body(c, body_indices[i]).body->getWorldTransform());
+    });
 }

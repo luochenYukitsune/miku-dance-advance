@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Mmd.Modern.Animation;
 using Mmd.Modern.Application;
+using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Xunit;
 using static Mmd.Modern.Tests.MorphApplicationTests;
@@ -10,6 +11,83 @@ namespace Mmd.Modern.Tests;
 
 public sealed class MorphZeroUvChannelTests
 {
+    [Fact]
+    public void PartialPositionRangeRetainsOriginalIndicesAcrossConcurrentDenseReads()
+    {
+        Vector3[] values = [new(2, -1, 0), new(-0f, 0, 0)];
+        var pose = MorphPose.FromOwnedPositionRange(values, 3, [], [], new(8));
+        var expected = new Vector3[8];
+        values.CopyTo(expected, 3);
+        Assert.Equal(3, pose.FirstVertex);
+        Assert.True(pose.PositionRange.Overlaps(values));
+        Parallel.For(0, 16, i =>
+        {
+            if (i % 2 == 0) Assert.Equal(Bytes(expected), Bytes(pose.VertexDeltas));
+            Assert.True(MemoryMarshal.AsBytes(pose.PositionRange).SequenceEqual(MemoryMarshal.AsBytes(values.AsSpan())));
+        });
+        Assert.Same(pose.VertexDeltas, pose.VertexDeltas);
+        Assert.Equal(Bytes(expected), MemoryMarshal.AsBytes(pose.VertexDeltaSpan).ToArray());
+        Assert.Throws<ArgumentException>(() => MorphPose.FromOwnedPositionRange([new(float.NaN)], 3, [], [], new(8)));
+    }
+
+    [Fact]
+    public void AdapterStoresOnlyTheTouchedPositionRangeAndDenseViewKeepsOriginalIndices()
+    {
+        var adapter = new PmxMorphAdapter(Model([new() { Name = "tail", EnglishName = "", ControlPanel = 1, Type = PmxMorphType.Position,
+            PositionOffsets = [new(2, new(.5f, -.25f, 1)), new(1, new(-0f, 0, 0))] }]));
+        var pose = Pose(adapter, new() { [0] = .75f });
+        Assert.Equal(1, pose.FirstVertex);
+        Assert.Equal(2, pose.PositionRange.Length);
+        Assert.True(pose.HasVertexEffects);
+        Assert.Equal(3, pose.VertexDeltas.Count);
+        Assert.Equal(Vector3.Zero, pose.VertexDeltas[0]);
+        Assert.Equal(new Vector3(.375f, -.1875f, .75f), pose.VertexDeltas[2]);
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(4, false)]
+    [InlineData(4, true)]
+    public void CompactPositionRangeSkinsAndDefersExactlyLikeTheDenseEquivalent(int degree, bool defer)
+    {
+        const int count = 40_000, first = 4090;
+        var bones = new[] { new RigBone("a", new(1, 2, 3), -1), new RigBone("b", new(-2, 1, 4), -1) };
+        var vertices = Enumerable.Range(0, count).Select(i => new SceneVertex(new(i * .001f, 1 - i * .0005f, .25f),
+            Vector3.Normalize(new(.3f, 1, i % 7)), new(i * 1e-5f, .5f)));
+        var bindings = Enumerable.Range(0, count).Select(i => new SkinBinding(SkinningKind.Bdef2, i % 2, 1 - i % 2, -1, -1, new(.625f, .375f, 0, 0)));
+        var rig = new CharacterRig(bones, vertices, bindings);
+        Matrix4x4[] worlds = [Matrix4x4.CreateRotationY(.3f) * Matrix4x4.CreateTranslation(1, 2, 3),
+            Matrix4x4.CreateRotationX(-.4f) * Matrix4x4.CreateTranslation(-2, .5f, 1)];
+        var range = new Vector3[count - first];
+        range[0] = new(.5f, -.25f, 1); range[5] = new(-0f, 0, -0f); range[6] = new(.125f, .75f, -.5f); range[^1] = new(-1, 2, .25f);
+        var dense = new Vector3[count]; range.CopyTo(dense, first);
+        Quaternion[] identity = [Quaternion.Identity, Quaternion.Identity];
+        var compact = MorphPose.FromOwnedPositionRange(range, first, new Vector3[2], identity.ToArray(), new(count));
+        var reference = new MorphPose(dense, new Vector3[2], identity);
+
+        var expected = Sample(reference);
+        var actual = Sample(compact);   // compact storage, never expanded yet
+        Assert.Equal(count - first, compact.PositionRange.Length);
+        Assert.Equal(VertexBytes(expected), VertexBytes(actual));
+        _ = compact.VertexDeltas;       // expansion publishes the full array; skinning must still match
+        Assert.Equal(VertexBytes(expected), VertexBytes(Sample(compact)));
+        Assert.Equal(count - first, compact.PositionRange.Length);
+
+        CharacterSample Sample(MorphPose morphs)
+        {
+            var animator = new CharacterAnimator(rig, new([]), degree) { DeferVertexSkinning = defer };
+            var sample = animator.SkinWorldPose(worlds, morphs);
+            if (defer)
+            {
+                var deltas = Assert.IsType<SceneMorphDeltas>(sample.Deformation!.Morphs);
+                Assert.Equal(count, deltas.VertexCount);
+                Assert.Equal(new[] { first, first + 6, count - 1 }, deltas.Indices.ToArray());
+            }
+            return sample;
+        }
+    }
+
     [Fact]
     public void PositionBoneAndGroupsShareOnlyTheImmutableZeroUvChannelAcrossUvTransitions()
     {
@@ -137,10 +215,13 @@ public sealed class MorphZeroUvChannelTests
         Assert.Null(adapter.Evaluate(new Dictionary<int, float> { [2] = 0 }));
     }
 
+    private static byte[] VertexBytes(CharacterSample sample) => MemoryMarshal.AsBytes(sample.Vertices.AsSpan()).ToArray();
+
     private static MorphPose Pose(PmxMorphAdapter adapter, Dictionary<int, float> weights)
         => Assert.IsType<MorphPose>(adapter.Evaluate(weights));
 
-    private static byte[] Bytes(IReadOnlyList<Vector2> values) => MemoryMarshal.AsBytes(values.ToArray().AsSpan()).ToArray();
+    private static byte[] Bytes<T>(IReadOnlyList<T> values) where T : unmanaged
+        => MemoryMarshal.AsBytes(values.ToArray().AsSpan()).ToArray();
 
     private static PmxMorph Uv(string name, params PmxMorph.UvOffset[] offsets) => new()
         { Name = name, EnglishName = "", ControlPanel = 1, Type = PmxMorphType.Uv, UvOffsets = offsets };
