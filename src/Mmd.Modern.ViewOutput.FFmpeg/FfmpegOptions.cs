@@ -155,9 +155,38 @@ public sealed record FfmpegOutputOptions(string OutputPath, VideoEncoder Encoder
                 { VideoProfile.H264High => "high", VideoProfile.Av1Main when Encoder == VideoEncoder.Av1AomSoftware => "0", _ => "main" }]);
             if (Level == VideoLevel.H264Level41) args.AddRange(["-level:v", "4.1"]);
             if (CodecName == "hevc") args.AddRange(["-tag:v", "hvc1"]);
-            args.AddRange(["-movflags", "+faststart"]);
+            args.AddRange(["-movflags", "+faststart", "-movie_timescale", ComputeMovieTimescale(plan).ToString(CultureInfo.InvariantCulture)]);
         }
         args.AddRange(["-f", Container, temporaryOutput]);
         return args;
+    }
+
+    private int ComputeMovieTimescale(OfflineFramePlan plan)
+    {
+        long num = plan.FrameRate.Numerator;
+        long den = plan.FrameRate.Denominator;
+        long fpsNum = Math.Max(1L, num / Gcd(num, den));
+        long scale = LcmClamped(1000L, fpsNum, 100_000_000L) ?? (fpsNum <= int.MaxValue ? fpsNum : 30000L);
+        if (AudioInput is { } audio && LcmClamped(scale, audio.Audio.SampleRate, 100_000_000L) is { } withAudio)
+            scale = withAudio;
+        return checked((int)Math.Clamp(scale, 1L, int.MaxValue));
+
+        static long Gcd(long a, long b)
+        {
+            while (b != 0) (a, b) = (b, a % b);
+            return Math.Max(1L, Math.Abs(a));
+        }
+
+        static long? LcmClamped(long a, long b, long limit)
+        {
+            if (a <= 0 || b <= 0) return null;
+            long g = Gcd(a, b);
+            try
+            {
+                long res = checked((a / g) * b);
+                return res <= limit ? res : null;
+            }
+            catch (OverflowException) { return null; }
+        }
     }
 }

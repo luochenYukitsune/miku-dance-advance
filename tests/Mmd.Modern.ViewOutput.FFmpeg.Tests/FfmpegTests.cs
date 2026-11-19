@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text.Json;
 using Mmd.Modern.Application;
@@ -291,6 +292,46 @@ public sealed class FfmpegTests
         Assert.True(sink.Validation.Decoded);
         var evidence = new { Options = options, Validation = sink.Validation, Arguments = options.CreateArguments(plan, path) };
         await File.WriteAllTextAsync(path + ".json", JsonSerializer.Serialize(evidence, JsonOptions), Token);
+    }
+
+    [Fact]
+    public async Task MovieTimescalePreservesExactRationalDurationForNonIntegerMillisecondMp4()
+    {
+        var args30 = new FfmpegOutputOptions("out.mp4").CreateArguments(new(64, 64, new(30), 0, 39), "tmp.mp4");
+        Assert.Equal("3000", args30[args30.ToList().IndexOf("-movie_timescale") + 1]);
+
+        var argsNtsc = new FfmpegOutputOptions("out.mp4").CreateArguments(new(64, 64, new(30000, 1001), 0, 39), "tmp.mp4");
+        Assert.Equal("30000", argsNtsc[argsNtsc.ToList().IndexOf("-movie_timescale") + 1]);
+
+        byte[] wav = new byte[44 + 96000 * 2];
+        "RIFF"u8.CopyTo(wav); BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(4), (uint)wav.Length - 8);
+        "WAVEfmt "u8.CopyTo(wav.AsSpan(8)); BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(16), 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(20), 1); BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(22), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(24), 48000u); BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(28), 96000u);
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(32), 2); BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(34), 16);
+        "data"u8.CopyTo(wav.AsSpan(36)); BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(40), (uint)(96000 * 2));
+        var audioInput = new SceneAudioExportInput(new(Guid.NewGuid(), SceneMediaKind.Audio, SceneMediaAsset.FromBytes(wav, "owned.wav"), 0, true));
+        var argsAudio = (new FfmpegOutputOptions("out.mp4") { AudioInput = audioInput })
+            .CreateArguments(new(64, 64, new(30), 0, 39), "tmp.mp4", "prep.wav");
+        Assert.Equal("48000", argsAudio[argsAudio.ToList().IndexOf("-movie_timescale") + 1]);
+
+        var tools = Tools();
+        string path = Path.Combine(ArtifactDirectory(), "forty-frames-30fps.mp4");
+        var options = new FfmpegOutputOptions(path, VideoEncoder.H264Software) { Speed = VideoSpeed.Fast };
+        var plan = new OfflineFramePlan(64, 64, new(30), 0, 39);
+        await using var sink = new FfmpegFrameSink(tools, options);
+        await sink.BeginAsync(new(plan), Token);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (long i = 0; i < plan.FrameCount; i++)
+        {
+            for (int p = 0; p < pixels.Length; p += 4) { pixels[p] = (byte)(i * 6); pixels[p + 1] = 128; pixels[p + 3] = 255; }
+            using var frame = new FrameBufferLease(64, 64, 256, pixels);
+            await sink.WriteAsync(plan.GetSample(i), frame, Token);
+        }
+        await sink.CompleteAsync(Token);
+        Assert.Equal(40, sink.Validation!.Frames);
+        Assert.True(sink.Validation.Decoded);
+        Assert.InRange(sink.Validation.DurationSeconds, 40.0 / 30.0 - 0.0001, 40.0 / 30.0 + 0.0001);
     }
 
     private static FfmpegToolchain Tools()
