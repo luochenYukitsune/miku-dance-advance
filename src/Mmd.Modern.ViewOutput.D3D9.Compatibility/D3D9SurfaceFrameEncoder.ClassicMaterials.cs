@@ -41,7 +41,8 @@ internal sealed partial class D3D9SurfaceFrameEncoder
                     UseSceneLighting = authored.UseSceneLighting,
                     PreserveDirectLightPalette = authored.PreserveDirectLightPalette,
                     CharacterToonResponse = authored.CharacterToonResponse,
-                    CharacterOutlineStyle = authored.CharacterOutlineStyle
+                    CharacterOutlineStyle = authored.CharacterOutlineStyle,
+                    UseMipmaps = authored.UseMipmaps
                 };
                 if (selected != withoutPurpose)
                     throw new InvalidDataException("Classic source flags differ from the accepted frame beyond purpose policy or the PMM shadow gate.");

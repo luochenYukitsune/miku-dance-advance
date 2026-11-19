@@ -38,12 +38,25 @@ public sealed class SceneModelShadingPolicyTests
     [InlineData(ModelRole.Prop)]
     public void UnspecifiedAndPropRetainOriginalFlagsAndGlobalInheritance(ModelRole role)
     {
+        bool expectMipmaps = role == ModelRole.Prop;
         var source = EditedMotionProjectTests.Rest(EditedMotionProjectTests.Model());
-        Assert.Same(source, SceneModelShadingPolicy.Apply(source, role));
+        var appliedSource = SceneModelShadingPolicy.Apply(source, role);
+        if (expectMipmaps)
+        {
+            Assert.Equal(Assert.Single(source.Materials) with { UseMipmaps = true }, Assert.Single(appliedSource.Materials));
+            Assert.Same(appliedSource, SceneModelShadingPolicy.Apply(appliedSource, role));
+        }
+        else Assert.Same(source, appliedSource);
         var flags = new OriginalFrameMaterialFlags(true, false, true, false, true, true)
             { GiToonResponseOverride = RayGiToonResponse.Continuous, CharacterToonResponse = new(.6f, .2f) };
         var custom = new OriginalFrameScene(source.Surface, source.Outline, source.OutlineOptions, materials: [flags]);
-        Assert.Same(custom, SceneModelShadingPolicy.Apply(custom, role));
+        var appliedCustom = SceneModelShadingPolicy.Apply(custom, role);
+        if (expectMipmaps)
+        {
+            Assert.Equal(flags with { UseMipmaps = true }, Assert.Single(appliedCustom.Materials));
+            Assert.Same(appliedCustom, SceneModelShadingPolicy.Apply(appliedCustom, role));
+        }
+        else Assert.Same(custom, appliedCustom);
         Assert.Equal(flags with { GiToonResponseOverride = RayGiToonResponse.PreservePaletteBands, PreserveDirectLightPalette = true },
             Assert.Single(SceneModelShadingPolicy.Apply(custom, ModelRole.Character).Materials));
     }
@@ -82,7 +95,7 @@ public sealed class SceneModelShadingPolicyTests
             Assert.Same(toon, session.Frame.Materials[0].CharacterToonResponse);
             Assert.Same(outline, session.Frame.Materials[0].CharacterOutlineStyle);
             Assert.Null(session.Frame.Materials[1].CharacterOutlineStyle);
-            Assert.Equal(Assert.Single(raw.Materials) with { LightReceiverObjectId = room.Id }, session.Frame.Materials[1] with { GiToonResponseOverride = null, CharacterToonResponse = null, CharacterOutlineStyle = null });
+            Assert.Equal(Assert.Single(raw.Materials) with { LightReceiverObjectId = room.Id, UseMipmaps = true }, session.Frame.Materials[1] with { GiToonResponseOverride = null, CharacterToonResponse = null, CharacterOutlineStyle = null });
             Assert.Equal(Assert.Single(rest.Materials) with { LightReceiverObjectId = actor.Id }, session.Frame.Materials[0] with { GiToonResponseOverride = null, PreserveDirectLightPalette = false });
         }
         Check(); session.Advance(.5, Token); Check();
@@ -179,7 +192,7 @@ public sealed class SceneModelShadingPolicyTests
         Assert.Same(environment, SceneModelShadingPolicy.Apply(environment, ModelRole.Environment));
         Assert.Equal(Assert.Single(character.Materials) with { PreserveDirectLightPalette = false },
             Assert.Single(SceneModelShadingPolicy.Apply(character, ModelRole.Unspecified).Materials));
-        Assert.Equal(Assert.Single(character.Materials) with { PreserveDirectLightPalette = false },
+        Assert.Equal(Assert.Single(character.Materials) with { PreserveDirectLightPalette = false, UseMipmaps = true },
             Assert.Single(SceneModelShadingPolicy.Apply(character, ModelRole.Prop).Materials));
         Assert.Equal(new CharacterToonResponse(.6f, .2f), Assert.Single(character.Materials).CharacterToonResponse);
         Assert.Equal(new CharacterOutlineStyle(.25f), Assert.Single(character.Materials).CharacterOutlineStyle);
@@ -203,7 +216,9 @@ public sealed class SceneModelShadingPolicyTests
         Assert.Same(response, Assert.Single(character.Materials).CharacterToonResponse);
         Assert.Equal(RayGiToonResponse.PreservePaletteBands, Assert.Single(character.Materials).GiToonResponseOverride);
         Assert.Same(character, SceneModelShadingPolicy.Apply(character, ModelRole.Character));
-        Assert.Same(custom, SceneModelShadingPolicy.Apply(custom, ModelRole.Prop));
+        var prop = SceneModelShadingPolicy.Apply(custom, ModelRole.Prop);
+        Assert.Equal(Assert.Single(custom.Materials) with { UseMipmaps = true }, Assert.Single(prop.Materials));
+        Assert.Same(prop, SceneModelShadingPolicy.Apply(prop, ModelRole.Prop));
         Assert.Same(custom, SceneModelShadingPolicy.Apply(custom, ModelRole.Unspecified));
         var environment = SceneModelShadingPolicy.Apply(character, ModelRole.Environment);
         Assert.Null(Assert.Single(environment.Materials).CharacterOutlineStyle);
@@ -211,6 +226,31 @@ public sealed class SceneModelShadingPolicyTests
         Assert.Null(Assert.Single(SceneModelShadingPolicy.Apply(environment, ModelRole.Character).Materials).CharacterOutlineStyle);
         Assert.Equal(style, Assert.Single(custom.Materials).CharacterOutlineStyle);
         Assert.Same(response, Assert.Single(custom.Materials).CharacterToonResponse);
+    }
+
+    [Fact]
+    public void MipmapPolicyEnablesOnlyEnvironmentAndPropAndClearsOnCharacterOrUnspecified()
+    {
+        var source = EditedMotionProjectTests.Rest(EditedMotionProjectTests.Model());
+        Assert.False(Assert.Single(source.Materials).UseMipmaps);
+
+        var env = SceneModelShadingPolicy.Apply(source, new ModelPurpose(ModelRole.Environment));
+        var indoorEnv = SceneModelShadingPolicy.Apply(source, new ModelPurpose(ModelRole.Environment, true));
+        var prop = SceneModelShadingPolicy.Apply(source, new ModelPurpose(ModelRole.Prop));
+        var character = SceneModelShadingPolicy.Apply(source, new ModelPurpose(ModelRole.Character));
+        var unspecified = SceneModelShadingPolicy.Apply(source, new ModelPurpose(ModelRole.Unspecified));
+
+        Assert.True(Assert.Single(env.Materials).UseMipmaps);
+        Assert.True(Assert.Single(indoorEnv.Materials).UseMipmaps);
+        Assert.True(Assert.Single(prop.Materials).UseMipmaps);
+        Assert.False(Assert.Single(character.Materials).UseMipmaps);
+        Assert.False(Assert.Single(unspecified.Materials).UseMipmaps);
+
+        Assert.Same(env, SceneModelShadingPolicy.Apply(env, new ModelPurpose(ModelRole.Environment)));
+        Assert.Same(prop, SceneModelShadingPolicy.Apply(prop, new ModelPurpose(ModelRole.Prop)));
+        Assert.False(Assert.Single(SceneModelShadingPolicy.Apply(env, ModelRole.Character).Materials).UseMipmaps);
+        Assert.False(Assert.Single(SceneModelShadingPolicy.Apply(prop, ModelRole.Unspecified).Materials).UseMipmaps);
+        Assert.True(Assert.Single(SceneModelShadingPolicy.Apply(character, ModelRole.Prop).Materials).UseMipmaps);
     }
 
     [Fact]

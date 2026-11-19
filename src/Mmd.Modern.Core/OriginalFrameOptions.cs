@@ -35,6 +35,9 @@ public sealed record OriginalFrameMaterialFlags(bool CastSelfShadow,bool Receive
     /// <summary>Per-draw outline width multiplier. One preserves the selected outline inputs;
     /// zero disables this draw without changing shared vertex width selection or material eligibility.</summary>
     public float OutlineWidthScale { get; init; } = 1f;
+    /// <summary>Opt-in mipmap generation and sampling for diffuse Image textures used solely by
+    /// non-character surfaces (Environment or Prop). Defaults to false to keep character pixels exact.</summary>
+    public bool UseMipmaps { get; init; }
 }
 /// <summary>Explicit selected deformed model-position to light-clip transform (already includes frame World), size and filter.
 /// Renderer does not multiply World again. This is not a reconstruction of the original camera/warp builder.</summary>

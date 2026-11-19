@@ -54,7 +54,21 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
             var current = srvViews[slot];
             if (ReferenceEquals(current.Resource, resource) && current.ViewFormat == effectiveFormat && current.HeapGeneration == SrvGeneration)
                 return false;
-            device.CreateShaderResourceView(resource, null, Srv.GetCPUDescriptorHandleForHeapStart().Offset(slot, stride));
+            var resourceDesc = resource.Description;
+            ShaderResourceViewDescription? srv = resourceDesc.Dimension == ResourceDimension.Texture2D
+                ? new ShaderResourceViewDescription
+                {
+                    Format = effectiveFormat,
+                    ViewDimension = ShaderResourceViewDimension.Texture2D,
+                    Shader4ComponentMapping = ShaderComponentMapping.Default,
+                    Texture2D = new Texture2DShaderResourceView
+                    {
+                        MostDetailedMip = 0,
+                        MipLevels = resourceDesc.MipLevels,
+                    },
+                }
+                : null;
+            device.CreateShaderResourceView(resource, srv, Srv.GetCPUDescriptorHandleForHeapStart().Offset(slot, stride));
             srvViews[slot] = new(resource, effectiveFormat, SrvGeneration);
             return true;
         }
