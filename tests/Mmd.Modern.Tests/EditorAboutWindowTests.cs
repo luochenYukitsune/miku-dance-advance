@@ -22,7 +22,13 @@ public sealed class EditorAboutWindowTests : IAsyncDisposable
         string before = EditorLocalization.CurrentLanguage;
         EditorLocalization.SetLanguage("en");
         var owner = new Window { RequestedThemeVariant = ThemeVariant.Light }; owner.Show();
-        var window = new EditorAboutWindow(new("0.9.1-preview", "123456789abc", ".NET test runtime"), AppContext.BaseDirectory);
+        var opened = new List<string>();
+        bool failLaunch = false;
+        var window = new EditorAboutWindow(new("0.9.1-preview", "123456789abc", ".NET test runtime"), AppContext.BaseDirectory, path =>
+        {
+            if (failLaunch) throw new System.ComponentModel.Win32Exception("No browser configured");
+            opened.Add(path);
+        });
         try
         {
             Task result = window.ShowDialog(owner); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
@@ -31,12 +37,23 @@ public sealed class EditorAboutWindowTests : IAsyncDisposable
             Assert.Equal("Build: 123456789abc", window.FindControl<TextBlock>("AboutBuild")!.Text);
             Assert.Equal(".NET test runtime", window.FindControl<TextBlock>("AboutRuntime")!.Text);
             Assert.Contains("luochen Yukitsune", window.FindControl<TextBlock>("AboutAuthor")!.Text!);
+            Assert.Equal(EditorLocalization.Text("Mda.Text.About.SpecialThanks"), window.FindControl<TextBlock>("AboutSpecialThanks")!.Text);
+            var specialThanksLink = window.FindControl<Button>("AboutSpecialThanksLink")!;
+            Assert.Contains(EditorAboutWindow.SpecialThanksGitHubUrl, specialThanksLink.Content?.ToString() ?? "");
             Assert.True(window.FindControl<ScrollViewer>("AboutOverview")!.IsVisible);
             Assert.False(window.FindControl<Grid>("AboutLicensesPane")!.IsVisible);
+
+            specialThanksLink.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(new[] { EditorAboutWindow.SpecialThanksGitHubUrl }, opened);
+            failLaunch = true;
+            specialThanksLink.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            failLaunch = false;
 
             EditorLocalization.SetLanguage("ja"); Dispatcher.UIThread.RunJobs();
             Assert.Equal(EditorLocalization.Format("Mda.Text.About.Version", "0.9.1-preview"),
                 window.FindControl<TextBlock>("AboutVersion")!.Text);
+            Assert.Equal(EditorLocalization.Text("Mda.Text.About.SpecialThanks"),
+                window.FindControl<TextBlock>("AboutSpecialThanks")!.Text);
             if (escape) window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
             else window.FindControl<Button>("AboutOkButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await result;

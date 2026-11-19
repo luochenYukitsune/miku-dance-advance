@@ -122,6 +122,10 @@
           <TextBlock Name="AboutIntro" Text="{DynamicResource Mda.Text.About.Intro}" Margin="0,12,0,0" />
           <TextBlock Name="AboutAuthor" Margin="0,12,0,0" />
           <TextBlock Name="AboutCopyright" Text="{DynamicResource Mda.Text.About.Copyright}" />
+          <TextBlock Text="{DynamicResource Mda.Text.About.SpecialThanksTitle}" Classes="section" Margin="0,16,0,0" />
+          <TextBlock Name="AboutSpecialThanks" Text="{DynamicResource Mda.Text.About.SpecialThanks}" />
+          <Button Name="AboutSpecialThanksLink" Content="{DynamicResource Mda.Text.About.SpecialThanksGitHub}"
+                  HorizontalAlignment="Left" Margin="0,4,0,0" Classes="action" Click="OpenSpecialThanksGitHub" />
           <TextBlock Text="{DynamicResource Mda.Text.About.ReferencesTitle}" Classes="section" Margin="0,16,0,0" />
           <TextBlock Name="AboutReferences" Text="{DynamicResource Mda.Text.About.References}" />
           <TextBlock Name="AboutCompatStatus" Text="{DynamicResource Mda.Text.About.CompatStatus}" Classes="caption" Margin="0,4,0,0" />

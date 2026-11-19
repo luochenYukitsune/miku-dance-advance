@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-19T22:32:11.0224224Z",
+    "generatedAtUtc":  "2026-11-19T23:50:48.6047833Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -1698,8 +1698,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  9217,
-                      "sha256":  "239bcbbca8419a6441e145f8b7d51a375510001bed7f42d0cb72212ef88e6a23",
+                      "bytes":  9595,
+                      "sha256":  "035d07effa0e1af2be8f832c64b579f6d0a23975d969ed6e9cc7ead251fc4c1d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17349,8 +17349,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  9642,
-                      "sha256":  "9dc7cdeddeb138d4001ee8e5e6bd1b0e7fe7717f3af8d569542afd30133842a7",
+                      "bytes":  10697,
+                      "sha256":  "0ca3337f891ba4e504eab1fb807127277d1459f95d7e91e900a70140c875752b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -23583,16 +23583,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  129513,
-                                "sha256":  "fa70aebfaa71a7f2130bcb9cf91e3afcb95ce2ce633613180ad64b9fc2bdc5bc"
+                                "bytes":  129815,
+                                "sha256":  "fce032e67b15a29a2b9562dedda40c0f198339c6f8907d7d01b98c54d1d5e482"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  163683,
-                                "sha256":  "2b52b9f55966d30aa76ebf5acd29985b76f19db85dc701ff5554a0e7465fea50"
+                                "bytes":  164041,
+                                "sha256":  "9fa769aa0749294b7d93a4a3ed3d8c61bd481371e7f0ea29acff2f8ef13e2754"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
@@ -23615,16 +23615,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  125044,
-                                "sha256":  "9051e670a1cfe145478028a169b50bf803306f1b1a42617ec3c332b9c7cda437"
+                                "bytes":  125310,
+                                "sha256":  "116a887eb80e72da4dfc4edcab5626d7d52408798118ce6bbeecd2ff880e228c"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  14973,
-                                "sha256":  "c1b97a16e0dcd301562421f3079a97a0707671a1dbc7f96ccb1c0d6cb7e8f131"
+                                "bytes":  15421,
+                                "sha256":  "e96256dc2d7877e08559aca5669a88ffbc4a2ec57bfca2ad451a9009644e707c"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAnimationInspector.axaml",

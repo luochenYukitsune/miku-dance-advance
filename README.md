@@ -141,6 +141,12 @@ MDA 按职责划分为六个产品模块：
 
 ---
 
+## 特别鸣谢
+
+特别鸣谢浅忆QanYi（[LyaQanYi (浅忆QanYi)](https://github.com/LyaQanYi)）为本项目提供技术支持。
+
+---
+
 ## 许可证与版权信息
 
 MikuDance Advance 的代码、第三方库与创作素材分别适用以下权利与许可规则：
