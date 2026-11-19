@@ -28,6 +28,7 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
     {
         var factory = new BlockingPhysicsFactory(120);
         await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        harness.Shell.SkipPhysicsPreRollDuringScrub = false;
         harness.AddActorAndMotion(endFrame: 60, translationX: 18);
 
         InteractionDiagnostics.Start(new InteractionDiagnosticsOptions { Capacity = 4096 });
@@ -95,6 +96,7 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
     {
         var factory = new BlockingPhysicsFactory(16);
         await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        harness.Shell.SkipPhysicsPreRollDuringScrub = false;
         Guid actorId = harness.AddActorAndMotion(endFrame: 60, translationX: 10);
 
         // Create an undoable prior motion edit before starting the scrub sequence.
@@ -178,6 +180,7 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
     {
         var factory = new BlockingPhysicsFactory(16);
         await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        harness.Shell.SkipPhysicsPreRollDuringScrub = false;
         harness.AddActorAndMotion(endFrame: 60, translationX: 30);
 
         // 1. PlayCommand while scrub is pending synchronizes playhead to 18 and rejects stale worker.
@@ -226,6 +229,7 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
     {
         var factory = new BlockingPhysicsFactory(16);
         await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        harness.Shell.SkipPhysicsPreRollDuringScrub = false;
         harness.AddActorAndMotion(endFrame: 60, translationX: 12);
 
         // Workspace.New while worker is mid-prepare cancels pending work cleanly.
@@ -282,6 +286,259 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
         Assert.Equal(
             syncHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
             harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        return true;
+    }, Token);
+
+    [Fact]
+    public async Task DefaultScrubSkipsPhysicsPreRollDuringDragAndWarmsFullPoseOnEndScrub() => await session.Dispatch(async () =>
+    {
+        var factory = new BlockingPhysicsFactory(120);
+        await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        Assert.True(harness.Shell.SkipPhysicsPreRollDuringScrub);
+        Guid actorId = harness.AddActorAndMotion(endFrame: 60, translationX: 18);
+
+        // AddModel (0) + CommitMotion (1), both warmed with 120 steps.
+        Assert.Equal(2, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+
+        PressRuler(harness.Window, harness.Timeline, frame: 1);
+        for (int frame = 2; frame <= 15; frame++)
+            MoveRuler(harness.Window, harness.Timeline, frame);
+
+        Assert.True(harness.Shell.IsScrubbing);
+        Assert.False(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(15, harness.Shell.CurrentFrame);
+        Assert.Equal(15, harness.Shell.Workspace.Session!.CurrentFrame);
+        // Dragging must neither rebuild candidate worlds nor step physics warmup.
+        Assert.Equal(2, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+
+        var syncFactory = new BlockingPhysicsFactory(120);
+        await using var syncHarness = await CreateHarnessAsync(syncFactory.CreateProvider);
+        Guid syncActorId = syncHarness.AddActorAndMotion(endFrame: 60, translationX: 18);
+        syncHarness.Shell.Workspace.Session!.SeekWithoutPhysicsPreRoll(15, Token);
+        Assert.Equal(
+            syncHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+
+        static Matrix4x4 TailBone(SceneProjectSession s, Guid id)
+            => s.CaptureRenderSnapshot([new SceneObjectRenderRequest(id, boneIndices: [1])]).SceneInputs[id].BoneWorldMatrices[1];
+
+        Assert.Equal(2f, TailBone(harness.Shell.Workspace.Session, actorId).Translation.Y, precision: 4);
+
+        syncHarness.Shell.Workspace.Session.Seek(15, Token);
+        Assert.Equal(1f, TailBone(syncHarness.Shell.Workspace.Session, syncActorId).Translation.Y, precision: 4);
+        Assert.NotEqual(
+            TailBone(syncHarness.Shell.Workspace.Session, syncActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+
+        // Releasing the ruler triggers a full background 120-step warmup at frame 15.
+        factory.GateWorkerStep();
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 15);
+        await factory.WaitForWorkerEntryAsync(Token);
+        Assert.False(harness.Shell.IsScrubbing);
+        Assert.True(harness.Shell.HasPendingScrubSeek);
+
+        // Starting a second drag before the release warmup finishes cancels it and keeps dragging responsive.
+        PressRuler(harness.Window, harness.Timeline, frame: 16);
+        MoveRuler(harness.Window, harness.Timeline, frame: 20);
+        Assert.True(harness.Shell.IsScrubbing);
+        Assert.False(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(20, harness.Shell.Workspace.Session.CurrentFrame);
+        Assert.Equal(3, factory.Worlds.Count); // Cancelled release world (2) was the only extra world.
+
+        factory.OpenGate();
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 20);
+        await harness.WaitScrubSettledAsync();
+
+        var worlds = factory.Worlds.ToArray();
+        Assert.Equal(4, worlds.Length);
+        Assert.True(worlds[2].Disposed);
+        Assert.False(worlds[3].Disposed);
+        Assert.Equal(120, worlds[3].StepSeconds.Count);
+
+        syncHarness.Shell.Workspace.Session.Seek(20, Token);
+        Assert.Equal(
+            syncHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(syncHarness.Shell.Workspace.Session, syncActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+        return true;
+    }, Token);
+
+    [Fact]
+    public async Task InterruptingUnwarmedScrubWithPlayDraftUndoRedoAndSyncCompletesFullPhysicsPreRoll() => await session.Dispatch(async () =>
+    {
+        var factory = new BlockingPhysicsFactory(120);
+        await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        Guid actorId = harness.AddActorAndMotion(endFrame: 60, translationX: 30);
+
+        var referenceFactory = new BlockingPhysicsFactory(120);
+        await using var referenceHarness = await CreateHarnessAsync(referenceFactory.CreateProvider);
+        Guid refActorId = referenceHarness.AddActorAndMotion(endFrame: 60, translationX: 30);
+
+        static Matrix4x4 TailBone(SceneProjectSession s, Guid id)
+            => s.CaptureRenderSnapshot([new SceneObjectRenderRequest(id, boneIndices: [1])]).SceneInputs[id].BoneWorldMatrices[1];
+
+        // 1. PlayCommand during drag when session.CurrentFrame already equals CurrentFrame (18).
+        PressRuler(harness.Window, harness.Timeline, frame: 1);
+        MoveRuler(harness.Window, harness.Timeline, frame: 18);
+        Assert.Equal(18, harness.Shell.Workspace.Session!.CurrentFrame);
+        int worldsBeforePlay = factory.Worlds.Count;
+
+        harness.Shell.PlayCommand.Execute(null);
+        StopPlaybackTimer(harness.Shell);
+        Assert.True(harness.Shell.IsPlaying);
+        Assert.False(harness.Shell.IsScrubbing);
+        Assert.Equal(worldsBeforePlay + 1, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+
+        harness.Shell.Workspace.Session.Advance(1d / 60, Token);
+        referenceHarness.Shell.Workspace.Session!.Seek(18, Token);
+        referenceHarness.Shell.Workspace.Session.Advance(1d / 60, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 18);
+        await harness.WaitScrubSettledAsync();
+        harness.Shell.StopPlayback();
+
+        // 2. PoseDraftChanged during drag when session.CurrentFrame already equals CurrentFrame (12).
+        harness.Shell.Browser.SelectedBoneIndex = 0;
+        PressRuler(harness.Window, harness.Timeline, frame: 5);
+        MoveRuler(harness.Window, harness.Timeline, frame: 12);
+        Assert.Equal(12, harness.Shell.Workspace.Session.CurrentFrame);
+        int worldsBeforeDraft = factory.Worlds.Count;
+
+        harness.Shell.Animation.PositionX = 4m;
+        Assert.True(harness.Shell.Animation.HasAnyDraft);
+        Assert.False(harness.Shell.IsScrubbing);
+        Assert.Equal(worldsBeforeDraft + 1, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+        referenceHarness.Shell.Workspace.Session.Seek(12, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 12);
+        harness.Shell.Animation.InvalidateDrafts();
+
+        // 3. Lighting-only UndoCommand & RedoCommand during drag still warm physics at CurrentFrame.
+        var light = new NativeSceneLight(Guid.NewGuid(), "key", SceneLightKind.Point, Vector3.One, Quaternion.Identity, Vector3.One);
+        harness.Shell.Workspace.EditLighting(new(new SceneLightingSnapshot([light])));
+        PressRuler(harness.Window, harness.Timeline, frame: 4);
+        MoveRuler(harness.Window, harness.Timeline, frame: 20);
+        int worldsBeforeUndo = factory.Worlds.Count;
+
+        harness.Shell.UndoCommand.Execute(null);
+        Assert.Empty(harness.Shell.Workspace.Session.Lighting.Lights);
+        Assert.Equal(worldsBeforeUndo + 1, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+        referenceHarness.Shell.Workspace.Session.Seek(20, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 20);
+
+        PressRuler(harness.Window, harness.Timeline, frame: 6);
+        MoveRuler(harness.Window, harness.Timeline, frame: 24);
+        int worldsBeforeRedo = factory.Worlds.Count;
+        harness.Shell.RedoCommand.Execute(null);
+        Assert.Single(harness.Shell.Workspace.Session.Lighting.Lights);
+        Assert.Equal(worldsBeforeRedo + 1, factory.Worlds.Count);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+        referenceHarness.Shell.Workspace.Session.Seek(24, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 24);
+
+        // 4. SynchronizePendingScrub while EndScrub's background warmup is in-flight still completes Seek(22).
+        PressRuler(harness.Window, harness.Timeline, frame: 10);
+        MoveRuler(harness.Window, harness.Timeline, frame: 22);
+        factory.GateWorkerStep();
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 22);
+        await factory.WaitForWorkerEntryAsync(Token);
+        Assert.True(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(22, harness.Shell.Workspace.Session.CurrentFrame);
+
+        harness.Shell.SynchronizePendingScrub();
+        Assert.False(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+        referenceHarness.Shell.Workspace.Session.Seek(22, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+
+        factory.OpenGate();
+        await harness.WaitScrubSettledAsync();
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+
+        // 5. Explicit frame jump while EndScrub's background warmup is in-flight cancels it and seeks to 6.
+        PressRuler(harness.Window, harness.Timeline, frame: 8);
+        MoveRuler(harness.Window, harness.Timeline, frame: 26);
+        factory.GateWorkerStep();
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 26);
+        await factory.WaitForWorkerEntryAsync(Token);
+        harness.Shell.CurrentFrame = 6;
+        Assert.False(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(6, harness.Shell.Workspace.Session.CurrentFrame);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
+
+        factory.OpenGate();
+        await harness.WaitScrubSettledAsync();
+        referenceHarness.Shell.Workspace.Session.Seek(6, Token);
+        Assert.Equal(
+            referenceHarness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices,
+            harness.Shell.Workspace.Session.Frame.Surface.Snapshot.Vertices);
+        Assert.Equal(
+            TailBone(referenceHarness.Shell.Workspace.Session, refActorId),
+            TailBone(harness.Shell.Workspace.Session, actorId));
+        return true;
+    }, Token);
+
+    [Fact]
+    public async Task SkipPhysicsPreRollDuringScrubFalseKeepsFullPreRollDuringDrag() => await session.Dispatch(async () =>
+    {
+        var factory = new BlockingPhysicsFactory(120);
+        await using var harness = await CreateHarnessAsync(factory.CreateProvider);
+        harness.Shell.SkipPhysicsPreRollDuringScrub = false;
+        harness.AddActorAndMotion(endFrame: 60, translationX: 18);
+
+        factory.GateWorkerStep();
+        PressRuler(harness.Window, harness.Timeline, frame: 10);
+        await factory.WaitForWorkerEntryAsync(Token);
+        Assert.True(harness.Shell.IsScrubbing);
+        Assert.True(harness.Shell.HasPendingScrubSeek);
+        Assert.Equal(3, factory.Worlds.Count);
+
+        factory.OpenGate();
+        ReleaseRuler(harness.Window, harness.Timeline, frame: 10);
+        await harness.WaitScrubSettledAsync();
+        Assert.Equal(10, harness.Shell.Workspace.Session!.CurrentFrame);
+        Assert.Equal(120, factory.Worlds.Last().StepSeconds.Count);
         return true;
     }, Token);
 

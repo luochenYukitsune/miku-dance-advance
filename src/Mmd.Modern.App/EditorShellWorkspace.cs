@@ -105,8 +105,9 @@ public sealed partial class EditorShellViewModel : IDisposable
             if (Animation.HasAnyDraft)
             {
                 StopPlayback();
-                CancelPendingScrub();
-                if (Workspace.Session is { } session && session.CurrentFrame != CurrentFrame) session.Seek(CurrentFrame);
+                // Even if SeekWithoutPhysicsPreRoll already updated session.CurrentFrame, finalize physics warmup.
+                bool hadPending = scrubSeek.Cancel();
+                if (Workspace.Session is { } session && (hadPending || session.CurrentFrame != CurrentFrame)) session.Seek(CurrentFrame);
             }
             if (!refreshingFrame) ViewStateChanged?.Invoke(this, EventArgs.Empty);
         };
@@ -210,13 +211,20 @@ public sealed partial class EditorShellViewModel : IDisposable
 
     internal bool IsScrubbing => scrubSeek.IsScrubbing;
     internal bool HasPendingScrubSeek => scrubSeek.HasPendingSeek;
+    internal bool SkipPhysicsPreRollDuringScrub
+    {
+        get => scrubSeek.SkipPhysicsPreRollDuringScrub;
+        set => scrubSeek.SkipPhysicsPreRollDuringScrub = value;
+    }
     internal Task WaitForScrubIdleAsync() => scrubSeek.WaitForWorkerIdleAsync();
     internal void CancelPendingScrub() => scrubSeek.Cancel();
 
     internal void SynchronizePendingScrub()
     {
         bool hadPending = scrubSeek.Cancel();
-        if (hadPending && Workspace.Session is { } session && session.CurrentFrame != CurrentFrame)
+        // When scrub skipped physics pre-roll, session.CurrentFrame already equals CurrentFrame;
+        // still execute a full Seek so playback, edits, and Undo/Redo never observe un-warmed poses.
+        if (hadPending && Workspace.Session is { } session)
         {
             PlayheadDiscontinuity?.Invoke(this, EventArgs.Empty);
             session.Seek(CurrentFrame);

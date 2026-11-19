@@ -77,6 +77,33 @@ public sealed partial class SceneProjectSession
         => ReferenceEquals(session, this) && !disposed && !editing
             && ReferenceEquals(content, capturedContent) && stateEpoch == capturedStateEpoch;
 
+    /// <summary>True when Seek performs multi-substep physics warmup rather than an immediate in-place seek.</summary>
+    public bool RequiresPhysicsPreRoll
+    {
+        get
+        {
+            RequireAlive();
+            return physics.PoseInitializationSubsteps > 0;
+        }
+    }
+
+    /// <summary>Evaluates bones, IK, and morphs at an integer frame without running physics warmup
+    /// or rebuilding the solver graph. Callers must perform a full Seek before playback or settling.</summary>
+    public OriginalFrameScene SeekWithoutPhysicsPreRoll(double frame, CancellationToken cancellationToken = default)
+    {
+        RequireIdle();
+        ValidateSeekFrame(frame);
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            return animation.Seek(frame, cancellationToken);
+        }
+        finally
+        {
+            stateEpoch++;
+        }
+    }
+
     /// <summary>Captures immutable state on the owner thread for detached background Seek preparation.
     /// Returns null when PoseInitializationSubsteps is zero so callers retain in-place synchronous Seek.</summary>
     public SceneSeekRequest? TryCaptureSeekRequest(double frame)

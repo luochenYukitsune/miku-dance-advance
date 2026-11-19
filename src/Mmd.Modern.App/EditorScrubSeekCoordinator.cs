@@ -26,6 +26,7 @@ internal sealed class EditorScrubSeekCoordinator : IDisposable
     private SceneProjectSession? pendingSession;
     private int? pendingTargetFrame;
     private bool scrubInterrupted;
+    private bool physicsResetPending;
     private bool disposed;
 
     internal EditorScrubSeekCoordinator(
@@ -38,8 +39,10 @@ internal sealed class EditorScrubSeekCoordinator : IDisposable
         this.onFailed = onFailed ?? throw new ArgumentNullException(nameof(onFailed));
     }
 
+    public bool SkipPhysicsPreRollDuringScrub { get; set; } = true;
     internal bool IsScrubbing { get; private set; }
     internal bool HasPendingSeek { get; private set; }
+    internal bool HasPendingPhysicsReset => physicsResetPending;
     internal int? PendingTargetFrame => pendingTargetFrame;
     internal event EventHandler? SeekSettled;
 
@@ -66,12 +69,14 @@ internal sealed class EditorScrubSeekCoordinator : IDisposable
     {
         Dispatcher.UIThread.VerifyAccess();
         bool interrupted = scrubInterrupted;
+        bool needsPhysicsReset = physicsResetPending;
         scrubInterrupted = false;
         IsScrubbing = false;
+        physicsResetPending = false;
         if (disposed || session is null || interrupted) return;
         if (HasPendingSeek && ReferenceEquals(pendingSession, session) && pendingTargetFrame == targetFrame)
             return;
-        if (session.CurrentFrame != targetFrame)
+        if (needsPhysicsReset || session.CurrentFrame != targetFrame)
             RequestSeek(session, targetFrame);
     }
 
@@ -85,16 +90,33 @@ internal sealed class EditorScrubSeekCoordinator : IDisposable
         long inputSessionId = InteractionDiagnostics.SessionId;
         using var requestMeasure = InteractionDiagnostics.Measure("scrub.request", inputId, targetFrame);
 
+        if (IsScrubbing && SkipPhysicsPreRollDuringScrub && session.RequiresPhysicsPreRoll)
+        {
+            CancelPendingWork(preserveScrubbing: true);
+            using (InteractionDiagnostics.Measure("scrub.preview-no-preroll", inputId, targetFrame))
+                session.SeekWithoutPhysicsPreRoll(targetFrame);
+            physicsResetPending = true;
+            InteractionDiagnostics.RecordForSession(inputSessionId, "scrub.published-without-physics",
+                inputId, targetFrame);
+            onPublished(session);
+            SeekSettled?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         var request = session.TryCaptureSeekRequest(targetFrame);
         if (request is null)
         {
-            CancelPendingWork();
+            CancelPendingWork(preserveScrubbing: IsScrubbing);
+            physicsResetPending = false;
             session.Seek(targetFrame);
             onPublished(session);
             SeekSettled?.Invoke(this, EventArgs.Empty);
             return;
         }
 
+        // Clearing physicsResetPending here relies on HasPendingSeek staying true until publication,
+        // so an intervening Cancel() still reports pending work and forces a synchronous full Seek.
+        physicsResetPending = false;
         generation++;
         HasPendingSeek = true;
         pendingSession = session;
@@ -124,20 +146,24 @@ internal sealed class EditorScrubSeekCoordinator : IDisposable
         }
     }
 
-    /// <summary>Cancels any queued or in-flight background seek and invalidates late callbacks.
-    /// Returns true if a seek request was still pending publication.</summary>
+    /// <summary>Cancels any queued or in-flight background seek, invalidates late callbacks, and
+    /// clears un-warmed scrub state. Returns true if a seek or physics warmup was still pending.</summary>
     internal bool Cancel()
     {
         Dispatcher.UIThread.VerifyAccess();
         return CancelPendingWork();
     }
 
-    private bool CancelPendingWork()
+    private bool CancelPendingWork(bool preserveScrubbing = false)
     {
-        bool hadPending = HasPendingSeek;
-        if (IsScrubbing)
-            scrubInterrupted = true;
-        IsScrubbing = false;
+        bool hadPending = HasPendingSeek || physicsResetPending;
+        if (!preserveScrubbing)
+        {
+            if (IsScrubbing)
+                scrubInterrupted = true;
+            IsScrubbing = false;
+            physicsResetPending = false;
+        }
         HasPendingSeek = false;
         pendingSession = null;
         pendingTargetFrame = null;
