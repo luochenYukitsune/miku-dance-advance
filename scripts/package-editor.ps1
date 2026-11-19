@@ -102,6 +102,7 @@ $required = @('Mmd.Modern.App.exe', 'Mmd.Modern.App.dll', 'Mmd.Modern.App.deps.j
 foreach ($name in $required) {
     if (@(Find-PayloadFile $name).Count -eq 0) { throw "Not a complete win-x64 self-contained publish: missing $name" }
 }
+& (Join-Path $PSScriptRoot 'verify-bundled-plugins.ps1') -AppDirectory $published -SkipRuntimeLoad
 # These vendor DLLs use the dynamic VC runtime. The explicit DLL_LOAD_DIR loader policy
 # resolves dependencies beside each entry DLL; an installed developer runtime is not a
 # deployable prerequisite. Keep this check separate from the self-contained .NET check.

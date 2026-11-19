@@ -10,6 +10,8 @@ import subprocess
 
 CJK_RE = re.compile(r'[\u4e00-\u9fff]')
 TAG_VER_RE = re.compile(r'^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$')
+DIVIDER_LINE_RE = re.compile(r'^[-=_*]{3,}$')
+TRAILING_DIVIDER_RE = re.compile(r'[-=_*]{3,}\s*$')
 
 
 def git(*args: str, cwd: pathlib.Path) -> str:
@@ -86,24 +88,32 @@ def parse_commits(repo: pathlib.Path, rev_range: str) -> list[dict[str, object]]
             s = line.strip()
             if not s or s.lower().startswith('co-authored-by:') or s.lower().startswith('generated with'):
                 continue
+            if DIVIDER_LINE_RE.fullmatch(s):
+                continue
+            s = TRAILING_DIVIDER_RE.sub('', s).strip()
+            if not s:
+                continue
             if re.match(r'^en\s*[:：]\s*', s, re.IGNORECASE):
                 if cur:
-                    bullets.append(cur)
+                    bullets.append(TRAILING_DIVIDER_RE.sub('', cur).strip())
                     cur = None
                 en_explicit.append(re.sub(r'^en\s*[:：]\s*', '', s, flags=re.IGNORECASE).strip())
             elif re.match(r'^zh\s*[:：]\s*', s, re.IGNORECASE):
                 if cur:
-                    bullets.append(cur)
+                    bullets.append(TRAILING_DIVIDER_RE.sub('', cur).strip())
                     cur = None
                 zh_explicit.append(re.sub(r'^zh\s*[:：]\s*', '', s, flags=re.IGNORECASE).strip())
             elif s.startswith(('- ', '* ')):
                 if cur:
-                    bullets.append(cur)
+                    bullets.append(TRAILING_DIVIDER_RE.sub('', cur).strip())
                 cur = s[2:].strip()
             elif cur is not None:
                 cur += (' ' if not CJK_RE.search(cur[-1:] + s[:1]) else '') + s
         if cur:
-            bullets.append(cur)
+            cleaned = TRAILING_DIVIDER_RE.sub('', cur).strip()
+            if cleaned:
+                bullets.append(cleaned)
+        bullets = [b for b in bullets if b]
         commits.append({
             'sha': sha,
             'subject': subject,
@@ -115,18 +125,30 @@ def parse_commits(repo: pathlib.Path, rev_range: str) -> list[dict[str, object]]
 
 
 EN_PREFIX_MAP = [
-    ('界面：', 'UI update: '),
-    ('画风：', 'Rendering style update: '),
-    ('灯光：', 'Lighting update: '),
-    ('修复：', 'Bug fix: '),
-    ('重构：', 'Refactoring: '),
-    ('本地化：', 'Localization update: '),
-    ('文档：', 'Documentation update: '),
-    ('测试：', 'Test suite update: '),
-    ('性能：', 'Performance improvement: '),
-    ('CI：', 'CI / Release pipeline update: '),
+    ('画风插件化：', 'Stylized rendering plugins: '),
+    ('性能与交互：', 'Performance & interaction: '),
     ('Classic Toon：', 'Classic Toon update: '),
     ('Classic：', 'Classic engine update: '),
+    ('本地化：', 'Localization update: '),
+    ('工作流：', 'Workflow update: '),
+    ('界面：', 'UI update: '),
+    ('画风：', 'Rendering style update: '),
+    ('插件：', 'Plugin system update: '),
+    ('渲染：', 'Rendering update: '),
+    ('灯光：', 'Lighting update: '),
+    ('动画：', 'Animation update: '),
+    ('物理：', 'Physics update: '),
+    ('导出：', 'Export update: '),
+    ('基础：', 'Core infrastructure: '),
+    ('优化：', 'Optimization: '),
+    ('优化（', 'Optimization ('),
+    ('性能：', 'Performance improvement: '),
+    ('修复：', 'Bug fix: '),
+    ('重构：', 'Refactoring: '),
+    ('文档：', 'Documentation update: '),
+    ('测试：', 'Test suite update: '),
+    ('发布：', 'Release update: '),
+    ('CI：', 'CI / Release pipeline update: '),
 ]
 
 
@@ -222,7 +244,7 @@ def build_notes(version: str, prev_tag: str | None, commits: list[dict[str, obje
 
 {fmt_bullets(zh_items)}
 
-**下载软件**：选择下方 `{setup_name}`。安装包内置现代渲染引擎（含 FSR / XeSS / DLSS 超分运行库）与 FFmpeg／ffprobe，传统（Classic）渲染引擎可在安装向导中按需勾选。
+**下载软件**：选择下方 `{setup_name}`。安装包内置现代渲染引擎（含 4 套官方画风插件与 FSR / XeSS / DLSS 超分运行库）与 FFmpeg／ffprobe，传统（Classic）渲染引擎可在安装向导中按需勾选。
 
 超分功能能否实际启用由运行时的显卡与驱动决定。内置 FFmpeg 的上游支持基线为 Windows 10 22H2。
 
@@ -234,7 +256,7 @@ FFmpeg 对应源码与构建材料随本次发布一并提供，供自行构建�
 
 {fmt_bullets(en_items)}
 
-**Download** `{setup_name}` below. The installer bundles the Modern Direct3D 12 engine (including FSR / XeSS / DLSS upscaling runtimes) and FFmpeg/ffprobe; select the optional Classic engine during setup if needed.
+**Download** `{setup_name}` below. The installer bundles the Modern Direct3D 12 engine (including 4 official rendering style plugins and FSR / XeSS / DLSS upscaling runtimes) and FFmpeg/ffprobe; select the optional Classic engine during setup if needed.
 
 Actual upscaler availability depends on your GPU and driver at runtime. The bundled FFmpeg build's upstream Windows support baseline is Windows 10 22H2.
 

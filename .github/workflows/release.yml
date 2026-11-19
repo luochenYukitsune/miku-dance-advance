@@ -29,12 +29,22 @@ on:
         required: false
         type: string
         default: ''
+      skip_build_check:
+        description: 跳过同提交“构建与测试”通过校验（仅在文档提交或紧急发布时勾选）
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: mda-release
+  cancel-in-progress: false
 env:
   DOTNET_NOLOGO: '1'
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+  ModernCacheRoot: ${{ github.workspace }}/.modern
 jobs:
   lint:
     name: 发布前文案与标签检查
@@ -70,13 +80,36 @@ jobs:
             echo "::error::仓库里有疑似凭据的文本"; exit 1
           fi
 
+  verify-ci:
+    name: 校验同提交 CI（构建与测试）通过
+    needs: lint
+    if: ${{ github.event_name == 'push' || !inputs.skip_build_check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 等待或确认“构建与测试”通过
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/wait-build-for-release.py --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --timeout-minutes 35 --no-run-grace-seconds 120
+
   publish:
     name: 构建双引擎安装包并推送 GitHub Release
-    needs: lint
+    needs: [lint, verify-ci]
+    if: ${{ always() && needs.lint.result == 'success' && (needs.verify-ci.result == 'success' || needs.verify-ci.result == 'skipped') && !cancelled() }}
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ needs.lint.outputs.release_tag }}
@@ -102,7 +135,7 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
       - name: 编译现代引擎与内置 FFmpeg / DXC
         shell: pwsh
-        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build" -Version $env:RELEASE_VERSION -CommitSha $env:GITHUB_SHA
       - name: 加入 FSR / XeSS / DLSS 超分
         shell: pwsh
         run: ./scripts/ci-stage-upscalers.ps1 -PublishedDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-upscalers"
@@ -120,12 +153,13 @@ jobs:
             -InstallerOutputDirectory "${{ runner.temp }}/mda-installer" `
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-windows", "${{ runner.temp }}/mda-stage" -Recurse -Force -ErrorAction SilentlyContinue
-      - name: 实装验证简体中文与文件关联
+      - name: 实装验证简体中文、文件关联与画风插件
         shell: pwsh
         run: |
           ./scripts/ci-check-installer-associations.ps1 `
             -Installer "${{ runner.temp }}/mda-installer/MDA-$env:RELEASE_VERSION-win-x64-setup.exe" `
-            -WorkDirectory "${{ runner.temp }}/mda-associations"
+            -WorkDirectory "${{ runner.temp }}/mda-associations" `
+            -ExpectedVersion $env:RELEASE_VERSION
       - name: 汇总提交日志生成中英双语更新说明（中文在前）
         shell: pwsh
         run: |

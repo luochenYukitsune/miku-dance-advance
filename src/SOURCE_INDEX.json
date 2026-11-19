@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-19T09:38:15.4962874Z",
+    "generatedAtUtc":  "2026-11-19T17:38:11.5560580Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -73,7 +73,7 @@
                      "sourceProjectCount":  26,
                      "testProjectCount":  11,
                      "toolProjectCount":  3,
-                     "supportingFileCount":  208
+                     "supportingFileCount":  210
                  },
     "projects":  [
                      {
@@ -3830,8 +3830,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "project",
-                      "bytes":  7582,
-                      "sha256":  "e91882c51f628cd329d5078fbd3db53daf09dd83e6bbeb76d6817339e51c1e04",
+                      "bytes":  9638,
+                      "sha256":  "e494a1c242832726bb5d11246fbbc7490a350867ee4d16f0932185a3169c32ee",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -17851,8 +17851,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  8280,
-                      "sha256":  "9969a728b0cd71ab2a362296744140af214c332f57e69579dfa6e31268d07126",
+                      "bytes":  8508,
+                      "sha256":  "7945a02cfe49c29ed0320c0686bb8f69365e95eb27fe4d4075b4480dadc29f53",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -23141,8 +23141,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  36341,
-                                "sha256":  "47b654c6682df452c81a5262bbdaf05fc4f974ff48c420d8d9d9639f65f77d49"
+                                "bytes":  36440,
+                                "sha256":  "54cd917ef1555867415567e98dc11789a17b8f6dbabafb6542f84cefbbd23c41"
                             },
                             {
                                 "path":  "scripts/package-source.ps1",
@@ -23159,6 +23159,14 @@
                                 "productModule":  "GUI",
                                 "bytes":  67251,
                                 "sha256":  "ca7b3910b80f4cb38749a4521cbae0f8af71032793b957916e09abffd32de4df"
+                            },
+                            {
+                                "path":  "scripts/probes/EditorBundledPluginsProbe.cs",
+                                "project":  "Mmd.Modern.App",
+                                "role":  "verification-only",
+                                "productModule":  "GUI",
+                                "bytes":  5993,
+                                "sha256":  "949e138fdee5cefd84583f597a692cfccdea9a0cc1c6071100ee4bea1161d62f"
                             },
                             {
                                 "path":  "scripts/probes/EditorLoadingAnimationProbe.cs",
@@ -23325,8 +23333,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  15729,
-                                "sha256":  "1dc0a271b5c395d2c259b8fbf611a981c878f19bee9888a2594c116f424a7359"
+                                "bytes":  15750,
+                                "sha256":  "6491a33c380eedbf01f6a3a7be475a179c184e72cfc51640a61f4869e8aa00cc"
                             },
                             {
                                 "path":  "scripts/update-source-index.ps1",
@@ -23345,12 +23353,20 @@
                                 "sha256":  "238089b016eaa00ed25c9227e92629f9e7d6cc4a5e9e64d643edd25a5796e8c8"
                             },
                             {
+                                "path":  "scripts/verify-bundled-plugins.ps1",
+                                "project":  "Mmd.Modern.App",
+                                "role":  "verification-only",
+                                "productModule":  "GUI",
+                                "bytes":  8912,
+                                "sha256":  "4fc2112da6186bd787526fdca114d25524ffd14b3def0523d9297265080eb28f"
+                            },
+                            {
                                 "path":  "scripts/verify-editor-installation.ps1",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "verification-only",
                                 "productModule":  "GUI",
-                                "bytes":  47785,
-                                "sha256":  "04a92df992b50f8366d1d6bff6f05a397c8cfa8dd87ad6dcf4177152bd5a2de1"
+                                "bytes":  48592,
+                                "sha256":  "ef75cf583b7e922a6ca0e79db14be8651ddecea3e6a95c8d62c5b98f9c3e2361"
                             },
                             {
                                 "path":  "scripts/verify-editor-optional-runtimes.ps1",

@@ -229,7 +229,11 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
       - name: 编译 Windows x64 版（含原生物理库和固定版本 FFmpeg）
         shell: pwsh
-        run: ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build"
+        env:
+          RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
+        run: |
+          $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.2.0' }
+          ./scripts/ci-windows-build.ps1 -OutputDirectory "${{ runner.temp }}/mda-windows" -WorkDirectory "${{ runner.temp }}/mda-build" -Version $ver -CommitSha $env:GITHUB_SHA
       # FSR（AMD FidelityFX）、XeSS（Intel）、DLSS（NVIDIA）：固定版本、带厂商签名的运行库，
       # 外加在这里用 MSVC 现编的 MDA DLSS 桥接库。能否使用仍由用户的显卡决定。
       - name: 加入 FSR / XeSS / DLSS 超分
@@ -251,7 +255,7 @@ jobs:
         env:
           RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
         run: |
-          $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.1.30.0' }
+          $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.2.0' }
           ./scripts/ci-package-installer.ps1 `
             -PublishedDirectory "${{ runner.temp }}/mda-windows" `
             -Version $ver `
@@ -260,12 +264,16 @@ jobs:
             -NugetPackages "${{ github.workspace }}/.nuget/packages"
           Remove-Item -LiteralPath "${{ runner.temp }}/mda-stage-check" -Recurse -Force -ErrorAction SilentlyContinue
           "setup=$env:RUNNER_TEMP/mda-installer-out/MDA-$ver-win-x64-setup.exe" >> $env:GITHUB_OUTPUT
-      - name: 实装验证简体中文与文件关联
+      - name: 实装验证简体中文、文件关联与画风插件
         shell: pwsh
+        env:
+          RESOLVED_VERSION: ${{ needs.lint.outputs.release_version }}
         run: |
+          $ver = if ($env:RESOLVED_VERSION) { $env:RESOLVED_VERSION } else { '0.2.0' }
           ./scripts/ci-check-installer-associations.ps1 `
             -Installer "${{ steps.installer.outputs.setup }}" `
-            -WorkDirectory "${{ runner.temp }}/mda-associations"
+            -WorkDirectory "${{ runner.temp }}/mda-associations" `
+            -ExpectedVersion $ver
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' && inputs.publish_release
         with:
