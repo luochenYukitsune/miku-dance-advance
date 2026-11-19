@@ -1,5 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/Branding/mda.ico</ApplicationIcon></PropertyGroup>
+  <PropertyGroup Condition="'$(MdaAppVersion)' != ''">
+    <Version>$(MdaAppVersion)</Version>
+    <AssemblyVersion>$(MdaAppVersion)</AssemblyVersion>
+    <FileVersion>$(MdaAppVersion)</FileVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MdaAppInformationalVersion)' != ''">
+    <InformationalVersion>$(MdaAppInformationalVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
   <ItemGroup>
     <RuntimeHostConfigurationOption Include="Mmd.Modern.Application.ExperimentalPhysicalPreviewLeaves" Value="false" />
     <ProjectReference Include="../Mmd.Modern.Core/Mmd.Modern.Core.csproj" />
@@ -56,23 +65,26 @@
              Projects="@(_BundledStylePluginToRestore)"
              Targets="Restore"
              Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot);RestoreLockedMode=$(_PluginRestoreLockedMode)"
-             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir;MdaAppVersion;MdaAppInformationalVersion;Version;AssemblyVersion;FileVersion;InformationalVersion;VersionPrefix;VersionSuffix;SourceRevisionId"
              BuildInParallel="false" />
     <MSBuild Projects="@(_BundledStylePlugin)"
              Targets="Build"
              Properties="Configuration=$(Configuration);Platform=$(Platform);ModernCacheRoot=$(_PluginCacheRoot)"
-             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir"
+             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishDir;OutDir;OutputPath;TargetDir;MdaAppVersion;MdaAppInformationalVersion;Version;AssemblyVersion;FileVersion;InformationalVersion;VersionPrefix;VersionSuffix;SourceRevisionId"
              BuildInParallel="false" />
   </Target>
   <Target Name="StageBundledStylePlugins"
           AfterTargets="Build"
           DependsOnTargets="_BuildBundledStylePlugins"
           Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_StageTargetDir>$([MSBuild]::EnsureTrailingSlash('$(TargetDir)'))</_StageTargetDir>
+    </PropertyGroup>
     <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
-          DestinationFolder="$(TargetDir)plugins/%(_BundledStylePlugin.PluginId)"
+          DestinationFolder="$(_StageTargetDir)plugins/%(_BundledStylePlugin.PluginId)"
           SkipUnchangedFiles="true" />
     <ItemGroup>
-      <_StrayBuiltPluginFiles Include="$(TargetDir)plugins/*/*.pdb;$(TargetDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+      <_StrayBuiltPluginFiles Include="$(_StageTargetDir)plugins/*/*.pdb;$(_StageTargetDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
     </ItemGroup>
     <Delete Files="@(_StrayBuiltPluginFiles)" />
   </Target>
@@ -80,12 +92,23 @@
           AfterTargets="Publish"
           DependsOnTargets="_BuildBundledStylePlugins"
           Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != ''">
+    <PropertyGroup>
+      <_StagePublishDir>$([MSBuild]::EnsureTrailingSlash('$(PublishDir)'))</_StagePublishDir>
+    </PropertyGroup>
     <Copy SourceFiles="$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).dll;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/%(_BundledStylePlugin.ProjectName).deps.json;$(_PluginCacheRoot)/bin/%(_BundledStylePlugin.ProjectName)/$(_PluginPlatformSegment)$(Configuration)/$(TargetFramework)/mda-plugin.json"
-          DestinationFolder="$(PublishDir)plugins/%(_BundledStylePlugin.PluginId)"
+          DestinationFolder="$(_StagePublishDir)plugins/%(_BundledStylePlugin.PluginId)"
           SkipUnchangedFiles="true" />
     <ItemGroup>
-      <_StrayPublishedPluginFiles Include="$(PublishDir)plugins/*/*.pdb;$(PublishDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
+      <_StrayPublishedPluginFiles Include="$(_StagePublishDir)plugins/*/*.pdb;$(_StagePublishDir)plugins/*/Mmd.Modern.Plugins.Contracts.dll" />
     </ItemGroup>
     <Delete Files="@(_StrayPublishedPluginFiles)" />
+    <Error Condition="!Exists('$(_StagePublishDir)plugins/%(_BundledStylePlugin.PluginId)/%(_BundledStylePlugin.ProjectName).dll')"
+           Text="Bundled style plugin assembly missing after publish staging: %(_BundledStylePlugin.PluginId)/%(_BundledStylePlugin.ProjectName).dll" />
+    <Error Condition="!Exists('$(_StagePublishDir)plugins/%(_BundledStylePlugin.PluginId)/%(_BundledStylePlugin.ProjectName).deps.json')"
+           Text="Bundled style plugin deps.json missing after publish staging: %(_BundledStylePlugin.PluginId)/%(_BundledStylePlugin.ProjectName).deps.json" />
+    <Error Condition="!Exists('$(_StagePublishDir)plugins/%(_BundledStylePlugin.PluginId)/mda-plugin.json')"
+           Text="Bundled style plugin manifest missing after publish staging: %(_BundledStylePlugin.PluginId)/mda-plugin.json" />
+    <Error Condition="Exists('$(_StagePublishDir)plugins/%(_BundledStylePlugin.PluginId)/Mmd.Modern.Plugins.Contracts.dll')"
+           Text="Private copy of Mmd.Modern.Plugins.Contracts.dll must not be staged inside plugin %(_BundledStylePlugin.PluginId)." />
   </Target>
 </Project>

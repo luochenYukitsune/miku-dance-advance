@@ -1,5 +1,5 @@
-# Run on the disposable Windows packaging runner, using the setup just built.
-param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$WorkDirectory)
+﻿# Run on the disposable Windows packaging runner, using the setup just built.
+param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$WorkDirectory, [string]$ExpectedVersion = '')
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw '文件关联安装测试需要 GitHub 托管的临时 Windows 运行器。'
@@ -61,6 +61,7 @@ if (-not (Select-String -LiteralPath $inf -Pattern '^Lang=chinesesimplified$' -Q
 
 $editor = Join-Path $app 'Mmd.Modern.App.exe'
 if (-not (Test-Path -LiteralPath $editor -PathType Leaf)) { throw "缺少已安装的编辑器：$editor" }
+& (Join-Path $PSScriptRoot 'verify-bundled-plugins.ps1') -AppDirectory $app -WorkDirectory (Join-Path $work 'plugin-probe') -ExpectedVersion $ExpectedVersion
 foreach ($ext in '.pma', '.pmc') {
     # ASSOCSTR_COMMAND (1) and ASSOCSTR_EXECUTABLE (2) for the effective Shell open verb.
     $command = Get-ShellOpenValue $ext 1

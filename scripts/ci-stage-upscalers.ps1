@@ -60,8 +60,22 @@ try { $vc = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../tools/upscali
 if (-not $vc) { throw 'tools/upscaling/manifest.json 缺少 vcRuntime 下载信息。' }
 $redist = Join-Path $work 'vc-redist.vsix'
 $license = Join-Path $work 'Visual-C-V14-Runtime-2026-License.docx'
-Invoke-WebRequest -Uri $vc.redistUrl -OutFile $redist -UseBasicParsing
-Invoke-WebRequest -Uri $vc.licenseUrl -OutFile $license -UseBasicParsing
+foreach ($download in @(
+    @{ Url = $vc.redistUrl; Out = $redist; Label = 'VC 运行库压缩包' },
+    @{ Url = $vc.licenseUrl; Out = $license; Label = 'VC 运行库许可证' }
+)) {
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $download.Url -OutFile $download.Out -UseBasicParsing
+            break
+        } catch {
+            Remove-Item -LiteralPath $download.Out -Force -ErrorAction SilentlyContinue
+            if ($attempt -ge 3) { throw }
+            Write-Warning "下载$($download.Label)失败（第 $attempt 次），$(5 * $attempt) 秒后重试：$($_.Exception.Message)"
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
+}
 if ((Get-FileHash -LiteralPath $redist -Algorithm SHA256).Hash -ine $vc.redistSha256) { throw 'VC 运行库压缩包哈希不符。' }
 if ((Get-FileHash -LiteralPath $license -Algorithm SHA256).Hash -ine $vc.licenseSha256) { throw 'VC 运行库许可证哈希不符。' }
 if ($Providers.Count -eq 3) {

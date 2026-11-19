@@ -361,7 +361,19 @@ function Assert-InstalledPayload([string]$ExpectedVersion, [bool]$ClassicSelecte
         'Mmd.Modern.App.deps.json', 'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll',
         'Mmd.Modern.Rendering.D3D12.dll', 'Mmd.Modern.ViewOutput.D3D12.dll', 'mmd_bullet.dll', 'mmd_bullet_soft.dll',
         'mmd_mikktspace.dll', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', 'av_libglesv2.dll',
-        'tools/dxc/dxc.exe', 'tools/dxc/dxcompiler.dll', 'tools/ffmpeg/ffmpeg.exe', 'tools/ffmpeg/ffprobe.exe') {
+        'tools/dxc/dxc.exe', 'tools/dxc/dxcompiler.dll', 'tools/ffmpeg/ffmpeg.exe', 'tools/ffmpeg/ffprobe.exe',
+        'plugins/mda.style.genshin/Mda.StylePlugin.Genshin.dll',
+        'plugins/mda.style.genshin/Mda.StylePlugin.Genshin.deps.json',
+        'plugins/mda.style.genshin/mda-plugin.json',
+        'plugins/mda.style.star-rail/Mda.StylePlugin.StarRail.dll',
+        'plugins/mda.style.star-rail/Mda.StylePlugin.StarRail.deps.json',
+        'plugins/mda.style.star-rail/mda-plugin.json',
+        'plugins/mda.style.wuthering-waves/Mda.StylePlugin.WutheringWaves.dll',
+        'plugins/mda.style.wuthering-waves/Mda.StylePlugin.WutheringWaves.deps.json',
+        'plugins/mda.style.wuthering-waves/mda-plugin.json',
+        'plugins/mda.style.endfield/Mda.StylePlugin.Endfield.dll',
+        'plugins/mda.style.endfield/Mda.StylePlugin.Endfield.deps.json',
+        'plugins/mda.style.endfield/mda-plugin.json') {
         if (-not $taskInstalledSeen.ContainsKey([IO.Path]::GetFullPath((Join-Path $taskInstall $taskRequired)))) {
             throw "Required installed file is not manifest-bound: $taskRequired"
         }

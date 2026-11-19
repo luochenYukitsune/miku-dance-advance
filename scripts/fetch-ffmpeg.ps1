@@ -8,13 +8,22 @@ New-Item -ItemType Directory -Path $root | Out-Null
 $archive = Join-Path $root 'ffmpeg.zip'
 $urls = @($pin.assetUrl)
 if ($pin.PSObject.Properties.Name -contains 'fallbackAssetUrl') { $urls += $pin.fallbackAssetUrl }
-for ($index = 0; $index -lt $urls.Count; $index++) {
-    try {
-        Invoke-WebRequest -Uri $urls[$index] -OutFile $archive -UseBasicParsing
-        break
-    } catch {
-        if ($index -eq $urls.Count - 1) { throw }
-        Write-Warning 'FFmpeg mirror unavailable; trying the pinned upstream archive.'
+$downloaded = $false
+for ($index = 0; $index -lt $urls.Count -and -not $downloaded; $index++) {
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $urls[$index] -OutFile $archive -UseBasicParsing
+            $downloaded = $true
+            break
+        } catch {
+            Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+            if ($attempt -lt 2) {
+                Start-Sleep -Seconds (5 * $attempt)
+                continue
+            }
+            if ($index -eq $urls.Count - 1) { throw }
+            Write-Warning 'FFmpeg mirror unavailable; trying the pinned upstream archive.'
+        }
     }
 }
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $pin.assetSha256) { throw 'FFmpeg download SHA256 mismatch.' }

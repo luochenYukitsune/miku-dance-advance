@@ -46,6 +46,8 @@ foreach ($rel in $requiredRootFiles) {
     }
 }
 
+& (Join-Path $PSScriptRoot 'verify-bundled-plugins.ps1') -AppDirectory $published -SkipRuntimeLoad
+
 # CI 机器装有 VC 运行库，CPU 也和用户不同；在这里拦下用户电脑上加载不了的原生库。
 python -m pip install --disable-pip-version-check capstone==5.0.6
 if ($LASTEXITCODE) { throw 'capstone 安装失败。' }
@@ -170,6 +172,7 @@ Write-JsonUtf8 ([ordered]@{
     ffmpegLicense = 'GPL-3.0-or-later'
     classicComponentIncluded = $true
     classicProductionReady = $true
+    bundledStylePlugins = @('mda.style.genshin', 'mda.style.star-rail', 'mda.style.wuthering-waves', 'mda.style.endfield')
     excludedDevelopmentFiles = @($excluded)
     files = $stagedFiles
 }) (Join-Path $payload 'package-manifest.json')

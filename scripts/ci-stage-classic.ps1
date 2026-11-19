@@ -53,7 +53,17 @@ if (-not $zig) {
 }
 if (-not $zig) {
     $zigZip = Join-Path $work 'zig-0.16.0.zip'
-    Invoke-WebRequest -Uri 'https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip' -OutFile $zigZip -UseBasicParsing
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri 'https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip' -OutFile $zigZip -UseBasicParsing
+            break
+        } catch {
+            Remove-Item -LiteralPath $zigZip -Force -ErrorAction SilentlyContinue
+            if ($attempt -ge 3) { throw }
+            Write-Warning "下载 Zig 0.16.0 失败（第 $attempt 次），$(5 * $attempt) 秒后重试：$($_.Exception.Message)"
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
     Expand-Archive -LiteralPath $zigZip -DestinationPath (Join-Path $work 'zig-dist')
     $downloadedZig = Get-ChildItem -LiteralPath (Join-Path $work 'zig-dist') -Recurse -Filter 'zig.exe' | Select-Object -First 1
     if (-not $downloadedZig -or (Get-FileHash -LiteralPath $downloadedZig.FullName -Algorithm SHA256).Hash -ine $expectedZigHash) {
@@ -158,7 +168,17 @@ if ($LASTEXITCODE -ne 0 -or $nativeHash -notmatch '^[0-9a-f]{64}$') {
 $dxZip = Join-Path $work 'dxsdk-d3dx.zip'
 $dxUrl = 'https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/9.29.952.8/microsoft.dxsdk.d3dx.9.29.952.8.nupkg'
 $expectedDxPkgHash = 'ead0906ae8a26c18a7525da7490127a2110f7c58f18293738283e30e97c6ea4b'
-Invoke-WebRequest -Uri $dxUrl -OutFile $dxZip -UseBasicParsing
+for ($attempt = 1; ; $attempt++) {
+    try {
+        Invoke-WebRequest -Uri $dxUrl -OutFile $dxZip -UseBasicParsing
+        break
+    } catch {
+        Remove-Item -LiteralPath $dxZip -Force -ErrorAction SilentlyContinue
+        if ($attempt -ge 3) { throw }
+        Write-Warning "下载 Microsoft.DXSDK.D3DX 失败（第 $attempt 次），$(5 * $attempt) 秒后重试：$($_.Exception.Message)"
+        Start-Sleep -Seconds (5 * $attempt)
+    }
+}
 if ((Get-FileHash -LiteralPath $dxZip -Algorithm SHA256).Hash -ine $expectedDxPkgHash) {
     throw 'Microsoft.DXSDK.D3DX 9.29.952.8 NuGet 包哈希校验失败。'
 }
