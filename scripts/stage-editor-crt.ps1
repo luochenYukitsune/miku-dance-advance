@@ -200,7 +200,7 @@ try {
         Write-NewBytes $temporaryFile $runtimeFile.Content
         $temporaryFiles.Add($temporaryFile)
         $signature = Get-AuthenticodeSignature -LiteralPath $temporaryFile
-        $knownPublisherNames = @('Microsoft Corporation', 'Microsoft Windows Software Compatibility Publisher')
+        $knownPublisherNames = @('Microsoft Corporation', 'Microsoft Windows', 'Microsoft Windows Software Compatibility Publisher')
         if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
             $knownPublisherNames -cnotcontains $signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -or
             $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(?=,|$)') {

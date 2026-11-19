@@ -40,13 +40,16 @@ public sealed class EditorPluginTests : IAsyncDisposable
                 Assert.False(File.Exists(Path.Combine(directory, "plugins", "probe", "constructed.txt")));
                 Click(Find<Button>(window, "EnablePluginButton"));
                 await UntilAsync(() => service.Manager.Plugins.Single().State == PluginState.Active
-                    && File.Exists(Path.Combine(directory, "enabled.json")));
+                    && File.Exists(Path.Combine(directory, "enabled.json"))
+                    && Find<Button>(window, "ClosePluginsButton").IsEnabled);
                 Assert.Single(service.Commands);
                 Click(Find<Button>(window, "RunPluginCommandButton"));
-                await UntilAsync(() => Find<TextBlock>(window, "PluginOperationResult").Text?.Contains("privateSameContext=True", StringComparison.Ordinal) == true);
+                await UntilAsync(() => Find<TextBlock>(window, "PluginOperationResult").Text?.Contains("privateSameContext=True", StringComparison.Ordinal) == true
+                    && Find<Button>(window, "ClosePluginsButton").IsEnabled);
                 SaveScreenshot(window, Path.Combine(directory, "plugin-manager.png"));
                 Click(Find<Button>(window, "DisablePluginButton"));
-                await UntilAsync(() => service.Manager.Plugins.Single().State == PluginState.Disabled);
+                await UntilAsync(() => service.Manager.Plugins.Single().State == PluginState.Disabled
+                    && Find<Button>(window, "ClosePluginsButton").IsEnabled);
                 Assert.Empty(service.Commands);
                 using var preferences = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(directory, "enabled.json")));
                 Assert.Empty(preferences.RootElement.GetProperty("enabled").EnumerateArray());
