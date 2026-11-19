@@ -714,4 +714,76 @@ public sealed class D3D12GpuSkinningAcceptanceTests(ITestOutputHelper output)
         Assert.False(project.Frame.Surface.Snapshot.IsDeferredDeformationMaterialized);
         Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
     }
+
+    [Fact]
+    public void MultiFrameSlotReuseUpdatesOriginalAndModernOutlinesMatchingCpuReference()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (pmx, vmd, surface, outline) = BuildFixturePmxScene(includeSoftBody: false);
+        var obj = new EditableSceneObject(Guid.NewGuid(), "outline-slots", "outline-slots", ModelRole.Character,
+            new(surface, outline, new(new(0, 2, 0, 1), Matrix4x4.Identity, surface.Snapshot.Camera.Eye, 30f, 1.0f)),
+            Vector3.Zero, Quaternion.Identity, 1f);
+        SceneActorMotion motion = new(obj.Id, pmx, vmd, PhysicsEnabled: false);
+
+        using var cpuAnim = new SceneAnimationSession([obj], [motion],
+            _ => new BulletCharacterPhysicsBackend(new(0, -9.8f, 0), null), cancellationToken: ct);
+        cpuAnim.DeferVertexSkinningToRenderer = false;
+
+        using var gpuAnim = new SceneAnimationSession([obj], [motion],
+            _ => new BulletCharacterPhysicsBackend(new(0, -9.8f, 0), null), cancellationToken: ct);
+        gpuAnim.DeferVertexSkinningToRenderer = true;
+
+        OriginalFrameScene Wrap(OriginalFrameScene src) => new(
+            src.Surface,
+            src.Outline,
+            new(new(0, 2, 0, 1), Matrix4x4.Identity, src.Surface.Snapshot.Camera.Eye, 30f, 1.25f),
+            new(OriginalAlphaBlendMode.Normal, true, false, EnableFrustumCulling: true),
+            [
+                new OriginalFrameMaterialFlags(true, false, false) { OutlineWidthScale = 1.5f },
+                new OriginalFrameMaterialFlags(true, false, false) { CharacterOutlineStyle = new(0.9f, new(0.15f, 0.2f, 0.9f, 1f)), OutlineWidthScale = 1.25f },
+            ]);
+
+        long matBefore = SceneDeformation.CpuMaterializations;
+        using var cpuSession = new D3D12FrameSession();
+        using var gpuSession = new D3D12FrameSession();
+
+        // Warm all 3 ring slots with frame 0, then verify an unchanged 4th capture reuses outlines without extra dispatch.
+        var f0Gpu = Wrap(gpuAnim.Seek(0, ct));
+        long dispatchesAfterWarm = 0;
+        for (int s = 0; s < 3; s++)
+        {
+            _ = gpuSession.Capture(f0Gpu, 160, 120);
+            dispatchesAfterWarm = gpuSession.GpuSkinningStatistics!.OutlineDispatches;
+        }
+        _ = gpuSession.Capture(f0Gpu, 160, 120);
+        Assert.Equal(dispatchesAfterWarm, gpuSession.GpuSkinningStatistics!.OutlineDispatches);
+
+        // Advance across 6 distinct animated poses cycling through slots twice: both Original and Modern outlines
+        // must re-dispatch when their slot's skinned VB updates, matching CPU-skinned frames pixel-for-pixel.
+        double[] frames = [5, 10, 15, 20, 25, 30];
+        foreach (double f in frames)
+        {
+            var gpuScene = Wrap(gpuAnim.Seek(f, ct));
+            var cpuScene = Wrap(cpuAnim.Seek(f, ct));
+            Assert.True(gpuScene.Surface.Snapshot.HasDeferredDeformation);
+
+            long prevOutline = gpuSession.GpuSkinningStatistics!.OutlineDispatches;
+            var gpuImg = gpuSession.Capture(gpuScene, 160, 120);
+            long currOutline = gpuSession.GpuSkinningStatistics!.OutlineDispatches;
+            Assert.True(currOutline >= prevOutline + 2,
+                $"Frame {f}: expected both Original and Modern outlines to re-dispatch across slot reuse (prev={prevOutline}, curr={currOutline}).");
+
+            var cpuImg = cpuSession.Capture(cpuScene, 160, 120);
+            int maxDiff = 0;
+            for (int i = 0; i < cpuImg.Rgba.Length; i++)
+            {
+                int d = Math.Abs(cpuImg.Rgba[i] - gpuImg.Rgba[i]);
+                if (d > maxDiff) maxDiff = d;
+            }
+            output.WriteLine($"Multi-frame slot reuse frame={f}: outlineDispatches={currOutline}, maxDiff={maxDiff}");
+            Assert.True(maxDiff <= 2, $"Frame {f}: outline slot reuse pixel maxDiff {maxDiff} > 2.");
+        }
+
+        Assert.Equal(matBefore, SceneDeformation.CpuMaterializations);
+    }
 }

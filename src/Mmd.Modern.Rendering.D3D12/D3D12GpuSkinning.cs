@@ -98,17 +98,19 @@ internal sealed class D3D12GpuSkinning : IDisposable
         public void Dispose() => TriangleMaterials.Dispose();
     }
 
-    private sealed class SkinSlotRecord(ID3D12Resource buffer, (int Start, int Count, SceneDeformation Deformation, Matrix4x4 World)[] ranges)
+    private sealed class SkinSlotRecord(ID3D12Resource buffer, (int Start, int Count, SceneDeformation Deformation, Matrix4x4 World)[] ranges, ulong version)
     {
         internal ID3D12Resource Buffer { get; } = buffer;
         internal (int Start, int Count, SceneDeformation Deformation, Matrix4x4 World)[] Ranges { get; } = ranges;
+        internal ulong Version { get; } = version;
     }
 
     private sealed class OutlineSlotState
     {
         internal ID3D12Resource? SurfaceBuffer;
         internal SceneVertexRevision? StaticOutlineRevision;
-        internal (int Start, int Count)[]? Ranges;
+        internal ulong? SkinVersion;
+        internal (int Start, int Count, SceneDeformation Deformation, Matrix4x4 World)[]? Deformations;
         internal int ModelBaseBits;
         internal int[]? WidthBits;
         internal bool HasAdditionalUv;
@@ -159,6 +161,7 @@ internal sealed class D3D12GpuSkinning : IDisposable
 
     private long skinDispatches, skippedSkinRanges, outlineDispatches, rayGiTriangleDispatches;
     private long dynamicUploadBytes, staticUploadBytes;
+    private ulong nextSkinVersion;
     private bool disposed;
 
     internal D3D12GpuSkinning(D3D12GpuRuntime runtime, D3D12GpuCache cache)
@@ -292,10 +295,20 @@ internal sealed class D3D12GpuSkinning : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         if (!runtime.IsRecording) throw new InvalidOperationException("GPU skinning requires an open GPU recording.");
         var ranges = scene.DeformationRanges;
-        if (ranges.Count == 0) return;
-
         int slot = runtime.SlotIndex;
         var prior = skinSlots[slot];
+        if (ranges.Count == 0)
+        {
+            if (staticCopiedOrReplaced && prior is not null)
+            {
+                skinSlots[slot] = null;
+                runtime.OnAbort(() =>
+                {
+                    if (skinSlots[slot] is null) skinSlots[slot] = prior;
+                });
+            }
+            return;
+        }
         bool canComparePrior = !staticCopiedOrReplaced && prior is not null && ReferenceEquals(prior.Buffer, vb)
             && prior.Ranges.Length == ranges.Count;
 
@@ -393,7 +406,7 @@ internal sealed class D3D12GpuSkinning : IDisposable
         for (int i = 0; i < ranges.Count; i++)
             nextRecords[i] = (ranges[i].Start, ranges[i].Count, ranges[i].Deformation, ranges[i].World);
 
-        var nextSlot = new SkinSlotRecord(vb, nextRecords);
+        var nextSlot = new SkinSlotRecord(vb, nextRecords, ++nextSkinVersion);
         skinSlots[slot] = nextSlot;
         runtime.OnAbort(() =>
         {
@@ -435,12 +448,15 @@ internal sealed class D3D12GpuSkinning : IDisposable
         var slots = modern ? modernOutlineSlots : originalOutlineSlots;
         int slot = runtime.SlotIndex;
         var prior = streamPrefix is null ? slots[slot] : null;
+        ulong? currentSkinVersion = skinSlots[slot] is { } sr && ReferenceEquals(sr.Buffer, vb) ? sr.Version : null;
 
         if (prior is not null
             && ReferenceEquals(prior.SurfaceBuffer, vb)
             && ReferenceEquals(prior.StaticOutlineRevision, staticRevision)
+            && prior.SkinVersion == currentSkinVersion
+            && (scene.DeformationRanges.Count == 0 || currentSkinVersion is not null)
             && prior.ModelBaseBits == modelBaseBits
-            && SameRanges(prior.Ranges, scene.DeformationRanges)
+            && SameDeformations(prior.Deformations, scene.DeformationRanges)
             && prior.WidthBits is not null && prior.WidthBits.AsSpan().SequenceEqual(widthBits)
             && prior.HasModern == modern
             && (!needWidthSource || prior.HasWidthSource)
@@ -560,7 +576,8 @@ internal sealed class D3D12GpuSkinning : IDisposable
             {
                 SurfaceBuffer = vb,
                 StaticOutlineRevision = staticRevision,
-                Ranges = scene.DeformationRanges.Select(r => (r.Start, r.Count)).ToArray(),
+                SkinVersion = currentSkinVersion,
+                Deformations = scene.DeformationRanges.Select(r => (r.Start, r.Count, r.Deformation, r.World)).ToArray(),
                 ModelBaseBits = modelBaseBits,
                 WidthBits = widthBits,
                 HasAdditionalUv = hasAdditionalUv,
@@ -981,11 +998,15 @@ internal sealed class D3D12GpuSkinning : IDisposable
         return res;
     }
 
-    private static bool SameRanges((int Start, int Count)[]? a, IReadOnlyList<SceneDeformationRange> b)
+    private static bool SameDeformations((int Start, int Count, SceneDeformation Deformation, Matrix4x4 World)[]? a, IReadOnlyList<SceneDeformationRange> b)
     {
         if (a is null || a.Length != b.Count) return false;
         for (int i = 0; i < a.Length; i++)
-            if (a[i].Start != b[i].Start || a[i].Count != b[i].Count) return false;
+        {
+            if (a[i].Start != b[i].Start || a[i].Count != b[i].Count || a[i].World != b[i].World
+                || !a[i].Deformation.HasSameInputs(b[i].Deformation))
+                return false;
+        }
         return true;
     }
 

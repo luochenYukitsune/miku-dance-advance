@@ -23,6 +23,7 @@ sealed class BenchConfig
     public IReadOnlyList<string> Vmds { get; }
     public int? VmdCodePage { get; }
     public bool Gi { get; }
+    public RayGiComposition GiComposition { get; }
     public int Width { get; }
     public int Height { get; }
     public string Physics { get; }
@@ -51,6 +52,12 @@ sealed class BenchConfig
         foreach (var path in Vmds) if (!File.Exists(path)) throw new FileNotFoundException($"VMD not found: {path}", path);
         VmdCodePage = cli.Optional("vmd-codepage") is { Length: > 0 } cp ? int.Parse(cp, CultureInfo.InvariantCulture) : null;
         Gi = (cli.Optional("gi") ?? "off") switch { "on" => true, "off" => false, var other => throw new ArgumentException($"--gi {other}") };
+        GiComposition = (cli.Optional("gi-composition") ?? "toon").ToLowerInvariant() switch
+        {
+            "toon" or "toonpalette" => RayGiComposition.ToonPalette,
+            "additive" => RayGiComposition.Additive,
+            var other => throw new ArgumentException($"--gi-composition {other}")
+        };
         var size = (cli.Optional("size") ?? "960x544").Split('x');
         if (size.Length != 2) throw new ArgumentException($"Expected WxH for --size, got '{cli.Optional("size")}'.");
         Width = int.Parse(size[0], CultureInfo.InvariantCulture); Height = int.Parse(size[1], CultureInfo.InvariantCulture);
@@ -76,7 +83,7 @@ sealed class BenchConfig
     }
 
     public string Key => $"c{Characters}{(Stage is null ? "" : "+stage")}-gi{(Gi ? "on" : "off")}-{Width}x{Height}-{Physics}";
-    public RayGiOptions GiOptions => Gi ? new RayGiOptions(LightingMode.HardwareRayTracing) : RayGiOptions.Off;
+    public RayGiOptions GiOptions => Gi ? new RayGiOptions(LightingMode.HardwareRayTracing, Composition: GiComposition) : RayGiOptions.Off;
     public ViewQualityOptions Quality => new(Gi: GiOptions);
     public object Describe() => new
     {

@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Mmd.Modern.Core;
 
@@ -87,52 +88,57 @@ public static class ModernDirectionalShadowProjection
         return false;
     }
 
-    private static void AccumulateDeformationBounds(SceneDeformationRange range, Matrix4x4 sceneWorld, ref Vector3 minimum, ref Vector3 maximum)
+    private sealed record ModelRestBounds(
+        (int Bone, Vector3 Min, Vector3 Max)[] BdefBones,
+        (int Bone, Vector3 AnchorMin, Vector3 AnchorMax, float BindMaxRadius)[] SdefBones,
+        (int Bone, float BindMaxRadius)[] QdefBones);
+
+    private static readonly ConditionalWeakTable<SceneSkinningModel, ModelRestBounds> restBoundsCache = new();
+
+    private static ModelRestBounds ComputeRestBounds(SceneSkinningModel model)
     {
-        var deformation = range.Deformation;
-        var model = deformation.Model;
         var rest = model.RestVertices;
         var bindings = model.Bindings;
         var sdef = model.Sdef;
-        var morphs = deformation.Morphs;
-        Vector3 maxMorphAbs = Vector3.Zero;
-        float maxMorphLen = 0;
-        if (morphs is not null)
-        {
-            foreach (var delta in morphs.Positions)
-            {
-                maxMorphAbs = Vector3.Max(maxMorphAbs, new Vector3(MathF.Abs(delta.X), MathF.Abs(delta.Y), MathF.Abs(delta.Z)));
-                maxMorphLen = MathF.Max(maxMorphLen, delta.Length());
-            }
-        }
         int boneCount = model.BoneCount;
-        var boneMin = new Vector3[boneCount];
-        var boneMax = new Vector3[boneCount];
-        var boneUsed = new bool[boneCount];
-        Array.Fill(boneMin, new Vector3(float.PositiveInfinity));
-        Array.Fill(boneMax, new Vector3(float.NegativeInfinity));
+
+        var bdefMin = new Vector3[boneCount];
+        var bdefMax = new Vector3[boneCount];
+        var bdefUsed = new bool[boneCount];
+        Array.Fill(bdefMin, new Vector3(float.PositiveInfinity));
+        Array.Fill(bdefMax, new Vector3(float.NegativeInfinity));
+
+        var sdefMin = model.HasSdef ? new Vector3[boneCount] : null;
+        var sdefMax = model.HasSdef ? new Vector3[boneCount] : null;
         var sdefRadius = model.HasSdef ? new float[boneCount] : null;
-        var qdefCenter = model.HasQdef ? new Vector3[boneCount] : null;
+        var sdefUsed = model.HasSdef ? new bool[boneCount] : null;
+        if (model.HasSdef)
+        {
+            Array.Fill(sdefMin!, new Vector3(float.PositiveInfinity));
+            Array.Fill(sdefMax!, new Vector3(float.NegativeInfinity));
+        }
+
         var qdefRadius = model.HasQdef ? new float[boneCount] : null;
         var qdefUsed = model.HasQdef ? new bool[boneCount] : null;
+
         for (int i = 0; i < rest.Length; i++)
         {
             var p = rest[i].Position;
             var b = bindings[i];
             if (b.Kind == SceneSkinKind.Sdef)
             {
-                float r = (p - sdef[i].C).Length() + maxMorphLen;
+                float r = (p - sdef[i].C).Length();
                 int b0 = b.Weights.X > 0 ? b.Bone0 : b.Bone1;
                 int b1 = b.Weights.Y > 0 ? b.Bone1 : b.Bone0;
                 Vector3 a0 = sdef[i].Anchor0, a1 = sdef[i].Anchor1;
-                boneMin[b0] = Vector3.Min(boneMin[b0], a0); boneMax[b0] = Vector3.Max(boneMax[b0], a0); boneUsed[b0] = true;
-                boneMin[b1] = Vector3.Min(boneMin[b1], a1); boneMax[b1] = Vector3.Max(boneMax[b1], a1); boneUsed[b1] = true;
+                sdefMin![b0] = Vector3.Min(sdefMin[b0], a0); sdefMax![b0] = Vector3.Max(sdefMax[b0], a0); sdefUsed![b0] = true;
+                sdefMin[b1] = Vector3.Min(sdefMin[b1], a1); sdefMax[b1] = Vector3.Max(sdefMax[b1], a1); sdefUsed[b1] = true;
                 sdefRadius![b0] = MathF.Max(sdefRadius[b0], r);
                 sdefRadius[b1] = MathF.Max(sdefRadius[b1], r);
             }
             else if (b.Kind == SceneSkinKind.Qdef)
             {
-                float len = p.Length() + maxMorphLen;
+                float len = p.Length();
                 for (int slot = 0; slot < 4; slot++)
                 {
                     float w = slot switch { 0 => b.Weights.X, 1 => b.Weights.Y, 2 => b.Weights.Z, _ => b.Weights.W };
@@ -150,35 +156,62 @@ public static class ModernDirectionalShadowProjection
                     float w = slot switch { 0 => b.Weights.X, 1 => b.Weights.Y, 2 => b.Weights.Z, _ => b.Weights.W };
                     if (w == 0) continue;
                     int bone = slot switch { 0 => b.Bone0, 1 => b.Bone1, 2 => b.Bone2, _ => b.Bone3 };
-                    boneMin[bone] = Vector3.Min(boneMin[bone], p);
-                    boneMax[bone] = Vector3.Max(boneMax[bone], p);
-                    boneUsed[bone] = true;
+                    bdefMin[bone] = Vector3.Min(bdefMin[bone], p);
+                    bdefMax[bone] = Vector3.Max(bdefMax[bone], p);
+                    bdefUsed[bone] = true;
                 }
             }
         }
-        var skin = deformation.SkinMatrices;
-        var world = range.World * sceneWorld;
+
+        var bdefList = new List<(int, Vector3, Vector3)>();
+        var sdefList = new List<(int, Vector3, Vector3, float)>();
+        var qdefList = new List<(int, float)>();
         for (int b = 0; b < boneCount; b++)
         {
-            if (boneUsed[b])
+            if (bdefUsed[b]) bdefList.Add((b, bdefMin[b], bdefMax[b]));
+            if (sdefUsed is not null && sdefUsed[b]) sdefList.Add((b, sdefMin![b], sdefMax![b], sdefRadius![b]));
+            if (qdefUsed is not null && qdefUsed[b]) qdefList.Add((b, qdefRadius![b]));
+        }
+        return new(bdefList.ToArray(), sdefList.ToArray(), qdefList.ToArray());
+    }
+
+    private static void AccumulateDeformationBounds(SceneDeformationRange range, Matrix4x4 sceneWorld, ref Vector3 minimum, ref Vector3 maximum)
+    {
+        var deformation = range.Deformation;
+        var morphs = deformation.Morphs;
+        Vector3 maxMorphAbs = Vector3.Zero;
+        float maxMorphLen = 0;
+        if (morphs is not null)
+        {
+            foreach (var delta in morphs.Positions)
             {
-                var transform = skin[b] * world;
-                Vector3 lo = boneMin[b] - maxMorphAbs, hi = boneMax[b] + maxMorphAbs;
-                if (sdefRadius is not null && sdefRadius[b] > 0)
-                {
-                    var pad = new Vector3(sdefRadius[b]);
-                    lo = Vector3.Min(lo, boneMin[b]) - pad;
-                    hi = Vector3.Max(hi, boneMax[b]) + pad;
-                }
-                AccumulateTransformedBox(lo, hi, transform, ref minimum, ref maximum);
+                maxMorphAbs = Vector3.Max(maxMorphAbs, new Vector3(MathF.Abs(delta.X), MathF.Abs(delta.Y), MathF.Abs(delta.Z)));
+                maxMorphLen = MathF.Max(maxMorphLen, delta.Length());
             }
-            if (qdefUsed is not null && qdefUsed[b])
+        }
+        var bounds = restBoundsCache.GetValue(deformation.Model, static model => ComputeRestBounds(model));
+        var skin = deformation.SkinMatrices;
+        var world = range.World * sceneWorld;
+        foreach (var entry in bounds.BdefBones)
+        {
+            AccumulateTransformedBox(entry.Min - maxMorphAbs, entry.Max + maxMorphAbs, skin[entry.Bone] * world, ref minimum, ref maximum);
+        }
+        foreach (var entry in bounds.SdefBones)
+        {
+            float r = entry.BindMaxRadius + maxMorphLen;
+            var pad = maxMorphAbs + (r > 0 ? new Vector3(r) : Vector3.Zero);
+            AccumulateTransformedBox(entry.AnchorMin - pad, entry.AnchorMax + pad, skin[entry.Bone] * world, ref minimum, ref maximum);
+        }
+        if (bounds.QdefBones.Length > 0)
+        {
+            float worldScale = MaxScaleFactor(world);
+            foreach (var entry in bounds.QdefBones)
             {
-                var qReal = deformation.QdefReal[b];
-                var qDual = deformation.QdefDual[b];
+                var qReal = deformation.QdefReal[entry.Bone];
+                var qDual = deformation.QdefDual[entry.Bone];
                 var t = (qDual * Quaternion.Conjugate(qReal)) * 2;
                 var center = Vector3.Transform(new Vector3(t.X, t.Y, t.Z), world);
-                float r = qdefRadius![b] * MaxScaleFactor(world);
+                float r = (entry.BindMaxRadius + maxMorphLen) * worldScale;
                 var pad = new Vector3(r);
                 minimum = Vector3.Min(minimum, center - pad);
                 maximum = Vector3.Max(maximum, center + pad);
