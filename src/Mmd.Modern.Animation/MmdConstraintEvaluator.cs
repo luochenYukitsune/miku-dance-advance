@@ -68,6 +68,13 @@ internal sealed class MmdConstraintEvaluator
 
     internal void EvaluateAfterPhysics(CharacterEvaluationOptions? options) => EvaluatePhase(true, options);
 
+    internal void UpdateOutsideParents(IReadOnlyDictionary<int, Matrix4x4>? updated)
+    {
+        if (updated is not null)
+            foreach (var (index, value) in updated) ValidateOutsideParent(index, value);
+        outsideParents = updated;
+    }
+
     internal void Release()
     {
         world = [];
@@ -212,6 +219,12 @@ internal sealed class MmdConstraintEvaluator
             {
                 foreach (var (index, value) in outsideParents) ValidateOutsideParent(index, value);
             }
+        }
+        if (options?.OutsideParentTrackWindows is { } windows)
+        {
+            foreach (int index in windows.Keys)
+                if ((uint)index >= (uint)rig.Bones.Count)
+                    throw new ArgumentException("Outside-parent track windows must reference rig bones.", nameof(options));
         }
         if (options?.IkEnabledOverrides is { } overrides)
         {

@@ -61,8 +61,22 @@ internal static class PmmTrackEditorRecords
         if (record.Value is PmmBoneKeyframe controls && (controls.Interpolation is null || controls.Interpolation.Count != 16 || controls.Interpolation.Any(value => value > 127)))
             throw new InvalidDataException("PMM bone keys require sixteen Bezier control bytes in [0,127].");
         if (record.Value is PmmGravityKeyframe gravity) _ = PmmPhysicsSettings.ToGravity(gravity.Acceleration, gravity.Direction);
-        if (record.Value is PmmModelKeyframe modelKey && modelKey.OutsideParents.Any(parent => parent.ModelIndex >= 0 && parent.BoneIndex < 0))
-            throw new InvalidDataException("An attached outside parent requires a valid target bone for playback.");
+        if (record.Value is PmmModelKeyframe modelKey)
+        {
+            if (modelKey.OutsideParents.Any(parent => parent.ModelIndex < -2))
+                throw new InvalidDataException("PMM outside-parent model index must be -2 (ground), -1 (none), or nonnegative.");
+            var ownerModel = Model(source, address.OwnerIndex);
+            if (modelKey.OutsideParents.Count == ownerModel.OutsideParentSubjectBoneIndices.Count)
+            {
+                for (int slot = 0; slot < modelKey.OutsideParents.Count; slot++)
+                {
+                    if (modelKey.OutsideParents[slot].ModelIndex == -2 && ownerModel.OutsideParentSubjectBoneIndices[slot] < 0)
+                        throw new InvalidDataException("Whole-model outside-parent slots cannot target ground (-2).");
+                }
+            }
+            if (modelKey.OutsideParents.Any(parent => parent.ModelIndex >= 0 && parent.BoneIndex < 0))
+                throw new InvalidDataException("An attached outside parent requires a valid target bone for playback.");
+        }
         if (record.Value is PmmAccessoryKeyframe accessoryKey && accessoryKey.OpacityAndVisibility > 201)
             throw new InvalidDataException("PMM accessory opacity must be between 0 and 100 percent.");
         return Copy(record);
@@ -165,7 +179,7 @@ internal static class PmmTrackEditorRecords
         return CopyDocument(source, models, source.Gravity, source.Accessories);
     }
     internal static PmmModelKeyframe ModelAt(PmmModel model, double frame) => At(new[] { model.InitialModelKeyframe }.Concat(model.ModelKeyframes).OrderBy(key => key.Frame).ToArray(), frame);
-    static bool SameParent(PmmOutsideParent a, PmmOutsideParent b) => a.ModelIndex == b.ModelIndex && a.BoneIndex == b.BoneIndex;
+    static bool SameParent(PmmOutsideParent a, PmmOutsideParent b) => a.ModelIndex == b.ModelIndex && (a.ModelIndex < 0 || a.BoneIndex == b.BoneIndex);
     static void ValidateOutsideParentCycles(PmmDocument source)
     {
         int[] frames = source.Models.SelectMany(model => new[] { model.InitialModelKeyframe }.Concat(model.ModelKeyframes)).Select(key => key.Frame).Distinct().ToArray();

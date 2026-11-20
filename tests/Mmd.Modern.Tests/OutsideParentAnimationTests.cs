@@ -98,6 +98,54 @@ public sealed class OutsideParentAnimationTests
         Near(Vector3.Zero, controller.BoneWorldMatrices[0].Translation);
     }
 
+    [Fact] public void TrackWindowResetsLocalTransformAfterLastKeyframeAndSkipsInterpolationAtSwitch()
+    {
+        var ext = Matrix4x4.CreateTranslation(20, 0, 0);
+        RigBone[] bones = [new("root", Vector3.Zero, -1), new("bound", new(1, 0, 0), 0)];
+        var rig = new CharacterRig(bones, [new(new(1, 0, 0), Vector3.UnitY, Vector2.Zero)],
+            [new(SkinningKind.Bdef1, 1, -1, -1, -1, new(1, 0, 0, 0))]);
+
+        var clip = new MotionClip([
+            new("bound", [
+                new(0, new(0, 0, 0), Quaternion.Identity, BoneCurves.Linear),
+                new(10, new(10, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2), BoneCurves.Linear),
+                new(20, new(20, 0, 0), Quaternion.Identity, BoneCurves.Linear),
+            ])
+        ]);
+        var animator = new CharacterAnimator(rig, clip);
+
+        // BeginFrame strictly inside (0, 10) suppresses interpolation toward key 10.
+        var optBegin = new CharacterEvaluationOptions(
+            OutsideParents: new Dictionary<int, Matrix4x4> { [1] = ext },
+            OutsideParentTrackWindows: new Dictionary<int, OutsideParentTrackWindow> { [1] = new(5, 0) });
+        Near(new(20, 0, 0), animator.Sample(4, optBegin).BoneWorldMatrices[1].Translation);
+        Near(new(30, 0, 0), animator.Sample(6, optBegin).BoneWorldMatrices[1].Translation);
+
+        // BeginFrame == next keyframe still interpolates normally; EndFrame == next keyframe does NOT.
+        var optBeginAtEnd = new CharacterEvaluationOptions(
+            OutsideParentTrackWindows: new Dictionary<int, OutsideParentTrackWindow> { [1] = new(10, 0) });
+        Near(new(6, 0, 0), animator.Sample(5, optBeginAtEnd).BoneWorldMatrices[1].Translation);
+        var optEndAtNext = new CharacterEvaluationOptions(
+            OutsideParentTrackWindows: new Dictionary<int, OutsideParentTrackWindow> { [1] = new(0, 10) });
+        Near(new(1, 0, 0), animator.Sample(5, optEndAtNext).BoneWorldMatrices[1].Translation);
+
+        // Rule 1A: once frame reaches BeginFrame after last bone keyframe, local bone offset resets to identity.
+        var tailClip = new MotionClip([
+            new("bound", [
+                new(0, Vector3.Zero, Quaternion.Identity, BoneCurves.Linear),
+                new(5, new(5, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2), BoneCurves.Linear),
+            ])
+        ]);
+        var tailAnimator = new CharacterAnimator(rig, tailClip);
+        var optTail = new CharacterEvaluationOptions(
+            OutsideParents: new Dictionary<int, Matrix4x4> { [1] = ext },
+            OutsideParentTrackWindows: new Dictionary<int, OutsideParentTrackWindow> { [1] = new(10, 0) });
+        Near(new(25, 0, 0), tailAnimator.Sample(9, optTail).BoneWorldMatrices[1].Translation);
+        var afterReset = tailAnimator.Sample(10, optTail).BoneWorldMatrices[1];
+        Near(new(20, 0, 0), afterReset.Translation);
+        Near(Vector3.UnitX, Vector3.TransformNormal(Vector3.UnitX, afterReset));
+    }
+
     private static CharacterAnimator Chain()
     {
         RigBone[] bones = [new("root", new(5, 0, 0), -1), new("bound", new(6, 0, 0), 0), new("child", new(7, 0, 0), 1)];

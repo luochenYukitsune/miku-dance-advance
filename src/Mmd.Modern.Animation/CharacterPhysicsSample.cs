@@ -25,13 +25,14 @@ public sealed class CharacterPhysicsSample : IDisposable
     public ReadOnlySpan<Matrix4x4> BeforePhysicsBoneWorldMatrices => beforePhysicsWorlds;
 
     /// <summary>Import a complete bone-world pose, reflecting only the supplied driven bones, then evaluate the after-physics phase and skin.</summary>
-    public CharacterSample Complete(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices)
+    public CharacterSample Complete(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices,
+        IReadOnlyDictionary<int, Matrix4x4>? afterPhysicsOutsideParents = null)
     {
         lock (sync)
         {
             var indices = ValidateCompletion(physicsWorlds, reflectedBoneIndices);
             completed = true;
-            try { return animator!.CompletePhysicsSample(evaluator!, world, physicsWorlds, indices, options); }
+            try { return animator!.CompletePhysicsSample(evaluator!, world, physicsWorlds, indices, options, afterPhysicsOutsideParents); }
             finally
             {
                 animator?.ReturnEvaluator(evaluator);
@@ -42,13 +43,14 @@ public sealed class CharacterPhysicsSample : IDisposable
 
     /// <summary>Completes reflection and after-physics animation without skinning vertices. The returned
     /// bone worlds are caller-owned; use SkinWorldPose when this physical boundary needs a rendered pose.</summary>
-    public Matrix4x4[] CompleteBoneWorldMatrices(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices)
+    public Matrix4x4[] CompleteBoneWorldMatrices(ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices,
+        IReadOnlyDictionary<int, Matrix4x4>? afterPhysicsOutsideParents = null)
     {
         lock (sync)
         {
             var indices = ValidateCompletion(physicsWorlds, reflectedBoneIndices);
             completed = true;
-            try { return animator!.CompletePhysicsBoneWorlds(evaluator!, world, physicsWorlds, indices, options); }
+            try { return animator!.CompletePhysicsBoneWorlds(evaluator!, world, physicsWorlds, indices, options, afterPhysicsOutsideParents); }
             finally
             {
                 animator?.ReturnEvaluator(evaluator);

@@ -24,9 +24,9 @@ public sealed record EditorRigBoneChoice(int Index, string AuthoredName) : INoti
     public override string ToString() => Label;
 }
 
-public sealed record EditorRigModelChoice(Guid? ObjectId, string AuthoredName) : INotifyPropertyChanged
+public sealed record EditorRigModelChoice(Guid? ObjectId, string AuthoredName, bool IsGround = false) : INotifyPropertyChanged
 {
-    public string Label => ObjectId is null ? Text("无外亲") : AuthoredName;
+    public string Label => IsGround ? Text("Mda.Text.Ux.Rig.GroundTarget") : ObjectId is null ? Text("无外亲") : AuthoredName;
     public event PropertyChangedEventHandler? PropertyChanged;
     internal void RefreshLocalization() => PropertyChanged?.Invoke(this, new(nameof(Label)));
     public override string ToString() => Label;
@@ -52,13 +52,16 @@ public sealed class EditorRigIkItem(int boneIndex, string name, bool enabled) : 
 /// preparation delegates to the application's existing independently owned attachment candidate.</summary>
 public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
 {
-    private sealed class ParentDraft(SceneOutsideParentBinding? original)
+    private sealed class ParentDraft(SceneOutsideParentBinding? original, bool originalIsGround = false)
     {
         public SceneOutsideParentBinding? Original { get; } = original;
+        public bool OriginalIsGround { get; } = originalIsGround;
         public Guid? ParentObjectId { get; set; } = original?.ParentObjectId;
         public int? ParentBoneIndex { get; set; } = original?.ParentBoneIndex;
+        public bool IsGround { get; set; } = originalIsGround;
         public bool KeepWorld { get; set; } = true;
         public bool Changed => ParentObjectId != Original?.ParentObjectId
+            || IsGround != OriginalIsGround
             || ParentObjectId is not null && ParentBoneIndex != Original?.ParentBoneIndex;
     }
 
@@ -91,15 +94,20 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
         ModelName = originalObjects.Single(item => item.Id == objectId).Name;
         Subjects = new[] { new EditorRigBoneChoice(-1, "") }
             .Concat(actor.Model.Bones.Select((bone, index) => new EditorRigBoneChoice(index, bone.Name))).ToArray();
-        TargetModels = new[] { new EditorRigModelChoice(null, "") }
+        var pmmSample = originalPmmControls?.Sample(Frame);
+        bool hasGroundOutsideParent = pmmSample?.GroundOutsideParents.Any(item => item.ObjectId == objectId) == true;
+        IEnumerable<EditorRigModelChoice> targetModels = [new EditorRigModelChoice(null, "")];
+        if (hasGroundOutsideParent) targetModels = targetModels.Append(new EditorRigModelChoice(null, "", IsGround: true));
+        TargetModels = targetModels
             .Concat(originalObjects.Where(item => item.Id != objectId && originalMotions.Any(motion => motion.ObjectId == item.Id))
                 .Select(item => new EditorRigModelChoice(item.Id, item.Name))).ToArray();
         foreach (var choice in Subjects)
         {
             var binding = originalParents.SingleOrDefault(item => item.ObjectId == objectId && item.BoneIndex == choice.Index);
             // PMM-authored dynamic attachments are displayed truthfully and remain owned by their timeline.
-            binding ??= originalPmmControls?.Sample(Frame).OutsideParents.SingleOrDefault(item => item.ObjectId == objectId && item.BoneIndex == choice.Index);
-            parents.Add(choice.Index, new(binding));
+            binding ??= pmmSample?.OutsideParents.SingleOrDefault(item => item.ObjectId == objectId && item.BoneIndex == choice.Index);
+            bool isGround = binding is null && pmmSample?.GroundOutsideParents.Any(item => item.ObjectId == objectId && item.BoneIndex == choice.Index) == true;
+            parents.Add(choice.Index, new(binding, isGround));
         }
         var controllers = actor.Model.Bones.Select((bone, index) => (bone, index))
             .Where(item => item.bone.Flags.HasFlag(PmxBoneFlags.Ik)).ToArray();
@@ -137,7 +145,9 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
     public string SubjectLabel => Text("绑定对象");
     public string TargetModelLabel => Text("目标模型");
     public string TargetBoneLabel => Text("目标骨骼");
-    public string TargetBonePlaceholder => Text(HasTargetModel ? "Mda.Text.Ux.Rig.SelectTargetBone" : "Mda.Text.Ux.Rig.SelectTargetModelFirst");
+    public string TargetBonePlaceholder => SelectedTargetModel?.IsGround == true
+        ? Text("Mda.Text.Ux.Rig.GroundNoTargetBone")
+        : Text(HasTargetModel ? "Mda.Text.Ux.Rig.SelectTargetBone" : "Mda.Text.Ux.Rig.SelectTargetModelFirst");
     public string KeepWorldLabel => Text("绑定时保持世界姿态");
     public string RemoveLabel => Text("移除外亲");
     public string OutsideParentHelp => CanEditOutsideParents
@@ -173,7 +183,7 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
             if (value is null || !TargetModels.Contains(value) || !Set(ref targetModel, value)) return;
             RebuildTargetBones();
             if (!loading && subject is not null)
-            { parents[subject.Index].ParentObjectId = value.ObjectId; parents[subject.Index].ParentBoneIndex = null; }
+            { parents[subject.Index].ParentObjectId = value.ObjectId; parents[subject.Index].ParentBoneIndex = null; parents[subject.Index].IsGround = value.IsGround; }
             Changed(nameof(HasTargetModel)); Changed(nameof(TargetBonePlaceholder));
         }
     }
@@ -272,7 +282,7 @@ public sealed class EditorRigSettingsViewModel : INotifyPropertyChanged
         try
         {
             var state = parents[subject.Index];
-            targetModel = TargetModels.FirstOrDefault(item => item.ObjectId == state.ParentObjectId) ?? TargetModels[0];
+            targetModel = TargetModels.FirstOrDefault(item => state.IsGround ? item.IsGround : !item.IsGround && item.ObjectId == state.ParentObjectId) ?? TargetModels[0];
             Changed(nameof(SelectedTargetModel)); RebuildTargetBones();
             targetBone = TargetBones.FirstOrDefault(item => item.Index == state.ParentBoneIndex);
             Changed(nameof(SelectedTargetBone)); Changed(nameof(KeepWorld)); Changed(nameof(HasTargetModel)); Changed(nameof(TargetBonePlaceholder));

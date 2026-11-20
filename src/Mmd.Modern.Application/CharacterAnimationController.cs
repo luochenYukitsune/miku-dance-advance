@@ -60,6 +60,7 @@ public sealed partial class CharacterAnimationController : IDisposable
     private SceneAdditionalUvs? preparedAdditionalUvStream;
     private (OriginalStyleScene Surface,OriginalOutlineData Outline) sampled;
     private IReadOnlyDictionary<int,Matrix4x4>? outsideParents;
+    private IReadOnlyDictionary<int,OutsideParentTrackWindow>? outsideParentTrackWindows;
     private Matrix4x4[]? frozenBoneWorlds;
     private IReadOnlyDictionary<int,Matrix4x4>? frozenOutsideParents;
     /// <summary>Worlds from the latest successful sample, including physics. Each snapshot remains stable.</summary>
@@ -243,7 +244,7 @@ public sealed partial class CharacterAnimationController : IDisposable
     internal bool TryRetainCompleteRigidPlaybackPose(double frame,bool enableIk,bool enableMorphs)
     {
         if(disposed||PhysicsEnabled||model.SoftBodies.Count!=0||!timeInvariantBoneTracks||ikSwitches.HasMatchedSwitches
-            ||sampledFrame is null||sampledPose is null||sharedRigidBoneFrame is not null
+            ||outsideParentTrackWindows is {Count:>0}||sampledFrame is null||sampledPose is null||sharedRigidBoneFrame is not null
             ||sampledIk!=enableIk||sampledMorphs!=enableMorphs||BoneWorldMatrices.Count!=model.Bones.Count
             ||frozenBoneWorlds is not null||frozenOutsideParents is not null||frozenSoftVertices is not null)return false;
         ValidateFrame(frame);frame=Math.Min(frame,DurationFrames);
@@ -252,14 +253,41 @@ public sealed partial class CharacterAnimationController : IDisposable
         sampledFrame=frame;IsVisible=visibility.Evaluate(frame);
         return true;
     }
+    internal static bool OutsideParentsEqual(IReadOnlyDictionary<int,Matrix4x4>? left,IReadOnlyDictionary<int,Matrix4x4>? right)
+    {
+        if((left?.Count??0)!=(right?.Count??0))return false;
+        if(left is null or {Count:0})return true;
+        foreach(var(key,value) in left)
+            if(!right!.TryGetValue(key,out var other)||other!=value)return false;
+        return true;
+    }
+    internal static bool TrackWindowsEqual(IReadOnlyDictionary<int,OutsideParentTrackWindow>? left,IReadOnlyDictionary<int,OutsideParentTrackWindow>? right)
+    {
+        if((left?.Count??0)!=(right?.Count??0))return false;
+        if(left is null or {Count:0})return true;
+        foreach(var(key,value) in left)
+            if(!right!.TryGetValue(key,out var other)||other!=value)return false;
+        return true;
+    }
     /// <summary>Copies target bone-world transforms. -1 attaches all model roots; other keys attach individual bones.</summary>
     public void SetOutsideParents(IReadOnlyDictionary<int,Matrix4x4>? parents)
     {
         ObjectDisposedException.ThrowIf(disposed,this);
         var copy=CopyOutsideParents(parents);
-        if((copy?.Count??0)==(outsideParents?.Count??0)
-            &&(copy is null||copy.All(pair=>outsideParents!.TryGetValue(pair.Key,out var old)&&old==pair.Value)))return;
+        if(OutsideParentsEqual(outsideParents,copy))return;
         outsideParents=copy;sampledFrame=null;frozenBoneWorlds=null;frozenOutsideParents=null;frozenSoftVertices=null;
+    }
+    internal bool SetOutsideParentTrackWindows(IReadOnlyDictionary<int,OutsideParentTrackWindow>? windows)
+    {
+        ObjectDisposedException.ThrowIf(disposed,this);
+        var copy=windows?.Count>0?new Dictionary<int,OutsideParentTrackWindow>(windows):null;
+        if(copy is not null)
+            foreach(var(index,_) in copy)
+                if(index<0||index>=model.Bones.Count)
+                    throw new ArgumentException("Outside-parent track window subject is outside the model.",nameof(windows));
+        if(TrackWindowsEqual(outsideParentTrackWindows,copy))return false;
+        outsideParentTrackWindows=copy;sampledFrame=null;frozenBoneWorlds=null;frozenOutsideParents=null;frozenSoftVertices=null;
+        return true;
     }
     private Dictionary<int,Matrix4x4>? CopyOutsideParents(IReadOnlyDictionary<int,Matrix4x4>? parents)
     {
@@ -395,7 +423,7 @@ public sealed partial class CharacterAnimationController : IDisposable
     }
     private CharacterEvaluationOptions Evaluation(double frame,bool enableIk,bool enableMorphs)=>new(enableIk,
         ikSwitches.HasMatchedSwitches?ikSwitches.Evaluate((uint)Math.Floor(frame)):null,
-        PrepareMorphs(frame,enableMorphs).Pose,outsideParents);
+        PrepareMorphs(frame,enableMorphs).Pose,outsideParents,OutsideParentTrackWindows:outsideParentTrackWindows);
     private static void ValidateFrame(double frame)
     {if(!double.IsFinite(frame)||frame<0||frame>uint.MaxValue)throw new ArgumentOutOfRangeException(nameof(frame));}
     private (OriginalStyleScene Surface,OriginalOutlineData Outline) Store(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,double? softElapsed=null)

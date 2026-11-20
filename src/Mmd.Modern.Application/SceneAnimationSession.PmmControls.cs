@@ -1,4 +1,6 @@
 using System.Numerics;
+using Mmd.Modern.Animation;
+using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
 
 namespace Mmd.Modern.Application;
@@ -33,11 +35,44 @@ public sealed partial class SceneAnimationSession
     private SceneOutsideParentBinding[] ControlParents(double frame)
     {
         if (pmmControls is null) return outsideBindings;
-        var dynamic = ControlSample(frame).OutsideParents;
+        var sample = ControlSample(frame);
+        var dynamic = sample.OutsideParents;
         var result = outsideBindings.Concat(dynamic).ToArray();
-        if (result.Select(p => (p.ObjectId, p.BoneIndex)).Distinct().Count() != result.Length)
+        int totalSubjects = result.Length + sample.GroundOutsideParents.Count;
+        if (result.Select(p => (p.ObjectId, p.BoneIndex))
+            .Concat(sample.GroundOutsideParents.Select(g => (g.ObjectId, g.BoneIndex)))
+            .Distinct().Count() != totalSubjects)
             throw new InvalidDataException("Static and PMM outside-parent tracks cannot author the same active subject.");
         return result;
+    }
+
+    private ScenePmmGroundOutsideParent[] ControlGroundParents(Guid id, double frame)
+    {
+        if (pmmControls is null) return [];
+        var ground = ControlSample(frame).GroundOutsideParents;
+        if (ground.Count == 0) return [];
+        List<ScenePmmGroundOutsideParent>? list = null;
+        for (int i = 0; i < ground.Count; i++)
+            if (ground[i].ObjectId == id) (list ??= []).Add(ground[i]);
+        return list is null ? [] : list.ToArray();
+    }
+
+    private IReadOnlyDictionary<int, OutsideParentTrackWindow>? ControlTrackWindows(Guid id, double frame)
+        => pmmControls is null ? null
+            : ControlSample(frame).OutsideParentTrackWindows.TryGetValue(id, out var windows) ? windows : null;
+
+    private static Matrix4x4 GroundOutsideParentTransform(PmxModel model, int boneIndex, Matrix4x4 inverseObjectWorld)
+        => AffineProduct(Matrix4x4.CreateTranslation(model.Bones[boneIndex].Position) * inverseObjectWorld);
+
+    private static Dictionary<int, Matrix4x4>? CombineWithGroundParents(EditableSceneObject item, PmxModel model,
+        IReadOnlyDictionary<int, Matrix4x4>? parents, IReadOnlyList<ScenePmmGroundOutsideParent> groundParents)
+    {
+        if (groundParents.Count == 0) return parents is null ? null : new Dictionary<int, Matrix4x4>(parents);
+        Matrix4x4.Invert(item.World, out var inverseWorld);
+        var combined = parents is null ? new Dictionary<int, Matrix4x4>(groundParents.Count) : new Dictionary<int, Matrix4x4>(parents);
+        for (int i = 0; i < groundParents.Count; i++)
+            combined[groundParents[i].BoneIndex] = GroundOutsideParentTransform(model, groundParents[i].BoneIndex, inverseWorld);
+        return combined;
     }
 
     private IReadOnlySet<int> ControlDisabled(Guid id, double frame)

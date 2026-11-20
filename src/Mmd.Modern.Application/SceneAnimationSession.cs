@@ -153,8 +153,10 @@ public sealed partial class SceneAnimationSession : IDisposable
                 var binding = validationEntries[index].Motion;
                 if (binding is null) continue;
                 using var entryMeasure = PoseEvaluationMetrics.Measure("session.constructor.prepare-entry", binding.ObjectId);
+                var entryParents = CombineWithGroundParents(entries[index].Object, binding.Model,
+                    EffectiveOutsideParents(binding.ObjectId, entries, initialParents), ControlGroundParents(binding.ObjectId, initialFrame));
                 entries[index] = PrepareEntry(entries[index].Object, binding, initialFrame, cancellationToken,
-                    EffectiveOutsideParents(binding.ObjectId, entries, initialParents), entries, preparedControllers?[index]);
+                    entryParents, entries, preparedControllers?[index]);
             }
             using (PoseEvaluationMetrics.Measure("session.constructor.create-worlds"))
                 sharedWorld = CreateSessionWorlds(entries, initialFrame);
@@ -395,7 +397,8 @@ public sealed partial class SceneAnimationSession : IDisposable
                     try
                     {
                         var parents = attached ? EffectiveOutsideParents(entry.Object.Id, next, outsideBindings) : null;
-                        bool frozenAttachment = !reset && attached && local <= prior;
+                        bool frozenAttachment = !reset && attached && local <= prior
+                            && !controller.RequiresFullEvaluationForFrozenOutsideParents(parents, trackWindowChanged: false);
                         if (TryEvaluateEntry(entry, frame, elapsed, reset, parents, frozenAttachment, out var localFrame))
                         {
                             next[i] = entry with { LocalFrame = localFrame! }; changed = true;
@@ -493,6 +496,7 @@ public sealed partial class SceneAnimationSession : IDisposable
                 ControllerPreparedObserverForTesting?.Invoke(item.Id, controller);
             }
             else controller = prepared.TakeController();
+            controller.SetOutsideParentTrackWindows(ControlTrackWindows(item.Id, frame));
             controller.SetOutsideParents(parents);
             controller.DeferVertexSkinning = deferVertexSkinning;
             ICharacterPhysicsBackend? backend = null; double local = Math.Min(frame, controller.DurationFrames);
