@@ -209,15 +209,19 @@ public sealed class CharacterAnimator
                 ? new Dictionary<int, bool>(overrides) : null;
             IReadOnlyDictionary<int, Matrix4x4>? outsideParents = options.OutsideParents is { Count: > 0 } op
                 ? new Dictionary<int, Matrix4x4>(op) : null;
+            IReadOnlyDictionary<int, OutsideParentTrackWindow>? trackWindows = options.OutsideParentTrackWindows is { Count: > 0 } tw
+                ? new Dictionary<int, OutsideParentTrackWindow>(tw) : null;
             // ValidateOptions copies PhysicsDrivenBoneIndices into the evaluator's own HashSet before returning.
             if (!ReferenceEquals(ikOverrides, options.IkEnabledOverrides)
                 || !ReferenceEquals(outsideParents, options.OutsideParents)
-                || !ReferenceEquals(localBoneOverrides, options.LocalBoneOverrides))
+                || !ReferenceEquals(localBoneOverrides, options.LocalBoneOverrides)
+                || !ReferenceEquals(trackWindows, options.OutsideParentTrackWindows))
                 options = options with
                 {
                     IkEnabledOverrides = ikOverrides,
                     OutsideParents = outsideParents,
                     LocalBoneOverrides = localBoneOverrides,
+                    OutsideParentTrackWindows = trackWindows,
                 };
         }
         var world = new Matrix4x4[rig.Bones.Count];
@@ -225,7 +229,12 @@ public sealed class CharacterAnimator
         try
         {
             var translations = evaluator.Translations; var rotations = evaluator.AnimationRotations;
-            for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
+            var trackWindows = options?.OutsideParentTrackWindows;
+            for (int i = 0; i < rotations.Length; i++)
+            {
+                OutsideParentTrackWindow? window = trackWindows is not null && trackWindows.TryGetValue(i, out var found) ? found : null;
+                (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame, window);
+            }
             ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
             evaluator.EvaluateBeforePhysics(world, options?.Morphs, options);
             return new(this, evaluator, world, options);
@@ -250,14 +259,19 @@ public sealed class CharacterAnimator
         morphs?.ValidateRig(rig);
         var localBoneOverrides = CopyNormalizedLocalBoneOverrides(options?.LocalBoneOverrides);
         var world = new Matrix4x4[rig.Bones.Count]; var skin = new Matrix4x4[rig.Bones.Count];
+        var trackWindows = options?.OutsideParentTrackWindows;
         if (rig.HasConstraints || options?.OutsideParents?.Count > 0 || options?.PhysicsDrivenBoneIndices?.Count > 0
-            || options?.IkEnabledOverrides?.Count > 0)
+            || options?.IkEnabledOverrides?.Count > 0 || trackWindows?.Count > 0)
         {
             var evaluator = RentEvaluator();
             try
             {
                 var translations = evaluator.Translations; var rotations = evaluator.AnimationRotations;
-                for (int i = 0; i < rotations.Length; i++) (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame);
+                for (int i = 0; i < rotations.Length; i++)
+                {
+                    OutsideParentTrackWindow? window = trackWindows is not null && trackWindows.TryGetValue(i, out var found) ? found : null;
+                    (translations[i], rotations[i]) = EvaluateTrack(tracksByBone[i], frame, window);
+                }
                 ApplyLocalBoneOverrides(localBoneOverrides, translations, rotations);
                 evaluator.Evaluate(world, morphs, options);
                 for (int i = 0; i < skin.Length; i++) skin[i] = rig.InverseBindMatrices[i] * world[i];
@@ -319,9 +333,10 @@ public sealed class CharacterAnimator
     }
 
     internal CharacterSample CompletePhysicsSample(MmdConstraintEvaluator evaluator, Matrix4x4[] world,
-        ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices, CharacterEvaluationOptions? options)
+        ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices, CharacterEvaluationOptions? options,
+        IReadOnlyDictionary<int, Matrix4x4>? afterPhysicsOutsideParents = null)
     {
-        CompletePhysicsBoneWorlds(evaluator, world, physicsWorlds, reflectedBoneIndices, options);
+        CompletePhysicsBoneWorlds(evaluator, world, physicsWorlds, reflectedBoneIndices, options, afterPhysicsOutsideParents);
         return SkinCompletedPhysicsWorlds(world, options?.Morphs);
     }
 
@@ -336,9 +351,11 @@ public sealed class CharacterAnimator
     }
 
     internal Matrix4x4[] CompletePhysicsBoneWorlds(MmdConstraintEvaluator evaluator, Matrix4x4[] world,
-        ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices, CharacterEvaluationOptions? options)
+        ReadOnlySpan<Matrix4x4> physicsWorlds, IReadOnlyCollection<int> reflectedBoneIndices, CharacterEvaluationOptions? options,
+        IReadOnlyDictionary<int, Matrix4x4>? afterPhysicsOutsideParents = null)
     {
         evaluator.ImportPhysicsWorlds(physicsWorlds, reflectedBoneIndices);
+        if (afterPhysicsOutsideParents is not null) evaluator.UpdateOutsideParents(afterPhysicsOutsideParents);
         evaluator.EvaluateAfterPhysics(options);
         return world;
     }
@@ -623,12 +640,20 @@ public sealed class CharacterAnimator
         return (rotation, offset);
     }
 
-    private (Vector3 Translation, Quaternion Rotation) EvaluateTrack(BoneTrack? track, double frame)
+    private (Vector3 Translation, Quaternion Rotation) EvaluateTrack(BoneTrack? track, double frame,
+        OutsideParentTrackWindow? window = null)
     {
         if (track is null || track.KeyArray.Length == 0) return (Vector3.Zero, Quaternion.Identity);
         var keys = track.KeyArray;
         if (frame <= keys[0].Frame) return (keys[0].Translation, keys[0].Rotation);
-        if (frame >= keys[^1].Frame) return (keys[^1].Translation, keys[^1].Rotation);
+        if (frame >= keys[^1].Frame)
+        {
+            // MMD 9.32 CC9CE/D13BA: when the active outside-parent run started after the bone's
+            // last authored keyframe, the bone's local translation/rotation resets to identity.
+            if (window is { BeginFrame: > 0 } resetWindow && keys[^1].Frame < resetWindow.BeginFrame && resetWindow.BeginFrame <= frame)
+                return (Vector3.Zero, Quaternion.Identity);
+            return (keys[^1].Translation, keys[^1].Rotation);
+        }
         int lower = 0, upper = keys.Length - 1;
         while (upper - lower > 1)
         {
@@ -638,6 +663,11 @@ public sealed class CharacterAnimator
         }
         var a = keys[lower]; var b = keys[upper];
         if (frame == a.Frame) return (a.Translation, a.Rotation);
+        // MMD 9.32 CD0CE/D1B44: never interpolate bone curves across an outside-parent switch.
+        if (window is { BeginFrame: > 0 } beginWindow && a.Frame < beginWindow.BeginFrame && beginWindow.BeginFrame < b.Frame)
+            return frame < beginWindow.BeginFrame ? (a.Translation, a.Rotation) : (b.Translation, b.Rotation);
+        if (window is { EndFrame: > 0 } endWindow && a.Frame < endWindow.EndFrame && endWindow.EndFrame <= b.Frame)
+            return frame < endWindow.EndFrame ? (a.Translation, a.Rotation) : (b.Translation, b.Rotation);
         double progress = (frame - a.Frame) / ((double)b.Frame - a.Frame);
         var curves = ownership == SegmentCurveOwnership.Previous ? a.Curves : b.Curves;
         var translation = new Vector3(

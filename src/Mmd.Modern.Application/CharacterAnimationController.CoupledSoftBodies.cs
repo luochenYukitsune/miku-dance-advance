@@ -1,4 +1,5 @@
 using System.Numerics;
+using Mmd.Modern.Animation;
 using Mmd.Modern.Core;
 using Mmd.Modern.Physics;
 
@@ -80,10 +81,11 @@ public sealed partial class CharacterAnimationController
 
     // Preflight the complete dependency graph before any outside-parent setter, gravity, node, body-mode or clock mutation.
     internal Matrix4x4[] PreviewCoupledBoundary(double frame, bool ik, bool morphs, IReadOnlyDictionary<int, Matrix4x4>? parents,
-        IReadOnlySet<int> disabled, bool frozen)
+        IReadOnlySet<int> disabled, bool frozen, IReadOnlyDictionary<int, OutsideParentTrackWindow>? trackWindows = null)
     {
         var next = CopyOutsideParents(parents);
-        if (frozen)
+        bool fullEvalFrozen = frozen && RequiresFullEvaluationForFrozenOutsideParents(next, !TrackWindowsEqual(outsideParentTrackWindows, trackWindows));
+        if (frozen && !fullEvalFrozen)
         {
             var worlds = FrozenWorlds(next);
             if (CoupledSoftBodies is { SupportsFrozenCollisionSurface: true } frozenSoft)
@@ -100,7 +102,8 @@ public sealed partial class CharacterAnimationController
         }
         var driven = model.RigidBodies.Where(body => body.BoneIndex >= 0 && body.Operation != Formats.PmxRigidBodyOperation.Static
             && !disabled.Contains(body.BoneIndex)).Select(body => body.BoneIndex).Distinct().ToArray();
-        var options = Evaluation(frame, ik, morphs) with { OutsideParents = next, PhysicsDrivenBoneIndices = driven };
+        var options = Evaluation(frame, ik, morphs) with
+            { OutsideParents = next, PhysicsDrivenBoneIndices = driven, OutsideParentTrackWindows = trackWindows };
         _ = PrepareMorphs(frame, morphs);
         using var sample = animator.BeginPhysicsSample(frame, options);
         var before = sample.BeforePhysicsBoneWorldMatrices.ToArray();

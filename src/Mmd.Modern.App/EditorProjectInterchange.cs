@@ -74,9 +74,46 @@ public static class EditorProjectInterchange
     public static IReadOnlyList<string> InspectPmmNotices(PmmProjectImportPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        var notices = new List<string>();
         int helpers = plan.Document.Accessories.Count(IsMmeHelper);
-        return helpers == 0 ? [] : [EditorLocalization.Format(
-            "Mda.Text.PmmMmeNotice", helpers)];
+        if (helpers != 0)
+            notices.Add(EditorLocalization.Format("Mda.Text.PmmMmeNotice", helpers));
+        notices.AddRange(InspectPmmUnregisteredOutsideParentNotices(plan));
+        return notices.AsReadOnly();
+    }
+
+    /// <summary>Visible notice when saved editor outside-parent drafts differ from the registered keyframes at CurrentFrame.</summary>
+    public static IReadOnlyList<string> InspectPmmUnregisteredOutsideParentNotices(PmmProjectImportPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.Document.Version != 2) return [];
+        int diffModels = 0, diffSlots = 0;
+        foreach (var model in plan.Document.Models)
+        {
+            int slotCount = model.OutsideParentSubjectBoneIndices.Count;
+            if (slotCount == 0 || model.OutsideParentStates.Count != slotCount) continue;
+            var registered = new[] { model.InitialModelKeyframe }.Concat(model.ModelKeyframes)
+                .OrderBy(k => k.Frame)
+                .LastOrDefault(k => k.Frame <= plan.Document.CurrentFrame)
+                ?? model.InitialModelKeyframe;
+            if (registered.OutsideParents.Count != slotCount) continue;
+            int modelDiffs = 0;
+            for (int slot = 0; slot < slotCount; slot++)
+            {
+                var saved = model.OutsideParentStates[slot].Parent;
+                var reg = registered.OutsideParents[slot];
+                if (!(saved.ModelIndex == reg.ModelIndex && (saved.ModelIndex < 0 || saved.BoneIndex == reg.BoneIndex)))
+                    modelDiffs++;
+            }
+            if (modelDiffs > 0)
+            {
+                diffModels++;
+                diffSlots += modelDiffs;
+            }
+        }
+        return diffSlots == 0
+            ? []
+            : [EditorLocalization.Format("Mda.Text.PmmUnregisteredOutsideParentNotice", diffModels, diffSlots)];
     }
 
     /// <summary>Classic imports prepare every X accessory, including effect helpers, rather than
@@ -152,6 +189,7 @@ public static class EditorProjectInterchange
         var diagnostics = new List<string>(plan.Diagnostics.Where(message =>
             !message.StartsWith("PMM camera, light, output size", StringComparison.Ordinal)));
         if (classicEngine is null) diagnostics.AddRange(InspectPmmNotices(plan));
+        else diagnostics.AddRange(InspectPmmUnregisteredOutsideParentNotices(plan));
         var workingFocus = new PmmSceneTracks(plan.Document).SavedCamera.LookAt;
         bool hasIndoorEnvironment = false;
         foreach (var prepared in plan.Models.OrderBy(item => item.Source.DrawOrderIndex))

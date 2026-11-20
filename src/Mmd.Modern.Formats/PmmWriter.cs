@@ -140,11 +140,13 @@ public static class PmmWriter
         void Morph(PmmMorphKeyframe key, bool extra, int index)
         { Frame(key, extra, index); F(key.Weight); Flag(key.Selected); }
         void Parent(PmmOutsideParent parent)
-        { Require(parent is not null, "outside parent is null"); ParentIndices(parent.ModelIndex, parent.BoneIndex); I(parent.ModelIndex); I(parent.BoneIndex); }
-        void ParentIndices(int modelIndex, int boneIndex)
+        { Require(parent is not null, "outside parent is null"); ParentIndices(parent.ModelIndex, parent.BoneIndex, allowGround: true); I(parent.ModelIndex); I(parent.BoneIndex); }
+        void ParentIndices(int modelIndex, int boneIndex, bool allowGround = false)
         {
-            Require(modelIndex >= -1 && boneIndex >= -1, "parent indices must be -1 or nonnegative");
-            if (modelIndex == -1) return;
+            int minModel = allowGround ? -2 : -1;
+            Require(modelIndex >= minModel && boneIndex >= -1,
+                allowGround ? "parent indices must be -2, -1 or nonnegative" : "parent indices must be -1 or nonnegative");
+            if (modelIndex < 0) return;
             var target = document.Models.FirstOrDefault(model => model is not null && model.Index == modelIndex);
             Require(target is not null && boneIndex < target.BoneNames.Count, "parent model/bone reference is outside the document");
         }

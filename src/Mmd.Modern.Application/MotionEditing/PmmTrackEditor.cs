@@ -94,12 +94,16 @@ public sealed class PmmTrackEditor
     {
         if (current.Version != 2) throw new NotSupportedException("PMM 0001 has no outside-parent tracks.");
         if (frame < 0) throw new ArgumentOutOfRangeException(nameof(frame));
+        if (parentModelIndex < -2) throw new ArgumentOutOfRangeException(nameof(parentModelIndex));
         if (parentModelIndex >= 0 && parentBoneName is null)
             throw new ArgumentException("An attached outside parent requires an explicit target bone name.", nameof(parentBoneName));
+        if (parentModelIndex == -2 && parentBoneName is not null)
+            throw new ArgumentException("A ground outside parent does not take a target bone name.", nameof(parentBoneName));
         var model = PmmTrackEditorRecords.Model(current, modelIndex);
         int subject = PmmTrackEditorRecords.Bone(model, subjectBoneName);
-        int parentBone = parentModelIndex == -1 ? -1 : parentBoneName is null ? -1 : PmmTrackEditorRecords.Bone(PmmTrackEditorRecords.Model(current, parentModelIndex), parentBoneName);
-        if (parentModelIndex < -1) throw new ArgumentOutOfRangeException(nameof(parentModelIndex));
+        int parentBone = parentModelIndex >= 0
+            ? PmmTrackEditorRecords.Bone(PmmTrackEditorRecords.Model(current, parentModelIndex), parentBoneName!)
+            : -1;
         PmmDocument baseline = current;
         int slot = model.OutsideParentSubjectBoneIndices.ToList().IndexOf(subject);
         if (slot < 0)

@@ -302,6 +302,7 @@ public partial class EditorPmmImportWindow : Window
                 messages.Add(Text("Mda.Text.Context.Room.BasicLightHelp"));
             messages.AddRange(support);
             if (!classic) messages.AddRange(EditorProjectInterchange.InspectPmmNotices(plan));
+            else messages.AddRange(EditorProjectInterchange.InspectPmmUnregisteredOutsideParentNotices(plan));
             if (operationError is { } error) messages.Add(error());
             SetValidation(string.Join(Environment.NewLine, messages));
         }

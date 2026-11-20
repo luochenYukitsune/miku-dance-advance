@@ -153,6 +153,26 @@ public sealed partial class PmmProjectPlayback
         catch { pmmSharedStatus!.IsFaulted = true; foreach (var status in PmmStatuses()) status.IsFaulted = true; throw; }
     }
 
+    private Dictionary<int, Matrix4x4> BuildPmmBoundaryOutsideParents(Entry entry, Dictionary<int, PmmOutsideParent> actorBindings,
+        Func<Entry, int, IReadOnlyList<Matrix4x4>> resolveParentWorlds)
+    {
+        var outside = new Dictionary<int, Matrix4x4>(actorBindings.Count);
+        foreach (var pair in actorBindings)
+        {
+            int sourceBone = MapBone(entry.Source, pair.Key);
+            if (pair.Value.ModelIndex == -2)
+            {
+                if (sourceBone >= 0) outside.Add(sourceBone, Matrix4x4.CreateTranslation(entry.Source.Model.Bones[sourceBone].Position));
+                continue;
+            }
+            var parent = entries[pair.Value.ModelIndex];
+            int targetBone = MapBone(parent.Source, pair.Value.BoneIndex);
+            var parentWorlds = resolveParentWorlds(parent, targetBone);
+            outside.Add(sourceBone, parentWorlds[targetBone]);
+        }
+        return outside;
+    }
+
     private void EvaluatePmmSharedBoundary(double frame, double priorFrame, bool reset, bool step, bool ik, bool morphs, bool saved)
     {
         uint integer = (uint)Math.Floor(frame);
@@ -162,7 +182,7 @@ public sealed partial class PmmProjectPlayback
         {
             if (done.Contains(id)) return;
             if (!visiting.Add(id)) throw new InvalidDataException("PMM outside-parent model dependency cycle.");
-            foreach (var parent in bindings[id].Values) Visit(parent.ModelIndex);
+            foreach (var parent in bindings[id].Values.Where(p => p.ModelIndex >= 0)) Visit(parent.ModelIndex);
             visiting.Remove(id); done.Add(id); order.Add(id);
         }
         foreach (int id in entries.OrderBy(pair => pair.Value.Source.Source.TransformOrderIndex).Select(pair => pair.Key)) Visit(id);
@@ -171,55 +191,86 @@ public sealed partial class PmmProjectPlayback
             var preview = new Dictionary<int, Matrix4x4[]>();
             foreach (int id in order)
             {
-                var entry = entries[id]; var controller = entry.Controller!; var outside = new Dictionary<int, Matrix4x4>();
-                foreach (var parent in bindings[id]) outside.Add(MapBone(entry.Source, parent.Key),
-                    preview[parent.Value.ModelIndex][MapBone(entries[parent.Value.ModelIndex].Source, parent.Value.BoneIndex)]);
+                var entry = entries[id]; var controller = entry.Controller!;
+                var outside = BuildPmmBoundaryOutsideParents(entry, bindings[id], (parent, _) => preview[parent.Source.Source.Index]);
                 var disabled = physicsControls.DisabledBonesAt(id, frame, saved).Select(bone => sharedBoneMapping[(id, bone)]).ToHashSet();
                 preview.Add(id, controller.PreviewCoupledBoundary(saved ? 0 : Math.Min(frame, controller.DurationFrames), ik, morphs,
-                    outside, disabled, !reset && !saved && priorFrame >= controller.DurationFrames));
+                    outside, disabled, !reset && !saved && priorFrame >= controller.DurationFrames,
+                    TrackWindowsAt(id, entry.Source, saved ? 0 : frame, saved)));
             }
         }
         var pending = new List<(int Id, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Input)>();
+        var pendingById = new Dictionary<int, (CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Input)>();
         var softOnly = new List<(int Id, CharacterAnimationController.SharedPreparedPhysicsSample Pose, bool Frozen)>();
+        var softOnlyById = new Dictionary<int, (CharacterAnimationController.SharedPreparedPhysicsSample Pose, bool Frozen)>();
         var preparedWorlds = new Dictionary<int, Matrix4x4[]>();
+        var physicalDisabled = new Dictionary<int, IReadOnlySet<int>>();
+        var resetAfterPhysicsWorlds = new Dictionary<int, Matrix4x4[]>();
+        var phase1Outside = new Dictionary<int, Dictionary<int, Matrix4x4>>();
+        var nonPhysicalAttached = new Dictionary<int, (double Local, bool SampleFrozen)>();
         try
         {
             foreach (int id in order)
             {
                 var entry = entries[id]; var controller = entry.Controller!;
-                var outside = new Dictionary<int, Matrix4x4>();
-                foreach (var pair in bindings[id])
+                var outside = BuildPmmBoundaryOutsideParents(entry, bindings[id], (parent, targetBone) =>
                 {
-                    var parent = entries[pair.Value.ModelIndex];
-                    var parentWorlds = preparedWorlds.TryGetValue(pair.Value.ModelIndex, out var prepared) ? prepared : parent.Controller!.BoneWorldMatrices.ToArray();
-                    outside.Add(MapBone(entry.Source, pair.Key), parentWorlds[MapBone(parent.Source, pair.Value.BoneIndex)]);
-                }
+                    int parentId = parent.Source.Source.Index;
+                    var parentController = parent.Controller!;
+                    if (physicalDisabled.TryGetValue(parentId, out var parentDisabled)
+                        && parentController.IsBoneAffectedByAfterPhysics(targetBone))
+                    {
+                        if (reset)
+                        {
+                            if (!resetAfterPhysicsWorlds.TryGetValue(parentId, out var sampled))
+                            {
+                                sampled = parentController.SampleResetPostAfterPhysicsBoneWorlds(
+                                    saved ? 0 : Math.Min(frame, parentController.DurationFrames), ik, morphs, parentDisabled);
+                                resetAfterPhysicsWorlds[parentId] = sampled;
+                            }
+                            return sampled;
+                        }
+                        if (parentController.BoneWorldMatrices.Count == parent.Source.Model.Bones.Count)
+                            return parentController.BoneWorldMatrices;
+                    }
+                    return preparedWorlds.TryGetValue(parentId, out var prepared) ? prepared : parentController.BoneWorldMatrices;
+                });
+                phase1Outside[id] = outside;
+                bool trackWindowChanged = controller.SetOutsideParentTrackWindows(TrackWindowsAt(id, entry.Source, saved ? 0 : frame, saved));
                 bool frozen = !reset && !saved && priorFrame >= controller.DurationFrames;
-                if (frozen) controller.RefreshSharedFrozenOutsideParents(outside);
+                bool fullEvalFrozen = frozen && controller.RequiresFullEvaluationForFrozenOutsideParents(outside, trackWindowChanged);
+                bool sampleFrozen = frozen && !fullEvalFrozen;
+                if (fullEvalFrozen) controller.SetOutsideParents(outside);
+                else if (frozen) controller.RefreshSharedFrozenOutsideParents(outside);
                 else controller.SetOutsideParents(outside);
                 double local = saved ? 0 : Math.Min(frame, controller.DurationFrames);
+                bool hasBindings = bindings[id].Values.Any(p => p.ModelIndex >= 0);
                 if (!(controller.SupportsPhysics || coupledSoftBodies && controller.SupportsSoftBodies))
                 {
                     if (controller.SoftBodiesEnabled)
                     {
                         controller.AttachSharedPhysics(pmmSharedStatus!);
-                        var softPreparation = controller.BeginSharedPhysicsSample(local, ik, morphs, frozen: frozen);
+                        var softPreparation = controller.BeginSharedPhysicsSample(local, ik, morphs, frozen: sampleFrozen);
                         softOnly.Add((id, softPreparation, frozen));
+                        softOnlyById[id] = (softPreparation, frozen);
                         preparedWorlds[id] = softPreparation.BeforePhysicsBoneWorlds;
                     }
                     else
                     {
                         var pose = controller.SampleAt(local, ik, morphs); entry.Frame = PmmSharedLocalFrame(entry, pose);
                         preparedWorlds[id] = controller.BoneWorldMatrices.ToArray();
+                        if (hasBindings) nonPhysicalAttached[id] = (local, sampleFrozen);
                     }
                     continue;
                 }
                 var disabled = physicsControls!.DisabledBonesAt(id, frame, saved).Select(bone => sharedBoneMapping[(id, bone)]).ToHashSet();
-                var preparation = controller.BeginSharedPhysicsSample(local, ik, morphs, disabled, frozen);
+                physicalDisabled[id] = disabled;
+                var preparation = controller.BeginSharedPhysicsSample(local, ik, morphs, disabled, sampleFrozen);
                 preparedWorlds[id] = preparation.BeforePhysicsBoneWorlds;
                 var input = new SharedPhysicsActorSample(SharedActorId(id), preparation.BeforePhysicsBoneWorlds)
                     { DisabledBoneIndices = disabled, Frozen = frozen, Impulses = preparation.Impulses };
                 pending.Add((id, preparation, input));
+                pendingById[id] = (preparation, input);
                 var world = PmmWorld(id);
                 if (!world.ActorIds.Contains(input.ActorId))
                     world.AddActor(input.ActorId, PmxCharacterPhysicsAdapter.Convert(entry.Source.Model).Definition, Matrix4x4.Identity, input.BeforePhysicsBoneWorlds);
@@ -254,15 +305,42 @@ public sealed partial class PmmProjectPlayback
                 world.SetGravity(gravity);
                 foreach (var result in step ? world.Step(samples) : world.Reflect(samples)) results.Add(result.Key, result.Value);
             }
-            foreach (var item in pending)
+            var updatedInPhase3 = new HashSet<int>();
+            foreach (int id in order)
             {
-                var entry = entries[item.Id]; entry.Frame = PmmSharedLocalFrame(entry, item.Pose.Complete(results[item.Input.ActorId],
-                    PmmSoftRigidWorlds(item.Id), reset ? null : step && !item.Input.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0));
-            }
-            foreach (var item in softOnly)
-            {
-                var entry = entries[item.Id]; entry.Frame = PmmSharedLocalFrame(entry, item.Pose.Complete(item.Pose.BeforePhysicsBoneWorlds, [],
-                    reset ? null : step && !item.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0));
+                var entry = entries[id]; var controller = entry.Controller!;
+                bool hasPhase3Parent = bindings[id].Values.Any(p => p.ModelIndex >= 0
+                    && (updatedInPhase3.Contains(p.ModelIndex)
+                        || (physicalDisabled.ContainsKey(p.ModelIndex)
+                            && entries[p.ModelIndex].Controller!.IsBoneAffectedByAfterPhysics(MapBone(entries[p.ModelIndex].Source, p.BoneIndex)))));
+                Dictionary<int, Matrix4x4>? afterOutside = null;
+                if (hasPhase3Parent)
+                {
+                    var postOutside = BuildPmmBoundaryOutsideParents(entry, bindings[id], (parent, _) => parent.Controller!.BoneWorldMatrices);
+                    if (!CharacterAnimationController.OutsideParentsEqual(phase1Outside[id], postOutside))
+                        afterOutside = postOutside;
+                }
+                if (pendingById.TryGetValue(id, out var item))
+                {
+                    entry.Frame = PmmSharedLocalFrame(entry, item.Pose.Complete(results[item.Input.ActorId],
+                        PmmSoftRigidWorlds(id), reset ? null : step && !item.Input.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0, afterOutside));
+                    if (afterOutside is not null) updatedInPhase3.Add(id);
+                }
+                else if (softOnlyById.TryGetValue(id, out var softItem))
+                {
+                    entry.Frame = PmmSharedLocalFrame(entry, softItem.Pose.Complete(softItem.Pose.BeforePhysicsBoneWorlds, [],
+                        reset ? null : step && !softItem.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0, afterOutside));
+                    if (afterOutside is not null) updatedInPhase3.Add(id);
+                }
+                else if (afterOutside is not null && nonPhysicalAttached.TryGetValue(id, out var info))
+                {
+                    bool fullAfter = info.SampleFrozen
+                        && controller.RequiresFullEvaluationForFrozenOutsideParents(afterOutside, trackWindowChanged: false);
+                    if (info.SampleFrozen && !fullAfter) controller.RefreshSharedFrozenOutsideParents(afterOutside);
+                    else controller.SetOutsideParents(afterOutside);
+                    entry.Frame = PmmSharedLocalFrame(entry, controller.SampleAt(info.Local, ik, morphs));
+                    updatedInPhase3.Add(id);
+                }
             }
         }
         finally { foreach (var item in pending) item.Pose.Dispose(); foreach (var item in softOnly) item.Pose.Dispose(); }

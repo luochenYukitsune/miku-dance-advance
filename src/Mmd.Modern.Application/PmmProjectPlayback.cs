@@ -1,4 +1,5 @@
 using System.Numerics;
+using Mmd.Modern.Animation;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
@@ -31,6 +32,7 @@ public sealed partial class PmmProjectPlayback : IDisposable
         }
     }
     private readonly Dictionary<int,Entry> entries;
+    private readonly Dictionary<int,PmmModelKeyframe[]> orderedModelKeys;
     private readonly Func<Vector3,float?,ICharacterPhysicsBackend> physicsFactory;
     private readonly Func<PreparedPmmModel,ISoftBodyBackend>? softPhysicsFactory;
     private readonly bool coupledSoftBodies;
@@ -77,6 +79,8 @@ public sealed partial class PmmProjectPlayback : IDisposable
             ||(standaloneSoftPhysicsFactory is not null||coupledSoftBodies)&&plan.Models.Any(m=>m.Model.SoftBodies.Count!=0);
         if(!plan.CanCommit||plan.Models.Count==0)throw new InvalidDataException("Resolve all PMM model references before replacing the active project.");
         entries=plan.Models.ToDictionary(m=>(int)m.Source.Index,m=>new Entry(m,restScenes[m.Source.Index]));
+        orderedModelKeys=plan.Models.ToDictionary(m=>(int)m.Source.Index,
+            m=>new[]{m.Source.InitialModelKeyframe}.Concat(m.Source.ModelKeyframes).OrderBy(k=>k.Frame).ToArray());
         PrevalidateSharedPhysicsBindings();
         Tracks=new(plan.Document);CurrentFrame=plan.CurrentFrame;
         void ValidateCamera(PmmCameraPose pose)
@@ -116,7 +120,7 @@ public sealed partial class PmmProjectPlayback : IDisposable
             var active=new HashSet<int>();var done=new HashSet<int>();
             void Visit(int id)
             {if(done.Contains(id))return;if(!active.Add(id))throw new InvalidDataException("PMM outside-parent model dependency cycle.");
-                foreach(var parent in ParentsAt(entries[id].Source.Source,frame,saved).Values)Visit(parent.ModelIndex);
+                foreach(var parent in ParentsAt(entries[id].Source.Source,frame,saved).Values.Where(p=>p.ModelIndex>=0))Visit(parent.ModelIndex);
                 active.Remove(id);done.Add(id);}
             foreach(int id in entries.Keys)Visit(id);
         }
@@ -212,12 +216,19 @@ public sealed partial class PmmProjectPlayback : IDisposable
             var outside=new Dictionary<int,Matrix4x4>();
             foreach(var pair in bindings[id])
             {
+                int sourceBone=MapBone(entry.Source,pair.Key);
+                if(pair.Value.ModelIndex==-2)
+                {
+                    if(sourceBone>=0)outside.Add(sourceBone,Matrix4x4.CreateTranslation(entry.Source.Model.Bones[sourceBone].Position));
+                    continue;
+                }
                 if(pair.Value.ModelIndex<0)continue;
-                var target=entries[pair.Value.ModelIndex];int sourceBone=MapBone(entry.Source,pair.Key),targetBone=MapBone(target.Source,pair.Value.BoneIndex);
+                var target=entries[pair.Value.ModelIndex];int targetBone=MapBone(target.Source,pair.Value.BoneIndex);
                 var worlds=target.Controller!.BoneWorldMatrices;
                 if(targetBone<0||targetBone>=worlds.Count)throw new InvalidDataException("PMM external parent target bone is invalid.");
                 outside.Add(sourceBone,worlds[targetBone]);
             }
+            controller.SetOutsideParentTrackWindows(TrackWindowsAt(id,entry.Source,saved?0:frame,saved));
             controller.SetOutsideParents(outside);
             uint sampleFrame=saved?0:integer;
             if(PhysicsEnabled&&controller.SupportsPhysics&&!controller.PhysicsEnabled)
@@ -253,9 +264,13 @@ public sealed partial class PmmProjectPlayback : IDisposable
         else{var key=new[]{model.InitialModelKeyframe}.Concat(model.ModelKeyframes).Where(k=>k.Frame<=frame).OrderBy(k=>k.Frame).LastOrDefault();parents=key?.OutsideParents??[];}
         if(parents.Count!=model.OutsideParentSubjectBoneIndices.Count)throw new InvalidDataException("PMM outside-parent slot count mismatch.");
         var result=new Dictionary<int,PmmOutsideParent>();
-        for(int i=0;i<parents.Count;i++)if(parents[i].ModelIndex>=0)result.Add(model.OutsideParentSubjectBoneIndices[i],parents[i]);
+        for(int i=0;i<parents.Count;i++)
+            if(parents[i].ModelIndex>=0||(parents[i].ModelIndex==-2&&model.OutsideParentSubjectBoneIndices[i]>=0))
+                result.Add(model.OutsideParentSubjectBoneIndices[i],parents[i]);
         return result;
     }
+    private IReadOnlyDictionary<int,OutsideParentTrackWindow>? TrackWindowsAt(int id,PreparedPmmModel prepared,double frame,bool saved)
+        => ScenePmmControlState.ComputeTrackWindows(prepared.Source,orderedModelKeys[id],frame,saved,bone=>MapBone(prepared,bone));
     private static int MapBone(PreparedPmmModel model,int index)
     {
         if(index==-1)return -1;

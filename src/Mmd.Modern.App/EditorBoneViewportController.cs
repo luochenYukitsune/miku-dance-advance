@@ -402,9 +402,12 @@ public sealed class EditorBoneViewportController
         if (item is null) return false;
         // A direct outside-parent can replace the ordinary parent, including PMM dynamic bindings.
         // Those require an explicit effective-parent render input. Do not infer it from solved output.
-        var parents = pose.Session.OutsideParents.Concat(pose.Session.PmmControls?.Sample(pose.Frame).OutsideParents ?? []);
+        var pmmSample = pose.Session.PmmControls?.Sample(pose.Frame);
+        var parents = pose.Session.OutsideParents.Concat(pmmSample?.OutsideParents ?? []);
         if (parents.Any(binding => binding.ObjectId == pose.Model.ObjectId
             && (binding.BoneIndex == index || bone.ParentIndex < 0 && binding.BoneIndex == -1))) return false;
+        if (pmmSample?.GroundOutsideParents.Any(ground => ground.ObjectId == pose.Model.ObjectId && ground.BoneIndex == index) == true)
+            return false;
         Matrix4x4 parent = item.World;
         if (bone.ParentIndex >= 0 && !pose.Inputs.BoneWorldMatrices.TryGetValue(bone.ParentIndex, out parent)) return false;
         if (!TryRigid(parent, out var parentRigid, out parentScale) || !TryRigid(world, out var boneRigid, out _)) return false;

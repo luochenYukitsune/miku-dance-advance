@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Security.Cryptography;
+using Mmd.Modern.Animation;
 using Mmd.Modern.Application.MotionEditing;
 using Mmd.Modern.Formats;
 
@@ -27,9 +28,17 @@ public sealed record ScenePmmOrphanRedirection(Guid SourceObjectId, int BoneOrdi
     public string[] TargetBoneNames { get; init; } = [];
     public bool IsDetached { get; init; }
 }
+public sealed record ScenePmmGroundOutsideParent(Guid ObjectId, int BoneIndex);
 public sealed record ScenePmmControlSample(PmmGravityPose Gravity,
     IReadOnlyDictionary<Guid, IReadOnlyList<int>> DisabledBoneIndices,
-    IReadOnlyList<SceneOutsideParentBinding> OutsideParents);
+    IReadOnlyList<SceneOutsideParentBinding> OutsideParents)
+{
+    internal static readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> EmptyTrackWindows =
+        new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(
+            new Dictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>());
+    public IReadOnlyList<ScenePmmGroundOutsideParent> GroundOutsideParents { get; init; } = Array.Empty<ScenePmmGroundOutsideParent>();
+    public IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> OutsideParentTrackWindows { get; init; } = EmptyTrackWindows;
+}
 
 /// <summary>Immutable PMM control/provenance bridge. Reuses the PMM evaluator and transactional editor.
 /// This is authored metadata; no solver, noise-generator or simulation history is captured.</summary>
@@ -237,8 +246,13 @@ public sealed partial class ScenePmmControlState
             foreach (int ordinal in physics.DisabledBonesAt(actor.ModelIndex, frame, saved))
                 if (ResolveMappedBone(actor, ordinal) is { } mapped) mutableDisabled[mapped.Id].Add(mapped.Bone);
         var disabled = mutableDisabled.ToDictionary(p => p.Key, p => (IReadOnlyList<int>)Array.AsReadOnly(p.Value.Distinct().ToArray()));
+        var (outsideParents, groundParents) = ParentsAndGroundAt(frame, saved);
         return new(saved ? physics.SavedGravity : physics.GravityAt(frame),
-            new ReadOnlyDictionary<Guid, IReadOnlyList<int>>(disabled), ParentsAt(frame, saved));
+            new ReadOnlyDictionary<Guid, IReadOnlyList<int>>(disabled), outsideParents)
+        {
+            GroundOutsideParents = groundParents,
+            OutsideParentTrackWindows = TrackWindowsAt(frame, saved),
+        };
     }
 
     /// <summary>Authored local camera channels. The parent is a discrete hold channel, independent of VMD curves.</summary>
@@ -294,8 +308,13 @@ public sealed partial class ScenePmmControlState
     }
 
     private IReadOnlyList<SceneOutsideParentBinding> ParentsAt(double frame, bool saved)
+        => ParentsAndGroundAt(frame, saved).OutsideParents;
+
+    private (IReadOnlyList<SceneOutsideParentBinding> OutsideParents, IReadOnlyList<ScenePmmGroundOutsideParent> GroundOutsideParents)
+        ParentsAndGroundAt(double frame, bool saved)
     {
         var result = new List<SceneOutsideParentBinding>();
+        var ground = new List<ScenePmmGroundOutsideParent>();
         foreach (var model in document.Models)
         {
             IReadOnlyList<PmmOutsideParent> parents = saved ? model.OutsideParentStates.Select(s => s.Parent).ToArray()
@@ -306,16 +325,23 @@ public sealed partial class ScenePmmControlState
             for (int slot = 0; slot < parents.Count; slot++)
             {
                 var parent = parents[slot];
+                int subject = model.OutsideParentSubjectBoneIndices[slot];
+                if (parent.ModelIndex == -2 && subject >= 0)
+                {
+                    if (ResolveMappedBone(actor, subject) is { } groundSubject)
+                        ground.Add(new(groundSubject.Id, groundSubject.Bone));
+                    continue;
+                }
                 if (parent.ModelIndex < 0) continue;
                 if (!byModel.TryGetValue(parent.ModelIndex, out var target)) throw new InvalidDataException("Unknown PMM outside-parent actor.");
-                int subject = model.OutsideParentSubjectBoneIndices[slot];
                 var mappedTarget = ResolveMappedBone(target, parent.BoneIndex);
                 var mappedSubject = subject < 0 ? (Id: actor.ObjectId, Bone: -1) : ResolveMappedBone(actor, subject);
                 if (mappedTarget is null || mappedSubject is null) continue;
                 result.Add(new(mappedSubject.Value.Id, mappedSubject.Value.Bone, mappedTarget.Value.Id, mappedTarget.Value.Bone, Matrix4x4.Identity));
             }
         }
-        if (result.Select(p => (p.ObjectId, p.BoneIndex)).Distinct().Count() != result.Count)
+        int totalSubjects = result.Count + ground.Count;
+        if (result.Select(p => (p.ObjectId, p.BoneIndex)).Concat(ground.Select(g => (g.ObjectId, g.BoneIndex))).Distinct().Count() != totalSubjects)
             throw new InvalidDataException("PMM control outside-parent subjects must be unique.");
         var edges = result.GroupBy(p => p.ObjectId).ToDictionary(g => g.Key, g => g.Select(p => p.ParentObjectId).Distinct().ToArray());
         var visiting = new HashSet<Guid>(); var done = new HashSet<Guid>();
@@ -327,8 +353,85 @@ public sealed partial class ScenePmmControlState
             visiting.Remove(id); done.Add(id);
         }
         foreach (var id in edges.Keys) Visit(id);
-        return result.AsReadOnly();
+        return (result.AsReadOnly(), ground.Count == 0 ? Array.Empty<ScenePmmGroundOutsideParent>() : ground.AsReadOnly());
     }
+
+    private IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> TrackWindowsAt(double frame, bool saved)
+    {
+        Dictionary<Guid, Dictionary<int, OutsideParentTrackWindow>>? mutable = null;
+        foreach (var model in document.Models)
+        {
+            var actor = byModel[model.Index];
+            CollectTrackWindows(model, modelKeys[model.Index], frame, saved,
+                subject => ResolveMappedBone(actor, subject),
+                (targetId, bone, window) =>
+                {
+                    mutable ??= [];
+                    if (!mutable.TryGetValue(targetId, out var dict)) mutable[targetId] = dict = [];
+                    dict[bone] = window;
+                });
+        }
+        if (mutable is null || mutable.Count == 0) return ScenePmmControlSample.EmptyTrackWindows;
+        var readonlyMap = new Dictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(mutable.Count);
+        foreach (var (id, dict) in mutable) readonlyMap.Add(id, new ReadOnlyDictionary<int, OutsideParentTrackWindow>(dict));
+        return new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(readonlyMap);
+    }
+
+    internal static IReadOnlyDictionary<int, OutsideParentTrackWindow>? ComputeTrackWindows(PmmModel model,
+        PmmModelKeyframe[] orderedKeys, double frame, bool saved, Func<int, int> mapBone)
+    {
+        Dictionary<int, OutsideParentTrackWindow>? result = null;
+        CollectTrackWindows(model, orderedKeys, frame, saved,
+            subject => { int mapped = mapBone(subject); return mapped >= 0 ? (Guid.Empty, mapped) : ((Guid, int)?)null; },
+            (_, bone, window) => (result ??= [])[bone] = window);
+        return result;
+    }
+
+    private static void CollectTrackWindows(PmmModel model, PmmModelKeyframe[] orderedKeys, double frame, bool saved,
+        Func<int, (Guid Id, int Bone)?> resolveSubject, Action<Guid, int, OutsideParentTrackWindow> emit)
+    {
+        var subjects = model.OutsideParentSubjectBoneIndices;
+        if (subjects.Count == 0) return;
+        int activeIndex = 0;
+        if (!saved)
+        {
+            int low = 0, high = orderedKeys.Length;
+            while (low < high)
+            {
+                int middle = low + (high - low) / 2;
+                if (orderedKeys[middle].Frame <= frame) low = middle + 1;
+                else high = middle;
+            }
+            activeIndex = Math.Max(0, low - 1);
+        }
+        for (int slot = 0; slot < subjects.Count; slot++)
+        {
+            int subject = subjects[slot];
+            if (subject < 0 || resolveSubject(subject) is not { } mapped) continue;
+            uint begin, end;
+            if (saved)
+            {
+                var state = model.OutsideParentStates[slot];
+                begin = state.BeginFrame > 0 ? (uint)state.BeginFrame : 0u;
+                end = state.EndFrame > 0 && state.EndFrame < int.MaxValue ? (uint)state.EndFrame : 0u;
+            }
+            else
+            {
+                var activeParent = orderedKeys[activeIndex].OutsideParents[slot];
+                int beginIdx = activeIndex;
+                while (beginIdx > 0 && SameOutsideParent(orderedKeys[beginIdx - 1].OutsideParents[slot], activeParent)) beginIdx--;
+                begin = beginIdx == 0 ? 0u : (uint)orderedKeys[beginIdx].Frame;
+                int endIdx = activeIndex + 1;
+                while (endIdx < orderedKeys.Length && SameOutsideParent(orderedKeys[endIdx].OutsideParents[slot], activeParent)) endIdx++;
+                end = endIdx < orderedKeys.Length ? (uint)orderedKeys[endIdx].Frame : 0u;
+            }
+            if (begin == 0u && end == 0u) continue;
+            emit(mapped.Id, mapped.Bone, new(begin, end));
+        }
+    }
+
+    private static bool SameOutsideParent(PmmOutsideParent a, PmmOutsideParent b)
+        => a.ModelIndex == b.ModelIndex && (a.ModelIndex < 0 || a.BoneIndex == b.BoneIndex);
 
     private static Actor Map(ScenePmmActorSource actor, PmmModel model)
         => Map(actor.ObjectId, actor.PmmModelIndex, actor.Model.Bones.Select(b => b.Name).ToArray(), model);
@@ -377,7 +480,14 @@ public sealed partial class ScenePmmControlState
             {
                 for (int slot = 0; slot < parents.Count; slot++)
                 {
-                    var parent = parents[slot]; if (parent.ModelIndex < 0) continue;
+                    var parent = parents[slot];
+                    if (parent.ModelIndex == -2)
+                    {
+                        int groundSubject = model.OutsideParentSubjectBoneIndices[slot];
+                        if (groundSubject >= 0) RequireBone(model.Index, groundSubject, "outside-parent subject");
+                        continue;
+                    }
+                    if (parent.ModelIndex < 0) continue;
                     RequireBone(parent.ModelIndex, parent.BoneIndex, "outside-parent target");
                     int subject = model.OutsideParentSubjectBoneIndices[slot];
                     if (subject >= 0) RequireBone(model.Index, subject, "outside-parent subject");

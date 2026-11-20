@@ -163,6 +163,115 @@ public sealed class PmmTrackEditorExtendedTests
         { Rotation = Quaternion.Identity, Interpolation = curve })]));
         Assert.False(editor.CanUndo);
     }
+
+    [Fact]
+    public void PrepareOutsideParentSupportsGroundWithRoundTripUndoRedoAndControlSampling()
+    {
+        var source = Document();
+        var editor = new PmmTrackEditor(source);
+        byte[] before = PmmWriter.ToBytes(editor.ExportDocument());
+
+        // Add a missing slot on model 1 bound to ground (-2) at frame 3.
+        editor.Apply(editor.PrepareOutsideParent(1, "parent", 3, -2));
+        var afterModel1 = editor.ExportDocument();
+        var model1 = afterModel1.Models.Single(model => model.Index == 1);
+        Assert.Equal(new[] { 0 }, model1.OutsideParentSubjectBoneIndices);
+        Assert.Equal(new PmmOutsideParent(0, -1, -1), model1.InitialModelKeyframe.OutsideParents[0] with { Offset = 0 });
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), model1.ModelKeyframes.Single(k => k.Frame == 3).OutsideParents[0] with { Offset = 0 });
+        Assert.Equal(3, model1.OutsideParentStates[0].BeginFrame);
+        Assert.Equal(int.MaxValue, model1.OutsideParentStates[0].EndFrame);
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), model1.OutsideParentStates[0].Parent with { Offset = 0 });
+
+        // Update an existing slot on model 0 ("B") to ground (-2) at frame 3 while frame 12 remains bound to model 1.
+        editor.Apply(editor.PrepareOutsideParent(0, "B", 3, -2));
+        var result = editor.ExportDocument();
+        var model0 = result.Models.Single(model => model.Index == 0);
+        Assert.Equal(3, model0.OutsideParentStates[0].BeginFrame);
+        Assert.Equal(11, model0.OutsideParentStates[0].EndFrame);
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), model0.OutsideParentStates[0].Parent with { Offset = 0 });
+
+        var reread = PmmReader.Read(new MemoryStream(PmmWriter.ToBytes(result)));
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), PmmTrackSampling.OutsideParentsAt(reread, 0, 5)[0] with { Offset = 0 });
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), PmmTrackSampling.OutsideParentsAt(reread, 1, 5)[0] with { Offset = 0 });
+
+        Guid actor0 = Guid.NewGuid(), actor1 = Guid.NewGuid();
+        var controls = ScenePmmControlState.Create(reread, [
+            new(actor0, 0, PmmMotionAdapterTests.Pmx(["A", "B"])),
+            new(actor1, 1, PmmMotionAdapterTests.Pmx(["parent"])),
+        ]);
+        var at0 = controls.Sample(0);
+        Assert.Empty(at0.GroundOutsideParents);
+        Assert.Empty(at0.OutsideParents);
+        var at5 = controls.Sample(5);
+        Assert.Equal([new(actor0, 1), new(actor1, 0)], at5.GroundOutsideParents.OrderBy(item => item.ObjectId == actor0 ? 0 : 1).ToArray());
+        Assert.Empty(at5.OutsideParents);
+        var at12 = controls.Sample(12);
+        Assert.Equal([new(actor1, 0)], at12.GroundOutsideParents);
+        var parent12 = Assert.Single(at12.OutsideParents);
+        Assert.Equal((actor0, 1, actor1, 0), (parent12.ObjectId, parent12.BoneIndex, parent12.ParentObjectId, parent12.ParentBoneIndex));
+
+        Assert.True(editor.Undo());
+        Assert.True(editor.Undo());
+        Assert.Equal(before, PmmWriter.ToBytes(editor.ExportDocument()));
+        Assert.True(editor.Redo());
+        Assert.True(editor.Redo());
+        Assert.Equal(PmmWriter.ToBytes(result), PmmWriter.ToBytes(editor.ExportDocument()));
+    }
+
+    [Fact]
+    public void GroundOutsideParentIgnoresStaleBoneIndexInSameParentAndRejectsInvalidInputsAtomically()
+    {
+        var baseDoc = Document();
+        var editor = new PmmTrackEditor(baseDoc);
+        byte[] before = PmmWriter.ToBytes(editor.ExportDocument());
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.PrepareOutsideParent(0, "B", 4, -3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => editor.PrepareOutsideParent(0, "B", 4, -3, "parent"));
+        Assert.Throws<ArgumentException>(() => editor.PrepareOutsideParent(0, "B", 4, -2, "parent"));
+        Assert.Throws<InvalidDataException>(() => editor.PrepareRegister([new(new(PmmTrackKind.Model, 0, "", 4), new PmmModelKeyframe
+        { Visible = true, ConstraintEnabled = [true], OutsideParents = [new(0, -3, -1)] })]));
+        Assert.False(editor.CanUndo);
+        Assert.Equal(before, PmmWriter.ToBytes(editor.ExportDocument()));
+
+        // Whole-model (-1) slot cannot target ground (-2).
+        var actor0 = baseDoc.Models[0];
+        var wholeModel = new PmmModel
+        {
+            Offset = actor0.Offset, Index = actor0.Index, Name = actor0.Name, EnglishName = actor0.EnglishName, Path = actor0.Path,
+            FixedTrackCount = actor0.FixedTrackCount, BoneNames = actor0.BoneNames, MorphNames = actor0.MorphNames,
+            ConstraintBoneIndices = actor0.ConstraintBoneIndices, OutsideParentSubjectBoneIndices = [-1],
+            DrawOrderIndex = actor0.DrawOrderIndex, Visible = actor0.Visible, SelectedBoneIndex = actor0.SelectedBoneIndex,
+            SelectedMorphIndices = actor0.SelectedMorphIndices, ExpansionStates = actor0.ExpansionStates, VerticalScroll = actor0.VerticalScroll,
+            LastFrame = actor0.LastFrame, InitialBoneKeyframes = actor0.InitialBoneKeyframes, BoneKeyframes = actor0.BoneKeyframes,
+            InitialMorphKeyframes = actor0.InitialMorphKeyframes, MorphKeyframes = actor0.MorphKeyframes,
+            InitialModelKeyframe = actor0.InitialModelKeyframe, ModelKeyframes = actor0.ModelKeyframes,
+            BoneStates = actor0.BoneStates, MorphStates = actor0.MorphStates, ConstraintStates = actor0.ConstraintStates,
+            OutsideParentStates = actor0.OutsideParentStates, BlendEnabled = actor0.BlendEnabled, EdgeWidth = actor0.EdgeWidth,
+            SelfShadowEnabled = actor0.SelfShadowEnabled, TransformOrderIndex = actor0.TransformOrderIndex,
+        };
+        var wholeDoc = new PmmDocument
+        {
+            Version = baseDoc.Version, AnsiCodePage = baseDoc.AnsiCodePage, PanelStates = baseDoc.PanelStates,
+            OutputWidth = baseDoc.OutputWidth, OutputHeight = baseDoc.OutputHeight, CameraFov = baseDoc.CameraFov,
+            Models = [wholeModel, baseDoc.Models[1]], CurrentFrame = baseDoc.CurrentFrame, Camera = baseDoc.Camera,
+            Light = baseDoc.Light, Gravity = baseDoc.Gravity, SelfShadow = baseDoc.SelfShadow,
+            Settings = baseDoc.Settings, UnknownTail = baseDoc.UnknownTail, Accessories = baseDoc.Accessories,
+            AccessoryNames = baseDoc.AccessoryNames,
+        };
+        var wholeEditor = new PmmTrackEditor(wholeDoc);
+        Assert.Throws<InvalidDataException>(() => wholeEditor.PrepareRegister([new(new(PmmTrackKind.Model, 0, "", 4), new PmmModelKeyframe
+        { Visible = true, ConstraintEnabled = [true], OutsideParents = [new(0, -2, -1)] })]));
+        Assert.False(wholeEditor.CanUndo);
+
+        // Stale BoneIndex on (-2, 7) matches (-2, -1) in SameParent, keeping BeginFrame at 0.
+        editor.Apply(editor.PrepareRegister([new(new(PmmTrackKind.Model, 0, "", 0), new PmmModelKeyframe
+        { Visible = true, ConstraintEnabled = [true], OutsideParents = [new(0, -2, 7)] })]), confirmOverwrite: true);
+        editor.Apply(editor.PrepareOutsideParent(0, "B", 3, -2));
+        var state = editor.ExportDocument().Models.Single(m => m.Index == 0).OutsideParentStates[0];
+        Assert.Equal(0, state.BeginFrame);
+        Assert.Equal(11, state.EndFrame);
+        Assert.Equal(new PmmOutsideParent(0, -2, -1), state.Parent with { Offset = 0 });
+    }
     internal static PmmDocument Document(bool reverseModels = false)
     {
         var source = PmmEditedMotionExporterTests.Document();

@@ -1,6 +1,7 @@
 using System.Numerics;
 using Mmd.Modern.Animation;
 using Mmd.Modern.Core;
+using Mmd.Modern.Formats;
 
 namespace Mmd.Modern.Application;
 
@@ -99,6 +100,64 @@ public sealed partial class CharacterAnimationController
         foreach (int id in SoftVertexIndices)
             vertices[id] = vertices[id] with { Position = previous[id].Position, Normal = previous[id].Normal };
         return vertices;
+    }
+
+    private HashSet<int>? constraintSensitiveOutsideParentSubjects;
+    private HashSet<int> ConstraintSensitiveOutsideParentSubjects
+        => constraintSensitiveOutsideParentSubjects ??= BuildConstraintSensitiveOutsideParentSubjects();
+
+    private HashSet<int> BuildConstraintSensitiveOutsideParentSubjects()
+    {
+        var sensitive = new HashSet<int>();
+        void MarkSplitters(IEnumerable<int> nodes)
+        {
+            HashSet<int>? intersection = null;
+            var union = new HashSet<int>();
+            foreach (int node in nodes)
+            {
+                if ((uint)node >= (uint)model.Bones.Count) continue;
+                var ancestors = new HashSet<int>();
+                for (int cur = node; (uint)cur < (uint)model.Bones.Count && ancestors.Add(cur); cur = model.Bones[cur].ParentIndex) { }
+                union.UnionWith(ancestors);
+                if (intersection is null) intersection = new HashSet<int>(ancestors);
+                else intersection.IntersectWith(ancestors);
+            }
+            if (intersection is not null) union.ExceptWith(intersection);
+            sensitive.UnionWith(union);
+        }
+        for (int i = 0; i < model.Bones.Count; i++)
+        {
+            var bone = model.Bones[i];
+            if (bone.Flags.HasFlag(PmxBoneFlags.Ik))
+            {
+                var group = new List<int>(bone.IkLinks.Count + 2) { i, bone.IkTargetBoneIndex };
+                foreach (var link in bone.IkLinks) group.Add(link.BoneIndex);
+                MarkSplitters(group);
+            }
+            if ((bone.Flags & (PmxBoneFlags.AppendRotate | PmxBoneFlags.AppendTranslate)) != 0)
+                MarkSplitters([i, bone.AppendBoneIndex]);
+        }
+        return sensitive;
+    }
+
+    internal bool RequiresFullEvaluationForFrozenOutsideParents(IReadOnlyDictionary<int, Matrix4x4>? next, bool trackWindowChanged)
+    {
+        if (trackWindowChanged) return true;
+        if (outsideParents is not null)
+        {
+            foreach (var (key, previous) in outsideParents)
+            {
+                if (key < 0) continue;
+                if (next is null || !next.TryGetValue(key, out var value)) return true;
+                if (value != previous && ConstraintSensitiveOutsideParentSubjects.Contains(key)) return true;
+            }
+        }
+        if (next is not null)
+        {
+            foreach (int key in next.Keys)
+                if (key >= 0 && (outsideParents is null || !outsideParents.ContainsKey(key))) return true;
+        }
+        return false;
     }
 
     private static bool FiniteVector(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);

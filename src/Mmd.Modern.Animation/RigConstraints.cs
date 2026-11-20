@@ -41,9 +41,13 @@ public sealed class IkDefinition
     }
 }
 
+/// <summary>Frame bounds [BeginFrame, EndFrame) of an active outside-parent slot segment. Zero means open/unbounded.</summary>
+public readonly record struct OutsideParentTrackWindow(uint BeginFrame, uint EndFrame);
+
 /// <summary>IK overrides use controller indices. Outside parents are target bone-world transforms;
 /// keys >= 0 replace that bone's ordinary parent and rest offset, while -1 attaches the whole model's roots.</summary>
 public sealed record CharacterEvaluationOptions(bool EnableIk = true, IReadOnlyDictionary<int, bool>? IkEnabledOverrides = null,
     MorphPose? Morphs = null, IReadOnlyDictionary<int, Matrix4x4>? OutsideParents = null,
     IReadOnlyCollection<int>? PhysicsDrivenBoneIndices = null,
-    IReadOnlyDictionary<int, BoneLocalTransform>? LocalBoneOverrides = null);
+    IReadOnlyDictionary<int, BoneLocalTransform>? LocalBoneOverrides = null,
+    IReadOnlyDictionary<int, OutsideParentTrackWindow>? OutsideParentTrackWindows = null);
