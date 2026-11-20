@@ -15,6 +15,7 @@ internal sealed partial class EditorAboutWindow : Window
     private readonly string applicationDirectory;
     private readonly Action<string> openOriginalDocument;
     private const string VisualCppLicense = "tools/upscaling/licenses/vc-runtime/Visual-C-V14-Runtime-2026-License.docx";
+    internal const string SpecialThanksGitHubUrl = "https://github.com/LyaQanYi";
     private bool showingLicenses;
     private bool licensesLoaded;
 
@@ -191,6 +192,12 @@ internal sealed partial class EditorAboutWindow : Window
     private static void OpenLocalDocument(string path)
     {
         using var process = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+    }
+
+    private void OpenSpecialThanksGitHub(object? sender, RoutedEventArgs args)
+    {
+        try { openOriginalDocument(SpecialThanksGitHubUrl); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception or InvalidOperationException) { }
     }
 
     private void CloseAbout(object? sender, RoutedEventArgs args) => Close();
