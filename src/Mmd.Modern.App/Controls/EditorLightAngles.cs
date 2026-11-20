@@ -33,9 +33,15 @@ internal static class EditorLightAngles
         return (azimuth, elevation);
     }
 
-    internal static Vector3 Snap(Vector3 direction, double stepDegrees)
+    internal static Vector3 FlipHemisphereDirection(Vector3 direction, bool currentlyBacklit)
     {
-        var (azimuth, elevation) = Angles(direction, 0);
-        return Direction(Math.Round(azimuth / stepDegrees) * stepDegrees, Math.Round(elevation / stepDegrees) * stepDegrees, direction.Length());
+        if (!float.IsFinite(direction.X) || !float.IsFinite(direction.Y) || !float.IsFinite(direction.Z) || direction.LengthSquared() < 1e-12f)
+            return currentlyBacklit ? new Vector3(0, 0, 1) : new Vector3(0, 0, -1);
+        float length = direction.Length();
+        if (MathF.Abs(direction.Z) > length * 1e-4f)
+            return new Vector3(direction.X, direction.Y, -direction.Z);
+        float targetTravelZSign = currentlyBacklit ? 1f : -1f;
+        var tilted = new Vector3(direction.X, direction.Y, targetTravelZSign * length * 0.1f);
+        return Vector3.Normalize(tilted) * length;
     }
 }

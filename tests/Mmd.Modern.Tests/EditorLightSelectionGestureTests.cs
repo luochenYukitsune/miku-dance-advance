@@ -104,6 +104,61 @@ public sealed class EditorLightSelectionGestureTests
         Assert.True(workspace.Redo()); Assert.Equal(moved.Lights, workspace.Session.Lighting.Lights);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BodyDragUsesActiveToolEvenWhenAimProjectsOntoBody(bool rotate)
+    {
+        using var workspace = Workspace();
+        var lamp = Light(Vector3.Zero);
+        workspace.EditLighting(new(new([lamp])));
+        var controller = new EditorLightViewportController(workspace, workspace.EditLighting, () => { });
+        controller.Select(lamp.Id);
+        controller.RotateHandle = rotate;
+        Present(workspace, controller);
+        Assert.True(controller.TryBeginDrag(400, 300, 800, 600, Camera));
+        int notifications = 0;
+        controller.Changed += (_, _) => notifications++;
+        var initialIdentity = controller.PresentationIdentity;
+        Assert.True(controller.MoveDrag(460, 320));
+        Assert.NotEqual(initialIdentity, controller.PresentationIdentity);
+        Assert.Equal(0, notifications);
+        Assert.True(controller.EndDrag());
+        var result = Assert.Single(workspace.Session!.Lighting.Lights);
+        if (rotate)
+        {
+            Assert.Equal(lamp.Position, result.Position);
+            Assert.NotEqual(lamp.Direction, result.Direction);
+        }
+        else
+        {
+            Assert.NotEqual(lamp.Position, result.Position);
+            Assert.Equal(lamp.Rotation, result.Rotation);
+            Assert.Equal(lamp.EffectiveAimDistance, result.EffectiveAimDistance);
+        }
+        Assert.True(workspace.Undo());
+        Assert.Equal(lamp, Assert.Single(workspace.Session.Lighting.Lights));
+    }
+
+    [Fact]
+    public void GrabbingAnUnselectedPointLightInRotateModeMovesItOnTheFirstDrag()
+    {
+        using var workspace = Workspace();
+        var spot = Light(new(-2, 0, 0));
+        var point = Light(Vector3.Zero) with { Kind = SceneLightKind.Point };
+        workspace.EditLighting(new(new([spot, point])));
+        var controller = new EditorLightViewportController(workspace, workspace.EditLighting, () => { });
+        controller.Select(spot.Id);
+        controller.RotateHandle = true;
+        Present(workspace, controller);
+        Assert.True(controller.TryBeginDrag(400, 300, 800, 600, Camera));
+        Assert.True(controller.MoveDrag(460, 300));
+        Assert.True(controller.EndDrag());
+        var moved = workspace.Session!.Lighting.Lights.Single(light => light.Id == point.Id);
+        Assert.NotEqual(point.Position, moved.Position);
+        Assert.Equal(point.Rotation, moved.Rotation);
+    }
+
     [Fact]
     public void SharedRotationRingOrbitsTheSelectionAndRotatesDirectionsAroundItsCentre()
     {

@@ -56,13 +56,14 @@ public sealed class EditorLightingCapacityTests : IAsyncDisposable
     public void FullAuthoringMarkersAndMultiSelectionRingsFitTheExistingOverlayBudget()
     {
         var lights = Enumerable.Range(0, SceneLightingSnapshot.MaxLights).Select(index => Light() with
-        { Position = new((index % 16 - 8) * .3f, (index / 16 - 4) * .3f, 0), Enabled = index < 32 }).ToArray();
+        { Position = new((index % 16 - 8) * .3f, (index / 16 - 4) * .3f, 0), Enabled = index < 32, Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1) }).ToArray();
         var snapshot = new SceneLightingSnapshot(lights);
         var camera = new SceneCamera(new(0, 0, -12), Vector3.Zero, Vector3.UnitY, 10, .1f, 100);
         var overlay = LightViewportInteraction.CreateOverlay(snapshot, lights[0].Id, camera, 800, 600, 1,
             rotate: true, selectedIds: lights.Select(light => light.Id).ToArray(), selectionPivot: Vector3.Zero);
-        // Two squares per light, plus the primary light's two-square aim target.
-        Assert.Equal(258, overlay.Lines.Count(line => line.Shape == ViewportOverlayShape.Square));
+        // Spot bodies use circles, and the shared pivot uses a bordered square.
+        Assert.Equal(256, overlay.Lines.Count(line => line.Shape == ViewportOverlayShape.Circle));
+        Assert.Equal(2, overlay.Lines.Count(line => line.Shape == ViewportOverlayShape.Square));
         Assert.InRange(overlay.Lines.Count, 258, ViewportOverlaySnapshot.MaxLines);
     }
 

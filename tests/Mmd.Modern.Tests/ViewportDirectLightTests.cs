@@ -52,8 +52,8 @@ public sealed class ViewportDirectLightTests
         Assert.Equal(2, markers.Count);
         Assert.All(markers, marker =>
         {
-            Assert.Equal(ViewportOverlayShape.Square, marker.Shape);
-            Assert.Equal(6, marker.Radius);
+            Assert.Equal(ViewportOverlayShape.Circle, marker.Shape);
+            Assert.Equal(8, marker.Radius);
         });
         var move = LightViewportInteraction.CreateOverlay(lights, light.Id, Camera, 800, 600, 2);
         var rotate = LightViewportInteraction.CreateOverlay(lights, light.Id, Camera, 800, 600, 2, rotate: true);
@@ -61,6 +61,21 @@ public sealed class ViewportDirectLightTests
         Assert.True(LightViewportInteraction.TryProject(new(0, 2, 0), Camera, 800, 600, out var ringPoint));
         Assert.Null(LightViewportInteraction.HitTest(lights, null, ringPoint, Camera, 800, 600, 2, rotate: true));
         Assert.NotNull(LightViewportInteraction.HitTest(lights, light.Id, ringPoint, Camera, 800, 600, 2, rotate: true));
+    }
+
+    [Fact]
+    public void UnselectedSpotCanBeGrabbedByItsShortConeButNotItsCoverage()
+    {
+        var spot = Light("beam", Vector3.Zero) with { Kind = SceneLightKind.Spot };
+        var camera = Camera with { Eye = new(12, 0, 0) };
+        var scene = new SceneLightingSnapshot([spot]);
+        var body = LightViewportInteraction.CreateOverlay(scene, null, camera, 800, 600, 2);
+        Assert.Equal(5, body.Lines.Count);
+        Assert.True(LightViewportInteraction.TryProject(spot.Position, camera, 800, 600, out var center));
+        Assert.True(LightViewportInteraction.TryProject(spot.Target, camera, 800, 600, out var target));
+        var axis = Vector2.Normalize(target - center);
+        Assert.Equal(spot.Id, LightViewportInteraction.HitTest(scene, null, center + axis * 24, camera, 800, 600, 2)?.LightId);
+        Assert.Null(LightViewportInteraction.HitTest(scene, null, center + axis * 40, camera, 800, 600, 2));
     }
 
     [Fact]

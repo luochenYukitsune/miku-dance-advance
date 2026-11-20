@@ -1,8 +1,7 @@
 using System.Numerics;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
-using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Mmd.Modern.App;
 using Mmd.Modern.App.Controls;
@@ -15,6 +14,7 @@ namespace Mmd.Modern.Tests;
 public sealed class EditorMainLightDirectionTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
+
     [Fact]
     public async Task DirectDirectionEditingKeepsColorAndIntensityAndRegistersTheExactPose()
     {
@@ -92,66 +92,6 @@ public sealed class EditorMainLightDirectionTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task DirectionPadPointAtUsesSourceSemanticsAndPreservesBackHemisphereAcrossRim() => await session.Dispatch(() =>
-    {
-        var pad = new EditorLightDirectionPad { Width = 160, Height = 160 };
-        var window = new Window { Width = 160, Height = 160, Content = pad };
-        window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-        try
-        {
-            window.MouseDown(new(80 + 32, 80 - 32), MouseButton.Left);
-            window.MouseUp(new(80 + 32, 80 - 32), MouseButton.Left);
-            Dispatcher.UIThread.RunJobs();
-            Assert.True(pad.Direction.X < 0 && pad.Direction.Y < 0 && pad.Direction.Z > 0);
-            var (az, el) = EditorLightAngles.Angles(pad.Direction, 0);
-            Assert.InRange(az, 1, 89);
-            Assert.InRange(el, 1, 89);
-
-            window.MouseDown(new(80, 80), MouseButton.Right);
-            window.MouseUp(new(80, 80), MouseButton.Right);
-            Dispatcher.UIThread.RunJobs();
-            Assert.True(pad.Direction.Z < 0);
-
-            window.MouseDown(new(80 + 32, 80), MouseButton.Left);
-            window.MouseMove(new(80 + 64, 80));
-            Assert.InRange(MathF.Abs(pad.Direction.Z), 0, 1e-4f);
-            window.MouseMove(new(80 + 32, 80));
-            window.MouseUp(new(80 + 32, 80), MouseButton.Left);
-            Dispatcher.UIThread.RunJobs();
-            Assert.True(pad.Direction.Z < 0);
-            return true;
-        }
-        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
-    }, TestContext.Current.CancellationToken);
-
-    [Fact]
-    public async Task DirectionPadArrowKeysStepSourceAzimuthAndElevation() => await session.Dispatch(() =>
-    {
-        var pad = new EditorLightDirectionPad { Width = 160, Height = 160, Direction = EditorLightAngles.Direction(45, 30, 1) };
-        var window = new Window { Width = 160, Height = 160, Content = pad };
-        window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-        try
-        {
-            pad.Focus(); Dispatcher.UIThread.RunJobs();
-            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
-            window.KeyRelease(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
-            Dispatcher.UIThread.RunJobs();
-            var (az1, el1) = EditorLightAngles.Angles(pad.Direction, 45);
-            Assert.InRange(az1, 49.5, 50.5);
-            Assert.InRange(el1, 29.5, 30.5);
-
-            window.KeyPress(Key.Up, RawInputModifiers.Shift, PhysicalKey.None, null);
-            window.KeyRelease(Key.Up, RawInputModifiers.Shift, PhysicalKey.None, null);
-            Dispatcher.UIThread.RunJobs();
-            var (az2, el2) = EditorLightAngles.Angles(pad.Direction, az1);
-            Assert.InRange(az2, 49.5, 50.5);
-            Assert.InRange(el2, 44.5, 45.5);
-            return true;
-        }
-        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
-    }, TestContext.Current.CancellationToken);
-
-    [Fact]
     public void RevertLightDraftAndFlipHemisphereWorkIndependentlyOfSceneSelection()
     {
         var model = new EditorSceneInspectorViewModel { SceneSelectionIndex = 1 };
@@ -169,6 +109,32 @@ public sealed class EditorMainLightDirectionTests : IAsyncDisposable
         Assert.NotEqual(beforeBack, model.IsMainLightBacklit);
         Assert.True(MathF.Abs(model.LightPose.Direction.Z) > 0.05f);
     }
+
+    [Fact]
+    public async Task PanelAngleInputAndFlipEditTheSameDraft() => await session.Dispatch(() =>
+    {
+        var model = new EditorSceneInspectorViewModel();
+        var inspector = new EditorMainLightInspector { DataContext = model };
+        var window = new Window { Content = inspector };
+        try
+        {
+            window.Show();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            var azimuth = inspector.FindControl<EditorNumericUpDown>("LightAzimuth")!;
+            azimuth.Value = 65m;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(65m, model.LightAzimuth);
+            var before = model.LightPose.Direction;
+            inspector.FindControl<Button>("MainLightFlipHemisphereButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(new Vector3(before.X, before.Y, -before.Z), model.LightPose.Direction);
+            Assert.Equal(model.LightAzimuth, azimuth.Value);
+            Assert.True(model.HasLightDraft);
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+        return true;
+    }, TestContext.Current.CancellationToken);
 
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }

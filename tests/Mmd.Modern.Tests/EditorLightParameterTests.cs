@@ -244,7 +244,7 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
     }, TestContext.Current.CancellationToken);
 
     [Fact]
-    public async Task TargetInputsDirectionPadAndQuickAimWorkAndSurviveRecovery() => await session.Dispatch(() =>
+    public async Task TargetInputsAndQuickAimWorkAndSurviveRecovery() => await session.Dispatch(() =>
     {
         var (window, shell, _) = Editor();
         try
@@ -281,14 +281,6 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
             var flipped = Assert.Single(shell.Workspace.Session.Lighting.Lights);
             Assert.True(MathF.Sign(flipped.Direction.Z) != MathF.Sign(prevZ) || MathF.Abs(prevZ) < 1e-4f);
 
-            var pad = inspector.GetVisualDescendants().OfType<EditorLightDirectionPad>().Single(control => control.Name == "InlineLightDirectionPad");
-            var beforePad = flipped.Direction;
-            var padCenter = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
-            window.MouseDown(new(padCenter.X + 20, padCenter.Y - 20), MouseButton.Left);
-            window.MouseUp(new(padCenter.X + 20, padCenter.Y - 20), MouseButton.Left);
-            Dispatcher.UIThread.RunJobs();
-            var afterPad = Assert.Single(shell.Workspace.Session.Lighting.Lights);
-            Assert.NotEqual(beforePad, afterPad.Direction);
             return true;
         }
         finally { Close(window); }

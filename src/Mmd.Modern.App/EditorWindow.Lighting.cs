@@ -16,12 +16,15 @@ public partial class EditorWindow
     private bool _publishingInlineLight, _refreshingLightingInspector;
     // Parent choices depend only on committed content; frame changes never rebuild the bone names.
     private (EditorShellViewModel? Shell, SceneProjectSession? Session, long Revision, bool Modern)? _lightParentContextKey;
+    private EditorMainLightViewport? _mainLightViewport;
     private bool _synchronizingLightBrowser;
     private EditorLightingViewModel? _lightBrowserModel;
 
     private void InitializeLightingInspector(EditorShellViewModel shell)
     {
         var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
+        var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
+        _mainLightViewport = new(shell.SceneInspector, CanBeginLightGesture, viewport.RequestRender);
         inspector.CommitRequested = CommitInlineLighting;
         inspector.SelectionRequested = id => lightController?.Select(id);
         inspector.SelectionSetRequested = (ids, primary) =>
@@ -122,6 +125,9 @@ public partial class EditorWindow
         bool lighting = shell.InspectorPage == EditorInspectorPage.Lighting;
         if (this.FindControl<Control>("BoneToolsContainer") is { } boneTools) boneTools.IsVisible = !lighting;
         if (this.FindControl<Control>("LightToolsBar") is { } lightTools) lightTools.IsVisible = lighting;
+        this.FindControl<EditorViewportHost>("SceneViewport")!.MainLightViewport =
+            lighting && shell.HasProject && !shell.IsBusy && lightController?.HelpersVisible == true &&
+            this.FindControl<Expander>("MainLightSection")?.IsExpanded == true ? _mainLightViewport : null;
         if (!lighting) return;
         _refreshingLightingInspector = true;
         using var measure = InteractionDiagnostics.Measure("lighting.inspector-refresh", relatedId: snapshot.Lights.Count);

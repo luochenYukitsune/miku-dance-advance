@@ -18,6 +18,16 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
 {
     private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
+    [Theory]
+    [InlineData(0x51, Key.Q)]
+    [InlineData(0x57, Key.W)]
+    [InlineData(0x45, Key.E)]
+    public void NativeViewportForwardsTransformModeKeys(int virtualKey, Key expected)
+    {
+        Assert.True(EditorViewportHost.TryMapEditorKey(virtualKey, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public async Task LightingContextRemovesModelControlsAndLeftTabReturnsToObjects() => await session.Dispatch(() =>
     {
@@ -37,6 +47,48 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.Equal(EditorInspectorPage.Animation, shell.InspectorPage);
             Assert.True(window.FindControl<ComboBox>("CurrentModelSelector")!.IsEffectivelyVisible);
             Assert.False(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task MainLightSectionControlsViewportEditingAndSharesWorkspaceHistory() => await session.Dispatch(() =>
+    {
+        var (window, shell) = Editor();
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+            using var input = File.OpenRead(path);
+            var asset = EditorProjectWorkspace.CreateModelAsset(PmdPmxAdapter.Convert(PmdReader.Read(input)), path);
+            shell.Workspace.AddModel(path, asset, ModelRole.Character);
+            shell.ShowInspectorPage(EditorInspectorPage.Lighting);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+            var section = window.FindControl<Expander>("MainLightSection")!;
+            Assert.Null(viewport.MainLightViewport);
+            section.IsExpanded = true;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var controller = Assert.IsType<EditorMainLightViewport>(viewport.MainLightViewport);
+            var snapshot = shell.Workspace.Session!.CaptureRenderSnapshot();
+            var camera = viewport.CurrentCamera;
+            var image = controller.Decorate(new(800, 600, snapshot.SourceFrame, snapshot.Scene,
+                snapshot.Camera, snapshot.Light, snapshot.SelfShadow), camera);
+            var source = image.Scene.EditorOverlay!.Lines.Last(line => line.Shape == ViewportOverlayShape.Circle).Start * new Vector2(800, 600);
+            controller.FramePresented(image);
+            Assert.True(controller.TryBegin(source, camera, 800, 600));
+            controller.End(source + new Vector2(-28, 17));
+            var direction = shell.SceneInspector.LightPose.Direction;
+            Assert.True(shell.SceneInspector.HasLightDraft);
+            shell.SceneInspector.RegisterLightKeyframeCommand.Execute(null);
+            Assert.False(shell.SceneInspector.HasLightDraft);
+            Assert.True(shell.Workspace.Undo());
+            Assert.NotEqual(direction, shell.SceneInspector.LightPose.Direction);
+            Assert.True(shell.Workspace.Redo());
+            Assert.Equal(direction, shell.SceneInspector.LightPose.Direction);
+            section.IsExpanded = false;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Null(viewport.MainLightViewport);
             return true;
         }
         finally { Close(window); }
