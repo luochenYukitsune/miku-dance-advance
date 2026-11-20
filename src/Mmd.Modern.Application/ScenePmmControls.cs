@@ -45,7 +45,22 @@ public sealed record ScenePmmControlSample(PmmGravityPose Gravity,
 public sealed partial class ScenePmmControlState
 {
     public const int MaxPayloadBytes = 8 * 1024 * 1024;
+    private static readonly IReadOnlyList<int> EmptyBones = Array.AsReadOnly(Array.Empty<int>());
+    private static readonly IReadOnlyList<SceneOutsideParentBinding> EmptyOutsideParents = Array.AsReadOnly(Array.Empty<SceneOutsideParentBinding>());
+    private static readonly IReadOnlyList<ScenePmmGroundOutsideParent> EmptyGroundOutsideParents = Array.Empty<ScenePmmGroundOutsideParent>();
+
     private sealed record Actor(Guid ObjectId, byte ModelIndex, int[] BoneIndices, string[] NativeBoneNames, string[]? BindingNames = null, int[]? DetachedOrdinals = null);
+    private sealed record ParentInterval(
+        SceneOutsideParentBinding[] OutsideParentsArray,
+        IReadOnlyList<SceneOutsideParentBinding> OutsideParents,
+        IReadOnlyList<ScenePmmGroundOutsideParent> GroundOutsideParents,
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> TrackWindows,
+        Dictionary<Guid, ScenePmmGroundOutsideParent[]>? GroundByActor);
+    private sealed record DisabledInterval(
+        IReadOnlyDictionary<Guid, IReadOnlyList<int>> ListsByActor,
+        Dictionary<Guid, IReadOnlySet<int>>? SetsByActor);
+    private sealed record ConstantSampleCache(int DisabledIdx, int ParentIdx, int GravitySegment, ScenePmmControlSample Sample);
+
     private readonly byte[] bytes;
     private readonly PmmDocument document;
     private readonly Actor[] actors;
@@ -54,6 +69,16 @@ public sealed partial class ScenePmmControlState
     private readonly PmmPhysicsControlTracks physics;
     private readonly PmmSceneTracks scene;
     private readonly Dictionary<byte, PmmModelKeyframe[]> modelKeys;
+    private readonly int[] parentIntervalFrames;
+    private readonly ParentInterval[] parentIntervals;
+    private readonly ParentInterval savedParentInterval;
+    private readonly int[] disabledIntervalFrames;
+    private readonly DisabledInterval?[] disabledIntervals;
+    private readonly bool eagerDisabledIntervals;
+    private readonly DisabledInterval emptyDisabledInterval;
+    private readonly Guid[] allDisabledActorIds;
+    private readonly ScenePmmControlSample savedSample;
+    private ConstantSampleCache? lastConstantSample;
     public string Sha256 { get; }
     public string OriginSha256 { get; }
     public uint DurationFrames { get; }
@@ -89,10 +114,20 @@ public sealed partial class ScenePmmControlState
         scene = new(document);
         modelKeys = document.Models.ToDictionary(m => m.Index, m => new[] { m.InitialModelKeyframe }.Concat(m.ModelKeyframes).OrderBy(k => k.Frame).ToArray());
         var frames = document.Models.SelectMany(m => new[] { m.InitialModelKeyframe }.Concat(m.ModelKeyframes))
-            .Select(k => k.Frame).Append(0).Distinct().ToArray();
-        BoundaryFrames = Array.AsReadOnly(frames.Order().ToArray());
-        foreach (int frame in frames) _ = ParentsAt(frame, saved: false);
-        _ = ParentsAt(0, saved: true);
+            .Select(k => k.Frame).Append(0).Distinct().Order().ToArray();
+        BoundaryFrames = Array.AsReadOnly(frames);
+        (parentIntervalFrames, parentIntervals, savedParentInterval) = BuildParentIntervals(frames);
+        allDisabledActorIds = actors.Select(a => a.ObjectId).Concat(restoredBindings.Select(r => r.TargetObjectId)).Distinct().ToArray();
+        var emptyDisabledMap = new Dictionary<Guid, IReadOnlyList<int>>(allDisabledActorIds.Length);
+        for (int i = 0; i < allDisabledActorIds.Length; i++) emptyDisabledMap.Add(allDisabledActorIds[i], EmptyBones);
+        emptyDisabledInterval = new(new ReadOnlyDictionary<Guid, IReadOnlyList<int>>(emptyDisabledMap), null);
+        (disabledIntervalFrames, disabledIntervals, eagerDisabledIntervals) = BuildDisabledIntervals();
+        var savedDisabledInterval = BuildDisabledInterval(0, saved: true, previous: null);
+        savedSample = new(physics.SavedGravity, savedDisabledInterval.ListsByActor, savedParentInterval.OutsideParents)
+        {
+            GroundOutsideParents = savedParentInterval.GroundOutsideParents,
+            OutsideParentTrackWindows = savedParentInterval.TrackWindows,
+        };
         DurationFrames = Math.Max(Math.Max(Math.Max(physics.DurationFrames, scene.DurationFrames), (uint)frames.Max()),
             (uint)document.Accessories.SelectMany(a => new[] { a.InitialKeyframe }.Concat(a.Keyframes)).Select(k => k.Frame).DefaultIfEmpty(0).Max());
     }
@@ -240,25 +275,83 @@ public sealed partial class ScenePmmControlState
 
     public ScenePmmControlSample Sample(double frame, bool saved = false)
     {
-        if (!double.IsFinite(frame) || frame < 0) throw new ArgumentOutOfRangeException(nameof(frame));
-        var mutableDisabled = actors.Select(a => a.ObjectId).Concat(restoredBindings.Select(r => r.TargetObjectId)).Distinct().ToDictionary(id => id, _ => new List<int>());
-        foreach (var actor in actors)
-            foreach (int ordinal in physics.DisabledBonesAt(actor.ModelIndex, frame, saved))
-                if (ResolveMappedBone(actor, ordinal) is { } mapped) mutableDisabled[mapped.Id].Add(mapped.Bone);
-        var disabled = mutableDisabled.ToDictionary(p => p.Key, p => (IReadOnlyList<int>)Array.AsReadOnly(p.Value.Distinct().ToArray()));
-        var (outsideParents, groundParents) = ParentsAndGroundAt(frame, saved);
-        return new(saved ? physics.SavedGravity : physics.GravityAt(frame),
-            new ReadOnlyDictionary<Guid, IReadOnlyList<int>>(disabled), outsideParents)
+        ValidateTime(frame);
+        if (saved) return savedSample;
+        int parentIdx = ParentIntervalIndexAtValidated(frame);
+        int disabledIdx = DisabledIntervalIndexAtValidated(frame);
+        var parentInterval = parentIntervals[parentIdx];
+        var disabledInterval = GetDisabledInterval(disabledIdx);
+        if (physics.TryGetConstantGravitySegment(frame, out int gravitySegment, out var constantGravity))
         {
-            GroundOutsideParents = groundParents,
-            OutsideParentTrackWindows = TrackWindowsAt(frame, saved),
+            var cached = Volatile.Read(ref lastConstantSample);
+            if (cached is not null && cached.DisabledIdx == disabledIdx && cached.ParentIdx == parentIdx
+                && cached.GravitySegment == gravitySegment)
+                return cached.Sample;
+            var created = new ScenePmmControlSample(constantGravity, disabledInterval.ListsByActor, parentInterval.OutsideParents)
+            {
+                GroundOutsideParents = parentInterval.GroundOutsideParents,
+                OutsideParentTrackWindows = parentInterval.TrackWindows,
+            };
+            Volatile.Write(ref lastConstantSample, new(disabledIdx, parentIdx, gravitySegment, created));
+            return created;
+        }
+        return new(physics.GravityAt(frame), disabledInterval.ListsByActor, parentInterval.OutsideParents)
+        {
+            GroundOutsideParents = parentInterval.GroundOutsideParents,
+            OutsideParentTrackWindows = parentInterval.TrackWindows,
         };
+    }
+
+    internal int ParentIntervalCount => parentIntervals.Length;
+    internal int ParentIntervalIndexAt(double frame)
+    {
+        ValidateTime(frame);
+        return ParentIntervalIndexAtValidated(frame);
+    }
+    internal SceneOutsideParentBinding[] OutsideParentsArrayAtInterval(int intervalIndex)
+        => parentIntervals[intervalIndex].OutsideParentsArray;
+    internal IReadOnlyList<ScenePmmGroundOutsideParent> GroundOutsideParentsAtInterval(int intervalIndex)
+        => parentIntervals[intervalIndex].GroundOutsideParents;
+    internal ScenePmmGroundOutsideParent[] GroundParentsForActorAtInterval(Guid id, int intervalIndex)
+        => parentIntervals[intervalIndex].GroundByActor is { } map && map.TryGetValue(id, out var arr)
+            ? arr : Array.Empty<ScenePmmGroundOutsideParent>();
+    internal IReadOnlyDictionary<int, OutsideParentTrackWindow>? TrackWindowsForActorAtInterval(Guid id, int intervalIndex)
+        => parentIntervals[intervalIndex].TrackWindows.TryGetValue(id, out var windows) ? windows : null;
+    internal int DisabledIntervalIndexAt(double frame)
+    {
+        ValidateTime(frame);
+        return DisabledIntervalIndexAtValidated(frame);
+    }
+    internal IReadOnlySet<int>? DisabledBoneSetForActorAtInterval(Guid id, int intervalIndex)
+        => GetDisabledInterval(intervalIndex).SetsByActor is { } sets && sets.TryGetValue(id, out var set) ? set : null;
+    internal PmmGravityPose GravityAt(double frame) => physics.GravityAt(frame);
+
+    private int ParentIntervalIndexAtValidated(double frame)
+        => parentIntervalFrames.Length == 1 ? 0 : FindIntervalIndex(parentIntervalFrames, frame);
+
+    private int DisabledIntervalIndexAtValidated(double frame)
+        => disabledIntervalFrames.Length == 1 ? 0 : FindIntervalIndex(disabledIntervalFrames, frame);
+
+    private static int FindIntervalIndex(int[] starts, double frame)
+    {
+        int lo = 0, hi = starts.Length;
+        while (lo < hi)
+        {
+            int middle = lo + (hi - lo) / 2;
+            if (starts[middle] <= frame) lo = middle + 1; else hi = middle;
+        }
+        return Math.Max(0, lo - 1);
+    }
+
+    private static void ValidateTime(double frame)
+    {
+        if (!double.IsFinite(frame) || frame < 0) throw new ArgumentOutOfRangeException(nameof(frame));
     }
 
     /// <summary>Authored local camera channels. The parent is a discrete hold channel, independent of VMD curves.</summary>
     public PmmCameraPose CameraAt(double frame, bool saved = false)
     {
-        if (!double.IsFinite(frame) || frame < 0) throw new ArgumentOutOfRangeException(nameof(frame));
+        ValidateTime(frame);
         return saved ? scene.SavedCamera : scene.CameraAt(frame);
     }
 
@@ -313,12 +406,72 @@ public sealed partial class ScenePmmControlState
     private (IReadOnlyList<SceneOutsideParentBinding> OutsideParents, IReadOnlyList<ScenePmmGroundOutsideParent> GroundOutsideParents)
         ParentsAndGroundAt(double frame, bool saved)
     {
+        ValidateTime(frame);
+        var interval = saved ? savedParentInterval : parentIntervals[ParentIntervalIndexAtValidated(frame)];
+        return (interval.OutsideParents, interval.GroundOutsideParents);
+    }
+
+    private IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> TrackWindowsAt(double frame, bool saved)
+    {
+        ValidateTime(frame);
+        var interval = saved ? savedParentInterval : parentIntervals[ParentIntervalIndexAtValidated(frame)];
+        return interval.TrackWindows;
+    }
+
+    private (int[] Frames, ParentInterval[] Intervals, ParentInterval Saved) BuildParentIntervals(int[] frames)
+    {
+        int modelCount = document.Models.Count;
+        if (modelCount == 0)
+        {
+            var emptyInterval = new ParentInterval([], EmptyOutsideParents, EmptyGroundOutsideParents, ScenePmmControlSample.EmptyTrackWindows, null);
+            return ([0], [emptyInterval], emptyInterval);
+        }
+
+        var orderedKeysByModel = new PmmModelKeyframe[modelCount][];
+        for (int m = 0; m < modelCount; m++) orderedKeysByModel[m] = modelKeys[document.Models[m].Index];
+
+        var keyCursor = new int[modelCount];
+        var intervalFramesList = new List<int>();
+        var intervalsList = new List<ParentInterval>();
+        for (int fi = 0; fi < frames.Length; fi++)
+        {
+            int frame = frames[fi];
+            bool anyChanged = fi == 0;
+            for (int m = 0; m < modelCount; m++)
+            {
+                var keys = orderedKeysByModel[m];
+                int cur = keyCursor[m];
+                while (cur + 1 < keys.Length && keys[cur + 1].Frame <= frame)
+                {
+                    cur++;
+                    if (!SameOutsideParents(keys[cur - 1].OutsideParents, keys[cur].OutsideParents))
+                        anyChanged = true;
+                }
+                keyCursor[m] = cur;
+            }
+            if (!anyChanged) continue;
+            var interval = BuildParentInterval(orderedKeysByModel, keyCursor, saved: false);
+            if (intervalsList.Count == 0 || !ParentIntervalEquals(intervalsList[^1], interval))
+            {
+                intervalFramesList.Add(frame);
+                intervalsList.Add(interval);
+            }
+        }
+        var savedInterval = BuildParentInterval(orderedKeysByModel, null, saved: true);
+        return (intervalFramesList.ToArray(), intervalsList.ToArray(), savedInterval);
+    }
+
+    private ParentInterval BuildParentInterval(PmmModelKeyframe[][] orderedKeysByModel, int[]? keyCursors, bool saved)
+    {
         var result = new List<SceneOutsideParentBinding>();
         var ground = new List<ScenePmmGroundOutsideParent>();
-        foreach (var model in document.Models)
+        Dictionary<Guid, Dictionary<int, OutsideParentTrackWindow>>? mutableWindows = null;
+        for (int m = 0; m < document.Models.Count; m++)
         {
-            IReadOnlyList<PmmOutsideParent> parents = saved ? model.OutsideParentStates.Select(s => s.Parent).ToArray()
-                : PmmTrackEditorRecords.At(modelKeys[model.Index], frame).OutsideParents;
+            var model = document.Models[m];
+            IReadOnlyList<PmmOutsideParent> parents = saved
+                ? model.OutsideParentStates.Select(s => s.Parent).ToArray()
+                : orderedKeysByModel[m][keyCursors![m]].OutsideParents;
             if (parents.Count != model.OutsideParentSubjectBoneIndices.Count)
                 throw new InvalidDataException("PMM control outside-parent slot count differs from the subject table.");
             var actor = byModel[model.Index];
@@ -339,6 +492,14 @@ public sealed partial class ScenePmmControlState
                 if (mappedTarget is null || mappedSubject is null) continue;
                 result.Add(new(mappedSubject.Value.Id, mappedSubject.Value.Bone, mappedTarget.Value.Id, mappedTarget.Value.Bone, Matrix4x4.Identity));
             }
+            CollectTrackWindowsForActiveIndex(model, orderedKeysByModel[m], saved ? 0 : keyCursors![m], saved,
+                subject => ResolveMappedBone(actor, subject),
+                (targetId, bone, window) =>
+                {
+                    mutableWindows ??= [];
+                    if (!mutableWindows.TryGetValue(targetId, out var dict)) mutableWindows[targetId] = dict = [];
+                    dict[bone] = window;
+                });
         }
         int totalSubjects = result.Count + ground.Count;
         if (result.Select(p => (p.ObjectId, p.BoneIndex)).Concat(ground.Select(g => (g.ObjectId, g.BoneIndex))).Distinct().Count() != totalSubjects)
@@ -353,28 +514,141 @@ public sealed partial class ScenePmmControlState
             visiting.Remove(id); done.Add(id);
         }
         foreach (var id in edges.Keys) Visit(id);
-        return (result.AsReadOnly(), ground.Count == 0 ? Array.Empty<ScenePmmGroundOutsideParent>() : ground.AsReadOnly());
+
+        SceneOutsideParentBinding[] resultArray = result.Count == 0 ? [] : result.ToArray();
+        IReadOnlyList<SceneOutsideParentBinding> resultReadOnly = resultArray.Length == 0 ? EmptyOutsideParents : Array.AsReadOnly(resultArray);
+        IReadOnlyList<ScenePmmGroundOutsideParent> groundReadOnly = ground.Count == 0 ? EmptyGroundOutsideParents : Array.AsReadOnly(ground.ToArray());
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> windowsReadOnly;
+        if (mutableWindows is null || mutableWindows.Count == 0)
+            windowsReadOnly = ScenePmmControlSample.EmptyTrackWindows;
+        else
+        {
+            var readonlyMap = new Dictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(mutableWindows.Count);
+            foreach (var (id, dict) in mutableWindows) readonlyMap.Add(id, new ReadOnlyDictionary<int, OutsideParentTrackWindow>(dict));
+            windowsReadOnly = new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(readonlyMap);
+        }
+        Dictionary<Guid, ScenePmmGroundOutsideParent[]>? groundByActor = null;
+        if (ground.Count > 0)
+        {
+            groundByActor = [];
+            var grouped = new Dictionary<Guid, List<ScenePmmGroundOutsideParent>>();
+            for (int i = 0; i < ground.Count; i++)
+            {
+                var item = ground[i];
+                if (!grouped.TryGetValue(item.ObjectId, out var list)) grouped[item.ObjectId] = list = [];
+                list.Add(item);
+            }
+            foreach (var (id, list) in grouped) groundByActor.Add(id, list.ToArray());
+        }
+        return new(resultArray, resultReadOnly, groundReadOnly, windowsReadOnly, groundByActor);
     }
 
-    private IReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>> TrackWindowsAt(double frame, bool saved)
+    private (int[] Frames, DisabledInterval?[] Intervals, bool Eager) BuildDisabledIntervals()
     {
-        Dictionary<Guid, Dictionary<int, OutsideParentTrackWindow>>? mutable = null;
-        foreach (var model in document.Models)
+        var frameSet = new SortedSet<int> { 0 };
+        for (int a = 0; a < actors.Length; a++)
         {
-            var actor = byModel[model.Index];
-            CollectTrackWindows(model, modelKeys[model.Index], frame, saved,
-                subject => ResolveMappedBone(actor, subject),
-                (targetId, bone, window) =>
-                {
-                    mutable ??= [];
-                    if (!mutable.TryGetValue(targetId, out var dict)) mutable[targetId] = dict = [];
-                    dict[bone] = window;
-                });
+            var starts = physics.GetIntervalStarts(actors[a].ModelIndex);
+            for (int i = 1; i < starts.Length; i++) frameSet.Add(starts[i]);
         }
-        if (mutable is null || mutable.Count == 0) return ScenePmmControlSample.EmptyTrackWindows;
-        var readonlyMap = new Dictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(mutable.Count);
-        foreach (var (id, dict) in mutable) readonlyMap.Add(id, new ReadOnlyDictionary<int, OutsideParentTrackWindow>(dict));
-        return new ReadOnlyDictionary<Guid, IReadOnlyDictionary<int, OutsideParentTrackWindow>>(readonlyMap);
+        var frames = frameSet.ToArray();
+        const long MaxEagerActorIntervals = 100_000;
+        long cost = (long)frames.Length * Math.Max(1, allDisabledActorIds.Length);
+        if (cost > MaxEagerActorIntervals)
+            return (frames, new DisabledInterval?[frames.Length], false);
+
+        var intervals = new DisabledInterval?[frames.Length];
+        DisabledInterval? prev = null;
+        for (int i = 0; i < frames.Length; i++)
+        {
+            var current = BuildDisabledInterval(frames[i], saved: false, prev);
+            intervals[i] = current;
+            prev = current;
+        }
+        return (frames, intervals, true);
+    }
+
+    private DisabledInterval GetDisabledInterval(int disabledIdx)
+    {
+        var cached = eagerDisabledIntervals ? disabledIntervals[disabledIdx] : Volatile.Read(ref disabledIntervals[disabledIdx]);
+        if (cached is not null) return cached;
+        var computed = BuildDisabledInterval(disabledIntervalFrames[disabledIdx], saved: false, previous: null);
+        return Interlocked.CompareExchange(ref disabledIntervals[disabledIdx], computed, null) ?? computed;
+    }
+
+    private DisabledInterval BuildDisabledInterval(double frame, bool saved, DisabledInterval? previous)
+    {
+        if (allDisabledActorIds.Length == 0) return emptyDisabledInterval;
+        Dictionary<Guid, List<int>>? mutable = null;
+        for (int a = 0; a < actors.Length; a++)
+        {
+            var actor = actors[a];
+            var disabledOrdinals = physics.DisabledBonesAt(actor.ModelIndex, frame, saved);
+            for (int i = 0; i < disabledOrdinals.Count; i++)
+            {
+                if (ResolveMappedBone(actor, disabledOrdinals[i]) is not { } mapped) continue;
+                mutable ??= new Dictionary<Guid, List<int>>(allDisabledActorIds.Length);
+                if (!mutable.TryGetValue(mapped.Id, out var list)) mutable[mapped.Id] = list = [];
+                if (!list.Contains(mapped.Bone)) list.Add(mapped.Bone);
+            }
+        }
+        if (mutable is null) return emptyDisabledInterval;
+        var lists = new Dictionary<Guid, IReadOnlyList<int>>(allDisabledActorIds.Length);
+        var sets = new Dictionary<Guid, IReadOnlySet<int>>(mutable.Count);
+        for (int i = 0; i < allDisabledActorIds.Length; i++)
+        {
+            Guid id = allDisabledActorIds[i];
+            if (!mutable.TryGetValue(id, out var list) || list.Count == 0)
+            {
+                lists.Add(id, EmptyBones);
+                continue;
+            }
+            if (previous is not null && previous.ListsByActor.TryGetValue(id, out var prevList) && SequenceEqual(prevList, list))
+            {
+                lists.Add(id, prevList);
+                if (previous.SetsByActor is not null && previous.SetsByActor.TryGetValue(id, out var prevSet))
+                    sets.Add(id, prevSet);
+            }
+            else
+            {
+                var arr = list.ToArray();
+                lists.Add(id, Array.AsReadOnly(arr));
+                sets.Add(id, new HashSet<int>(arr));
+            }
+        }
+        return new(new ReadOnlyDictionary<Guid, IReadOnlyList<int>>(lists), sets.Count == 0 ? null : sets);
+    }
+
+    private static bool SequenceEqual(IReadOnlyList<int> a, List<int> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private static bool SameOutsideParents(IReadOnlyList<PmmOutsideParent> a, IReadOnlyList<PmmOutsideParent> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (!SameOutsideParent(a[i], b[i])) return false;
+        return true;
+    }
+
+    private static bool ParentIntervalEquals(ParentInterval a, ParentInterval b)
+    {
+        if (!a.OutsideParentsArray.AsSpan().SequenceEqual(b.OutsideParentsArray)) return false;
+        if (a.GroundOutsideParents.Count != b.GroundOutsideParents.Count) return false;
+        for (int i = 0; i < a.GroundOutsideParents.Count; i++)
+            if (a.GroundOutsideParents[i] != b.GroundOutsideParents[i]) return false;
+        if (a.TrackWindows.Count != b.TrackWindows.Count) return false;
+        foreach (var (actorId, aWin) in a.TrackWindows)
+        {
+            if (!b.TrackWindows.TryGetValue(actorId, out var bWin) || aWin.Count != bWin.Count) return false;
+            foreach (var (bone, win) in aWin)
+                if (!bWin.TryGetValue(bone, out var otherWin) || win != otherWin) return false;
+        }
+        return true;
     }
 
     internal static IReadOnlyDictionary<int, OutsideParentTrackWindow>? ComputeTrackWindows(PmmModel model,
@@ -404,6 +678,14 @@ public sealed partial class ScenePmmControlState
             }
             activeIndex = Math.Max(0, low - 1);
         }
+        CollectTrackWindowsForActiveIndex(model, orderedKeys, activeIndex, saved, resolveSubject, emit);
+    }
+
+    private static void CollectTrackWindowsForActiveIndex(PmmModel model, PmmModelKeyframe[] orderedKeys, int activeIndex, bool saved,
+        Func<int, (Guid Id, int Bone)?> resolveSubject, Action<Guid, int, OutsideParentTrackWindow> emit)
+    {
+        var subjects = model.OutsideParentSubjectBoneIndices;
+        if (subjects.Count == 0) return;
         for (int slot = 0; slot < subjects.Count; slot++)
         {
             int subject = subjects[slot];

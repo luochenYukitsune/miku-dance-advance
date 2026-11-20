@@ -33,14 +33,18 @@ public sealed partial class CharacterAnimationController
         var prepared = PrepareMorphs(DurationFrames, sampledMorphs);
         var pose = animator.SkinWorldPose(worlds, Evaluation(DurationFrames, sampledIk, sampledMorphs).Morphs);
         var baseline = SoftBodiesEnabled ? frozenSoftVertices ?? sampled.Surface.Snapshot.Vertices.ToArray() : null;
-        var vertices = baseline is null ? pose.Vertices : ReprojectFrozenSoftVertices(anchorWorlds, pose, baseline);
+        var vertices = baseline is not null
+            ? ReprojectFrozenSoftVertices(anchorWorlds, pose, baseline)
+            : pose.Deformation is not null && !SoftBodiesEnabled && CoupledSoftBodies is null
+                ? null
+                : pose.Vertices;
         var collisionSurface = CoupledSoftBodies is { SupportsFrozenCollisionSurface: true } soft
-            ? soft.PrepareFrozenSurface(vertices) : ((SceneVertex[] Vertices, Vector3[] Targets)?)null;
+            ? soft.PrepareFrozenSurface(vertices!) : ((SceneVertex[] Vertices, Vector3[] Targets)?)null;
         // Scene construction and all node maps must succeed before changing the borrowed solver history.
-        _ = CreateScene(pose, prepared, vertices);
+        var scene = CreateScene(pose, prepared, vertices);
         if (collisionSurface is { } surface) CoupledSoftBodies!.PublishFrozenSurface(surface);
         else if (coupledDelta is { } delta && delta != Matrix4x4.Identity) CoupledSoftBodies!.Rebase(delta);
-        var result = StoreVertices(pose, DurationFrames, sampledIk, sampledMorphs, prepared, vertices);
+        var result = StorePreparedScene(pose, DurationFrames, sampledIk, sampledMorphs, prepared, scene);
         outsideParents = next; frozenBoneWorlds = anchorWorlds; frozenOutsideParents = anchorParents; frozenSoftVertices = baseline;
         return result;
     }
@@ -138,6 +142,44 @@ public sealed partial class CharacterAnimationController
                 MarkSplitters([i, bone.AppendBoneIndex]);
         }
         return sensitive;
+    }
+
+    internal bool HasAnyOutsideParents => outsideParents is { Count: > 0 };
+
+    internal bool CanDeferFrozenAttachmentBoundary(
+        IReadOnlyList<SceneOutsideParentBinding> bindings,
+        IReadOnlyList<ScenePmmGroundOutsideParent> groundParents,
+        bool trackWindowChanged)
+    {
+        if (trackWindowChanged || SoftBodiesEnabled || model.SoftBodies.Count != 0
+            || (sampledFrame != DurationFrames && sharedRigidBoneFrame != DurationFrames)
+            || BoneWorldMatrices.Count != model.Bones.Count)
+            return false;
+        var current = outsideParents;
+        int nonRootCount = 0;
+        for (int i = 0; i < bindings.Count; i++)
+        {
+            int bone = bindings[i].BoneIndex;
+            if (bone < 0) continue;
+            if (current is null || !current.ContainsKey(bone) || ConstraintSensitiveOutsideParentSubjects.Contains(bone))
+                return false;
+            nonRootCount++;
+        }
+        for (int i = 0; i < groundParents.Count; i++)
+        {
+            int bone = groundParents[i].BoneIndex;
+            if (bone < 0) continue;
+            if (current is null || !current.ContainsKey(bone) || ConstraintSensitiveOutsideParentSubjects.Contains(bone))
+                return false;
+            for (int b = 0; b < bindings.Count; b++)
+                if (bindings[b].BoneIndex == bone) return false;
+            nonRootCount++;
+        }
+        int currentNonRootCount = 0;
+        if (current is not null)
+            foreach (int key in current.Keys)
+                if (key >= 0) currentNonRootCount++;
+        return nonRootCount == currentNonRootCount;
     }
 
     internal bool RequiresFullEvaluationForFrozenOutsideParents(IReadOnlyDictionary<int, Matrix4x4>? next, bool trackWindowChanged)

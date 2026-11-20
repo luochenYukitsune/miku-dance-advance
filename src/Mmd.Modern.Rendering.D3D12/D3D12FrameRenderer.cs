@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Mmd.Modern.Core;
@@ -44,6 +45,8 @@ public sealed class D3D12FrameRenderer : IDisposable
     private D3D12TemporalInputPass? temporalInputs;
     private D3D12TemporalColorTransfer? temporalColor;
     private readonly D3D12TemporalHistory temporalHistory = new();
+    private readonly MipmapTextureCache mipmapCache = new();
+    private readonly PostEffectTargetRecorder targetRecorder = new();
     private D3D12SurfaceStyleMap? lastSubmittedSurfaceStyles;
     private (int DisplayWidth, int DisplayHeight, string Loader, D3D12TemporalUpscalingMode Mode, D3D12FsrQualityPreset Quality,
         D3D12XeSsQuality XeSsQuality, D3D12DlssQuality DlssQuality, string? DlssSdkDirectory)? temporalConfiguration;
@@ -378,7 +381,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
             int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
             int dsvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.DepthStencilView);
-            var targets = new Dictionary<string, D3D12GpuTarget>(StringComparer.OrdinalIgnoreCase); int colorIndex = 0, depthIndex = 0;
+            targetRecorder.Begin(); int colorIndex = 0, depthIndex = 0;
             int descriptorWrites=0,descriptorSkips=0;
             void Counted(bool written){if(written)descriptorWrites++;else descriptorSkips++;}
             D3D12GpuTarget Allocate(string name, int w, int h, Format format, bool depth)
@@ -390,17 +393,18 @@ public sealed class D3D12FrameRenderer : IDisposable
                 var handle = depth ? dsvHeap.GetCPUDescriptorHandleForHeapStart().Offset(depthIndex++, dsvStride)
                     : rtvHeap.GetCPUDescriptorHandleForHeapStart().Offset(colorIndex++, rtvStride);
                 Counted(heaps.WriteTarget(device, resource, depth));
-                var target = runtime.Transients.Track(new D3D12GpuTarget(name, resource, handle, w, h, format, depth)); targets.Add(name, target); return target;
+                var target = runtime.Transients.Track(new D3D12GpuTarget(name, resource, handle, w, h, format, depth));
+                targetRecorder.Add(name, w, h, format);
+                return target;
             }
             var output = Allocate("$output", width, height, straightAlpha?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm, false);
             var defaultDepth = Allocate("$depth", width, height, frame.Options?.GroundShadow?.UseStencil==true?Format.D24_UNorm_S8_UInt:Format.D32_Float, true);
-            LastTargets = targets.Values.Select(t => new PostEffectTargetRecord(t.Name, t.Width, t.Height, t.Format.ToString())).ToArray();
             commands.SetDescriptorHeaps(srvHeap);
             frameTargetMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(frameTargetStart).TotalMilliseconds;
             var stageTimer=System.Diagnostics.Stopwatch.StartNew();
             var geometry=emptyScene?null:GetGeometry(scene);var vb=geometry?.Vertex;var ib=geometry?.Index;
             geometryMilliseconds=stageTimer.Elapsed.TotalMilliseconds;stageTimer.Restart();
-            bool[] mipmapTextures = ComputeMipmapTextures(frame, surfaceStyles);
+            bool[] mipmapTextures = GetMipmapTextures(frame, surfaceStyles);
             void UploadTexture(SceneTexture texture, int slot, bool generateMipmaps)
                 => Counted(heaps.WriteSrv(device, slot, cache.Texture(texture, generateMipmaps), srvStride, Format.R8G8B8A8_UNorm));
             var whiteGpu = cache.Texture(WhiteTexture, false);
@@ -541,7 +545,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                 output=accumulation.Resolve(context);
                 spatialResolveDrawCalls=1;
                 Recorded("ssaa:resolve",output,defaultDepth);
-                LastTargets=LastTargets.Append(new(output.Name,width,height,output.Format.ToString())).ToArray();
+                targetRecorder.Add(output.Name,width,height,output.Format);
             }
             if(antialiasing==FrameAntialiasing.Smaa1X)
             {
@@ -550,7 +554,9 @@ public sealed class D3D12FrameRenderer : IDisposable
                 Recorded("smaa:edges",aa.Edges,defaultDepth);
                 Recorded("smaa:weights",aa.Weights,defaultDepth);
                 Recorded("smaa:neighborhood",aa.Output,defaultDepth);
-                LastTargets=LastTargets.Concat(new[]{aa.Edges,aa.Weights,aa.Output}.Select(t=>new PostEffectTargetRecord(t.Name,t.Width,t.Height,t.Format.ToString()))).ToArray();
+                targetRecorder.Add(aa.Edges);
+                targetRecorder.Add(aa.Weights);
+                targetRecorder.Add(aa.Output);
                 output=aa.Output;antialiasingDrawCalls=3;
                 antialiasingMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(antialiasingStart).TotalMilliseconds;
             }
@@ -558,9 +564,12 @@ public sealed class D3D12FrameRenderer : IDisposable
             {
                 var reconstructed=(fsr1Pass??=new(runtime,cache)).Record(context,output,displayWidth,displayHeight,upscaling);
                 Recorded("fsr1:easu",reconstructed.Easu,defaultDepth);
-                if(reconstructed.Rcas is {} rcas)Recorded("fsr1:rcas",rcas,defaultDepth);
-                LastTargets=LastTargets.Concat(new[]{reconstructed.Easu,reconstructed.Rcas}.OfType<D3D12GpuTarget>()
-                    .Select(t=>new PostEffectTargetRecord(t.Name,t.Width,t.Height,t.Format.ToString()))).ToArray();
+                targetRecorder.Add(reconstructed.Easu);
+                if(reconstructed.Rcas is {} rcas)
+                {
+                    Recorded("fsr1:rcas",rcas,defaultDepth);
+                    targetRecorder.Add(rcas);
+                }
                 output=reconstructed.Output;upscalingDrawCalls=upscaling.EnableRcas?2:1;
             }
             if(temporal)
@@ -584,7 +593,9 @@ public sealed class D3D12FrameRenderer : IDisposable
                 Recorded(vendor+":decode",linear,defaultDepth);
                 Recorded(vendor+":temporal",reconstructed,defaultDepth);
                 Recorded(vendor+":encode",output,defaultDepth);
-                LastTargets=LastTargets.Concat(new[]{linear,reconstructed,output}.Select(t=>new PostEffectTargetRecord(t.Name,t.Width,t.Height,t.Format.ToString()))).ToArray();
+                targetRecorder.Add(linear);
+                targetRecorder.Add(reconstructed);
+                targetRecorder.Add(output);
                 upscalingDrawCalls=2;
             }
             if(diffusionActive)
@@ -592,21 +603,21 @@ public sealed class D3D12FrameRenderer : IDisposable
                 var filtered=(diffusionPass??=new(runtime,cache)).Record(context,output,diffusion!);
                 Recorded("diffusion:x",filtered.Horizontal,defaultDepth);
                 Recorded("diffusion:y",filtered.Output,defaultDepth);
-                LastTargets=LastTargets.Concat(new[]{filtered.Horizontal,filtered.Output}
-                    .Select(t=>new PostEffectTargetRecord(t.Name,t.Width,t.Height,t.Format.ToString()))).ToArray();
+                targetRecorder.Add(filtered.Horizontal);
+                targetRecorder.Add(filtered.Output);
                 output=filtered.Output;LastPassDrawCalls+=2;
             }
             if(straightAlpha)
             {
                 output=(alphaResolvePass??=new(runtime,cache)).Record(context,output);
                 LastPassDrawCalls++;Recorded("alpha:straight",output,defaultDepth);
-                LastTargets=LastTargets.Append(new(output.Name,width,height,output.Format.ToString())).ToArray();
+                targetRecorder.Add(output.Name,width,height,output.Format);
             }
             if(exposureEv!=0)
             {
                 output=(exposurePass??=new(runtime,cache)).Record(context,output,exposureEv);
                 LastPassDrawCalls++;Recorded("lighting:exposure",output,defaultDepth);
-                LastTargets=LastTargets.Append(new(output.Name,output.Width,output.Height,output.Format.ToString())).ToArray();
+                targetRecorder.Add(output);
             }
             if(!capture&&frame.EditorOverlay is {Lines.Count:>0} overlay)
             {
@@ -620,7 +631,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                     var editorGeometry=emptyScene?null:originalRecorder.BorrowEditorGeometry(context,frame,vb!,ib!,cache);
                     guideDepth=(temporalInputs??=new(runtime)).RecordEditorVisibility(context,frame,output.Width,output.Height,preparedFrame,editorGeometry);
                     Recorded("editor:world-guide-depth",output,guideDepth);
-                    LastTargets=LastTargets.Append(new(guideDepth.Name,guideDepth.Width,guideDepth.Height,guideDepth.Format.ToString())).ToArray();
+                    targetRecorder.Add(guideDepth);
                     editorVisibilityMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(visibilityStart).TotalMilliseconds;
                     editorVisibilityAllocatedBytes=GC.GetAllocatedBytesForCurrentThread()-visibilityAllocatedStart;
                 }
@@ -630,6 +641,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                 if(overlay.Lines.Any(line=>line.DeviceDepth is null))Recorded("editor:selection-overlay",output,defaultDepth);
                 editorOverlayMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(overlayStart).TotalMilliseconds;
             }
+            LastTargets=targetRecorder.Commit();
             commands.UnsetRenderTargets(); Transition(output,ResourceStates.CopySource);
             byte[] rgba=[];
             ID3D12Resource? readback=null;ulong bytes=0;var footprints=new PlacedSubresourceFootPrint[1];
@@ -698,12 +710,16 @@ public sealed class D3D12FrameRenderer : IDisposable
         }
         finally
         {
+            targetRecorder.ResetStaged();
             if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);if(temporal)temporalHistory.Invalidate("AbortedFrame");}
             runtime.Abort();
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
         }
     }
+
+    internal bool[] GetMipmapTextures(OriginalFrameScene frame, D3D12SurfaceStyleMap? surfaceStyles = null)
+        => mipmapCache.Get(frame, surfaceStyles);
 
     internal static bool[] ComputeMipmapTextures(OriginalFrameScene frame, D3D12SurfaceStyleMap? surfaceStyles = null)
     {
@@ -868,5 +884,230 @@ public sealed class D3D12FrameRenderer : IDisposable
         temporalPass?.Dispose();temporalPass=null;xeSsTemporalPass?.Dispose();xeSsTemporalPass=null;
         dlssTemporalPass?.Dispose();dlssTemporalPass=null;
     }
-    public void Dispose(){if(disposed)return;if(runtime.IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");try{runtime.WaitForIdle();}finally{disposed=true;DisposeTemporalPasses();temporalInputs?.Dispose();try{rayGiRenderer?.Dispose();}finally{try{frameDescriptors.Dispose();}finally{cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}}}}
+    public void Dispose(){if(disposed)return;if(runtime.IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");try{runtime.WaitForIdle();}finally{disposed=true;mipmapCache.Clear();targetRecorder.Clear();DisposeTemporalPasses();temporalInputs?.Dispose();try{rayGiRenderer?.Dispose();}finally{try{frameDescriptors.Dispose();}finally{cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}}}}
+
+    internal sealed class MipmapTextureCache
+    {
+        private ReadOnlyCollection<SceneTexture>? cachedTextures;
+        private ReadOnlyCollection<SceneMaterial>? cachedMaterials;
+        private ReadOnlyCollection<OriginalStyleMaterialBinding>? cachedBindings;
+        private ReadOnlyCollection<OriginalFrameMaterialFlags>? cachedFlags;
+        private D3D12SurfaceStyleMap? cachedSurfaceStyles;
+        private bool[] cachedResult = [];
+
+        internal bool[] Get(OriginalFrameScene frame, D3D12SurfaceStyleMap? surfaceStyles = null)
+        {
+            ArgumentNullException.ThrowIfNull(frame);
+            var scene = frame.Surface.Snapshot;
+            if (scene.Textures.Count == 0)
+            {
+                Clear();
+                return [];
+            }
+
+            if (cachedTextures is not null
+                && SameTextures(cachedTextures, scene.Textures)
+                && SameMaterialTextureSlots(cachedMaterials!, scene.Materials)
+                && SameSphereTextureSlots(cachedBindings!, frame.Surface.Materials)
+                && SameUseMipmapFlags(cachedFlags!, frame.Materials)
+                && SameMipmapStyleInputs(cachedSurfaceStyles, surfaceStyles, scene.Materials.Count))
+            {
+                return cachedResult;
+            }
+
+            bool[] computed = ComputeMipmapTextures(frame, surfaceStyles);
+            cachedTextures = scene.Textures;
+            cachedMaterials = scene.Materials;
+            cachedBindings = frame.Surface.Materials;
+            cachedFlags = frame.Materials;
+            cachedSurfaceStyles = surfaceStyles;
+            cachedResult = computed;
+            return computed;
+        }
+
+        internal void Clear()
+        {
+            cachedTextures = null;
+            cachedMaterials = null;
+            cachedBindings = null;
+            cachedFlags = null;
+            cachedSurfaceStyles = null;
+            cachedResult = [];
+        }
+
+        private static bool SameTextures(ReadOnlyCollection<SceneTexture> cached, ReadOnlyCollection<SceneTexture> current)
+        {
+            if (ReferenceEquals(cached, current)) return true;
+            if (cached.Count != current.Count) return false;
+            for (int i = 0; i < cached.Count; i++)
+                if (!ReferenceEquals(cached[i], current[i]))
+                    return false;
+            return true;
+        }
+
+        private static bool SameMaterialTextureSlots(ReadOnlyCollection<SceneMaterial> cached, ReadOnlyCollection<SceneMaterial> current)
+        {
+            if (ReferenceEquals(cached, current)) return true;
+            if (cached.Count != current.Count) return false;
+            for (int i = 0; i < cached.Count; i++)
+            {
+                var a = cached[i];
+                var b = current[i];
+                if (!ReferenceEquals(a, b) && (a.DiffuseTexture != b.DiffuseTexture || a.ToonTexture != b.ToonTexture))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool SameSphereTextureSlots(ReadOnlyCollection<OriginalStyleMaterialBinding> cached, ReadOnlyCollection<OriginalStyleMaterialBinding> current)
+        {
+            if (ReferenceEquals(cached, current)) return true;
+            if (cached.Count != current.Count) return false;
+            for (int i = 0; i < cached.Count; i++)
+            {
+                var a = cached[i];
+                var b = current[i];
+                if (!ReferenceEquals(a, b) && a.SphereTexture != b.SphereTexture)
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool SameUseMipmapFlags(ReadOnlyCollection<OriginalFrameMaterialFlags> cached, ReadOnlyCollection<OriginalFrameMaterialFlags> current)
+        {
+            if (ReferenceEquals(cached, current)) return true;
+            if (cached.Count != current.Count) return false;
+            for (int i = 0; i < cached.Count; i++)
+            {
+                var a = cached[i];
+                var b = current[i];
+                if (!ReferenceEquals(a, b) && a.UseMipmaps != b.UseMipmaps)
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool SameMipmapStyleInputs(D3D12SurfaceStyleMap? a, D3D12SurfaceStyleMap? b, int materialCount)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            bool aDefault = a is null || a.IsDefault;
+            bool bDefault = b is null || b.IsDefault;
+            if (aDefault || bDefault) return aDefault && bDefault;
+            int styleCountA = Math.Min(a!.Count, materialCount);
+            int styleCountB = Math.Min(b!.Count, materialCount);
+            if (styleCountA != styleCountB) return false;
+            for (int i = 0; i < styleCountA; i++)
+            {
+                if (a.IsDefaultStyle(i) != b.IsDefaultStyle(i)) return false;
+                var texA = a.GetPluginDraw(i)?.TextureBindings;
+                var texB = b.GetPluginDraw(i)?.TextureBindings;
+                if (ReferenceEquals(texA, texB)) continue;
+                int countA = texA?.Count ?? 0;
+                int countB = texB?.Count ?? 0;
+                if (countA != countB) return false;
+                for (int j = 0; j < countA; j++)
+                {
+                    var ba = texA![j];
+                    var bb = texB![j];
+                    if (ba.SceneTextureIndex != bb.SceneTextureIndex || ba.MipRule != bb.MipRule)
+                        return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    internal sealed class PostEffectTargetRecorder
+    {
+        private readonly record struct TargetEntry(string Name, int Width, int Height, Format Format);
+
+        private readonly List<TargetEntry> staged = new(16);
+        private TargetEntry[] lastEntries = [];
+        private IReadOnlyList<PostEffectTargetRecord> lastRecords = [];
+
+        internal void Begin() => staged.Clear();
+
+        internal void Add(D3D12GpuTarget target)
+            => staged.Add(new TargetEntry(target.Name, target.Width, target.Height, target.Format));
+
+        internal void Add(string name, int width, int height, Format format)
+            => staged.Add(new TargetEntry(name, width, height, format));
+
+        internal void ResetStaged() => staged.Clear();
+
+        internal void Clear()
+        {
+            staged.Clear();
+            lastEntries = [];
+            lastRecords = [];
+        }
+
+        internal IReadOnlyList<PostEffectTargetRecord> Commit()
+        {
+            int count = staged.Count;
+            if (count == 0)
+            {
+                if (lastEntries.Length != 0)
+                {
+                    lastEntries = [];
+                    lastRecords = [];
+                }
+                return lastRecords;
+            }
+
+            if (count == lastEntries.Length)
+            {
+                bool same = true;
+                for (int i = 0; i < count; i++)
+                {
+                    var a = staged[i];
+                    var b = lastEntries[i];
+                    if (a.Width != b.Width || a.Height != b.Height || a.Format != b.Format
+                        || !string.Equals(a.Name, b.Name, StringComparison.Ordinal))
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+                if (same)
+                {
+                    staged.Clear();
+                    return lastRecords;
+                }
+            }
+
+            var entries = new TargetEntry[count];
+            var records = new PostEffectTargetRecord[count];
+            for (int i = 0; i < count; i++)
+            {
+                var entry = staged[i];
+                entries[i] = entry;
+                records[i] = new PostEffectTargetRecord(entry.Name, entry.Width, entry.Height, FormatName(entry.Format));
+            }
+
+            lastEntries = entries;
+            var published = Array.AsReadOnly(records);
+            lastRecords = published;
+            staged.Clear();
+            return published;
+        }
+
+        internal static string FormatName(Format format) => format switch
+        {
+            Format.R8G8B8A8_UNorm => nameof(Format.R8G8B8A8_UNorm),
+            Format.R8G8B8A8_UNorm_SRgb => nameof(Format.R8G8B8A8_UNorm_SRgb),
+            Format.R16G16B16A16_Float => nameof(Format.R16G16B16A16_Float),
+            Format.R16G16B16A16_UNorm => nameof(Format.R16G16B16A16_UNorm),
+            Format.R32G32B32A32_Float => nameof(Format.R32G32B32A32_Float),
+            Format.R11G11B10_Float => nameof(Format.R11G11B10_Float),
+            Format.R10G10B10A2_UNorm => nameof(Format.R10G10B10A2_UNorm),
+            Format.R16G16_Float => nameof(Format.R16G16_Float),
+            Format.R8G8_UNorm => nameof(Format.R8G8_UNorm),
+            Format.R8_UNorm => nameof(Format.R8_UNorm),
+            Format.D32_Float => nameof(Format.D32_Float),
+            Format.D24_UNorm_S8_UInt => nameof(Format.D24_UNorm_S8_UInt),
+            Format.D16_UNorm => nameof(Format.D16_UNorm),
+            _ => format.ToString(),
+        };
+    }
 }

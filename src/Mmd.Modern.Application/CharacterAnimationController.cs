@@ -435,8 +435,9 @@ public sealed partial class CharacterAnimationController : IDisposable
         return StoreVertices(pose,frame,enableIk,enableMorphs,prepared,vertices);
     }
     private (OriginalStyleScene Surface,OriginalOutlineData Outline) StoreVertices(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,SceneVertex[]? vertices)
+        =>StorePreparedScene(pose,frame,enableIk,enableMorphs,prepared,CreateScene(pose,prepared,vertices));
+    private (OriginalStyleScene Surface,OriginalOutlineData Outline) StorePreparedScene(CharacterSample pose,double frame,bool enableIk,bool enableMorphs,PreparedMorphs prepared,(OriginalStyleScene Surface,OriginalOutlineData Outline) scene)
     {
-        var scene=CreateScene(pose,prepared,vertices);
         sampled=scene;MorphChannels=prepared.Channels;sampledFrame=frame;sampledIk=enableIk;sampledMorphs=enableMorphs;
         sampledMorphsPreparation=prepared;
         sharedRigidBoneFrame=null;

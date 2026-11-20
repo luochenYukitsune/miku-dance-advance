@@ -7,12 +7,17 @@ namespace Mmd.Modern.Application;
 
 public sealed partial class SceneAnimationSession
 {
+    private sealed record ControlSampleCache(double Frame, ScenePmmControlSample Sample);
+    private sealed record CachedControlParents(SceneOutsideParentBinding[] StaticBindings, SceneOutsideParentBinding[] Combined);
+
     private readonly ScenePmmControlState? pmmControls;
     private readonly Dictionary<Guid, SharedCharacterPhysicsSession> controlledWorlds = [];
     private readonly List<CharacterAnimationController.SharedPhysicsStatus> controlledStatuses = [];
     private PmmGravityNoise controlNoise = new();
     private ScenePmmControlSample? controlSample;
     private double controlSampleFrame = -1;
+    private ControlSampleCache? controlSampleCache;
+    private CachedControlParents?[]? controlParentsByInterval;
     private Vector3? currentControlGravity;
     public ScenePmmControlState? PmmControls => pmmControls;
     // Candidates must reject a factory alias before initializing or disposing any live solver.
@@ -27,39 +32,70 @@ public sealed partial class SceneAnimationSession
                 || (e.Controller is { } controller && controller.SharesSoftBodyBackendWith(other)));
     private ScenePmmControlSample ControlSample(double frame)
     {
-        if (controlSample is null || controlSampleFrame != frame)
-        { controlSample = pmmControls!.Sample(frame); controlSampleFrame = frame; }
-        return controlSample;
+        var cached = Volatile.Read(ref controlSampleCache);
+        if (cached is not null && cached.Frame == frame) return cached.Sample;
+        var sampled = pmmControls!.Sample(frame);
+        Volatile.Write(ref controlSampleCache, new(frame, sampled));
+        controlSample = sampled;
+        controlSampleFrame = frame;
+        return sampled;
     }
 
     private SceneOutsideParentBinding[] ControlParents(double frame)
     {
         if (pmmControls is null) return outsideBindings;
-        var sample = ControlSample(frame);
-        var dynamic = sample.OutsideParents;
-        var result = outsideBindings.Concat(dynamic).ToArray();
-        int totalSubjects = result.Length + sample.GroundOutsideParents.Count;
-        if (result.Select(p => (p.ObjectId, p.BoneIndex))
-            .Concat(sample.GroundOutsideParents.Select(g => (g.ObjectId, g.BoneIndex)))
-            .Distinct().Count() != totalSubjects)
-            throw new InvalidDataException("Static and PMM outside-parent tracks cannot author the same active subject.");
+        int interval = pmmControls.ParentIntervalIndexAt(frame);
+        var cache = EnsureControlParentsCache();
+        var entry = Volatile.Read(ref cache[interval]);
+        if (entry is not null && ReferenceEquals(entry.StaticBindings, outsideBindings))
+            return entry.Combined;
+        var computed = BuildControlParents(interval, outsideBindings);
+        var next = new CachedControlParents(outsideBindings, computed);
+        var raced = Interlocked.CompareExchange(ref cache[interval], next, entry);
+        return raced is not null && ReferenceEquals(raced.StaticBindings, outsideBindings) ? raced.Combined : computed;
+    }
+
+    private CachedControlParents?[] EnsureControlParentsCache()
+    {
+        var cache = Volatile.Read(ref controlParentsByInterval);
+        if (cache is not null) return cache;
+        var created = new CachedControlParents?[pmmControls!.ParentIntervalCount];
+        return Interlocked.CompareExchange(ref controlParentsByInterval, created, null) ?? created;
+    }
+
+    private SceneOutsideParentBinding[] BuildControlParents(int interval, SceneOutsideParentBinding[] staticBindings)
+    {
+        var dynamic = pmmControls!.OutsideParentsArrayAtInterval(interval);
+        var ground = pmmControls.GroundOutsideParentsAtInterval(interval);
+        SceneOutsideParentBinding[] result;
+        if (staticBindings.Length == 0)
+            result = dynamic;
+        else if (dynamic.Length == 0)
+            result = staticBindings;
+        else
+        {
+            result = new SceneOutsideParentBinding[staticBindings.Length + dynamic.Length];
+            staticBindings.CopyTo(result, 0);
+            dynamic.CopyTo(result, staticBindings.Length);
+        }
+        if (staticBindings.Length > 0)
+        {
+            var subjects = new HashSet<(Guid ObjectId, int BoneIndex)>(result.Length + ground.Count);
+            for (int i = 0; i < result.Length; i++)
+                if (!subjects.Add((result[i].ObjectId, result[i].BoneIndex)))
+                    throw new InvalidDataException("Static and PMM outside-parent tracks cannot author the same active subject.");
+            for (int i = 0; i < ground.Count; i++)
+                if (!subjects.Add((ground[i].ObjectId, ground[i].BoneIndex)))
+                    throw new InvalidDataException("Static and PMM outside-parent tracks cannot author the same active subject.");
+        }
         return result;
     }
 
     private ScenePmmGroundOutsideParent[] ControlGroundParents(Guid id, double frame)
-    {
-        if (pmmControls is null) return [];
-        var ground = ControlSample(frame).GroundOutsideParents;
-        if (ground.Count == 0) return [];
-        List<ScenePmmGroundOutsideParent>? list = null;
-        for (int i = 0; i < ground.Count; i++)
-            if (ground[i].ObjectId == id) (list ??= []).Add(ground[i]);
-        return list is null ? [] : list.ToArray();
-    }
+        => pmmControls is null ? [] : pmmControls.GroundParentsForActorAtInterval(id, pmmControls.ParentIntervalIndexAt(frame));
 
     private IReadOnlyDictionary<int, OutsideParentTrackWindow>? ControlTrackWindows(Guid id, double frame)
-        => pmmControls is null ? null
-            : ControlSample(frame).OutsideParentTrackWindows.TryGetValue(id, out var windows) ? windows : null;
+        => pmmControls is null ? null : pmmControls.TrackWindowsForActorAtInterval(id, pmmControls.ParentIntervalIndexAt(frame));
 
     private static Matrix4x4 GroundOutsideParentTransform(PmxModel model, int boneIndex, Matrix4x4 inverseObjectWorld)
         => AffineProduct(Matrix4x4.CreateTranslation(model.Bones[boneIndex].Position) * inverseObjectWorld);
@@ -76,20 +112,28 @@ public sealed partial class SceneAnimationSession
     }
 
     private IReadOnlySet<int> ControlDisabled(Guid id, double frame)
-        => pmmControls is null ? new HashSet<int>() : ControlSample(frame).DisabledBoneIndices[id].ToHashSet();
+        => pmmControls is null ? EmptyDisabledBones
+            : pmmControls.DisabledBoneSetForActorAtInterval(id, pmmControls.DisabledIntervalIndexAt(frame)) ?? EmptyDisabledBones;
 
     private void ValidateControls(Entry[] source)
     {
         if (pmmControls is null) return;
         if (source.Any(e => e.Motion is null)) throw new InvalidDataException("PMM controls require an explicitly bound motion and skeleton for every actor.");
         pmmControls.ValidateActors(source.ToDictionary(e => e.Object.Id, e => e.Motion!.Model));
-        foreach (int frame in pmmControls.BoundaryFrames) _ = ValidateOutsideParents(ControlParents(frame), source);
+        int lastInterval = -1;
+        foreach (int frame in pmmControls.BoundaryFrames)
+        {
+            int interval = pmmControls.ParentIntervalIndexAt(frame);
+            if (interval == lastInterval) continue;
+            lastInterval = interval;
+            _ = ValidateOutsideParents(ControlParents(frame), source);
+        }
     }
 
     private SharedCharacterPhysicsSession? CreateSessionWorlds(Entry[] source, double frame)
     {
         if (pmmControls is null) return sharedPhysicsFactory is null ? null : CreateSharedWorld(source, frame);
-        controlNoise.Reset(ControlSample(frame).Gravity);
+        controlNoise.Reset(pmmControls.GravityAt(frame));
         if (sharedPhysicsFactory is not null) return CreateSharedWorld(source, frame);
         var allocated = new HashSet<ICharacterPhysicsBackend>(ReferenceEqualityComparer.Instance);
         try
@@ -120,14 +164,16 @@ public sealed partial class SceneAnimationSession
     private void ApplyControlGravity(Entry[] source, double frame, bool reset, bool step)
     {
         if (pmmControls is null) return;
-        var pose = ControlSample(frame).Gravity;
+        var pose = pmmControls.GravityAt(frame);
         if (reset) controlNoise.Reset(pose);
         Vector3 gravity = reset ? controlNoise.Current : controlNoise.Advance(pose, step ? CharacterPhysicsSession.FixedStepSeconds : 0);
         currentControlGravity = gravity;
-        foreach (var entry in source.Where(e => e.Controller?.SoftBodiesEnabled == true))
+        for (int i = 0; i < source.Length; i++)
         {
+            var entry = source[i];
+            if (entry.Controller?.SoftBodiesEnabled != true) continue;
             Matrix4x4.Invert(entry.Object.World, out var inverse);
-            entry.Controller!.SetSoftBodyGravity(Vector3.TransformNormal(gravity, inverse));
+            entry.Controller.SetSoftBodyGravity(Vector3.TransformNormal(gravity, inverse));
         }
     }
 
