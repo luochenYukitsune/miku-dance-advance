@@ -53,7 +53,7 @@ def main() -> None:
     args = p.parse_args()
     is_prerelease = args.prerelease.strip().lower() not in ('false', '0', 'no')
 
-    if not re.fullmatch(r'v\d+\.\d+\.\d+(?:\.\d+)?', args.tag):
+    if not re.fullmatch(r'v\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z][0-9A-Za-z._-]*)?', args.tag):
         raise SystemExit(f'非法的发布标签：{args.tag}')
     version = args.tag[1:]
     expected_installer_name = f'MDA-{version}-win-x64-setup.exe'

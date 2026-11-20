@@ -9,7 +9,7 @@ import re
 import subprocess
 
 CJK_RE = re.compile(r'[\u4e00-\u9fff]')
-TAG_VER_RE = re.compile(r'^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$')
+TAG_VER_RE = re.compile(r'^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z][0-9A-Za-z._-]*))?$')
 DIVIDER_LINE_RE = re.compile(r'^[-=_*]{3,}$')
 TRAILING_DIVIDER_RE = re.compile(r'[-=_*]{3,}\s*$')
 
@@ -18,17 +18,19 @@ def git(*args: str, cwd: pathlib.Path) -> str:
     return subprocess.check_output(['git', '-C', str(cwd), *args], text=True, encoding='utf-8').strip()
 
 
-def parse_semver(tag: str) -> tuple[int, ...] | None:
+def parse_semver(tag: str) -> tuple[int, int, int, int, int, str] | None:
     m = TAG_VER_RE.fullmatch(tag.strip())
     if not m:
         return None
-    return tuple(int(g or 0) for g in m.groups())
+    nums = [int(g or 0) for g in m.groups()[:4]]
+    suffix = m.group(5) or ''
+    return (nums[0], nums[1], nums[2], nums[3], 0 if suffix else 1, suffix)
 
 
 def find_previous_tag(repo: pathlib.Path, current_tag: str) -> str | None:
     raw = git('tag', '--list', 'v*', cwd=repo)
     cur_ver = parse_semver(current_tag)
-    candidates: list[tuple[tuple[int, ...], str]] = []
+    candidates: list[tuple[tuple[int, int, int, int, int, str], str]] = []
     for line in raw.splitlines():
         t = line.strip()
         if not t or t == current_tag:

@@ -6,7 +6,7 @@ CI 用：整理包含现代引擎、三种超分、Classic 传统引擎与完整
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$PublishedDirectory,
-    [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')][string]$Version,
+    [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?(-[0-9A-Za-z][0-9A-Za-z._-]*)?$')][string]$Version,
     [Parameter(Mandatory = $true)][string]$StageDirectory,
     [Parameter(Mandatory = $true)][string]$InstallerOutputDirectory,
     [string]$NugetPackages,

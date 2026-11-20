@@ -13,14 +13,16 @@ $normalizedVersion = ''
 $publishVersionArgs = @()
 if (-not [string]::IsNullOrWhiteSpace($Version)) {
     $normalizedVersion = $Version.Trim().TrimStart('v', 'V')
-    if ($normalizedVersion -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+    if ($normalizedVersion -notmatch '^(\d+\.\d+\.\d+(?:\.\d+)?)(?:-[0-9A-Za-z][0-9A-Za-z._-]*)?$') {
         throw "Version 格式非法：$Version"
     }
+    $numericVersion = $Matches[1]
     $shortSha = $CommitSha.Trim()
     if ($shortSha.Length -gt 12) { $shortSha = $shortSha.Substring(0, 12) }
     $infoVersion = if ($shortSha) { "$normalizedVersion+$shortSha" } else { $normalizedVersion }
     $publishVersionArgs = @(
         "-p:MdaAppVersion=$normalizedVersion",
+        "-p:MdaAppNumericVersion=$numericVersion",
         "-p:MdaAppInformationalVersion=$infoVersion"
     )
 }
