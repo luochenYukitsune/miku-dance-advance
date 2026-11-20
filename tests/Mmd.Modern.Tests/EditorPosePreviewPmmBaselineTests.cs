@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Reflection;
 using Avalonia.Headless;
+using Avalonia.Threading;
 using Mmd.Modern.App;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
@@ -139,21 +140,21 @@ public sealed class EditorPosePreviewPmmBaselineTests : IAsyncDisposable
         int publications = f.Publications;
         f.Request(interactive: false);
         await f.WaitPublishedAfter(publications);
+        await f.WaitSettled();
+        var complete = f.Snapshot();
         await f.WaitIdle();
+        // The worker posts its final snapshot at Background priority before retiring.
+        // Its exit alone does not guarantee that the UI has applied that snapshot.
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
         Assert.Equal("ReleasedBones", Field(f.Preview, "asyncKind")!.ToString());
         Assert.Equal(EditorPosePreviewState.SettledBones, f.Preview.State);
         Assert.True(f.Preview.HasLatestInputSnapshot); Assert.Equal(0, f.Preview.RemainingSettleSteps);
-        var complete = f.Snapshot();
         var draftMotions = f.Editor.PrepareDraftMotions(f.Actors).ToDictionary(plan => plan.ObjectId, plan => plan.CreateMotion(confirmOverwrite: true));
         using var reference = f.Source.CreatePosePreview(draftMotions, TestContext.Current.CancellationToken);
         var expected = reference.CaptureRenderSnapshot(f.Requests);
         Assert.Equal(expected.Scene.Surface.Snapshot.Vertices.ToArray(), complete.Scene.Surface.Snapshot.Vertices.ToArray());
         Assert.Equal(expected.SceneInputs[f.First].BoneWorldMatrices[0], complete.SceneInputs[f.First].BoneWorldMatrices[0]);
         f.AssertOtherPose(complete, 3, .5f);
-        // Headless Dispatch's await resumes on the actual UI loop, draining all lower-priority
-        // stale publications. This no-physics fixture is also geometrically equal to Complete;
-        // physical release history is tested separately and deliberately has no such requirement.
-        await Task.Delay(10, TestContext.Current.CancellationToken);
         Assert.Same(complete, f.Snapshot());
         Assert.Equal("ReleasedBones", Field(f.Preview, "asyncKind")!.ToString());
         Assert.False(f.Source.CanUndo); Assert.False(f.Source.CanRedo);
@@ -261,6 +262,7 @@ public sealed class EditorPosePreviewPmmBaselineTests : IAsyncDisposable
         internal async Task WaitPublishedAfter(int previous)
             => await Wait(() => Publications > previous && !Preview.IsPreparingPreview);
         internal async Task WaitIdle() => await Wait(() => !(bool)Field(Preview, "workerRunning")!);
+        internal Task WaitSettled() => Wait(() => Preview.State == EditorPosePreviewState.SettledBones);
         private async Task Wait(Func<bool> condition)
         {
             var watch = Stopwatch.StartNew();
