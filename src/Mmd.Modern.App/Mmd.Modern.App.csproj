@@ -1,9 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/Branding/mda.ico</ApplicationIcon></PropertyGroup>
   <PropertyGroup Condition="'$(MdaAppVersion)' != ''">
+    <MdaAppNumericVersion Condition="'$(MdaAppNumericVersion)' == ''">$(MdaAppVersion.Split('-')[0])</MdaAppNumericVersion>
     <Version>$(MdaAppVersion)</Version>
-    <AssemblyVersion>$(MdaAppVersion)</AssemblyVersion>
-    <FileVersion>$(MdaAppVersion)</FileVersion>
+    <AssemblyVersion>$(MdaAppNumericVersion)</AssemblyVersion>
+    <FileVersion>$(MdaAppNumericVersion)</FileVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(MdaAppInformationalVersion)' != ''">
     <InformationalVersion>$(MdaAppInformationalVersion)</InformationalVersion>

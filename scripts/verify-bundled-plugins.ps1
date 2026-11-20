@@ -30,7 +30,7 @@ if ($contractsVersion -ne [version]'1.0.0.0') {
 }
 
 if ($ExpectedVersion) {
-    $verMatch = [regex]::Match($ExpectedVersion.Trim(), '^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$')
+    $verMatch = [regex]::Match($ExpectedVersion.Trim(), '^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-[0-9A-Za-z][0-9A-Za-z._-]*)?$')
     if (-not $verMatch.Success) {
         throw "ExpectedVersion 格式非法：$ExpectedVersion"
     }

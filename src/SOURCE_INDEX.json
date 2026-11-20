@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-19T23:50:48.6047833Z",
+    "generatedAtUtc":  "2026-11-20T01:11:26.1955348Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -3830,8 +3830,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "project",
-                      "bytes":  9739,
-                      "sha256":  "85844836dd391f7da12e05af6e3b7885cd136577208d097ba24bf21cc85c20d0",
+                      "bytes":  9877,
+                      "sha256":  "fb08468ddfa525b9c89a6a75acb2d5009bac7c5a3759eb6235a4feb04c6c111b",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -23199,8 +23199,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  36440,
-                                "sha256":  "54cd917ef1555867415567e98dc11789a17b8f6dbabafb6542f84cefbbd23c41"
+                                "bytes":  36470,
+                                "sha256":  "c862983cb7694a54e0aadfd2cfdeabbdc9d714dc1bbd0d8c036fbd294afeaad4"
                             },
                             {
                                 "path":  "scripts/package-source.ps1",
@@ -23415,8 +23415,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "verification-only",
                                 "productModule":  "GUI",
-                                "bytes":  9109,
-                                "sha256":  "fcaf48f5fef5603652a156277955b44cdada0ed0ec790c10bfd1b648177f8f7e"
+                                "bytes":  9141,
+                                "sha256":  "32949a7962d20b19d8e266dae6f28d4d55993d8d10e1aed7de0d04b85a5c1f8b"
                             },
                             {
                                 "path":  "scripts/verify-editor-installation.ps1",

@@ -13,7 +13,7 @@ App composition/deployment checks bound to the exact App and native DLL.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$PublishDirectory,
-    [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')][string]$Version = '0.1.0',
+    [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?(-[0-9A-Za-z][0-9A-Za-z._-]*)?$')][string]$Version = '0.1.0',
     [string]$StageDirectory,
     [string]$DxcDirectory,
     [string]$FfmpegDirectory,

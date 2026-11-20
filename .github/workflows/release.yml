@@ -5,7 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 要发布的版本标签（如 v0.1.30；留空则按上一版末位自动 +1）
+        description: 要发布的版本标签（如 v0.1.30 或 v0.1.30-Inside；留空则按上一版末位自动 +1）
+        required: false
+        type: string
+        default: ''
+      version_suffix:
+        description: 可选：版本结尾字母后缀（如 -Inside、-dev；标签未自带后缀或留空自动递增时拼接）
         required: false
         type: string
         default: ''
@@ -66,6 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          INPUT_VERSION_SUFFIX: ${{ inputs.version_suffix || '' }}
           INPUT_PREVIOUS_TAG: ${{ inputs.previous_tag || '' }}
         run: python scripts/resolve-release-tag.py --repo "$GITHUB_REPOSITORY" --write-github-output
       - name: 三语文案及固定版本清单检查
