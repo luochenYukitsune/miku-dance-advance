@@ -11,6 +11,7 @@ public sealed partial class SceneProjectSession
     private SceneAnimationSession? posePreviewSourceAnimation;
     private Mmd.Modern.Core.OriginalFrameScene? posePreviewSourceFrame;
     private double posePreviewSourceClock;
+    private long posePreviewSourceEpoch;
     private IReadOnlyDictionary<Guid, VmdMotion> posePreviewMotions = new Dictionary<Guid, VmdMotion>();
 
     /// <summary>Creates a disposable, detached editing preview at the current clock. The supplied motion
@@ -41,6 +42,7 @@ public sealed partial class SceneProjectSession
             posePreviewSourceAnimation = animation,
             posePreviewSourceFrame = sourceFrame,
             posePreviewSourceClock = sourceClock,
+            posePreviewSourceEpoch = stateEpoch,
             posePreviewMotions = overrides
         };
         return preview;
@@ -68,7 +70,8 @@ public sealed partial class SceneProjectSession
             && ReferenceEquals(posePreviewSourceAnimation, source.animation)
             && !source.animation.IsFaulted
             && ReferenceEquals(posePreviewSourceFrame, source.animation.GetFrame(token))
-            && posePreviewSourceClock == source.animation.CurrentFrame;
+            && posePreviewSourceClock == source.animation.CurrentFrame
+            && posePreviewSourceEpoch == source.stateEpoch;
     }
 
     /// <summary>Updates only a detached editing owner; a live project cannot use this path to bypass Undo.

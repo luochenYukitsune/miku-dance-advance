@@ -300,7 +300,6 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     }
 
     private bool CanRecordAheadLocked() => playbackActive && recordingAheadReady
-        && quality.EffectiveGi is { Strength: > 0, Mode: LightingMode.HardwareRayTracing }
         && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.Off;
 
     /// <summary>Coalesces requests behind UI mutations/layout; captures the project only on the UI thread.</summary>

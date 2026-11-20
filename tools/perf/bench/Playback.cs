@@ -78,8 +78,8 @@ static class Playback
         var counters = stats.ReadAll().ToDictionary(p => p.Name, p => p.Value);
         // Parity runs write a frame-major stream of solved matrices in scene actor order.
         // Timed runs leave this option unset so reading the diagnostic pose cannot affect results.
-        using var boneAudit = config.BoneAuditPath is { } auditPath ? File.Open(auditPath, FileMode.CreateNew, FileAccess.Write) : null;
-        using var morphAudit = config.MorphAuditPath is { } morphPath ? new BinaryWriter(File.Open(morphPath, FileMode.CreateNew, FileAccess.Write)) : null;
+        using var boneAudit = config.BoneAuditPath is { } auditPath ? OpenAuditFile(auditPath) : null;
+        using var morphAudit = config.MorphAuditPath is { } morphPath ? new BinaryWriter(OpenAuditFile(morphPath)) : null;
         using var process = Process.GetCurrentProcess();
         using var timing = config.FrameTiming ? new FrameTiming(n) : null;
         var gc = GcWindow.Start();
@@ -180,6 +180,13 @@ static class Playback
         common["frames"] = new { frameMs = frame, poseMs = pose, renderCallMs = render, stats = perFrameStats.Where(p => p.Value.Any(v => !double.IsNaN(v))).ToDictionary(p => p.Key, p => p.Value),
             serialSubmitToFenceMs = fence, serialFrameMs = serial, seekMs = seeks };
         return common;
+    }
+
+    private static FileStream OpenAuditFile(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (Path.GetDirectoryName(full) is { Length: > 0 } dir) Directory.CreateDirectory(dir);
+        return File.Open(full, FileMode.CreateNew, FileAccess.Write);
     }
 
     private static void WriteMorphAudit(BinaryWriter writer, SceneSnapshot snapshot)

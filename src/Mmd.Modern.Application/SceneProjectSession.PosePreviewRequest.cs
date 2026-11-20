@@ -12,15 +12,16 @@ public sealed class ScenePosePreviewRequest
     private readonly object sourceAnimation;
     private readonly object sourceFrame;
     private readonly double sourceClock;
+    private readonly long sourceEpoch;
 
     internal ScenePosePreviewRequest(Func<IProjectPhysicsBackendProvider, CancellationToken, SceneProjectSession> create,
         Func<SceneProjectSession, bool> isCurrent, bool supportsInteractiveBones,
-        object sourceContent, object sourceAnimation, object sourceFrame, double sourceClock)
+        object sourceContent, object sourceAnimation, object sourceFrame, double sourceClock, long sourceEpoch)
     {
         this.create = create; this.isCurrent = isCurrent;
         SupportsInteractiveBones = supportsInteractiveBones;
         this.sourceContent = sourceContent; this.sourceAnimation = sourceAnimation;
-        this.sourceFrame = sourceFrame; this.sourceClock = sourceClock;
+        this.sourceFrame = sourceFrame; this.sourceClock = sourceClock; this.sourceEpoch = sourceEpoch;
     }
 
     /// <summary>Whether this captured graph supports a fixed-frame interactive bone preview.
@@ -36,7 +37,8 @@ public sealed class ScenePosePreviewRequest
         ArgumentNullException.ThrowIfNull(other);
         return ReferenceEquals(sourceContent, other.sourceContent)
             && ReferenceEquals(sourceAnimation, other.sourceAnimation)
-            && ReferenceEquals(sourceFrame, other.sourceFrame) && sourceClock == other.sourceClock;
+            && ReferenceEquals(sourceFrame, other.sourceFrame) && sourceClock == other.sourceClock
+            && sourceEpoch == other.sourceEpoch;
     }
 
     /// <summary>Call only on the source owner's thread, before publishing a completed snapshot.
@@ -75,13 +77,14 @@ public sealed partial class SceneProjectSession
         var sourceAnimation = animation;
         var sourceFrame = animation.GetFrame(cancellationToken);
         double sourceClock = animation.CurrentFrame;
+        long sourceEpoch = stateEpoch;
         bool defer = deferVertexSkinning;
         return new((provider, token) => new SceneProjectSession(next, provider, sourceClock, token, defer)
             { isDetachedInteractivePoseOwner = true },
             source => ReferenceEquals(source, this) && !disposed && !editing
                 && ReferenceEquals(content, sourceContent) && ReferenceEquals(animation, sourceAnimation)
                 && ReferenceEquals(animation.Frame, sourceFrame) && animation.CurrentFrame == sourceClock
-                && !animation.IsFaulted,
-            animation.SupportsInteractiveBones, sourceContent, sourceAnimation, sourceFrame, sourceClock);
+                && stateEpoch == sourceEpoch && !animation.IsFaulted,
+            animation.SupportsInteractiveBones, sourceContent, sourceAnimation, sourceFrame, sourceClock, sourceEpoch);
     }
 }

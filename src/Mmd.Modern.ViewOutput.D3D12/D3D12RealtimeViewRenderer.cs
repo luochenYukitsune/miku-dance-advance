@@ -24,6 +24,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private readonly IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters;
     private readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject;
     private readonly IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths;
+    private readonly D3D12ViewRenderingStylesCache styleCache;
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     private readonly object prewarmGate = new();
     private CancellationTokenSource? prewarmCts;
@@ -79,6 +80,15 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         this.boneIndicesByObject = DetachBoneIndices(boneIndicesByObject);
 
         D3D12ViewPluginMaterialBindings.Validate(this.characterMaterials, this.pluginBindings, this.styleCatalog);
+        styleCache = new D3D12ViewRenderingStylesCache(
+            this.stylePresets,
+            this.characterMaterials,
+            this.pluginBindings,
+            this.outlineWidths,
+            this.styleCatalog,
+            this.styleGlobalParameters,
+            guessMaterialRoles: true,
+            this.boneIndicesByObject);
         SceneInputRequests = D3D12ViewPluginMaterialBindings.CreateRequests(
             this.pluginBindings, this.styleCatalog, this.characterMaterials, this.boneIndicesByObject);
 
@@ -105,17 +115,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(frame); cancellationToken.ThrowIfCancellationRequested();
             if (frame.Width != request.Width || frame.Height != request.Height) throw new InvalidOperationException("Resize the realtime renderer before presenting new dimensions.");
             var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow, frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
-            var style = D3D12ViewRenderingStyles.Resolve(
-                scene,
-                stylePresets,
-                frame.RenderingStyles,
-                characterMaterials,
-                pluginBindings,
-                frame.SceneInputs,
-                outlineWidths,
-                styleCatalog,
-                styleGlobalParameters,
-                boneIndicesByObject: boneIndicesByObject);
+            var style = styleCache.Resolve(scene, frame.RenderingStyles, frame.SceneInputs);
             scene = style.Scene;
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             previewSampling.Prepare(frame.Width, frame.Height, request.EffectiveQuality, scene, style.SurfaceStyles);
@@ -199,17 +199,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow,
             frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
         D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
-        _ = D3D12ViewRenderingStyles.Resolve(
-            scene,
-            stylePresets,
-            frame.RenderingStyles,
-            characterMaterials,
-            pluginBindings,
-            frame.SceneInputs,
-            outlineWidths,
-            styleCatalog,
-            styleGlobalParameters,
-            boneIndicesByObject: boneIndicesByObject);
+        _ = styleCache.Resolve(scene, frame.RenderingStyles, frame.SceneInputs);
     }
 
     private void StartShaderPrewarm(ViewQualityOptions quality)

@@ -47,7 +47,7 @@ $bench = "$env:ModernCacheRoot\bin\PerfBench\Release\net10.0\PerfBench.dll"
 & $env:MDA_DOTNET_EXE $bench --compare "$env:MDA_WORK_ROOT\run-a" "$env:MDA_WORK_ROOT\run-b" --out "$env:MDA_WORK_ROOT\compare"
 ```
 
-可选参数：`--stage <场景.pmx>`、`--vmd <动作.vmd>`（可多次传入，未传时自动合成确定性舞蹈动作；短于目标帧数时自动循环）、`--physics independent|shared|off`、`--switch name=value`。
+可选参数：`--prop-model <道具.pmx>`（未指定时复用首个 `--model`）、`--props <N>`（生成 `N` 个冻结/非物理附属道具并通过单级与 2 级链式外亲挂载到角色骨骼）、`--pmm-controls`（基于当前多角色与道具合成 `ScenePmmControlState`，含角色/链式/地面 `-2` 外亲切换、重力曲线与物理开关轨道）、`--stage <场景.pmx>`、`--vmd <动作.vmd>`（可多次传入，未传时自动合成确定性舞蹈动作；短于目标帧数时自动循环）、`--physics independent|shared|off`、`--switch name=value`、`--bone-audit <matrices.bin>`（按帧输出各演员与道具世界骨骼矩阵以做比特级一致性校验）、`--frame-timing`（开启阶段剖析；注意开启诊断监听器会强制串行求值，测稳态并行吞吐时应关闭此开关）。
 
 ## ABBA 交错驱动脚本（`Run-Matrix.ps1`）
 
