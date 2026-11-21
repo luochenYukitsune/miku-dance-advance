@@ -115,6 +115,19 @@ def main() -> None:
                 print(f"Using successful build ({checked_commit}): {latest.get('html_url')}", flush=True)
                 break
             if attempt % 4 == 0:
+                # The workflow stays in progress while the independent installer finishes.
+                # A failed required job in this attempt already rules out publication.
+                if status == 'in_progress':
+                    path = f"repos/{args.repo}/actions/runs/{latest['id']}/attempts/{latest['run_attempt']}/jobs?per_page=100"
+                    try:
+                        jobs = json.loads(subprocess.check_output(['gh', 'api', path], text=True, encoding='utf-8'))['jobs']
+                    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+                        print(f'Could not read running jobs: {error}', flush=True)
+                    else:
+                        for job in jobs:
+                            required = job['name'] in ('文案与清单检查', '编译', 'Windows 构建包') or job['name'].startswith('测试（')
+                            if required and job['conclusion'] in ('failure', 'timed_out'):
+                                raise SystemExit(f"CI failed: {job['name']} ({job['conclusion']}): {job['html_url']}")
                 print(f"Waiting for source build {latest.get('id')} ({status}) of {checked_commit}", flush=True)
         else:
             if time.monotonic() >= grace_deadline:

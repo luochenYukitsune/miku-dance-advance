@@ -19,13 +19,7 @@ $root = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
-python -m pip install --disable-pip-version-check ziglang==0.16.0
-if ($LASTEXITCODE) { throw 'Zig 安装失败。' }
-$zig = python -c "import pathlib,ziglang; print(pathlib.Path(ziglang.__file__).parent/'zig.exe')"
-python (Join-Path $repo 'scripts/build-bullet.py') --compiler $zig --output "$root/rigid/mmd_bullet.dll"
-if ($LASTEXITCODE) { throw 'Bullet 刚体库编译失败。' }
-python (Join-Path $repo 'scripts/build-bullet-soft.py') --compiler $zig --output "$root/soft/mmd_bullet_soft.dll"
-if ($LASTEXITCODE) { throw 'Bullet 软体库编译失败。' }
+& (Join-Path $PSScriptRoot 'ci-bullet.ps1') -OutputDirectory "$root"
 & (Join-Path $repo 'native/Mmd.Modern.Mikktspace/build.ps1') -UseCMake -OutputDirectory "$root/mikk" -BuildDirectory "$root/mikk-build"
 $mikk = Get-ChildItem -LiteralPath "$root/mikk" -Recurse -Filter mmd_mikktspace.dll | Select-Object -First 1
 if (-not $mikk) { throw 'MikkTSpace 编译没有产出 mmd_mikktspace.dll。' }

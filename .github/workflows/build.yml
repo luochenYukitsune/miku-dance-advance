@@ -117,6 +117,7 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
           restore-keys: nuget-${{ runner.os }}-
       # 物理、切线和着色器测试要用真实的原生库；先编好，再随编译结果一起交给测试任务。
+      - uses: ./.github/actions/bullet-cache
       - name: 编译原生依赖（Bullet 刚体／软体、MikkTSpace）并取得 DXC
         shell: pwsh
         run: ./scripts/ci-native-deps.ps1 -OutputDirectory "${{ github.workspace }}/.modern/native"
@@ -217,7 +218,7 @@ jobs:
 
   windows-build:
     name: Windows 构建包
-    needs: [lint, build]
+    needs: lint
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -233,6 +234,7 @@ jobs:
           path: ${{ github.workspace }}/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
           restore-keys: nuget-${{ runner.os }}-
+      - uses: ./.github/actions/bullet-cache
       - name: 编译 Windows x64 版（含原生物理库和固定版本 FFmpeg）
         shell: pwsh
         env:

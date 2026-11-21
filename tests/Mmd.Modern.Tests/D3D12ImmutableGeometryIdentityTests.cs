@@ -80,11 +80,20 @@ public sealed class D3D12ImmutableGeometryIdentityTests
     {
         var scene = Scene(); var pose = scene.WithDeformedVertices(scene.Vertices.ToArray());
         var first = new D3D12IndexStreamIdentity(scene); var second = new D3D12IndexStreamIdentity(pose);
-        Assert.True(first.Equals(second));
-        long before = GC.GetAllocatedBytesForCurrentThread(); bool equal = true;
-        for (int index = 0; index < 10_000; index++) equal &= first.Equals(second);
+        // Warm the measured loop and equality path before sampling this thread's allocations.
+        Assert.True(CompareRepeatedly(first, second));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool equal = CompareRepeatedly(first, second);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(equal); Assert.InRange(allocated, 0, 128);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static bool CompareRepeatedly(D3D12IndexStreamIdentity first, D3D12IndexStreamIdentity second)
+    {
+        bool equal = true;
+        for (int index = 0; index < 10_000; index++) equal &= first.Equals(second);
+        return equal;
     }
 
     internal static SceneSnapshot Scene(bool reverse = false) => new(
