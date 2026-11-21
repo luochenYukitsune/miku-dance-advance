@@ -88,9 +88,6 @@
           </StackPanel>
           <StackPanel Spacing="6" IsVisible="{Binding HasDirection}">
             <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.DirectionSection}" Classes="group" />
-            <validated:EditorLightDirectionPad Name="InlineLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=OneWay}" Height="104" MinHeight="104"
-                EditStarted="BeginPadEdit" EditPreview="PreviewPadEdit" EditCompleted="CompletePadEdit" EditCanceled="CancelPadEdit"
-                ToolTip.Tip="{DynamicResource Mda.Text.LightAim.PadHint}" />
             <StackPanel Spacing="4">
               <Button Name="InlineLightAimCenterButton" Classes="action" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                       Height="NaN" MinHeight="28" Padding="8,4"

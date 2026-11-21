@@ -103,9 +103,8 @@ public partial class EditorLightInspector : UserControl
                 || light.GroupId is { } group && retainedGroups.Contains(group)).Select(light => light.Id).ToArray();
             if (selectedId is not { } primary || !requestedIds.Contains(primary)) selectedId = requestedIds.Length > 0 ? requestedIds[0] : null;
         }
-        if (replacingSource || selectionChanged && (groupParameterEdit is not null || parameterEdit is not null || padEdit is not null || numericEdit is not null || globalParameterEdit is not null)
+        if (replacingSource || selectionChanged && (groupParameterEdit is not null || parameterEdit is not null || numericEdit is not null || globalParameterEdit is not null)
             || parameterEdit is { } edit && edit.Light.Id != selectedId
-            || padEdit is { } activePad && activePad.Light.Id != selectedId
             || numericEdit is { } activeNumeric && activeNumeric.Light.Id != selectedId) CancelActiveParameterEdit();
         using (Mmd.Modern.Application.InteractionDiagnostics.Measure("lighting.inspector-capture-raw")) CaptureRawControlText();
         var pending = replacingSource ? SavePendingInputs() : null;
@@ -170,12 +169,10 @@ public partial class EditorLightInspector : UserControl
             { NumericText = matching ? rawGroupNumericText.GetValueOrDefault(group.Id) : null }).ToImmutableArray(),
             Lights = model.Lights.Select(light => (matching && parameterEdit is { } editing && editing.Light.Id == light.Id
                 ? editing.Before
-                : matching && padEdit is { } activePad && activePad.Light.Id == light.Id
-                    ? activePad.Before
-                    : matching && numericEdit is { } activeNumeric && activeNumeric.Light.Id == light.Id
-                        ? activeNumeric.Before
-                        : matching && groupParameterEdit is { } batchEdit && batchEdit.Lights.TryGetValue(light.Id, out var beforeLight)
-                            ? beforeLight : light.CaptureRecoveryDraft()) with
+                : matching && numericEdit is { } activeNumeric && activeNumeric.Light.Id == light.Id
+                    ? activeNumeric.Before
+                    : matching && groupParameterEdit is { } batchEdit && batchEdit.Lights.TryGetValue(light.Id, out var beforeLight)
+                        ? beforeLight : light.CaptureRecoveryDraft()) with
             {
                 HexText = matching && rawHexText.TryGetValue(light.Id, out string? hex) ? hex : null,
                 NumericText = matching && rawNumericText.TryGetValue(light.Id, out var numeric)
@@ -374,7 +371,6 @@ public partial class EditorLightInspector : UserControl
         if (refreshing || recoveryRestoreDepth != 0 || args.PropertyName != nameof(EditorLightingViewModel.SelectedLightIds)) return;
         if (groupParameterEdit is not null) CancelActiveGroupParameterEdit();
         if (parameterEdit is { } editing && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != editing.Light.Id)
-            || padEdit is { } activePad && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != activePad.Light.Id)
             || numericEdit is { } activeNumeric && (ViewModel?.ShowSingleLight != true || ViewModel.SelectedLight?.Id != activeNumeric.Light.Id)) CancelActiveParameterEdit();
         CaptureRawControlText();
         if (!performingSelectionAction)
@@ -397,7 +393,7 @@ public partial class EditorLightInspector : UserControl
     }
     private void CommitInput(object? sender, RoutedEventArgs args)
     {
-        if (refreshing || parameterEdit is not null || padEdit is not null || groupParameterEdit is not null) return;
+        if (refreshing || parameterEdit is not null || groupParameterEdit is not null) return;
         bool hadNumeric = numericEdit is not null;
         numericEdit = null;
         focusedNumericDraft = null;

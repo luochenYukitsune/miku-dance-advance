@@ -515,7 +515,7 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
 
     internal void FlipHemisphere()
     {
-        var next = Controls.EditorLightDirectionPad.FlipHemisphereDirection(CurrentDirection(), IsBacklit);
+        var next = Controls.EditorLightAngles.FlipHemisphereDirection(CurrentDirection(), IsBacklit);
         backlit = !IsBacklit;
         ApplyAimDirection(next);
     }

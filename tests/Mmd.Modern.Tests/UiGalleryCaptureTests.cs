@@ -86,9 +86,7 @@ public sealed class UiGalleryCaptureTests : IAsyncDisposable
                         if (shot.Length > 0)
                         {
                             Pump(window);
-                            // The collapsed main-light section has no visual content yet; find it by its content type.
-                            foreach (var expander in window.GetVisualDescendants().OfType<Expander>())
-                                if (expander.Content is Border { Child: EditorMainLightInspector }) expander.IsExpanded = true;
+                            window.FindControl<Expander>("MainLightSection")!.IsExpanded = true;
                         }
                         return Task.FromResult<Window>(window);
                     });

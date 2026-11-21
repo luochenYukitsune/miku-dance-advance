@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -15,12 +14,9 @@ public partial class EditorLightInspector
 {
     private sealed record ParameterEdit(EditorLightParameterSlider Slider, EditorNativeLightItem Light,
         EditorRecoveryNativeLightDraft Before, SceneLightingSnapshot Source, Guid? Document);
-    private sealed record PadEdit(EditorLightDirectionPad Pad, EditorNativeLightItem Light,
-        EditorRecoveryNativeLightDraft Before, SceneLightingSnapshot Source, Guid? Document);
     private sealed record NumericEdit(EditorNativeLightItem Light,
         EditorRecoveryNativeLightDraft Before, SceneLightingSnapshot Source, Guid? Document);
     private ParameterEdit? parameterEdit;
-    private PadEdit? padEdit;
     private NumericEdit? numericEdit;
     private (Guid Id, EditorRecoveryNativeLightDraft Draft)? focusedNumericDraft;
     private EditorNativeLightItem? observedPreviewLight;
@@ -99,42 +95,6 @@ public partial class EditorLightInspector
         numeric.GetVisualDescendants().OfType<TextBox>().FirstOrDefault()?.Focus();
     }
 
-    private void BeginPadEdit(object? sender, CancelEventArgs args)
-    {
-        if (sender is not EditorLightDirectionPad pad || !modernParameters || refreshing || recoveryRestoreDepth != 0
-            || EditStartingRequested?.Invoke() == false || !TryCommit() || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light })
-        { args.Cancel = true; return; }
-        padEdit = new(pad, light, light.CaptureRecoveryDraft(), source, sourceDocumentId);
-    }
-
-    private void PreviewPadEdit(object? sender, Vector3 direction)
-    {
-        if (updatingParameter || padEdit is not { } edit || !ReferenceEquals(edit.Pad, sender)) return;
-        if (!ReferenceEquals(edit.Source, source) || edit.Document != sourceDocumentId || ViewModel?.SelectedLight?.Id != edit.Light.Id)
-        { CancelActiveParameterEdit(); return; }
-        updatingParameter = true;
-        try
-        {
-            edit.Light.ApplyAimDirection(direction);
-            if (ViewModel.TryCreate(out var draft) && draft is not null && PreviewRequested?.Invoke(draft) == false)
-                CancelActiveParameterEdit();
-        }
-        finally { updatingParameter = false; }
-    }
-
-    private void CompletePadEdit(object? sender, Vector3 _)
-    {
-        if (padEdit is not { } edit || !ReferenceEquals(edit.Pad, sender)) return;
-        padEdit = null;
-        try { TryCommit(); }
-        finally { PreviewRequested?.Invoke(null); }
-    }
-
-    private void CancelPadEdit(object? sender, EventArgs args)
-    {
-        if (padEdit is { } edit && ReferenceEquals(edit.Pad, sender)) CancelActiveParameterEdit();
-    }
-
     private void AimLightAtCenter(object? sender, RoutedEventArgs args)
     {
         if (refreshing || recoveryRestoreDepth != 0 || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light }) return;
@@ -191,7 +151,7 @@ public partial class EditorLightInspector
         if (sender is not EditorNumericUpDown input || !input.IsInputValid || !args.NewValue.HasValue) return;
         if (!input.IsKeyboardFocusWithin) return;
         if (ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } || !ReferenceEquals(input.DataContext, light)) return;
-        if (parameterEdit is not null || padEdit is not null || groupParameterEdit is not null) return;
+        if (parameterEdit is not null || groupParameterEdit is not null) return;
         SyncObservedPreviewLight();
         pendingNumericBinding = (input, light);
         Dispatcher.UIThread.Post(FlushPendingNumericBinding, DispatcherPriority.Send);
@@ -204,7 +164,7 @@ public partial class EditorLightInspector
         if (ViewModel is not { ShowSingleLight: true, SelectedLight: { } current } || !ReferenceEquals(current, light)
             || !ReferenceEquals(input.DataContext, light))
             return;
-        if (parameterEdit is not null || padEdit is not null || groupParameterEdit is not null) return;
+        if (parameterEdit is not null || groupParameterEdit is not null) return;
         updatingParameter = true;
         try
         {
@@ -240,14 +200,6 @@ public partial class EditorLightInspector
         pendingNumericBinding = null;
         CancelActiveGroupParameterEdit();
         CancelActiveGlobalParameterEdit();
-        if (padEdit is { } activePad)
-        {
-            padEdit = null;
-            updatingParameter = true;
-            try { activePad.Light.RestoreInput(activePad.Before); }
-            finally { updatingParameter = false; }
-            PreviewRequested?.Invoke(null);
-        }
         if (numericEdit is { } activeNumeric)
         {
             numericEdit = null;

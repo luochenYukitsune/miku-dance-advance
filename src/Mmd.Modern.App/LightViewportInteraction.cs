@@ -88,8 +88,12 @@ public static class LightViewportInteraction
     {
         var forward = Vector3.Normalize(camera.Target - camera.Eye);
         var right = Vector3.Normalize(camera.LeftHanded ? Vector3.Cross(camera.Up, forward) : Vector3.Cross(forward, camera.Up));
-        return Quaternion.Normalize(Quaternion.CreateFromAxisAngle(Vector3.UnitY, -deltaPixels.X * .01f)
-            * Quaternion.CreateFromAxisAngle(right, -deltaPixels.Y * .01f) * rotation);
+        var up = Vector3.Normalize(Vector3.Cross(right, forward)) * (camera.LeftHanded ? -1f : 1f);
+        var screenMotion = right * deltaPixels.X - up * deltaPixels.Y;
+        float length = screenMotion.Length();
+        if (!float.IsFinite(length) || length < 1e-6f) return rotation;
+        var rotationAxis = Vector3.Normalize(Vector3.Cross(-forward, screenMotion));
+        return Quaternion.Normalize(Quaternion.CreateFromAxisAngle(rotationAxis, length * .01f) * rotation);
     }
 
     /// <summary>World-axis ring rotation, using the same projected ring plane that is rendered.</summary>
@@ -100,7 +104,8 @@ public static class LightViewportInteraction
         var normal = Axis(axis);
         var toCamera = camera.Eye - pivot;
         float camDist = toCamera.Length();
-        var viewDir = camDist > 1e-6f ? toCamera / camDist : -Vector3.UnitZ;
+        var viewDir = camera.VerticalFovDegrees.HasValue && camDist > 1e-6f
+            ? toCamera / camDist : Vector3.Normalize(camera.Eye - camera.Target);
         bool steepView = camDist > 1e-6f && MathF.Abs(Vector3.Dot(normal, viewDir)) >= 0.2f;
         float maxRadius = MathF.Max(100f, camDist * 5f);
         float maxRadiusSq = maxRadius * maxRadius;
@@ -163,27 +168,37 @@ public static class LightViewportInteraction
         SceneCamera camera, int width, int height, float size, bool rotate = false, Vector3? selectionPivot = null,
         IReadOnlyCollection<Guid>? selectedIds = null)
     {
-        if (selected is { } aimed && (selectedIds is null || selectedIds.Count == 1)
-            && lights.Lights.FirstOrDefault(light => light.Id == aimed) is { Kind: not SceneLightKind.Point } targetLight
-            && TryProject(targetLight.Target, camera, width, height, out var targetPixel)
-            && Vector2.DistanceSquared(mouse, targetPixel) <= 81)
-            return new(aimed, LightDragAxis.Free, Target: true);
         Guid? nearest = null;
-        float distance = 144, depth = float.PositiveInfinity;
+        float distance = 256, depth = float.PositiveInfinity;
         foreach (var light in lights.Lights)
         {
             if (!TryProject(light.Position, camera, width, height, out var center)) continue;
-            float candidate = Vector2.DistanceSquared(mouse, center), candidateDepth = Vector3.DistanceSquared(light.Position, camera.Eye);
+            float candidate = Vector2.DistanceSquared(mouse, center);
+            foreach (var (a, b) in BodyStrokes(light, center, size, camera, width, height))
+            {
+                float strokeDistance = Distance(mouse, a, b);
+                if (strokeDistance < 5) candidate = MathF.Min(candidate, strokeDistance * strokeDistance);
+            }
+            float candidateDepth = Vector3.DistanceSquared(light.Position, camera.Eye);
             bool candidateSelected = selectedIds?.Contains(light.Id) ?? light.Id == selected;
             bool previousActive = nearest is { } previous && (selectedIds?.Contains(previous) ?? previous == selected);
-            if (candidate <= 144 && (nearest is null || candidate < distance || candidate == distance
+            if (candidate <= 256 && (nearest is null || candidate < distance || candidate == distance
                 && (candidateDepth < depth || candidateDepth == depth && (candidateSelected && !previousActive
                     || candidateSelected == previousActive && light.Id.CompareTo(nearest.Value) < 0))))
             { nearest = light.Id; distance = candidate; depth = candidateDepth; }
         }
-        // The icon always moves the light, including when rotation rings are active.
+        if (selected is { } aimed && (selectedIds is null || selectedIds.Count == 1)
+            && lights.Lights.FirstOrDefault(light => light.Id == aimed) is { Kind: not SceneLightKind.Point } targetLight
+            && TryProject(targetLight.Target, camera, width, height, out var targetPixel)
+            && Vector2.DistanceSquared(mouse, targetPixel) <= 81
+            && (nearest is null || Vector2.DistanceSquared(mouse, targetPixel) < distance))
+            return new(aimed, LightDragAxis.Free, Target: true);
         if (nearest is { } hit) return new(hit, LightDragAxis.Free);
         if (selected is not { } id || lights.Lights.FirstOrDefault(light => light.Id == id) is not { } active) return null;
+        if (selectedIds is { Count: > 1 } && selectionPivot is { } pivot
+            && TryProject(pivot, camera, width, height, out var centerPixel)
+            && Vector2.DistanceSquared(mouse, centerPixel) <= 81)
+            return new(id, LightDragAxis.Free);
         LightDragAxis? bestAxis = null;
         distance = 7;
         foreach (var axis in Axes)
@@ -208,19 +223,22 @@ public static class LightViewportInteraction
             var border = new Vector4(.10f, .16f, .21f, 1);
             var color = active ? new Vector4(.91f, .64f, .23f, 1) : light.Enabled
                 ? new Vector4(.79f, .87f, .93f, 1) : new Vector4(.53f, .58f, .62f, 1);
-            int radius = active ? 8 : 6;
-            // Native square primitives keep all 128 authoring markers within the existing
-            // overlay constant budget, leaving space for selection rings and scene guides.
+            int radius = active ? 11 : 8;
+            // Native marker primitives keep all 128 lights within the overlay budget.
             var marker = new Vector2(center.X / width, center.Y / height);
-            lines.Add(new(marker, marker, border, Width: 4.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
-            lines.Add(new(marker, marker, color, Width: 1.5f, Shape: ViewportOverlayShape.Square, Radius: radius));
+            var bodyShape = light.Kind is SceneLightKind.Point or SceneLightKind.Spot
+                ? ViewportOverlayShape.Circle : ViewportOverlayShape.Square;
+            lines.Add(new(marker, marker, border, Width: 4.5f, Shape: bodyShape, Radius: radius));
+            lines.Add(new(marker, marker, color, Width: 1.5f, Shape: bodyShape, Radius: radius));
+            foreach (var (a, b) in BodyStrokes(light, center, size, camera, width, height))
+                Add(a, b, color, 2.5f);
             if (active && light.Kind != SceneLightKind.Point)
             {
                 // The primary light shows where it is actually aimed; other selected lights keep a short pointer.
                 bool primaryLight = light.Id == selected;
                 WorldLine(light.Position, primaryLight ? light.Target : light.Position + light.Direction * size * 1.4f, new(1, 1, .25f, 1),
                     primaryLight ? 1.5f : 2.5f);
-                if (primaryLight && TryProject(light.Target, camera, width, height, out var aim))
+                if (primaryLight && (selectedIds is null || selectedIds.Count == 1) && TryProject(light.Target, camera, width, height, out var aim))
                 {
                     var target = new Vector2(aim.X / width, aim.Y / height);
                     lines.Add(new(target, target, border, Width: 4.5f, Shape: ViewportOverlayShape.Square, Radius: 6));
@@ -236,6 +254,12 @@ public static class LightViewportInteraction
             && TryProject(selectionPivot ?? primary.Position, camera, width, height, out var handleCenter))
         {
             var pivot = selectionPivot ?? primary.Position;
+            if (selectedIds is { Count: > 1 })
+            {
+                var center = new Vector2(handleCenter.X / width, handleCenter.Y / height);
+                lines.Add(new(center, center, new(.10f, .16f, .21f, 1), Width: 4, Shape: ViewportOverlayShape.Square, Radius: 5));
+                lines.Add(new(center, center, new(1, .86f, .44f, 1), Width: 2, Shape: ViewportOverlayShape.Square, Radius: 5));
+            }
             foreach (var axis in Axes)
             {
                 var axisColor = AxisColor(axis);
@@ -347,15 +371,53 @@ public static class LightViewportInteraction
         }
     }
 
+    // Only this compact body silhouette participates in picking; coverage outlines can span the scene.
+    private static IEnumerable<(Vector2 A, Vector2 B)> BodyStrokes(NativeSceneLight light, Vector2 center,
+        float size, SceneCamera camera, int width, int height)
+    {
+        if (light.Kind == SceneLightKind.Point) yield break;
+        if (!TryProject(light.Position + light.Direction * size * .32f, camera, width, height, out var projected))
+            yield break;
+        var offset = projected - center;
+        float length = offset.Length();
+        if (length < 2)
+        {
+            // A beam aimed through the screen appears end-on.
+            yield return (center - new Vector2(3, 0), center + new Vector2(3, 0));
+            if (light.Kind == SceneLightKind.Directional)
+                yield return (center - new Vector2(0, 3), center + new Vector2(0, 3));
+            yield break;
+        }
+        var along = offset / length;
+        var side = new Vector2(-along.Y, along.X);
+        var tip = center + along * MathF.Min(length, 24);
+        if (light.Kind == SceneLightKind.Spot)
+        {
+            yield return (center, tip + side * 5);
+            yield return (center, tip - side * 5);
+            yield return (tip + side * 5, tip - side * 5);
+        }
+        else
+        {
+            yield return (center, tip);
+            if (light.Kind == SceneLightKind.Directional)
+            {
+                yield return (tip, tip - along * 6 + side * 3);
+                yield return (tip, tip - along * 6 - side * 3);
+            }
+        }
+    }
+
     private static float HandleDistance(Vector3 origin, LightDragAxis axis, float size, Vector2 mouse, SceneCamera camera, int width, int height, bool rotate)
     {
-        if (!rotate) return Segment(origin, origin + Axis(axis) * size);
+        if (!rotate) return TryProject(origin, camera, width, height, out var center)
+            && TryProject(origin + Axis(axis) * size, camera, width, height, out var tip)
+            ? Distance(mouse, center, tip) : float.PositiveInfinity;
         float nearest = float.PositiveInfinity;
         foreach (var (a, b) in RingSegmentsFor(origin, axis, size)) nearest = Math.Min(nearest, Segment(a, b));
         return nearest;
 
-        float Segment(Vector3 a, Vector3 b) => TryProject(a, camera, width, height, out var start)
-            && TryProject(b, camera, width, height, out var end) ? Distance(mouse, start, end) : float.PositiveInfinity;
+        float Segment(Vector3 a, Vector3 b) => TryProjectSegment(a, b, camera, width, height, out var start, out var end) ? Distance(mouse, start, end) : float.PositiveInfinity;
     }
 
     private static IEnumerable<(Vector3 A, Vector3 B)> RingSegmentsFor(Vector3 origin, LightDragAxis axis, float size)
