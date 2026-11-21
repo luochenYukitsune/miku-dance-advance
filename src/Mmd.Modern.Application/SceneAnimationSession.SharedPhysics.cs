@@ -652,7 +652,15 @@ public sealed partial class SceneAnimationSession
                 }
             }
             if (!initializing) ApplyControlGravity(source, frame, reset, step);
-            IReadOnlyList<Guid>? worldActorIds = pmmControls is null && world is not null ? world.ActorIds : null;
+            // Preserve membership at the start of an uncontrolled boundary, including when a
+            // later actor invokes user code. PMM-controlled actors consult their live world.
+            bool[]? physicalAtBoundary = null;
+            if (pmmControls is null && world is not null)
+            {
+                physicalAtBoundary = new bool[actorCount];
+                for (int i = 0; i < actorCount; i++)
+                    physicalAtBoundary[i] = world.ContainsActor(source[i].Object.Id);
+            }
             int maxDegree = Math.Clamp(Environment.ProcessorCount, 1, 16);
             bool canParallelBoundary = !token.CanBeCanceled
                 && !coupledSoftBodies
@@ -666,7 +674,7 @@ public sealed partial class SceneAnimationSession
 
             if (canParallelBoundary)
             {
-                PrepareSharedBoundaryLevelsParallel(source, world, topology, boundaryGraph, worldActorIds,
+                PrepareSharedBoundaryLevelsParallel(source, world, topology, boundaryGraph, physicalAtBoundary,
                     requiredParents, frame, prior, reset, initializing, deferRigidSkinning, maxDegree,
                     pending, pendingByIndex, preparedWorldsByIndex, physicalDisabledByIndex,
                     resetAfterPhysicsWorldsByIndex, phase1OutsideParentsByIndex, hasPhase1OutsideParents, nonPhysicalAttached);
@@ -690,10 +698,7 @@ public sealed partial class SceneAnimationSession
                     bool hasBindings = bindings.Length != 0;
                     bool attached = hasBindings || groundParents.Length != 0;
                     bool trackWindowChanged = pmmControls is not null && controller.SetOutsideParentTrackWindows(trackWindows);
-                    var actorWorld = ActorWorld(entry, world);
-                    bool physical = pmmControls is null
-                        ? (worldActorIds is not null && ContainsGuid(worldActorIds, entry.Object.Id))
-                        : (actorWorld is not null && actorWorld.ActorIds.Contains(entry.Object.Id));
+                    bool physical = physicalAtBoundary?[index] ?? (ActorWorld(entry, world)?.ContainsActor(entry.Object.Id) == true);
                     if (!physical && deferRigidSkinning && requiredParents is not null && frozen && !initializing && !reset
                         && !interactiveObjectId.HasValue && !requiredParents.Contains(entry.Object.Id)
                         && controller.CanDeferFrozenAttachmentBoundary(bindings, groundParents, trackWindowChanged))
@@ -1222,15 +1227,8 @@ public sealed partial class SceneAnimationSession
         return activeCount >= 2;
     }
 
-    private static bool ContainsGuid(IReadOnlyList<Guid> ids, Guid id)
-    {
-        for (int i = 0; i < ids.Count; i++)
-            if (ids[i] == id) return true;
-        return false;
-    }
-
     private void PrepareSharedBoundaryLevelsParallel(Entry[] source, SharedCharacterPhysicsSession? world,
-        SharedBoundaryTopology topology, SharedBoundaryGraph? boundaryGraph, IReadOnlyList<Guid>? worldActorIds,
+        SharedBoundaryTopology topology, SharedBoundaryGraph? boundaryGraph, bool[]? physicalAtBoundary,
         HashSet<Guid>? requiredParents, double frame, double prior, bool reset, bool initializing,
         bool deferRigidSkinning, int maxDegree,
         List<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview)> pending,
@@ -1261,10 +1259,7 @@ public sealed partial class SceneAnimationSession
                 bool hasBindings = bindings.Length != 0;
                 bool attached = hasBindings || groundParents.Length != 0;
                 bool trackWindowChanged = pmmControls is not null && controller.SetOutsideParentTrackWindows(trackWindows);
-                var actorWorld = ActorWorld(entry, world);
-                bool physical = pmmControls is null
-                    ? (worldActorIds is not null && ContainsGuid(worldActorIds, entry.Object.Id))
-                    : (actorWorld is not null && actorWorld.ActorIds.Contains(entry.Object.Id));
+                bool physical = physicalAtBoundary?[index] ?? (ActorWorld(entry, world)?.ContainsActor(entry.Object.Id) == true);
 
                 if (!physical && deferRigidSkinning && requiredParents is not null && frozen && !initializing && !reset
                     && !requiredParents.Contains(entry.Object.Id)
@@ -1573,7 +1568,7 @@ public sealed partial class SceneAnimationSession
         CharacterAnimationController.SharedPreparedPhysicsSample? initial = null;
         try
         {
-            bool has = sharedWorld!.ActorIds.Contains(motion.ObjectId);
+            bool has = sharedWorld!.ContainsActor(motion.ObjectId);
             if (motion.PhysicsEnabled && candidate.Controller!.SupportsPhysics)
             {
                 initial = candidate.Controller.BeginSharedPhysicsSample(Math.Min(CurrentFrame, candidate.Controller.DurationFrames), motion.IkEnabled, motion.MorphsEnabled);

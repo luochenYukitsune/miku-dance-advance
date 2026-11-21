@@ -1,4 +1,5 @@
 using System.Numerics;
+using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Xunit;
 
@@ -6,6 +7,38 @@ namespace Mmd.Modern.Tests;
 
 public sealed class ModernDirectionalShadowProjectionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ComposedPropsFitTheSameShadowWithFullCoverageOrStaticGaps(bool gaps)
+    {
+        SceneSnapshot Compose(bool deform)
+        {
+            var parts = new List<OriginalFrameScene>();
+            for (int i = 0; i < 7; i++)
+            {
+                float x = i % 2 == 0 ? -20 * i : 3 * i;
+                SceneVertex[] vertices = [new(new(x, 0, i), Vector3.UnitY, default),
+                    new(new(x + 2, 4, i), Vector3.UnitY, default), new(new(x, 2, i + 2), Vector3.UnitY, default)];
+                var part = new SceneSnapshot(vertices, [2u, 0u, 1u],
+                    [new("prop", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 0)]);
+                if (deform && (!gaps || i % 2 != 0))
+                {
+                    var binding = new SceneSkinBinding(SceneSkinKind.Bdef1, 0, -1, -1, -1, Vector4.UnitX);
+                    var model = new SceneSkinningModel(vertices, [binding, binding, binding], [], 1);
+                    part = part.WithDeferredDeformation(new(model, [Matrix4x4.Identity], [], [], [], null, () => vertices));
+                }
+                var outline = new OriginalOutlineData(vertices.Select(v =>
+                    new OriginalOutlineVertex(v.Position, v.Normal, OriginalOutlineVertexMode.Expand, 1, 0)), [new(1, Vector4.One, false)]);
+                parts.Add(new(new(part, [new(Vector3.One)]), outline, new(Vector4.Zero, Matrix4x4.Identity, Vector3.Zero, 30, 1)));
+            }
+            return ProjectSceneAssembler.Combine(parts, Vector3.One, -Vector3.UnitZ).Surface.Snapshot;
+        }
+        var actual = Compose(true);
+        Assert.Equal(gaps ? 3 : 7, actual.DeformationRanges.Count);
+        Assert.Equal(ModernDirectionalShadowProjection.Fit(Compose(false)), ModernDirectionalShadowProjection.Fit(actual));
+    }
+
     [Theory]
     [InlineData(0, -1, 0)]
     [InlineData(.3f, -.7f, 1)]

@@ -298,7 +298,7 @@ public sealed partial class SceneAnimationSession : IDisposable
         CompletePreviewLeaves(); previous = entries[index];
         var next = (Entry[])entries.Clone(); next[index] = new(previous.Object, null, null, null, previous.Object.Source);
         var frame = Compose(next, null); var nextStates = CaptureStates(next, CurrentFrame);
-        if (sharedWorld?.ActorIds.Contains(objectId) == true)
+        if (sharedWorld?.ContainsActor(objectId) == true)
         {
             try { sharedWorld.RemoveActor(objectId); }
             catch (Exception error) { MarkFault(error); sharedStatus!.IsFaulted=true; throw; }
