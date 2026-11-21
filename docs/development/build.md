@@ -91,6 +91,8 @@ python scripts/build-bullet-soft.py --compiler C:/tools/zig/zig.exe --output ../
 
 ### 4.2 发布 GitHub Release（`.github/workflows/release.yml`）
 
+标签和文案检查通过后，Windows 安装包构建、实装验证与同提交 CI 检查并行运行。发布任务从当次运行读取已经实装验证的安装包，并在 CI 门禁通过后上传。普通 CI 也同时启动编译测试和 Windows 打包。两条流程均可复用相同 Zig 版本、构建脚本和 Bullet 源码的原生库缓存。
+
 支持推送 `v*` 标签自动触发，也支持在 Actions 页面手动触发：云端完成双引擎与三种超分安装包编译（含原生库可移植性检查）后，自动核对并复用固定版本 FFmpeg 的对应源码包附件，根据上一版标签以来的提交记录与 `CHANGELOG.md` 生成中英双语更新说明，计算全部附件的 `SHA256SUMS.txt` 并发布到 GitHub Releases。
 
 ---

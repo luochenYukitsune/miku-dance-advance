@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import pathlib
@@ -80,18 +81,22 @@ def main() -> None:
         raise SystemExit('未在历史 Release 中找到可复用的 FFmpeg 9.0.2 对应源码包附件。')
     donor_tag, donor_digests = donor
     print(f'从历史版本 {donor_tag} 复用固定版本 FFmpeg 源码附件…')
-    for name in FFMPEG_SOURCE_ASSETS:
-        if name not in donor_digests:
-            continue
+    def download_verified(name: str) -> tuple[pathlib.Path, str]:
         subprocess.run(['gh', 'release', 'download', donor_tag, '-R', args.repo, '-p', name, '-D', str(stage)], check=True)
         downloaded = stage / name
         actual = sha256_file(downloaded)
         expected_digest = donor_digests[name]
         if expected_digest.startswith('sha256:') and actual != expected_digest[7:].lower():
             raise SystemExit(f'复用附件 {name} 哈希校验不符：{actual} != {expected_digest}')
-        staged_files.append(downloaded)
+        return downloaded, actual
 
-    checksum_lines = [f'{sha256_file(f)}  {f.name}' for f in sorted(staged_files, key=lambda x: x.name)]
+    digests = {staged_installer.name: sha256_file(staged_installer)}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for downloaded, digest in pool.map(download_verified, (n for n in FFMPEG_SOURCE_ASSETS if n in donor_digests)):
+            staged_files.append(downloaded)
+            digests[downloaded.name] = digest
+
+    checksum_lines = [f'{digests[name]}  {name}' for name in sorted(digests)]
     sums_file = stage / 'SHA256SUMS.txt'
     sums_file.write_text('\n'.join(checksum_lines) + '\n', encoding='utf-8')
     upload_list = [str(f) for f in staged_files] + [str(sums_file)]
@@ -122,10 +127,10 @@ def main() -> None:
     if rel_info.get('isDraft') or bool(rel_info.get('isPrerelease')) != is_prerelease:
         raise SystemExit('Release 发布类型状态不符合预期。')
     remote_assets = {a['name']: a.get('digest', '') for a in rel_info.get('assets', [])}
-    for f in staged_files:
-        expected = 'sha256:' + sha256_file(f)
-        if remote_assets.get(f.name) != expected:
-            raise SystemExit(f'远端附件哈希核验失败：{f.name}')
+    digests[sums_file.name] = sha256_file(sums_file)
+    for name, digest in digests.items():
+        if remote_assets.get(name) != 'sha256:' + digest:
+            raise SystemExit(f'远端附件哈希核验失败：{name}')
     kind_label = '预发布版' if is_prerelease else '正式版'
     print(f'{kind_label}已公开：' + rel_info['url'])
 

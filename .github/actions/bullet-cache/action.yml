@@ -1,0 +1,14 @@
+name: Cache portable Bullet libraries
+description: Reuse the two Zig-built DLLs only for identical compiler and native inputs.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      id: bullet
+      with:
+        path: ${{ runner.temp }}/mda-bullet-bin
+        key: bullet-win-x64-zig-0.16.0-${{ hashFiles('.github/actions/bullet-cache/action.yml', 'scripts/ci-bullet.ps1', 'scripts/build-bullet*.py', 'scripts/bullet_soft_sources.py', 'native/Mmd.Modern.Bullet*/**', 'third_party/bullet-2.75/**') }}
+    - shell: pwsh
+      run: |
+        "MDA_BULLET_CACHE_DIR=$env:RUNNER_TEMP/mda-bullet-bin" >> $env:GITHUB_ENV
+        "MDA_BULLET_CACHE_HIT=${{ steps.bullet.outputs.cache-hit }}" >> $env:GITHUB_ENV

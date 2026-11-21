@@ -26,13 +26,7 @@ if (-not [string]::IsNullOrWhiteSpace($Version)) {
         "-p:MdaAppInformationalVersion=$infoVersion"
     )
 }
-python -m pip install ziglang==0.16.0
-if ($LASTEXITCODE) { throw 'Zig installation failed.' }
-$zig = python -c "import pathlib,ziglang; print(pathlib.Path(ziglang.__file__).parent/'zig.exe')"
-python scripts/build-bullet.py --compiler $zig --output "$work/native/rigid/mmd_bullet.dll"
-if ($LASTEXITCODE) { throw 'Bullet build failed.' }
-python scripts/build-bullet-soft.py --compiler $zig --output "$work/native/soft/mmd_bullet_soft.dll"
-if ($LASTEXITCODE) { throw 'Soft-body build failed.' }
+& (Join-Path $PSScriptRoot 'ci-bullet.ps1') -OutputDirectory "$work/native"
 ./native/Mmd.Modern.Mikktspace/build.ps1 -UseCMake -OutputDirectory "$work/native/mikk" -BuildDirectory "$work/mikk-build"
 dotnet publish src/Mmd.Modern.App -c Release -r win-x64 --self-contained true -o $output -p:PublishReadyToRun=false -p:PublishSingleFile=false "-p:BulletNativeLibrary=$work/native/rigid/mmd_bullet.dll" "-p:SoftBodyNativeLibrary=$work/native/soft/mmd_bullet_soft.dll" "-p:MikktspaceNativeLibrary=$work/native/mikk/mmd_mikktspace.dll" @publishVersionArgs
 if ($LASTEXITCODE) { throw 'Windows publish failed.' }
