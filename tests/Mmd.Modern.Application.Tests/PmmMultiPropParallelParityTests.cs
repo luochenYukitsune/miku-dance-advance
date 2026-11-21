@@ -10,6 +10,8 @@ using Xunit;
 
 namespace Mmd.Modern.Application.Tests;
 
+// Other tests enable process-wide pose tracing, which deliberately selects serial evaluation.
+[Collection("Controller preparation")]
 public sealed class PmmMultiPropParallelParityTests
 {
     private static readonly byte[] LinearBoneCurve = Enumerable.Repeat(new byte[] { 20, 20, 107, 107 }, 4).SelectMany(b => b).ToArray();
@@ -338,7 +340,10 @@ public sealed class PmmMultiPropParallelParityTests
         var error = Assert.Throws<InvalidOperationException>(() => session.Advance(1d / 30, CancellationToken.None));
         Assert.Equal("fault-actor-1", error.Message);
         Assert.True(session.IsFaulted);
-        Assert.All(backends, b => Assert.True(b.StepCalls >= 1));
+        // A single-core runner stops at the first failing actor; parallel evaluation
+        // joins every scheduled actor before propagating the first error in actor order.
+        for (int i = 0; i < backends.Count; i++)
+            Assert.Equal(Environment.ProcessorCount >= 2 || i <= 1 ? 1 : 0, backends[i].StepCalls);
 
         backends[1].StepErrorMessage = null;
         backends[3].StepErrorMessage = null;
