@@ -118,6 +118,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         {
             Dispatcher.UIThread.VerifyAccess();
             if (ReferenceEquals(project, value)) return;
+            CancelMainLightDrag();
             project = value; manualCameraPose = sampledCameraPose = null;
             renderBinding = EditorRenderEngineBinding.Require(renderEngine, renderEngine.EmptyBinding);
             historyGeneration++; cameraCutKey++;
@@ -190,6 +191,27 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public EditorLightViewportController? LightController { get; set; }
     public EditorBoneViewportController? BoneController { get; set; }
     public bool RotateLightHandle { get; set; }
+    private EditorMainLightViewport? mainLightViewport;
+    private bool mainLightCaptured;
+    internal EditorMainLightViewport? MainLightViewport
+    {
+        get => mainLightViewport;
+        set
+        {
+            if (ReferenceEquals(value, mainLightViewport)) return;
+            CancelMainLightDrag();
+            mainLightViewport?.ClearPresentation();
+            mainLightViewport = value;
+            RequestRender();
+        }
+    }
+    private void CancelMainLightDrag()
+    {
+        MainLightViewport?.Cancel();
+        if (!mainLightCaptured) return;
+        mainLightCaptured = false;
+        if (childWindow != nint.Zero && GetCapture() == childWindow) ReleaseCapture();
+    }
     private bool isSuspended;
     private bool requireCurrentPoseInput;
     private Func<bool>? currentPoseInputPending;
@@ -206,6 +228,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         set
         {
             if (isSuspended == value) return;
+            if (value) CancelMainLightDrag();
             isSuspended = value;
             lock (workerGate)
             {
@@ -579,7 +602,10 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         }
         scene = new(scene.Surface, scene.Outline, scene.OutlineOptions, options, scene.Materials, scene.Lighting, overlay);
         frame = frame with { Scene = scene, TemporalState = new() { HistoryGeneration = historyGeneration, CameraCutKey = cameraCutKey } };
-        return FrameDecorator?.Invoke(frame) ?? frame;
+        frame = FrameDecorator?.Invoke(frame) ?? frame;
+        frame = MainLightViewport?.Decorate(frame, currentCamera) ?? frame;
+        if (mainLightCaptured && MainLightViewport?.IsDragging != true) CancelMainLightDrag();
+        return frame;
     }
 
     private void QueueWork(RenderWork work)
@@ -736,6 +762,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                         elapsedTicks: callbackPostedAt == 0 ? 0 : Stopwatch.GetTimestamp() - callbackPostedAt);
                     BoneController?.FramePresented(frame);
                     LightController?.FramePresented(frame);
+                    MainLightViewport?.FramePresented(frame);
                     Statistics = statistics;
                     if (work.PreparationToken == preparationToken) SetPreparingFrame(false);
                     FramePresented?.Invoke(statistics);
@@ -987,11 +1014,32 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 ValidateRect(window, nint.Zero); RequestRender(); return nint.Zero;
             }
             if (message == 0x14) return new nint(1); // Renderer owns background erasure.
+            if (MainLightViewport?.IsDragging == true)
+            {
+                if (message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27)
+                { CancelMainLightDrag(); return nint.Zero; }
+                if (message == 0x200)
+                {
+                    MainLightViewport.Move(new(x, y));
+                    if (!MainLightViewport.IsDragging) CancelMainLightDrag();
+                    return nint.Zero;
+                }
+                if (message == 0x202) { MainLightViewport.End(new(x, y)); CancelMainLightDrag(); return nint.Zero; }
+                if (message is 0x201 or 0x204 or 0x207 or 0x20a) return nint.Zero;
+            }
             if ((!IsEffectivelyEnabled || IsSuspended) && message is >= 0x100 and <= 0x20e)
                 return CallWindowProcW(previous, window, message, wParam, lParam);
             if (message is 0x201 or 0x204 or 0x207)
             {
-                if (dragButton != 0) return nint.Zero;
+                if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.IsDragging == true) return nint.Zero;
+                if (message == 0x201 && MainLightViewport is { } main && GetClientRect(window, out var mainBounds) &&
+                    main.TryBegin(new(x, y), currentCamera, mainBounds.Right, mainBounds.Bottom))
+                {
+                    SetFocus(window);
+                    if (!ReferenceEquals(main, MainLightViewport)) main.Cancel();
+                    else if (main.IsDragging) { mainLightCaptured = true; SetCapture(window); }
+                    return nint.Zero;
+                }
                 if (message == 0x201 && GetClientRect(window, out var lightBounds)
                     && LightController?.TryBeginDrag(x, y, lightBounds.Right, lightBounds.Bottom, currentCamera, RotateLightHandle) == true)
                 { SetFocus(window); if (LightController.IsDragging) SetCapture(window); return nint.Zero; }
@@ -1011,11 +1059,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 BoneController.MoveDrag(x, y); return nint.Zero;
             }
             if (message == 0x202 && LightController?.IsDragging == true)
-            { LightController.EndDrag(); ReleaseCapture(); return nint.Zero; }
+            { LightController.MoveDrag(x, y); LightController.EndDrag(); ReleaseCapture(); return nint.Zero; }
             if (message == 0x202 && BoneController?.IsDragging == true)
             { EditorInteractionTrace.BeginInput("pointer.release"); BoneController.EndDrag(); ReleaseCapture(); return nint.Zero; }
-            if ((message == 0x215 || message == 0x100 && wParam.ToInt64() == 27) && LightController?.IsDragging == true)
-            { LightController.CancelDrag(); ReleaseCapture(); return nint.Zero; }
+            if ((message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27) && LightController?.IsDragging == true)
+            {
+                LightController.CancelDrag();
+                if (GetCapture() == window) ReleaseCapture();
+                return nint.Zero;
+            }
             if ((message == 0x215 || message == 0x100 && wParam.ToInt64() == 27) && BoneController?.IsDragging == true)
             { BoneController.CancelDrag(); ReleaseCapture(); return nint.Zero; }
             if (message == 0x200 && dragButton != 0)
@@ -1062,27 +1114,31 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             if (message == 0x20a)
             {
+                if (LightController?.IsDragging == true) return nint.Zero;
                 int delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xffff));
                 var camera = EditableLocalCamera();
                 ChangeCamera(ZoomCamera(camera, delta));
                 return nint.Zero;
             }
         }
-        catch (Exception error) { dragButton = 0; ReleaseCapture(); Error?.Invoke(error); }
+        catch (Exception error) { CancelMainLightDrag(); dragButton = 0; ReleaseCapture(); Error?.Invoke(error); }
         return previous == nint.Zero ? nint.Zero : CallWindowProcW(previous, window, message, wParam, lParam);
     }
 
-    private static bool TryMapEditorKey(nint virtualKey, out Key key)
+    internal static bool TryMapEditorKey(nint virtualKey, out Key key)
     {
         key = virtualKey.ToInt64() switch
         {
             0x0d => Key.Enter,
             0x1b => Key.Escape,
             0x2e => Key.Delete,
+            0x45 => Key.E,
             0x4b => Key.K,
             0x4e => Key.N,
             0x4f => Key.O,
+            0x51 => Key.Q,
             0x53 => Key.S,
+            0x57 => Key.W,
             0x59 => Key.Y,
             0x5a => Key.Z,
             _ => Key.None
@@ -1101,6 +1157,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
 
     private void DetachInput()
     {
+        CancelMainLightDrag();
         if (dragButton != 0) { dragButton = 0; ReleaseCapture(); }
         if (childWindow != nint.Zero && previousWindowProcedure != nint.Zero)
             SetWindowLongPtrW(childWindow, -4, previousWindowProcedure);
@@ -1124,6 +1181,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
     [DllImport("user32.dll")] private static extern nint CallWindowProcW(nint previous, nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern nint SetCapture(nint window);
+    [DllImport("user32.dll")] private static extern nint GetCapture();
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern nint SetFocus(nint window);
     [DllImport("user32.dll")] private static extern short GetKeyState(int virtualKey);

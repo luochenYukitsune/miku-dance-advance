@@ -878,9 +878,12 @@
                             IsVisible="{Binding SupportsModernLightingWorkspace}" ToolTip.Tip="{DynamicResource Mda.Text.42c4c5ec0f58}" />
                   </Grid></Border>
                   <Border IsEnabled="{Binding HasProject}"><local:EditorLightInspector Name="NativeLightInspector" /></Border>
-                  <Expander Header="{DynamicResource Mda.Text.Context.Inspector.Lighting.MainLight}" IsExpanded="{Binding !SupportsModernLightingWorkspace}"
+                  <Expander Name="MainLightSection" Header="{DynamicResource Mda.Text.Context.Inspector.Lighting.MainLight}" IsExpanded="{Binding !SupportsModernLightingWorkspace}"
                             Classes="editorAdvanced" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                    <Border IsEnabled="{Binding HasProject}" Margin="0,10,0,0"><local:EditorMainLightInspector DataContext="{Binding SceneInspector}" /></Border>
+                    <StackPanel IsEnabled="{Binding HasProject}" Margin="0,10,0,0" Spacing="6">
+                      <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource Mda.Text.Context.Lighting.MainLightViewportDrag}" />
+                      <local:EditorMainLightInspector DataContext="{Binding SceneInspector}" />
+                    </StackPanel>
                   </Expander>
                 </StackPanel>
               </ScrollViewer>

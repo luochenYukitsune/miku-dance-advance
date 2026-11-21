@@ -27,7 +27,7 @@ public sealed class EditorLightViewportController
     private sealed record CapturedLights(SceneProjectSession Session, SceneLightingSnapshot Source,
         SceneLightingSnapshot Lights, double SourceFrame, Guid? Selected, IReadOnlyList<Guid> SelectedIds, bool Rotate, SceneCamera Camera, int Width, int Height, float Size);
     private sealed record Drag(IReadOnlyList<NativeSceneLight> Lights, IReadOnlyList<NativeSceneLight> Authored,
-        IReadOnlyDictionary<SceneLightParent, Matrix4x4> Parents, double SourceFrame, Vector3 Pivot, Vector2 Start,
+        IReadOnlyDictionary<SceneLightParent, Matrix4x4> Parents, double SourceFrame, Vector3 Pivot, Vector3 TranslationAnchor, Vector2 Start,
         SceneCamera Camera, int Width, int Height, LightDragAxis Axis, bool Rotate, bool Target = false);
 
     public EditorLightViewportController(EditorProjectWorkspace workspace, Action<EditorLightingDraft> commit, Action requestRender,
@@ -68,7 +68,7 @@ public sealed class EditorLightViewportController
         return modernLightingWorkspace && IsInteracting && quality.EffectiveGi.Enabled ? quality with { Gi = RayGiOptions.Off } : quality;
     }
     internal object PresentationIdentity => new PresentationKey(new(workspace.Session), new(sourceSnapshot),
-        enabled, helpersVisible, rotateHandle, editor.SelectedId, new(selectionIdentity), new(drag), new(parameterPreview));
+        enabled, helpersVisible, rotateHandle, editor.SelectedId, new(selectionIdentity), new(drag), new(parameterPreview ?? (drag is null ? null : editor.Snapshot)));
     private readonly record struct PresentationKey(EditorPresentationReference Session, EditorPresentationReference Source,
         bool Enabled, bool Helpers, bool Rotate, Guid? Selected, EditorPresentationReference Selection,
         EditorPresentationReference Gesture, EditorPresentationReference Parameters);
@@ -160,8 +160,7 @@ public sealed class EditorLightViewportController
             }
     }
 
-    /// <summary>Call before orbit handling. Icons move directly; only the selected light's displayed
-    /// axes/rings can transform it. A draft guard consumes a hit without changing the selection.</summary>
+    /// <summary>Call before orbit handling. Light bodies follow the active move or rotation tool. Selected axes and rings constrain the gesture. A draft guard consumes a hit without changing the selection.</summary>
     public bool TryBeginDrag(int x, int y, int width, int height, SceneCamera camera, bool rotate = false)
     {
         ArgumentNullException.ThrowIfNull(camera);
@@ -185,9 +184,17 @@ public sealed class EditorLightViewportController
         if (!selectedIds.Contains(hit.LightId)) Select(hit.LightId);
         var authored = editor.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         var originals = pose.Lights.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
+        // A first click can switch from a rotating spot to an unselected point light.
+        if (originals is [{ Kind: SceneLightKind.Point }]) rotating = false;
+        var pivot = SelectionPivot(pose.Lights)!.Value;
+        var anchor = pivot;
+        if (!rotating && hit.Axis != LightDragAxis.Free
+            && LightViewportInteraction.TryProject(pivot, pose.Camera, width, height, out var center))
+            anchor = LightViewportInteraction.Translate(pivot, new Vector2(x, y) - center,
+                pose.Camera, width, height, hit.Axis);
         editor.BeginEdit(); drag = new(originals, authored, pose.Lights.ParentTransforms, pose.SourceFrame,
-            SelectionPivot(pose.Lights)!.Value, new(x, y), pose.Camera, width, height, hit.Axis,
-            rotating && hit.Axis != LightDragAxis.Free && !hit.Target, hit.Target); Notify(); return true;
+            pivot, anchor, new(x, y), pose.Camera, width, height, hit.Axis,
+            rotating && !hit.Target, hit.Target); Notify(); return true;
     }
 
     public bool MoveDrag(int x, int y)
@@ -196,13 +203,11 @@ public sealed class EditorLightViewportController
         if (drag is not { } gesture) return false;
         var delta = new Vector2(x, y) - gesture.Start;
         var rotation = delta == Vector2.Zero || !gesture.Rotate ? Quaternion.Identity
+            : gesture.Axis == LightDragAxis.Free ? LightViewportInteraction.Rotate(Quaternion.Identity, delta, gesture.Camera)
             : LightViewportInteraction.RotateOnAxis(Quaternion.Identity, gesture.Pivot,
                 gesture.Start, new(x, y), gesture.Camera, gesture.Width, gesture.Height, gesture.Axis);
         var translation = delta == Vector2.Zero || gesture.Rotate || gesture.Target ? Vector3.Zero
-            : LightViewportInteraction.Translate(gesture.Pivot, delta, gesture.Camera, gesture.Width, gesture.Height, gesture.Axis) - gesture.Pivot;
-        // A single light keeps looking at its aim target while it moves; the target handle turns it in place.
-        // Several lights move rigidly, targets included.
-        bool keepAim = gesture.Lights.Count == 1 && gesture.Lights[0].Kind != SceneLightKind.Point;
+            : LightViewportInteraction.Translate(gesture.TranslationAnchor, delta, gesture.Camera, gesture.Width, gesture.Height, gesture.Axis) - gesture.TranslationAnchor;
         var replacements = new Dictionary<Guid, NativeSceneLight>();
         SceneLightingSnapshot next;
         try
@@ -212,15 +217,20 @@ public sealed class EditorLightViewportController
             var light = delta == Vector2.Zero ? original : gesture.Target
                 ? SafeAimAt(original, LightViewportInteraction.Translate(original.Target, delta, gesture.Camera, gesture.Width, gesture.Height), original)
                 : gesture.Rotate
-                ? original with { Position = gesture.Pivot + Vector3.Transform(original.Position - gesture.Pivot, rotation),
+                ? original with { Position = gesture.Lights.Count == 1 ? original.Position
+                    : gesture.Pivot + Vector3.Transform(original.Position - gesture.Pivot, rotation),
                     Rotation = Quaternion.Normalize(rotation * original.Rotation) }
-                : keepAim ? SafeAimAt(original with { Position = original.Position + translation }, original.Target, original)
                 : original with { Position = original.Position + translation };
             var authored = gesture.Authored.Single(source => source.Id == original.Id);
             // A zero-motion gesture preserves even the original quaternion sign and exact
             // local floats. Actual world-space transforms return through the captured parent.
-            replacements.Add(light.Id, delta == Vector2.Zero ? authored : authored.Parent is { } parent
-                ? SceneLightTransform.ToLocal(light, parent, gesture.Parents[parent]) : light);
+            var local = delta == Vector2.Zero ? authored : authored.Parent is { } parent
+                ? SceneLightTransform.ToLocal(light, parent, gesture.Parents[parent]) : light;
+            if (gesture.Target || (gesture.Rotate && gesture.Lights.Count == 1))
+                local = local with { Position = authored.Position };
+            else if (!gesture.Rotate)
+                local = local with { Rotation = authored.Rotation };
+            replacements.Add(light.Id, local);
           }
           // Validate the whole selection before publishing any member. A coordinate overflow
           // cannot leave half a group at the new transform and half at the previous one.
@@ -228,7 +238,7 @@ public sealed class EditorLightViewportController
         }
         catch (ArgumentException) { return false; }
         editor.ReplaceSnapshot(next);
-        Notify(); return true;
+        requestRender(); return true;
     }
 
     private static NativeSceneLight SafeAimAt(NativeSceneLight light, Vector3 candidateTarget, NativeSceneLight reference)

@@ -70,6 +70,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     public bool IsBusy => isBusy;
     public bool CanEdit => !IsBusy;
     public bool HasCameraDraft => cameraDraft;
+    internal long PoseRevision => contextRevision;
     public bool HasLightDraft => lightDraft;
     public bool HasDraft => IsCameraInspector ? HasCameraDraft : IsLightInspector && HasLightDraft;
     public bool CanRevertDraft => !IsBusy && HasDraft;

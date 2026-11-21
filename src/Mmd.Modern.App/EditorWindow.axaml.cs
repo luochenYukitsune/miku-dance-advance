@@ -46,6 +46,10 @@ public partial class EditorWindow : Window
         else if (persistPreferences) _preferences = EditorPreferences.Load();
         EditorLocalization.SetLanguage(_preferences.Language);
         InitializeComponent();
+        this.FindControl<Expander>("MainLightSection")!.PropertyChanged += (_, args) =>
+        {
+            if (args.Property == Expander.IsExpandedProperty) RefreshLightingInspector();
+        };
         InitializeFileDrop();
         InitializeClassicEffects();
         var modelBrowser = this.FindControl<EditorModelBrowser>("ModelBrowserSurface")!;
@@ -102,7 +106,7 @@ public partial class EditorWindow : Window
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
         viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null; viewport.PlaybackAdvance = null;
-        viewport.LightController = null; viewport.BoneController = null;
+        viewport.MainLightViewport = null; viewport.LightController = null; viewport.BoneController = null;
         if (shell is null || _shell is null) { _lightParentContextKey = null; return; }
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
         shell.Workspace.Changed += OnClassicMappingChanged;
@@ -759,7 +763,7 @@ public partial class EditorWindow : Window
     private bool ExecuteEditorKey(Key key, KeyModifiers modifiers, bool fromViewport)
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
-        if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true)) return false;
+        if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true || _mainLightViewport?.IsDragging == true)) return false;
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
@@ -772,7 +776,7 @@ public partial class EditorWindow : Window
         // committing a new transaction (or blocking Undo on a half-typed colour).
         bool commitLightInput = key == Key.S || (key is Key.Z or Key.Y && !shell.IsModernLightingPage);
         if (control && commitLightInput && !CommitPendingInlineLighting()) return true;
-        if (modifiers == KeyModifiers.None && shell.HasProject && !IsEditableTextFocused()
+        if (modifiers == KeyModifiers.None && shell.HasProject && (fromViewport || !IsEditableTextFocused())
             && TryExecuteGizmoModeShortcut(key, shell))
             return true;
         bool allowFrameNavigation = (modifiers & ~KeyModifiers.Shift) == KeyModifiers.None

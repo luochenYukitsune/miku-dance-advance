@@ -99,7 +99,7 @@ public sealed partial class EditorSceneInspectorViewModel
     public void FlipMainLightHemisphere()
     {
         bool backlit = IsMainLightBacklit;
-        var next = EditorLightDirectionPad.FlipHemisphereDirection(lightPose.Direction, backlit);
+        var next = EditorLightAngles.FlipHemisphereDirection(lightPose.Direction, backlit);
         mainLightBacklit = !backlit;
         LightDirectionVector = next;
     }

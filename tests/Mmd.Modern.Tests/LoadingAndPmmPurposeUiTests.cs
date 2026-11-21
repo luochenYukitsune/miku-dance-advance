@@ -224,8 +224,10 @@ public sealed class LoadingAndPmmPurposeUiTests : IAsyncDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ExplicitIndoorPmmUsesOneSharedStarterLightAndPreservesAuthoredCameraMotionAndGravity(bool indoor)
+    public async Task ExplicitIndoorPmmUsesOneSharedStarterLightAndPreservesAuthoredCameraMotionAndGravity(bool indoor)
     {
+        // The starter light's display name comes from the embedded Avalonia catalog.
+        await this.session.Dispatch(() => EditorLocalization.Text("Mda.Text.Context.Room.BasicLightName"), TestContext.Current.CancellationToken);
         using var playback = ResolvedOutputCameraFixture.Playback();
         var original = playback.Plan;
         var source = original.Models[0].Source;
