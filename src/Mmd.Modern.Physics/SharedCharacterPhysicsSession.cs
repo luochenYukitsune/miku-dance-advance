@@ -34,6 +34,7 @@ public sealed class SharedCharacterPhysicsSession : IDisposable
     public string BackendName => backend.Name;
     public IReadOnlyList<string> Diagnostics => backend.Diagnostics;
     public IReadOnlyList<Guid> ActorIds => Array.AsReadOnly(actors.Keys.ToArray());
+    public bool ContainsActor(Guid actorId) => actors.ContainsKey(actorId);
     public bool IsFaulted { get; private set; }
     /// <summary>Identity-only ownership check, before a replacement factory result can initialize a world.</summary>
     public bool UsesBackend(ICharacterPhysicsBackend candidate) => ReferenceEquals(backend, candidate);

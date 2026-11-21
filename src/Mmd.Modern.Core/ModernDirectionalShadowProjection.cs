@@ -62,30 +62,40 @@ public static class ModernDirectionalShadowProjection
     internal static void ComputeDeferredWorldBounds(SceneSnapshot scene, ref Vector3 minimum, ref Vector3 maximum)
     {
         var ranges = scene.DeformationRanges;
-        var staticView = scene.StaticVertexView;
-        bool allDeferred = ranges.Count == 1 && ranges[0].Start == 0 && ranges[0].Count == scene.VertexCount;
-        if (!allDeferred)
+        // SceneSnapshot has validated that ranges are disjoint and inside the vertex buffer.
+        // A scene composed from many deferred props can cover the entire buffer as well.
+        int deferredVertices = 0;
+        foreach (var range in ranges) deferredVertices += range.Count;
+        if (deferredVertices < scene.VertexCount)
         {
+            var staticView = scene.StaticVertexView;
+            int runStart = 0, runEnd = 0;
+            bool deferred = false;
             foreach (uint index in scene.Indices)
             {
                 int vertex = (int)index;
-                if (IsInRanges(vertex, ranges)) continue;
+                // Mesh indices typically stay within one prop for many triangles.
+                if (vertex < runStart || vertex >= runEnd)
+                {
+                    int lo = 0, hi = ranges.Count;
+                    while (lo < hi)
+                    {
+                        int mid = lo + (hi - lo) / 2;
+                        if (ranges[mid].Start <= vertex) lo = mid + 1;
+                        else hi = mid;
+                    }
+                    int previousEnd = lo == 0 ? 0 : ranges[lo - 1].Start + ranges[lo - 1].Count;
+                    deferred = vertex < previousEnd;
+                    runStart = deferred ? ranges[lo - 1].Start : previousEnd;
+                    runEnd = deferred ? previousEnd : lo < ranges.Count ? ranges[lo].Start : scene.VertexCount;
+                }
+                if (deferred) continue;
                 var position = Vector3.Transform(staticView.GetVertex(vertex).Position, scene.World);
                 minimum = Vector3.Min(minimum, position); maximum = Vector3.Max(maximum, position);
             }
         }
         foreach (var range in ranges)
             AccumulateDeformationBounds(range, scene.World, ref minimum, ref maximum);
-    }
-
-    private static bool IsInRanges(int vertex, IReadOnlyList<SceneDeformationRange> ranges)
-    {
-        for (int i = 0; i < ranges.Count; i++)
-        {
-            var r = ranges[i];
-            if (vertex >= r.Start && vertex < r.Start + r.Count) return true;
-        }
-        return false;
     }
 
     private sealed record ModelRestBounds(

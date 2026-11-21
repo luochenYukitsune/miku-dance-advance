@@ -6,6 +6,28 @@ namespace Mmd.Modern.Tests;
 
 public sealed class SharedPhysicsPreparationBufferTests
 {
+    [Fact]
+    public void ActorMembershipChecksTrackChangesWithoutAllocatingSnapshots()
+    {
+        using var world = new SharedCharacterPhysicsSession(new RecordingBackend());
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        AddPair(world, first, second);
+        var snapshot = world.ActorIds;
+        world.RemoveActor(second);
+        Assert.Contains(second, snapshot);
+        Assert.True(world.ContainsActor(first));
+        Assert.False(world.ContainsActor(second));
+
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        int found = 0;
+        for (int i = 0; i < 2048; i++)
+            if (world.ContainsActor((i & 1) == 0 ? first : second)) found++;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+        Assert.Equal(1024, found);
+        Assert.Equal(0L, allocated);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

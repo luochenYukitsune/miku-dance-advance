@@ -272,7 +272,7 @@ public sealed partial class PmmProjectPlayback
                 pending.Add((id, preparation, input));
                 pendingById[id] = (preparation, input);
                 var world = PmmWorld(id);
-                if (!world.ActorIds.Contains(input.ActorId))
+                if (!world.ContainsActor(input.ActorId))
                     world.AddActor(input.ActorId, PmxCharacterPhysicsAdapter.Convert(entry.Source.Model).Definition, Matrix4x4.Identity, input.BeforePhysicsBoneWorlds);
                 controller.AttachSharedPhysics(PmmStatus(id));
             }
