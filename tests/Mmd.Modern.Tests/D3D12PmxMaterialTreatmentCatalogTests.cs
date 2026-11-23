@@ -8,14 +8,14 @@ public sealed class D3D12PmxMaterialTreatmentCatalogTests
 {
     public static IEnumerable<object[]> Profiles()
     {
-        yield return [T8cTestHelpers.GenshinStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(1.04f, 1.1f, -.25f, .6f)];
-        yield return [T8cTestHelpers.GenshinStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1.08f, .9f, -.2f, .65f, .26f, .22f)];
+        yield return [T8cTestHelpers.GenshinStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(1f, 1.1f, -.25f, .6f)];
+        yield return [T8cTestHelpers.GenshinStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1f, .9f, -.2f, .65f, .26f, .22f)];
         yield return [T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(1f, .55f, .3f, 1.7f)];
-        yield return [T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1.03f, .55f, .12f, 1.5f, .38f, .05f)];
-        yield return [T8cTestHelpers.WutheringStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(.75f, 1.2f, .32f, 1.35f)];
-        yield return [T8cTestHelpers.WutheringStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(.82f, 1.15f, .24f, 1.25f, .12f, .3f)];
-        yield return [T8cTestHelpers.EndfieldStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(.92f, .6f, -.2f, 2f)];
-        yield return [T8cTestHelpers.EndfieldStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(.94f, .7f, -.14f, 1.8f, .3f, .12f)];
+        yield return [T8cTestHelpers.StarRailStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1f, .55f, .12f, 1.5f, .38f, .05f)];
+        yield return [T8cTestHelpers.WutheringStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(1f, 1.2f, .32f, 1.35f)];
+        yield return [T8cTestHelpers.WutheringStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1f, 1.15f, .24f, 1.25f, .12f, .3f)];
+        yield return [T8cTestHelpers.EndfieldStyleId, D3D12CharacterMaterialRole.Body, new D3D12PmxMaterialTreatment(1f, .6f, -.2f, 2f)];
+        yield return [T8cTestHelpers.EndfieldStyleId, D3D12CharacterMaterialRole.Hair, new D3D12PmxMaterialTreatment(1f, .7f, -.14f, 1.8f, .3f, .12f)];
     }
 
     [Theory, MemberData(nameof(Profiles))]

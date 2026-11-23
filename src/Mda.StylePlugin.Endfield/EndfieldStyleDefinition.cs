@@ -27,7 +27,7 @@ public sealed class EndfieldStyleDefinition : RenderingStyleDefinitionBase
         en: "Arknights: Endfield stylized rendering with three-knot diffuse response, EndfieldRgbCmM FaceSDF, radial hair, Fresnel rim, MikkTSpace MatCap, downstream palette, and base-image shadow LUT.",
         ja: "アークナイツ：エンドフィールドスタイル：3ノット拡散応答、EndfieldRgbCmM FaceSDF、放射状ヘア、フレネルリム、MikkTSpace MatCap、パレット、ベース画像シャドウ LUT。");
 
-    private static readonly StyleOutlineDefaults OutlineDefaults = new(Width: 0.18f, Color: null, Enabled: true);
+    private static readonly StyleOutlineDefaults OutlineDefaults = new() { RespectMaterialEdgeFlag = true };
     private static readonly StyleToonResponseDefaults ToonDefaults = new(Threshold: 0.5f, TransitionWidth: 0.1f);
     private static readonly StyleFaceEyeDefaults FaceEyeDefaults = new(
         FaceNormalShadeStrength: 0.35f,
@@ -55,14 +55,14 @@ public sealed class EndfieldStyleDefinition : RenderingStyleDefinitionBase
             new Dictionary<StyleMaterialRole, StyleMaterialTreatmentParameters>
             {
                 [StyleMaterialRole.Body] = new(
-                    Saturation: 0.92f,
+                    Saturation: 1f,
                     TransitionWidthScale: 0.6f,
                     ValueContrast: -0.2f,
                     ShadeGamma: 2f,
                     HairHighlightStrength: 0f,
                     HairHighlightWidth: 0.12f),
                 [StyleMaterialRole.Hair] = new(
-                    Saturation: 0.94f,
+                    Saturation: 1f,
                     TransitionWidthScale: 0.7f,
                     ValueContrast: -0.14f,
                     ShadeGamma: 1.8f,

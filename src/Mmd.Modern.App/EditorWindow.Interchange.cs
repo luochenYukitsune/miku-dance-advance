@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Mmd.Modern.Application;
 using Mmd.Modern.Application.MotionEditing;
 using Mmd.Modern.Formats;
@@ -160,6 +161,62 @@ public partial class EditorWindow
                 actor.Model, pose.Bones, pose.MorphWeights, Path.GetFileName(selected.SourcePath), token: token), token));
         }
         catch (Exception error) { await ShowErrorAsync(error); }
+    }
+
+    private async Task ConvertProjectCopyAsync()
+    {
+        if (_shell is not { IsBusy: false, HasProject: true } shell) return;
+        var workspace = shell.Workspace;
+        string extension = workspace.ConversionFormat.Extension;
+        string name = Path.GetFileName(workspace.ProjectPath) ?? Text("未命名工程.pma");
+        string path;
+        while (true)
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new()
+            {
+                Title = shell.ConvertProjectLabel, DefaultExtension = extension[1..],
+                SuggestedFileName = Path.ChangeExtension(name, extension), ShowOverwritePrompt = false,
+                FileTypeChoices = [new(Text("MDA 便携工程")) { Patterns = ["*" + extension] }]
+            });
+            if (file?.TryGetLocalPath() is not { } selected) return;
+            if (!File.Exists(selected)) { path = selected; break; }
+            if (!await EditorDialogs.ConfirmAsync(this, shell.ConvertProjectLabel, Text("Mda.Text.Project.ConversionNewFile"),
+                Text("Mda.Text.Project.ChooseAnotherName"))) return;
+        }
+        if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync() || !await EnsureMotionHeadersAsync()) return;
+        shell.SynchronizePendingScrub();
+        await ExecuteAsync(Text("Mda.Text.Project.Converting"), async token =>
+        {
+            try
+            {
+                var report = await workspace.ExportConvertedCopyAsync(path, token, cancellation =>
+                    Dispatcher.UIThread.InvokeAsync(() => SelectConversionToonsAsync(cancellation)).GetAwaiter().GetResult());
+                string status = Format(workspace.ConversionFormat == EditorProjectFormat.Classic
+                    ? "Mda.Text.Project.ClassicCopyCreated" : "Mda.Text.Project.ModernCopyCreated", Path.GetFileName(path));
+                if (report.RestoredArchive) status += " " + Text("Mda.Text.Project.RestoredArchive");
+                if (report.DeferredArchive) status += " " + Text("Mda.Text.Project.DeferredArchive");
+                if (report.OmittedLights > 0 || report.OmittedGroups > 0 || report.OmittedLightingSettings
+                    || report.OmittedModelPurposes > 0 || report.OmittedExtensions.Count > 0 || report.OmittedResources.Count > 0)
+                    status += " " + Text("Mda.Text.Project.InactiveArchive");
+                shell.OperationStatus = status;
+            }
+            catch (PmaSaveCommittedException error) when (StringComparer.OrdinalIgnoreCase.Equals(error.DestinationPath, Path.GetFullPath(path)))
+            {
+                shell.OperationStatus = Format("Mda.Text.Project.SavedCleanupFailed", error.InnerException?.Message ?? error.Message);
+            }
+        });
+    }
+
+    private async Task<IReadOnlyList<EditorClassicToonResources.Resource>> SelectConversionToonsAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (await EditorDialogs.ConfirmAsync(this, Text("Mda.Text.Classic.Resources.Title"),
+            Text("Mda.Text.Project.ConversionToonSource"), Text("Mda.Text.Classic.Resources.ChooseLocal")))
+        {
+            var selected = await EditorClassicToonResourcePicker.SelectAsync(this, token);
+            if (selected is not null) return selected.Entries;
+        }
+        throw new OperationCanceledException(token);
     }
 
     private async void SavePmm(object? sender, RoutedEventArgs args)

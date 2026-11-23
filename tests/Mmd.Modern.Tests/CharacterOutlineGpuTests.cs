@@ -1,5 +1,7 @@
 using System.Numerics;
+using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.ViewOutput.D3D12;
 using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
@@ -11,6 +13,51 @@ public sealed class CharacterOutlineGpuTests
 {
     private const int Width = 257, Height = 191;
     private static readonly Vector4 Red = new(1, 0, 0, 1), Blue = new(0, 0, 1, 1);
+
+    [Theory]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void SwitchingStylesKeepsAnUnoutlinedGarmentLiningFromCoveringItsPrintedFront(string style)
+    {
+        // The lining faces away from the viewer but sits in front of the dress. Treating its
+        // back faces as an outline would paint a flat hull across the authored two-color print.
+        var box = D3D12OriginalOutlineTests.Box();
+        Vector3[] corners = [new(-1, -1, 0), new(1, -1, 0), new(1, 1, 0), new(-1, 1, 0)];
+        var vertices = corners.Concat(corners.Select(p => p with { Z = -.3f }))
+            .Select(p => new SceneVertex(p, -Vector3.UnitZ, new((p.X + 1) * .5f, 0))).ToArray();
+        var texture = new SceneTexture("printed fabric", 2, 1, [55, 75, 145, 255, 235, 195, 95, 255]);
+        var mesh = new SceneSnapshot(vertices, [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7],
+            [new("fabric", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1, DiffuseTexture: 0),
+             new("lining", 6, 6, new(.15f, .7f, .3f, 1), Vector3.Zero, Vector3.Zero, 1)],
+            [texture], camera: box.Surface.Snapshot.Camera with { LeftHanded = true }, lightDirection: -Vector3.UnitZ);
+        var surface = new OriginalStyleScene(mesh, [new(Vector3.One, DoubleSided: true), new(Vector3.One, DoubleSided: false)],
+            box.Surface.Profile);
+        var edges = new OriginalOutlineData(vertices.Select((v, i) =>
+                new OriginalOutlineVertex(v.Position, v.Normal, OriginalOutlineVertexMode.Expand, 1, i / 4)),
+            [new(.8f, Red, false), new(.8f, Red, false)]);
+        var options = D3D12OriginalFrameTests.Options();
+        var cache = new D3D12ViewRenderingStylesCache();
+        SceneRenderingStyleBinding[] selection = [new(Guid.NewGuid(), new(style), ModelRole.Character, 0, 2, true)];
+        using var session = new D3D12FrameSession();
+        byte[] Render(OriginalOutlineData? outline)
+        {
+            var source = new OriginalFrameScene(surface, outline, outline is null ? null : box.OutlineOptions, options);
+            var result = cache.Resolve(source, TestStylePlugins.AllPresetCatalog, selection, styleCatalog: TestStylePlugins.AllViewCatalog);
+            return session.Capture(result.Scene, Width, Height, surfaceStyles: result.SurfaceStyles).Rgba;
+        }
+        var printed = Render(null);
+        int left = ((Height / 2) * Width + Width / 2 - 15) * 4;
+        int right = left + 30 * 4;
+        Assert.True(printed[left + 2] > printed[left] && printed[right] > printed[right + 2],
+            $"Printed fabric should show blue and gold, got {Convert.ToHexString(printed.AsSpan(left, 4))} and {Convert.ToHexString(printed.AsSpan(right, 4))}.");
+        Assert.Equal(printed, Render(edges));
+        var outlined = new OriginalOutlineData(edges.Vertices, [edges.Materials[0], edges.Materials[1] with { DrawEnabled = true }]);
+        var visibleLining = Render(outlined);
+        Assert.True(visibleLining[left + 1] > visibleLining[left + 2] && visibleLining[right + 1] > visibleLining[right]);
+        Assert.Equal(printed, Render(edges));
+    }
 
     [Fact]
     public void SharedVerticesDoNotChangeTheOriginalNullMaterialWhenItsModernNeighbourWidens()

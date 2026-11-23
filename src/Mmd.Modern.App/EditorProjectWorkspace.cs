@@ -586,6 +586,25 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ProjectPath = destination; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    internal EditorProjectFormat ConversionFormat =>
+        ProjectFormat == EditorProjectFormat.Modern ? EditorProjectFormat.Classic : EditorProjectFormat.Modern;
+
+    /// <summary>Export the active document, including unsaved edits and the engine's portable resources,
+    /// while the editor continues to own its original document and save destination.</summary>
+    internal async Task<PmaConversionReport> ExportConvertedCopyAsync(string path, CancellationToken token,
+        Func<CancellationToken, IReadOnlyList<EditorClassicToonResources.Resource>>? chooseClassicToons = null)
+    {
+        string destination = ConversionFormat.RequirePath(path);
+        token.ThrowIfCancellationRequested();
+        if (File.Exists(destination)) throw new IOException(EditorLocalization.Text("Mda.Text.Project.ConversionNewFile"));
+        var limits = PackageLimits;
+        string cache = PackageCacheDirectory;
+        using var snapshot = CaptureRecoverySnapshot(token);
+        var actors = ConversionFormat == EditorProjectFormat.Classic ? Motions : [];
+        return await Task.Run(() => PmaProjectStore.ConvertSnapshot(snapshot, destination, cache, token, limits,
+            cancellation => EditorClassicToonPackage.PrepareConversion(actors, chooseClassicToons, cancellation)), token);
+    }
+
     public void SaveSnapshot(string path, CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

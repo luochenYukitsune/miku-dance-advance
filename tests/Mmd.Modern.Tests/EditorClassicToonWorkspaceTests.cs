@@ -97,6 +97,21 @@ public sealed partial class EditorClassicToonPackageTests
             Assert.Equal(200, Pixel(session.Objects[0].Source, 1));
             Assert.True(workspace.Redo()); Assert.Same(reset, workspace.ProjectMetadata);
             Assert.Equal(51, Pixel(session.Objects[0].Source, 1));
+
+            // Ordinary Modern editing/saving must carry the inactive Classic assignments and original texture bytes.
+            using var modern = new EditorProjectWorkspace { PackageCacheDirectory = Path.Combine(directory, "modern-cache") };
+            string modernCopy = Path.Combine(directory, "converted.pma");
+            await reopened.ExportConvertedCopyAsync(modernCopy, Token);
+            modern.Open(modernCopy, Token);
+            modern.Save(Path.Combine(directory, "modern-edit.pma"), Token);
+            modern.Open(modern.ProjectPath!, Token);
+            string classicCopy = Path.Combine(directory, "restored.pmc");
+            Assert.True((await modern.ExportConvertedCopyAsync(classicCopy, Token)).RestoredArchive);
+            reopened.Open(classicCopy, Token);
+            var roundTrip = Assert.IsType<EditorClassicDocumentState>(reopened.ProjectMetadata);
+            Assert.Equal(200, Pixel(reopened.Session!.Objects[0].Source, 2));
+            Assert.NotNull(roundTrip.FrozenEffects);
+            Assert.Equal(fxBytes, roundTrip.Tree!.CopyFileBytes(Assert.Single(roundTrip.Tree.DependencyGraph!.Nodes).RelativePath));
         }
         finally { Directory.Delete(directory, true); }
     }

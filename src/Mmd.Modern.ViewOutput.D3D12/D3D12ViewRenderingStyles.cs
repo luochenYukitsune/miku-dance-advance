@@ -1772,7 +1772,7 @@ internal sealed class D3D12ViewRenderingStylesCache
         public required PreparedFallbackSlot[] FallbackSlots { get; init; }
 
         private ReadOnlyCollection<OriginalFrameMaterialFlags>? lastInputMaterials;
-        private bool lastOutlinePresent;
+        private IReadOnlyList<OriginalOutlineMaterial>? lastOutlineMaterials;
         private ReadOnlyCollection<OriginalFrameMaterialFlags>? lastResultMaterials;
 
         public D3D12SurfaceStyleMap GetOrUpdateStaticSurfaceStyles(
@@ -1828,9 +1828,9 @@ internal sealed class D3D12ViewRenderingStylesCache
                 return scene;
             }
 
-            bool outlinePresent = scene.Outline is not null;
+            var outlineMaterials = scene.Outline?.Materials;
             if (lastInputMaterials is not null
-                && (OutlineScales.Length == 0 || outlinePresent == lastOutlinePresent)
+                && SameEdgeFlags(outlineMaterials, lastOutlineMaterials)
                 && SameMaterials(scene.Materials, lastInputMaterials))
             {
                 materialsReused = true;
@@ -1848,13 +1848,22 @@ internal sealed class D3D12ViewRenderingStylesCache
             return transformed;
         }
 
+        private static bool SameEdgeFlags(IReadOnlyList<OriginalOutlineMaterial>? current, IReadOnlyList<OriginalOutlineMaterial>? previous)
+        {
+            if (ReferenceEquals(current, previous)) return true;
+            if (current is null || previous is null || current.Count != previous.Count) return false;
+            for (int i = 0; i < current.Count; i++)
+                if (current[i].DrawEnabled != previous[i].DrawEnabled) return false;
+            return true;
+        }
+
         public OriginalFrameScene ApplyTransformations(PreparedConfig cfg, OriginalFrameScene scene)
             => D3D12ViewRenderingStyles.ApplySceneTransformations(scene, cfg.EffectiveCatalog, Selected, OutlineScales);
 
         public void CommitMaterialTransformCache(OriginalFrameScene inputScene, OriginalFrameScene resultScene)
         {
             lastInputMaterials = inputScene.Materials;
-            lastOutlinePresent = inputScene.Outline is not null;
+            lastOutlineMaterials = inputScene.Outline?.Materials;
             lastResultMaterials = ReferenceEquals(resultScene, inputScene) ? null : resultScene.Materials;
         }
     }

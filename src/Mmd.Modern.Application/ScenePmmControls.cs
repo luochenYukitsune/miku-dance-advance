@@ -169,7 +169,10 @@ public sealed partial class ScenePmmControlState
     }
 
     /// <summary>Validates bounded content and identity metadata before a project loader opens models or allocates solvers.</summary>
-    public static void ValidatePayload(ScenePmmControlPayload payload, IReadOnlyCollection<Guid>? expectedActors = null)
+    public static void ValidatePayload(ScenePmmControlPayload payload, IReadOnlyCollection<Guid>? expectedActors = null) =>
+        ValidateAndCountAccessories(payload, expectedActors);
+
+    internal static int ValidateAndCountAccessories(ScenePmmControlPayload payload, IReadOnlyCollection<Guid>? expectedActors)
     {
         ArgumentNullException.ThrowIfNull(payload);
         if (payload.DocumentBytes is null || payload.DocumentBytes.Length is < 1 or > MaxPayloadBytes || payload.Actors is null
@@ -200,6 +203,7 @@ public sealed partial class ScenePmmControlState
         _ = new PmmPhysicsControlTracks(source);
         ValidateParentMetadata(source);
         ValidateMappedControls(source, payload.Actors.ToDictionary(a => (int)a.PmmModelIndex, a => a.BoneIndices), payload.Actors.ToDictionary(a => (int)a.PmmModelIndex, a => a.DetachedBoneOrdinals ?? []));
+        return source.Accessories.Count;
     }
 
     // This part needs only PMM ordinals and stored IDs, so it also runs before model asset loaders.

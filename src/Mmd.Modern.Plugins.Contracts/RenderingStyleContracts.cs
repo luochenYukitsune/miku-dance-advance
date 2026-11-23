@@ -106,7 +106,11 @@ public enum StyleMaterialRole
 public sealed record StyleOutlineDefaults(
     float Width = 0.18f,
     Vector4? Color = null,
-    bool Enabled = true);
+    bool Enabled = true)
+{
+    /// <summary>Apply this style's outline only to materials with an authored edge.</summary>
+    public bool RespectMaterialEdgeFlag { get; init; }
+}
 
 /// <summary>Default toon response ramp parameters for a rendering style.</summary>
 public sealed record StyleToonResponseDefaults(

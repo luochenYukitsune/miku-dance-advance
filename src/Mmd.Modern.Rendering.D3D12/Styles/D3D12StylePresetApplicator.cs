@@ -81,12 +81,18 @@ public static class D3D12StylePresetApplicator
             // The reserved built-in MMD selection is the original incoming material path.
             // A custom preset using pipelineId=mmd is still an explicit parameter override.
             if (definition.StableId == "mmd") continue;
+            bool respectMaterialEdges = catalog.FindPlugin(definition.PipelineId)?.RespectMaterialEdgeFlag == true;
             for (int index = range.MaterialStart; index < range.MaterialStart + range.MaterialCount; index++)
             {
                 var original = materials[index];
+                // A plugin's default line style only recolors authored edges. Drawing a new hull
+                // for a single-sided lining or expression card can cover the visible surface.
+                var outline = definition.CharacterOutlineStyle;
+                if (respectMaterialEdges && frame.Outline?.Materials[index] is { DrawEnabled: false })
+                    outline = null;
                 var updated = original with
                 {
-                    CharacterOutlineStyle = definition.CharacterOutlineStyle ?? original.CharacterOutlineStyle,
+                    CharacterOutlineStyle = outline ?? original.CharacterOutlineStyle,
                     CharacterToonResponse = definition.CharacterToonResponse ?? original.CharacterToonResponse,
                     GiToonResponseOverride = RayGiToonResponse.PreservePaletteBands,
                 };

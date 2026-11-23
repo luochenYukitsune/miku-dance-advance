@@ -30,7 +30,7 @@ public sealed class GenshinStyleDefinition : RenderingStyleDefinitionBase
         en: "Genshin Impact style rendering: ordinary PMX materials use cel shading and hair treatment, plus optional composable FaceSDF, non-metallic RB hair specular, Hair Shadow Atlas, and metallic MatCap/specular bindings.",
         ja: "原神スタイル描画：通常PMXマテリアルはトゥーン調陰影と髪ハイライト処理を使用し、合成可能なFaceSDF、非金属RB髪スペキュラ、Hair Shadow Atlas、金属MatCap・スペキュラに対応します。");
 
-    private static readonly StyleOutlineDefaults DefaultOutlineValue = new();
+    private static readonly StyleOutlineDefaults DefaultOutlineValue = new() { RespectMaterialEdgeFlag = true };
     private static readonly StyleToonResponseDefaults DefaultToonValue = new();
     private static readonly StyleFaceEyeDefaults DefaultFaceEyeValue = new();
 
@@ -54,12 +54,12 @@ public sealed class GenshinStyleDefinition : RenderingStyleDefinitionBase
         new Dictionary<StyleMaterialRole, StyleMaterialTreatmentParameters>
         {
             [StyleMaterialRole.Body] = new(
-                Saturation: 1.04f,
+                Saturation: 1f,
                 TransitionWidthScale: 1.1f,
                 ValueContrast: -0.25f,
                 ShadeGamma: 0.6f),
             [StyleMaterialRole.Hair] = new(
-                Saturation: 1.08f,
+                Saturation: 1f,
                 TransitionWidthScale: 0.9f,
                 ValueContrast: -0.2f,
                 ShadeGamma: 0.65f,

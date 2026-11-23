@@ -193,11 +193,14 @@ public static class SceneProjectStore
     }
 
     /// <summary>Reuses the strict static schema before an animation loader opens any model or motion asset.</summary>
-    internal static IReadOnlyList<Guid> ValidateLayoutDocument(string json, string path)
+    internal static IReadOnlyList<Guid> ValidateLayoutDocument(string json, string path, PortableModelAssets.Limits? verifyPortableAssets = null,
+        CancellationToken cancellationToken = default)
     {
         string parent = Path.GetDirectoryName(ValidateProjectPath(path))!;
         var document = ReadDocument(json);
         _ = Validate(document);
+        if (verifyPortableAssets is not null)
+            PortableModelAssets.Verify(parent, document.PortableModels, document.Objects.Select(item => item.SourcePath), cancellationToken, verifyPortableAssets);
         foreach (var item in document.Objects) _ = Path.GetFullPath(item.SourcePath, parent);
         return Array.AsReadOnly(document.Objects.Select(item => item.Id).ToArray());
     }

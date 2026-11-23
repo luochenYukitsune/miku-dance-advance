@@ -20,7 +20,7 @@ public sealed class WutheringWavesStyleDefinition : RenderingStyleDefinitionBase
         en: "Wuthering Waves stylized cel shading with raw-NdotL banding, bounded specular, GrayRed FaceSDF, Hair masks, and MikkTSpace Body MatCap.",
         ja: "鳴潮トゥーンシェーディング：生 NdotL バンド、制限付きスペキュラ、GrayRed FaceSDF、ヘアマスク、MikkTSpace ボディ MatCap。");
 
-    private static readonly StyleOutlineDefaults OutlineDefaults = new(Width: 0.18f, Color: null, Enabled: true);
+    private static readonly StyleOutlineDefaults OutlineDefaults = new() { RespectMaterialEdgeFlag = true };
     private static readonly StyleToonResponseDefaults ToonDefaults = new(Threshold: 0.5f, TransitionWidth: 0.1f);
     private static readonly StyleFaceEyeDefaults FaceEyeDefaults = new(
         FaceNormalShadeStrength: 0.35f,
@@ -48,14 +48,14 @@ public sealed class WutheringWavesStyleDefinition : RenderingStyleDefinitionBase
             new Dictionary<StyleMaterialRole, StyleMaterialTreatmentParameters>
             {
                 [StyleMaterialRole.Body] = new(
-                    Saturation: 0.75f,
+                    Saturation: 1f,
                     TransitionWidthScale: 1.2f,
                     ValueContrast: 0.32f,
                     ShadeGamma: 1.35f,
                     HairHighlightStrength: 0f,
                     HairHighlightWidth: 0.12f),
                 [StyleMaterialRole.Hair] = new(
-                    Saturation: 0.82f,
+                    Saturation: 1f,
                     TransitionWidthScale: 1.15f,
                     ValueContrast: 0.24f,
                     ShadeGamma: 1.25f,

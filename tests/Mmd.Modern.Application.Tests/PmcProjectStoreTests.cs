@@ -1,7 +1,9 @@
 using System.IO.Compression;
 using System.Numerics;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.Physics;
@@ -142,6 +144,186 @@ public sealed class PmcProjectStoreTests : IDisposable
         Assert.Equal(resources[0].GetProperty("sha256").GetString(), resources[1].GetProperty("sha256").GetString());
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void EngineConversionPreservesSharedEditsAndRestoresArchivedDataAfterOrdinarySave(bool fromModern, bool oldRelativeLayout)
+    {
+        using var project = Fixture();
+        var light = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point, Vector3.One, Quaternion.Identity, Vector3.One);
+        if (fromModern) project.Edit(edit => edit.Lighting.Add(light), Token);
+        string feature = fromModern ? "org.mda.model-material-bindings" : "org.mda.traditional-emm";
+        string featurePath = fromModern ? "render-resources/material-bindings/map.png" : "render-resources/traditional/emm/raw.emm";
+        using var metadata = JsonDocument.Parse("{\"version\":1,\"custom\":[1,2]}");
+        byte[] resource = [3, 1, 4, 1, 5];
+        string source = Package("original", !fromModern), target = Package("converted", fromModern);
+        Save(!fromModern, source, project, Options() with
+        {
+            OptionalExtensions = new Dictionary<string, JsonElement> { [feature] = metadata.RootElement, ["org.example.common"] = metadata.RootElement },
+            AdditionalResources = new Dictionary<string, ReadOnlyMemory<byte>> { [featurePath] = resource },
+        }, Token);
+        if (oldRelativeLayout)
+            PmaProjectStoreTests.RewritePackagedFile(source, "project.mmdscene", bytes =>
+            {
+                var document = JsonNode.Parse(bytes)!;
+                var layout = document["layout"]!.AsObject();
+                Assert.True(layout.Remove("portableModels"));
+                layout["version"] = layout["version"]!.GetValue<int>() - 1;
+                return [0xef, 0xbb, 0xbf, .. JsonSerializer.SerializeToUtf8Bytes(document)];
+            });
+        var before = File.ReadAllBytes(source);
+        var report = PmaProjectStore.ConvertPackage(source, target, directory, Token,
+            prepareMissingClassicToons: _ => DefaultToon(project.Objects[0].Id));
+        Assert.Equal(before, File.ReadAllBytes(source));
+        Assert.Contains(feature, report.OmittedExtensions);
+        Assert.Contains(featurePath, report.OmittedResources);
+        string resaved = Package("resaved", fromModern);
+        using (var converted = Load(fromModern, target))
+        {
+            Assert.Empty(converted.Session.Lighting.Lights);
+            Assert.DoesNotContain(feature, converted.OptionalExtensions.Keys);
+            Assert.DoesNotContain(featurePath, converted.ResourcePaths);
+            Assert.Contains("org.example.common", converted.OptionalExtensions.Keys);
+            converted.Session.Edit(edit => edit.Settings = edit.Settings with { Width = 1920 }, Token);
+            Save(fromModern, resaved, converted.Session, Options(), Token);
+        }
+        string back = Package("back", !fromModern);
+        Assert.True(PmaProjectStore.ConvertPackage(resaved, back, directory, Token,
+            prepareMissingClassicToons: _ => DefaultToon(project.Objects[0].Id)).RestoredArchive);
+        using var restored = Load(!fromModern, back);
+        Assert.Equal(1920, restored.Session.Settings.Width);
+        Assert.Equal(resource, restored.ReadResource(featurePath));
+        Assert.True(JsonElement.DeepEquals(metadata.RootElement, restored.OptionalExtensions[feature]));
+        if (fromModern) Assert.Equal(light, Assert.Single(restored.Session.Lighting.Lights));
+    }
+
+    [Fact]
+    public void ChangedActorSetDefersRestorationAndKeepsTheArchiveInTheConvertedProject()
+    {
+        using var project = Fixture();
+        var light = new NativeSceneLight(Guid.NewGuid(), "rig", SceneLightKind.Point, Vector3.One,
+            Quaternion.Identity, Vector3.One, Parent: new(project.Objects[0].Id));
+        project.Edit(edit => edit.Lighting.Add(light), Token);
+        string original = Package("actors", false), classic = Package("classic", true);
+        Save(false, original, project, Options(), Token);
+        PmaProjectStore.ConvertPackage(original, classic, directory, Token,
+            prepareMissingClassicToons: _ => DefaultToon(project.Objects[0].Id));
+        string changed = Package("edited", true);
+        using (var loaded = Load(true, classic))
+        {
+            var actor = loaded.Session.Objects[0];
+            loaded.Session.Edit(edit => edit.Composition.Add("copy", actor.SourcePath, ModelRole.Unspecified, actor.Source), Token);
+            Save(true, changed, loaded.Session, Options(), Token);
+        }
+        string back = Package("deferred", false);
+        var report = PmaProjectStore.ConvertPackage(changed, back, directory, Token);
+        Assert.False(report.RestoredArchive);
+        Assert.True(report.DeferredArchive);
+        using var result = Load(false, back);
+        Assert.Equal(2, result.Session.Objects.Count);
+        Assert.Empty(result.Session.Lighting.Lights);
+        Assert.Contains(result.ResourcePaths, path => path.StartsWith("render-resources/project-conversion/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LegacyClassicEditsAreRetainedWhenTheyOverlapTheModernArchive(bool editLights)
+    {
+        using var project = Fixture(separateToon: true);
+        var originalLight = new NativeSceneLight(Guid.NewGuid(), "original", SceneLightKind.Point, Vector3.One, Quaternion.Identity, Vector3.One);
+        var freshLight = originalLight with { Id = Guid.NewGuid(), Name = "current" };
+        project.Edit(edit => edit.Lighting.Add(originalLight), Token);
+        string original = Package("original", false), classic = Package("classic", true), changed = Package("changed", true);
+        Save(false, original, project, Options(), Token);
+        var archived = PmaProjectStore.ConvertPackage(original, classic, directory, Token);
+        Assert.Equal(1, archived.OmittedModelPurposes);
+        using (var loaded = Load(true, classic))
+        {
+            var actor = loaded.Session.Objects[0];
+            loaded.Session.Edit(edit =>
+            {
+                if (editLights) edit.Lighting.Add(freshLight);
+                else edit.Lighting.SetModelRole(actor.Key, ModelRole.Prop);
+            }, Token);
+            Save(true, changed, loaded.Session, Options(), Token);
+        }
+        string target = Package("modern", false);
+        var report = PmaProjectStore.ConvertPackage(changed, target, directory, Token);
+        Assert.False(report.RestoredArchive);
+        Assert.True(report.DeferredArchive);
+        using var restored = Load(false, target);
+        if (editLights) Assert.Equal(freshLight, Assert.Single(restored.Session.Lighting.Lights));
+        else Assert.Equal(ModelRole.Prop, restored.Session.Objects[0].Role);
+        Assert.Contains(restored.ResourcePaths, path => path.EndsWith("/state.json", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PackagedSeparateToonConvertsWithoutAskingForOriginalMmdFiles()
+    {
+        using var project = Fixture(separateToon: true);
+        string source = Package("authored", false), target = Package("classic", true);
+        Save(false, source, project, Options(), Token);
+        File.Delete(Path.Combine(directory, "authored.bmp"));
+        PmaProjectStore.ConvertPackage(source, target, directory, Token,
+            prepareMissingClassicToons: _ => throw new InvalidOperationException("An authored Toon needs no original MMD files."));
+        using var loaded = Load(true, target);
+        Assert.DoesNotContain("org.mda.classic-toons", loaded.OptionalExtensions.Keys);
+        using var file = File.OpenRead(loaded.Session.Objects[0].SourcePath);
+        var model = PmxReader.Read(file);
+        Assert.Equal(ToonImage(), File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(loaded.Session.Objects[0].SourcePath)!,
+            model.Textures[model.Materials[0].ToonTextureIndex])));
+    }
+
+    [Fact]
+    public void DefaultToonRequiresAFrozenSourceAndRepeatedConversionsReuseIt()
+    {
+        using var project = Fixture();
+        string original = Package("original", false), classic = Package("classic", true);
+        Save(false, original, project, Options(), Token);
+        Assert.Throws<NotSupportedException>(() => PmaProjectStore.ConvertPackage(original, classic, directory, Token));
+        Assert.False(File.Exists(classic));
+
+        var supplied = DefaultToon(project.Objects[0].Id);
+        using var snapshot = Capture(false, project, Options(), Token);
+        int calls = 0;
+        PmaProjectStore.ConvertSnapshot(snapshot, classic, directory, Token,
+            prepareMissingClassicToons: _ => { calls++; return supplied; });
+        Assert.Equal(1, calls);
+        string modern = Package("modern", false), restored = Package("restored", true);
+        PmaProjectStore.ConvertPackage(classic, modern, directory, Token);
+        var report = PmaProjectStore.ConvertPackage(modern, restored, directory, Token,
+            prepareMissingClassicToons: _ => throw new InvalidOperationException("Archived original Toons should be reused."));
+        Assert.True(report.RestoredArchive);
+        using var loaded = Load(true, restored);
+        Assert.True(JsonElement.DeepEquals(supplied.OptionalExtensions["org.mda.classic-toons"], loaded.OptionalExtensions["org.mda.classic-toons"]));
+        var image = Assert.Single(supplied.AdditionalResources);
+        Assert.Equal(image.Value.ToArray(), loaded.ReadResource(image.Key));
+        using var first = Load(true, classic);
+        Assert.Equal(first.ResourcePaths.Count, loaded.ResourcePaths.Count);
+    }
+
+    [Fact]
+    public void ConversionRefusesExistingTargetsCancellationAndRenamedSourcesWithoutPublishing()
+    {
+        using var project = Fixture();
+        string source = Package("original", false), target = Package("converted", true);
+        Save(false, source, project, Options(), Token);
+        byte[] previous = [4, 2];
+        File.WriteAllBytes(target, previous);
+        Assert.Throws<IOException>(() => PmaProjectStore.ConvertPackage(source, target, directory, Token));
+        Assert.Equal(previous, File.ReadAllBytes(target));
+        File.Delete(target);
+        Assert.Throws<OperationCanceledException>(() => PmaProjectStore.ConvertPackage(source, target, directory, new CancellationToken(true)));
+        Assert.False(File.Exists(target));
+        var disguised = Package("disguised", true);
+        File.Copy(source, disguised);
+        var output = Package("rejected", false);
+        Assert.Throws<NotSupportedException>(() => PmaProjectStore.ConvertPackage(disguised, output, directory, Token));
+        Assert.False(File.Exists(output));
+    }
+
     [Fact]
     public void ClassicSnapshotPinsLoadedResourcesUntilDisposedAfterOwnerCloses()
     {
@@ -256,7 +438,27 @@ public sealed class PmcProjectStoreTests : IDisposable
     }
     private string Package(string name, bool classic) => Path.Combine(directory, name + (classic ? ".pmc" : ".pma"));
     private PmaSaveOptions Options() => new() { CacheDirectory = Path.Combine(directory, "save-cache") };
-    private SceneProjectSession Fixture()
+    private static byte[] ToonImage() =>
+        Convert.FromBase64String("Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAATCwAAEwsAAAAAAAAAAAAAf6D/AA==");
+
+    private static PmaSaveOptions DefaultToon(Guid objectId)
+    {
+        byte[] image = ToonImage();
+        string hash = Convert.ToHexString(SHA256.HashData(image));
+        string path = "render-resources/classic-toons/" + hash.ToLowerInvariant() + ".bin";
+        var manifest = JsonSerializer.SerializeToElement(new
+        {
+            schemaVersion = 2,
+            models = new[] { new { objectId, materials = new[] { new { materialIndex = 0, slot = 0, imageSha256 = hash } } } },
+            images = new[] { new { sha256 = hash, authoredToken = "toon0.bmp", resourcePath = path } },
+        });
+        return new()
+        {
+            OptionalExtensions = new Dictionary<string, JsonElement> { ["org.mda.classic-toons"] = manifest },
+            AdditionalResources = new Dictionary<string, ReadOnlyMemory<byte>> { [path] = image },
+        };
+    }
+    private SceneProjectSession Fixture(bool separateToon = false)
     {
         var template = PmmMotionAdapterTests.Pmx(["root"]);
         var model = new PmxModel
@@ -265,12 +467,13 @@ public sealed class PmcProjectStoreTests : IDisposable
             Vertices = new[] { Vector3.Zero, Vector3.UnitX, Vector3.UnitY }.Select(position => new PmxVertex
             { Position = position, Normal = Vector3.UnitZ, Uv = Vector2.Zero, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1,
                 BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 }).ToArray(),
-            Faces = [new(0, 1, 2)], Textures = [], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
+            Faces = [new(0, 1, 2)], Textures = separateToon ? ["authored.bmp"] : [], Materials = [new() { Name = "mat", EnglishName = "", Diffuse = Vector4.One,
                 Specular = Vector3.Zero, SpecularPower = 1, Ambient = Vector3.Zero, EdgeColor = Vector4.Zero, EdgeSize = 1, DrawMode = PmxDrawModeFlags.None,
                 TextureIndex = -1, SphereTextureIndex = -1, SphereMode = PmxSphereMode.None, ToonMode = PmxToonMode.Separate,
-                ToonTextureIndex = -1, Memo = "", FaceVertexCount = 3 }],
+                ToonTextureIndex = separateToon ? 0 : -1, Memo = "", FaceVertexCount = 3 }],
             Bones = template.Bones, Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = [],
         };
+        if (separateToon) File.WriteAllBytes(Path.Combine(directory, "authored.bmp"), ToonImage());
         string source = Path.Combine(directory, "actor.pmx"); File.WriteAllBytes(source, PmxWriter.ToBytes(model));
         var composition = new SceneCompositionEditor(); composition.Add("actor", source, ModelRole.Character, Rest(model));
         return new(composition, new(), [], new TrackingPhysics(), new() { Width = 1280, Height = 720 }, cancellationToken: Token);

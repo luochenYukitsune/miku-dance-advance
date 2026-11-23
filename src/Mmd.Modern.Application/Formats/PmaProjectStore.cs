@@ -9,7 +9,7 @@ namespace Mmd.Modern.Application;
 
 /// <summary>Single-file native project. ZipArchive supplies ZIP64; immutable logical files share SHA256 blobs.
 /// A load validates every entry and digest before invoking a host model loader or creating a solver.</summary>
-public static class PmaProjectStore
+public static partial class PmaProjectStore
 {
     /// <summary>Checks the union of supplied save-only logical resource lengths and retained package
     /// resources before a consuming module allocates image copies. Does not read bytes or edit the project.</summary>
@@ -141,29 +141,7 @@ public static class PmaProjectStore
                 Files = files.ToArray(), Models = models, RequiredExtensions = [], OptionalExtensions = captured.Extensions,
             };
             ValidateProjectReferences(stage, manifest, options.ValidationOptions);
-            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, Json);
-            if (bytes.Length > options.ValidationOptions.MaxManifestBytes) throw new InvalidDataException("PMA manifest exceeds its supported size.");
-            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                using (var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
-                {
-                    using (var entry = zip.CreateEntry("manifest.json", CompressionLevel.Optimal).Open()) entry.Write(bytes);
-                    foreach (var pair in sources.OrderBy(p => p.Key, StringComparer.Ordinal))
-                    {
-                        using var input = File.OpenRead(pair.Value);
-                        using var entry = zip.CreateEntry("blobs/" + pair.Key, CompressionLevel.Optimal).Open();
-                        Copy(input, entry, cancellationToken);
-                    }
-                }
-                output.Flush(flushToDisk: true);
-            }
-            // Validate the completed archive, without constructing a second animation/physics session.
-            using (var input = File.OpenRead(temporary))
-            {
-                if (input.Length > options.ValidationOptions.MaxPackageBytes) throw new InvalidDataException("PMA package exceeds its input budget.");
-                using var zip = new ZipArchive(input, ZipArchiveMode.Read);
-                ValidateArchive(zip, options.ValidationOptions, cancellationToken, captured.Kind);
-            }
+            WriteArchive(temporary, manifest, sources, options.ValidationOptions, captured.Kind, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, destination, overwrite: true);
             committed = true;
@@ -174,6 +152,34 @@ public static class PmaProjectStore
             PmaSaveCleanup.Complete(failure, committed ? destination : null,
                 () => { if (File.Exists(temporary)) File.Delete(temporary); },
                 () => { if (Directory.Exists(stage)) Directory.Delete(stage, recursive: true); });
+        }
+    }
+
+    private static void WriteArchive(string temporary, Manifest manifest, Dictionary<string, string> sources,
+        PmaLoadOptions limits, PmaPackageKind kind, CancellationToken cancellationToken)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, Json);
+        if (bytes.Length > limits.MaxManifestBytes) throw new InvalidDataException("PMA manifest exceeds its supported size.");
+        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            using (var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                using (var entry = zip.CreateEntry("manifest.json", CompressionLevel.Optimal).Open()) entry.Write(bytes);
+                foreach (var pair in sources.OrderBy(p => p.Key, StringComparer.Ordinal))
+                {
+                    using var input = File.OpenRead(pair.Value);
+                    using var entry = zip.CreateEntry("blobs/" + pair.Key, CompressionLevel.Optimal).Open();
+                    Copy(input, entry, cancellationToken);
+                }
+            }
+            output.Flush(flushToDisk: true);
+        }
+        // Validate the completed archive, without constructing a second animation/physics session.
+        using (var input = File.OpenRead(temporary))
+        {
+            if (input.Length > limits.MaxPackageBytes) throw new InvalidDataException("PMA package exceeds its input budget.");
+            using var zip = new ZipArchive(input, ZipArchiveMode.Read);
+            ValidateArchive(zip, limits, cancellationToken, kind);
         }
     }
 
@@ -219,15 +225,7 @@ public static class PmaProjectStore
         PmaResourceReader? resourceReader = null;
         try
         {
-            foreach (var file in manifest.Files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                string target = Path.Combine(stage, file.Path.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                using var source = zip.GetEntry("blobs/" + file.Sha256)!.Open();
-                using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                Copy(source, output, cancellationToken, file.Length);
-            }
+            ExtractFiles(zip, manifest, stage, cancellationToken);
             ValidateProjectReferences(stage, manifest, options);
             resourceReader = new(stage, manifest.Files.Where(f => f.Path.StartsWith(PmaAdditionalResources.Prefix, StringComparison.Ordinal))
                 .Select(f => new PmaAdditionalResource(f.Path, f.Length, f.Sha256)).ToArray());
@@ -290,6 +288,19 @@ public static class PmaProjectStore
                 () => session?.Dispose(),
                 () => { if (Directory.Exists(stage)) Directory.Delete(stage, recursive: true); });
             throw;
+        }
+    }
+
+    private static void ExtractFiles(ZipArchive zip, Manifest manifest, string stage, CancellationToken cancellationToken)
+    {
+        foreach (var file in manifest.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string target = Path.Combine(stage, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            using var source = zip.GetEntry("blobs/" + file.Sha256)!.Open();
+            using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            Copy(source, output, cancellationToken, file.Length);
         }
     }
 
@@ -386,33 +397,36 @@ public static class PmaProjectStore
         return manifest;
     }
 
-    private static void ValidateProjectReferences(string stage, Manifest manifest, PmaLoadOptions limits)
+    private static bool ValidateProjectReferences(string stage, Manifest manifest, PmaLoadOptions limits)
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(stage, manifest.ProjectPath)), new() { MaxDepth = 64 });
         var root = document.RootElement;
         if (root.GetProperty("format").GetString() != SceneAnimationProjectStore.Format || root.GetProperty("version").GetInt32() > manifest.ProjectSchema)
             throw new InvalidDataException("PMA project section disagrees with its declared schema.");
-        var files = manifest.Files.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+        var files = manifest.Files.ToDictionary(f => f.Path, StringComparer.Ordinal);
         var models = manifest.Models.ToDictionary(m => m.ObjectId);
         var objects = root.GetProperty("layout").GetProperty("objects");
         if (objects.GetArrayLength() != models.Count) throw new InvalidDataException("PMA model versions must cover every project actor.");
+        bool requiresOriginalToons = false;
         foreach (var item in objects.EnumerateArray())
         {
             string path = item.GetProperty("sourcePath").GetString()!; ValidatePath(path);
-            if (!files.Contains(path) || !models.TryGetValue(item.GetProperty("id").GetGuid(), out var model) || model.EditedModelPath != path)
+            if (!files.ContainsKey(path) || !models.TryGetValue(item.GetProperty("id").GetGuid(), out var model) || model.EditedModelPath != path)
                 throw new InvalidDataException("PMA actor must reference its packaged edited model version.");
-            ValidateModelDependencies(stage, path, files, limits);
+            requiresOriginalToons |= ValidateModelDependencies(stage, path, files, limits);
         }
         void RequireResource(JsonElement resource)
         {
             string path = resource.GetProperty("assetPath").GetString()!; ValidatePath(path);
-            if (!files.Contains(path)) throw new InvalidDataException("PMA motion or media refers to a missing packaged resource.");
+            if (!files.TryGetValue(path, out var file) || file.Sha256 != resource.GetProperty("sha256").GetString())
+                throw new InvalidDataException("PMA motion or media is missing or disagrees with its declared digest.");
         }
         foreach (var item in root.GetProperty("motions").EnumerateArray()) RequireResource(item);
         if (root.TryGetProperty("sceneMotion", out var motion) && motion.ValueKind != JsonValueKind.Null) RequireResource(motion);
         if (root.TryGetProperty("media", out var media) && media.ValueKind != JsonValueKind.Null)
             foreach (var item in media.EnumerateArray()) RequireResource(item);
         if (limits.ContentSelection is { } selection) ValidateContentSelection(root, manifest, selection);
+        return requiresOriginalToons;
     }
 
     private static void ValidateContentSelection(JsonElement project, Manifest manifest, PmaContentSelection selection)
@@ -437,15 +451,15 @@ public static class PmaProjectStore
             }
     }
 
-    private static void ValidateModelDependencies(string stage, string path, HashSet<string> files, PmaLoadOptions limits)
+    private static bool ValidateModelDependencies(string stage, string path, Dictionary<string, FileData> files, PmaLoadOptions limits)
     {
         string parent = path[..(path.LastIndexOf('/') + 1)];
         void RequireTexture(string reference, bool sharedToon = false)
         {
             if (reference.Length == 0) return;
             ValidatePath(reference);
-            if (files.Contains(parent + reference)) return;
-            if (sharedToon && Enumerable.Range(1, 10).Any(i => reference.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase))) return;
+            if (files.ContainsKey(parent + reference)) return;
+            if (sharedToon && IsSharedPmdToon(reference)) return;
             throw new InvalidDataException("PMA model texture refers outside its packaged resources.");
         }
         using var input = File.OpenRead(Path.Combine(stage, path));
@@ -453,19 +467,29 @@ public static class PmaProjectStore
         {
             var model = PmxReader.Read(input, new() { MaxInputBytes = limits.MaxEntryBytes });
             foreach (string reference in model.Textures) RequireTexture(reference);
+            return model.Materials.Any(material => material.FaceVertexCount > 0 &&
+                (material.ToonMode == PmxToonMode.Common || material.ToonTextureIndex == -1));
         }
         else if (Path.GetExtension(path) == ".pmd")
         {
             var model = PmdReader.Read(input);
             if (model.UnknownTailData.Length != 0 || model.UnparsedTailBytes != 0) throw new NotSupportedException("Unknown PMD trailer dependencies cannot be validated.");
+            bool requiresOriginalToons = false;
             foreach (var material in model.Materials)
             {
                 foreach (string reference in material.Texture.Split('*')) RequireTexture(reference);
-                if (material.ToonIndex < model.ToonTextures.Length) RequireTexture(model.ToonTextures[material.ToonIndex], sharedToon: true);
+                string? toon = material.ToonIndex < model.ToonTextures.Length ? model.ToonTextures[material.ToonIndex] : null;
+                if (toon is not null) RequireTexture(toon, sharedToon: true);
+                if (material.IndexCount > 0 && (string.IsNullOrWhiteSpace(toon) || IsSharedPmdToon(toon)))
+                    requiresOriginalToons = true;
             }
+            return requiresOriginalToons;
         }
         else throw new NotSupportedException("PMA models must be packaged PMX or PMD assets.");
     }
+
+    private static bool IsSharedPmdToon(string value) =>
+        Enumerable.Range(1, 10).Any(i => value.Equals($"toon{i:00}.bmp", StringComparison.OrdinalIgnoreCase));
 
     internal static void CopyRetainedModel(string source, string destination, PmaModelVersion model, CancellationToken token, long maximum = long.MaxValue)
     {

@@ -19,6 +19,26 @@ internal static partial class OriginalFrameShaders
             if(gain!=1) unit=unit*gain/(1+(gain-1)*unit);
             return rgb>1?rgb:unit;
         }
+        #ifdef MDA_TOON_PRESERVE_CHROMA
+        // Grade the value once, then restore the pigment ratios. Independent channel curves
+        // can bleach bright reds/cyans or clip two different texture colors to the same white.
+        float3 StylizedPigmentGrade(float3 rgb) {
+            float value=max(rgb.r,max(rgb.g,rgb.b));
+            if(value<=0) return rgb;
+            float3 pigment=rgb/value;
+            float chroma=1-min(pigment.r,min(pigment.g,pigment.b));
+            float saturation=lerp(StylizedGradeParams.x,1,StylizedShadeParams.w);
+            if(chroma>0 && saturation!=1)
+                pigment=1+(pigment-1)*min(saturation,1/chroma);
+            // Keep authored over-range values available to later lighting and exposure passes.
+            if(value<1) {
+                value=lerp(value,value*value*(3-2*value),StylizedGradeParams.y);
+                float gain=StylizedGradeParams.z;
+                value=value*gain/(1+(gain-1)*value);
+            }
+            return pigment*value;
+        }
+        #endif
         float StylizedNativeResponse(SurfaceOutput v,float3 n,float3 l) {
             float band=MdaStyleLightResponse(v, n, l, 1);
             if(StylizedGradeParams.z<=0 || StylizedShadeParams.x<=0) return band;
@@ -45,9 +65,21 @@ internal static partial class OriginalFrameShaders
                 float3 view=normalize(EyePosition.xyz-v.WorldPosition);
                 float fresnel=1-saturate(dot(n,view));
                 float rim=smoothstep(StylizedWarmParams.w,StylizedWarmParams.w+.04,fresnel)*c;
+            #ifdef MDA_TOON_PRESERVE_CHROMA
+                // A lit rim lifts the existing tone. Material that is already bright has
+                // less headroom, so a rim cannot flatten neighboring texture highlights.
+                float value=max(rgb.r,max(rgb.g,rgb.b));
+                float headroom=saturate(1-value);
+                rgb*=1+rim*StylizedGradeParams.w*headroom;
+            #else
                 rgb+=baseColor*rim*StylizedGradeParams.w;
+            #endif
             }
+        #ifdef MDA_TOON_PRESERVE_CHROMA
+            return float4(StylizedPigmentGrade(rgb),color.a);
+        #else
             return float4(StylizedGrade(rgb),color.a);
+        #endif
         }
         """;
 }
