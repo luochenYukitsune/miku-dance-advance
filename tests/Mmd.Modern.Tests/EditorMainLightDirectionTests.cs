@@ -113,38 +113,23 @@ public sealed class EditorMainLightDirectionTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task MainDirectionPadMouseAndKeyboardEditOnlyTheUnregisteredPose() => await session.Dispatch(() =>
+    public async Task CompactAimMenuChangesOnlyTheUnregisteredPose() => await session.Dispatch(() =>
     {
         var model = new EditorSceneInspectorViewModel();
         var original = model.LightPose;
         var inspector = new EditorMainLightInspector { DataContext = model };
-        var window = new Window { Width = 500, Height = 850, Content = inspector };
+        var window = new Window { Content = inspector };
         try
         {
-            window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var pad = inspector.FindControl<EditorLightDirectionPad>("MainLightDirectionPad")!;
-            var center = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
-            var target = center + new Avalonia.Vector(18, -10);
-            window.MouseDown(center, MouseButton.Left);
-            window.MouseMove(target);
+            window.Show(); window.UpdateLayout();
+            var menu = (MenuFlyout)inspector.FindControl<Button>("MainLightAimMenu")!.Flyout!;
+            var left = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Tag, "left"));
+            left.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.True(model.HasLightDraft);
-            Assert.True(model.LightDirectionVector.X < 0 && model.LightDirectionVector.Y < 0);
-            Assert.InRange(Math.Abs(model.LightDirectionVector.Length() - original.Direction.Length()), 0, .00001f);
-            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
-            window.MouseUp(target, MouseButton.Left);
+            Assert.NotEqual(original.Direction, model.LightPose.Direction);
+            model.RevertLightDraftCommand.Execute(null);
             Assert.Equal(original, model.LightPose);
             Assert.False(model.HasLightDraft);
-
-            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
-            window.KeyRelease(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
-            var keyboard = model.LightPose;
-            Assert.True(model.HasLightDraft);
-            Assert.NotEqual(original.Direction, keyboard.Direction);
-            window.MouseDown(target, MouseButton.Left);
-            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
-            window.MouseUp(target, MouseButton.Left);
-            Assert.Equal(keyboard, model.LightPose);
-            Assert.True(model.HasLightDraft);
             return true;
         }
         finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
@@ -166,7 +151,8 @@ public sealed class EditorMainLightDirectionTests : IAsyncDisposable
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(65m, model.LightAzimuth);
             var before = model.LightPose.Direction;
-            inspector.FindControl<Button>("MainLightFlipHemisphereButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var menu = (MenuFlyout)inspector.FindControl<Button>("MainLightAimMenu")!.Flyout!;
+            menu.Items.OfType<MenuItem>().Single(item => item.Name == "MainLightFlipHemisphereButton").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Dispatcher.UIThread.RunJobs();
             Assert.Equal(new Vector3(before.X, before.Y, -before.Z), model.LightPose.Direction);
             Assert.Equal(model.LightAzimuth, azimuth.Value);

@@ -49,20 +49,6 @@ public partial class EditorWindow
         finally { _syncingInspectorTabs = false; }
     }
 
-    private bool _syncingWorkspaceTabs;
-    private void SelectWorkspacePage(object? sender, SelectionChangedEventArgs args)
-    {
-        if (_syncingWorkspaceTabs || sender is not TabControl tabs || _shell is not { } shell) return;
-        if (tabs.SelectedIndex is < 0 or > 1 || tabs.SelectedIndex == shell.WorkspacePageIndex) return;
-        _syncingWorkspaceTabs = true;
-        try
-        {
-            var target = tabs.SelectedIndex == 1 ? EditorInspectorPage.Lighting : EditorInspectorPage.Animation;
-            if (!NavigateInspectorPage(target)) tabs.SelectedIndex = shell.WorkspacePageIndex;
-        }
-        finally { _syncingWorkspaceTabs = false; }
-    }
-
     private void OnInspectorPageChanged(EditorShellViewModel shell)
     {
         if (_adjustingInspectorPage) return;
@@ -80,16 +66,19 @@ public partial class EditorWindow
                 if (shell.HasProject)
                 {
                     // Main-light context also drives the existing scene-registration guards.
-                    if (shell.SceneSelectionIndex != 2) shell.SceneSelectionIndex = 2;
-                    if (lightController?.SelectedLightId is null && shell.Workspace.Session?.Lighting.Lights.FirstOrDefault() is { } first)
-                        lightController?.Select(first.Id);
+                    if (shell.SceneSelectionIndex != 2)
+                    {
+                        shell.SceneSelectionIndex = 2;
+                        if (shell.SupportsModernLightingWorkspace && !_trackLightActive && lightController?.SelectedLightId is null
+                            && shell.Workspace.Session?.Lighting.Lights.FirstOrDefault() is { } first)
+                            lightController?.Select(first.Id);
+                    }
                 }
             }
             else if (leavingLighting)
             {
                 lightController?.CancelDrag();
                 lightController?.SetParameterPreview(null);
-                lightController?.Select(null);
                 if (shell.SceneSelectionIndex == 2) shell.SceneSelectionIndex = -1;
             }
             shell.RefreshInspectorPages();
@@ -120,7 +109,9 @@ public partial class EditorWindow
             return;
         }
         if (shell.SceneSelectionIndex == 2)
-            _ = NavigateInspectorPage(EditorInspectorPage.Lighting);
+        {
+            if (NavigateInspectorPage(EditorInspectorPage.Lighting)) lightController?.Select(null);
+        }
         else if (shell.SceneSelectionIndex is 0 or 1)
             _ = NavigateInspectorPage(EditorInspectorPage.Animation);
     }
@@ -135,7 +126,7 @@ public partial class EditorWindow
     private void ApplyInspectorPagePresentation(EditorShellViewModel shell)
     {
         bool lighting = shell.InspectorPage == EditorInspectorPage.Lighting;
-        this.FindControl<EditorViewportHost>("SceneViewport")!.SetBoneToolsEnabled(!lighting);
+        this.FindControl<EditorViewportHost>("SceneViewport")!.SetBoneToolsEnabled(!lighting && lightController?.IsDragging != true);
         this.FindControl<Control>("BoneToolsContainer")!.IsVisible = !lighting;
         this.FindControl<Control>("LightToolsBar")!.IsVisible = lighting;
     }
@@ -176,6 +167,27 @@ public partial class EditorWindow
         {
             _committingStyle = false;
             shell.RefreshInspectorPages();
+        }
+    }
+
+    private async void CommitModelStyleOverride(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_committingStyle || _shell is not { IsBusy: false } shell || shell.StyleInspector.IsRefreshing
+            || !shell.StyleInspector.CanEditSelectedModelStyle || shell.Browser.SelectedModel is not { } model
+            || sender is not ComboBox { SelectedItem: EditorStyleInspectorChoice { IsRetained: false } choice }) return;
+        _committingStyle = true;
+        try
+        {
+            shell.StopPlayback();
+            shell.SynchronizePendingScrub();
+            if (CommitPendingInlineLighting()) shell.Workspace.SetModelStyle(model.ObjectId, choice.Reference);
+        }
+        catch (Exception error) { await ShowErrorAsync(error); }
+        finally
+        {
+            shell.RefreshInspectorPages();
+            ((ComboBox)sender).SelectedItem = shell.StyleInspector.ModelOverrideChoice;
+            _committingStyle = false;
         }
     }
 

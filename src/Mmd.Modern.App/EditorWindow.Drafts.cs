@@ -16,23 +16,23 @@ public partial class EditorWindow
         if (shell.Workspace.Motions.Any(actor => actor.ObjectId == selected.ObjectId)) shell.Workspace.RemoveModel(selected.ObjectId);
     }
 
-    private async Task<bool> CheckPoseDraftsAsync()
+    private async Task<bool> CheckPoseDraftsAsync(bool preserveModelDrafts = false)
     {
         if (_shell is not { } shell) return false;
         if (Mmd.Modern.App.Controls.EditorNumericUpDown.HasInvalidInputs(this))
         { await ShowErrorAsync(new InvalidOperationException(Text("请先修正标出的输入值，再应用设置。"))); return false; }
-        if (!shell.Animation.HasAnyDraft && !shell.SceneInspector.HasCameraDraft && !shell.SceneInspector.HasLightDraft) return true;
+        if ((!shell.Animation.HasAnyDraft || preserveModelDrafts) && !shell.SceneInspector.HasCameraDraft && !shell.SceneInspector.HasLightDraft) return true;
         shell.StopPlayback();
         shell.SynchronizePendingScrub();
         int answer = await EditorDialogs.ChooseAsync(this, Text("未登记姿态"), Text("当前工程有尚未登记的姿态。"),
             [Text("取消"), Text("放弃草稿"), Text("登记后继续")], primary: 2);
         if (answer == 0) return false;
-        if (answer == 1) { shell.SceneInspector.DiscardAllDrafts(); shell.RefreshWorkspace(); this.FindControl<EditorViewportHost>("SceneViewport")!.SetCameraPose(null); return true; }
+        if (answer == 1) { if (!preserveModelDrafts) shell.Animation.InvalidateDrafts(); shell.SceneInspector.DiscardAllDrafts(); shell.RefreshWorkspace(); this.FindControl<EditorViewportHost>("SceneViewport")!.SetCameraPose(null); return true; }
         try
         {
             var source = shell.Workspace.Session ?? throw new InvalidOperationException(Text("请先载入模型。"));
             var actors = shell.Workspace.Motions;
-            var drafts = shell.Animation.PrepareDraftMotions(actors);
+            IReadOnlyList<EditorAnimationDraftMotionPlan> drafts = preserveModelDrafts ? [] : shell.Animation.PrepareDraftMotions(actors);
             if (shell.SceneInspector.HasCameraDraft && !shell.SceneInspector.CanRegisterCamera
                 || shell.SceneInspector.HasLightDraft && !shell.SceneInspector.CanRegisterLight)
                 throw new InvalidOperationException(Text("请先修正标出的输入值，再应用设置。"));
@@ -65,6 +65,7 @@ public partial class EditorWindow
             if (hasScene) sceneEditor.Apply(scenePlan, confirmOverwrite: true);
             shell.Workspace.CommitDraftMotions(motions, hasScene ? sceneEditor.ExportMotion() : null,
                 frame, shell.SceneInspector.HasCameraDraft ? camera : null);
+            if (!preserveModelDrafts) shell.Animation.InvalidateDrafts();
             this.FindControl<EditorViewportHost>("SceneViewport")!.SetCameraPose(null);
             return true;
         }

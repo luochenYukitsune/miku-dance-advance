@@ -54,7 +54,7 @@ public sealed class EditorLightHelperUiTests : IAsyncDisposable
                 if (!string.IsNullOrWhiteSpace(evidence))
                 {
                     Directory.CreateDirectory(evidence);
-                    using var bitmap = window.CaptureRenderedFrame(); Assert.NotNull(bitmap);
+                    using var bitmap = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(bitmap);
                     bitmap.Save(Path.Combine(evidence, "light-helpers-minimum-" + locale + ".png"));
                 }
             }
@@ -68,7 +68,7 @@ public sealed class EditorLightHelperUiTests : IAsyncDisposable
             Assert.False(controller.IsInteracting);
             Assert.Same(quality, viewport.EffectivePreviewQuality);
             Assert.Same(authored, shell.Workspace.Session.Lighting);
-            Assert.False(toggle.IsEffectivelyVisible);
+            Assert.True(toggle.IsEffectivelyVisible);
             return true;
         }
         finally

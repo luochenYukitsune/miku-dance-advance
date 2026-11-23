@@ -10,14 +10,26 @@ public sealed class EditorTimelineGroup
     public string Key { get; }
     public string Label { get; }
     public IReadOnlyList<EditorTimelineTrack> Tracks { get; }
+    private readonly HashSet<(KeyframeTrackKind Kind, string Name)> membership;
+    internal bool ContainsMember(KeyframeAddress channel) => membership.Contains((channel.Kind, channel.Name));
+    internal EditorTimelineGroup? WithKeys()
+    {
+        var keyed = Tracks.Where(track => track.Frames.Count != 0).ToArray();
+        return keyed.Length == 0 ? null : keyed.Length == Tracks.Count ? this : new(Key, Label, keyed, membership);
+    }
     internal EditorTimelineRow Summary { get; }
     internal IReadOnlyList<EditorTimelineRow> Children { get; }
 
     public EditorTimelineGroup(string key, string label, IEnumerable<EditorTimelineTrack> tracks)
+        : this(key, label, tracks, null) { }
+
+    private EditorTimelineGroup(string key, string label, IEnumerable<EditorTimelineTrack> tracks,
+        HashSet<(KeyframeTrackKind Kind, string Name)>? members)
     {
         ArgumentNullException.ThrowIfNull(key); ArgumentNullException.ThrowIfNull(label); ArgumentNullException.ThrowIfNull(tracks);
         Key = key; Label = label;
         Tracks = Array.AsReadOnly(tracks.DistinctBy(track => (track.Kind, track.Name)).ToArray());
+        membership = members ?? Tracks.Select(track => (track.Kind, track.Name)).ToHashSet();
         Summary = new EditorTimelineRow(this);
         Children = Array.AsReadOnly(Tracks.Select(track => new EditorTimelineRow(track, true)).ToArray());
     }
@@ -54,12 +66,7 @@ public sealed class EditorTimelineRow
             for (int index = track.LowerBound(first); index < track.Frames.Count && track.Frames[index] <= last; index++)
                 yield return new KeyframeAddress(track.Kind, track.Name, track.Frames[index]);
     }
-    internal int LowerBound(double frame)
-    {
-        int low = 0, high = Frames.Count;
-        while (low < high) { int middle = low + (high - low) / 2; if (Frames[middle] < frame) low = middle + 1; else high = middle; }
-        return low;
-    }
+    internal int LowerBound(double frame) => EditorTimelineTrack.FrameLowerBound(Frames, frame);
 }
 
 /// <summary>Projects exact PMX display targets; missing and unmatched authored channels remain visible.</summary>
@@ -67,7 +74,7 @@ public static class EditorTimelineGrouping
 {
     public static IReadOnlyList<EditorTimelineGroup> Build(PmxModel? model,
         IReadOnlyList<EditorTimelineTrack> tracks, string modelKey = "",
-        string fallbackLabel = "未分类", string ikLabel = "IK / 显示")
+        string fallbackLabel = "未分组・已有帧", string ikLabel = "IK / 显示")
     {
         ArgumentNullException.ThrowIfNull(tracks);
         var byChannel = tracks.DistinctBy(track => (track.Kind, track.Name)).ToDictionary(track => (track.Kind, track.Name));
@@ -78,6 +85,7 @@ public static class EditorTimelineGrouping
             {
                 var display = model.DisplayFrames[index];
                 var members = new List<EditorTimelineTrack>();
+                var included = new HashSet<(KeyframeTrackKind Kind, string Name)>();
                 foreach (var target in display.Targets)
                 {
                     (KeyframeTrackKind Kind, string Name)? channel = target.Type switch
@@ -86,18 +94,22 @@ public static class EditorTimelineGrouping
                         PmxDisplayTargetType.Morph when target.Index >= 0 && target.Index < model.Morphs.Count => (KeyframeTrackKind.Morph, model.Morphs[target.Index].Name),
                         _ => null
                     };
-                    // A channel appears once, in its first authored category, even if the PMX repeats a target.
-                    if (channel is { } key && byChannel.TryGetValue(key, out var track) && assigned.Add(key)) members.Add(track);
+                    if (channel is not { } key || !included.Add(key)) continue;
+                    if (!byChannel.TryGetValue(key, out var track))
+                        byChannel[key] = track = new EditorTimelineTrack(key.Kind, key.Name, []);
+                    assigned.Add(key);
+                    members.Add(track);
                 }
                 if (members.Count == 0) continue;
                 string label = !string.IsNullOrWhiteSpace(display.Name) ? display.Name
                     : !string.IsNullOrWhiteSpace(display.EnglishName) ? display.EnglishName : fallbackLabel;
                 result.Add(new EditorTimelineGroup(modelKey + ":display:" + index.ToString(CultureInfo.InvariantCulture), label, members));
             }
-        var other = tracks.Where(track => track.Kind != KeyframeTrackKind.Ik && assigned.Add((track.Kind, track.Name))).ToArray();
-        if (other.Length != 0) result.Add(new EditorTimelineGroup(modelKey + ":unclassified", fallbackLabel, other));
         var ik = tracks.Where(track => track.Kind == KeyframeTrackKind.Ik).ToArray();
         if (ik.Length != 0) result.Add(new EditorTimelineGroup(modelKey + ":ik", ikLabel, ik));
+        var other = tracks.Where(track => track.Kind != KeyframeTrackKind.Ik && track.Frames.Count > 0
+            && assigned.Add((track.Kind, track.Name))).ToArray();
+        if (other.Length != 0) result.Add(new EditorTimelineGroup(modelKey + ":unclassified", fallbackLabel, other));
         return result.AsReadOnly();
     }
 }

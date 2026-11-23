@@ -66,8 +66,12 @@
         <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
       </Grid>
     </StackPanel>
+    <StackPanel IsVisible="{Binding ShowsPrimaryLightTrack}" Spacing="5">
+      <TextBlock Text="{Binding LightKeyframeSummary}" Classes="caption" />
+      <Button Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}" Command="{Binding RegisterLightKeyframeCommand}" HorizontalAlignment="Left" />
+    </StackPanel>
     <!-- Main-light editing lives on the right-rail Lighting page (EditorMainLightInspector).
          World and camera remain here so the Animation page keeps the existing scene contract. -->
-    <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
+    <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsCameraInspector}" />
   </StackPanel>
 </UserControl>

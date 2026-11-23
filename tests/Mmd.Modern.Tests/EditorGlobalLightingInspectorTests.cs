@@ -173,7 +173,7 @@ public sealed class EditorGlobalLightingInspectorTests : IAsyncDisposable
                     Directory.CreateDirectory(evidence);
                     var number = inspector.FindControl<EditorNumericUpDown>("GlobalEnvironmentInput")!;
                     number.Text = "0.31"; Pump(window);
-                    using var image = window.CaptureRenderedFrame(); Assert.NotNull(image);
+                    using var image = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(image);
                     image.Save(Path.Combine(evidence, "globals-" + language + "-360.png"));
                     number.Text = "unfinished fill"; Pump(window);
                 }
@@ -213,7 +213,7 @@ public sealed class EditorGlobalLightingInspectorTests : IAsyncDisposable
             if(Environment.GetEnvironmentVariable("MDA_GLOBAL_LIGHTING_EVIDENCE") is {Length:>0} evidence)
             {
                 Directory.CreateDirectory(evidence);
-                using var picture=window.CaptureRenderedFrame();Assert.NotNull(picture);
+                using var picture=HeadlessTestHost.CaptureLayoutFrame(window);Assert.NotNull(picture);
                 picture.Save(Path.Combine(evidence,"globals-actual-editor.png"));
             }
             return true;

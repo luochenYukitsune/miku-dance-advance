@@ -118,7 +118,9 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
             shell.ShowInspectorPage(EditorInspectorPage.Lighting); Pump(window);
             var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
             inspector.FindControl<Expander>("LightPresetExpander")!.IsExpanded = true; Pump(window);
-            Click("AddLightPresetButton"); Assert.Equal(4, shell.Workspace.Session!.Lighting.Lights.Count);
+            var menu = (MenuFlyout)window.FindControl<Button>("AddBrowserLightButton")!.Flyout!;
+            menu.Items.OfType<MenuItem>().Single(item => item.Name == "AddThreePointLightGroup").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Pump(window); Assert.Equal(4, shell.Workspace.Session!.Lighting.Lights.Count);
             Assert.Single(inspector.ViewModel!.SelectedGroupIds); Assert.Equal(3, inspector.ViewModel.SelectedLightIds.Count);
             Assert.Equal(3, inspector.ViewModel.SelectedRows.OfType<EditorLightGroupItem>().SelectMany(group => inspector.ViewModel.Lights.Where(light => light.GroupId == group.Id)).Count());
             Assert.Equal(inspector.ViewModel.SelectionSummary, window.FindControl<TextBlock>("SelectedLightName")!.Text);
@@ -131,7 +133,7 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
                 Assert.Single(inspector.ViewModel!.SelectedGroupIds); Assert.Equal(3, inspector.ViewModel.SelectedLightIds.Count);
                 var expander = inspector.FindControl<Expander>("LightPresetExpander")!;
                 Assert.True(expander.IsEffectivelyVisible); Assert.True(expander.Bounds.Width > 0);
-                foreach (string name in new[] { "AddLightPresetButton", "ReplaceLightPresetButton", "LoadLightPresetButton", "SaveLightPresetButton" })
+                foreach (string name in new[] { "ReplaceLightPresetButton", "LoadLightPresetButton", "SaveLightPresetButton" })
                 {
                     var button = inspector.FindControl<Button>(name)!;
                     Assert.True(button.Bounds.Width > 0); Assert.True(button.Bounds.Width <= expander.Bounds.Width);
@@ -139,10 +141,10 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
                 }
                 if (Environment.GetEnvironmentVariable("MDA_LIGHTING_PRESET_EVIDENCE") is { Length: > 0 } evidence)
                 {
-                    Directory.CreateDirectory(evidence); using var image = window.CaptureRenderedFrame(); Assert.NotNull(image);
+                    Directory.CreateDirectory(evidence); using var image = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(image);
                     image.Save(Path.Combine(evidence, "presets-" + language + "-minimum.png"));
                     window.Width = 1480; window.Height = 940; Pump(window);
-                    using var normal = window.CaptureRenderedFrame(); Assert.NotNull(normal);
+                    using var normal = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(normal);
                     normal.Save(Path.Combine(evidence, "presets-" + language + "-normal.png"));
                 }
             }
@@ -151,7 +153,6 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
             Assert.True(shell.Workspace.Undo()); Assert.Equal(original, Assert.Single(shell.Workspace.Session.Lighting.Lights));
             Assert.True(shell.Workspace.Redo()); Assert.Equal(4, shell.Workspace.Session.Lighting.Lights.Count); Pump(window);
             return true;
-            void Click(string name) { inspector.FindControl<Button>(name)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(window); }
         }
         finally
         {

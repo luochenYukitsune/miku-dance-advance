@@ -13,7 +13,7 @@ namespace Mmd.Modern.App.Controls;
 /// <summary>
 /// Frame ruler and visible authored tracks. Evaluation, edits and playback belong to the host.
 /// </summary>
-public sealed class EditorTimeline : TemplatedControl
+public sealed partial class EditorTimeline : TemplatedControl
 {
     public const double RulerHeight = 28;
     public const double MinimumPixelsPerFrame = .5;
@@ -52,6 +52,12 @@ public sealed class EditorTimeline : TemplatedControl
     public static readonly StyledProperty<int> FocusRowProperty =
         AvaloniaProperty.Register<EditorTimeline, int>(nameof(FocusRow), -1, coerce: (_, value) => Math.Max(-1, value));
 
+    public static readonly StyledProperty<KeyframeAddress?> FocusedChannelProperty =
+        AvaloniaProperty.Register<EditorTimeline, KeyframeAddress?>(nameof(FocusedChannel));
+
+    public static readonly StyledProperty<IReadOnlyList<KeyframeAddress>> DraftsProperty =
+        AvaloniaProperty.Register<EditorTimeline, IReadOnlyList<KeyframeAddress>>(nameof(Drafts), Array.Empty<KeyframeAddress>());
+
     public static readonly StyledProperty<IReadOnlyList<KeyframeAddress>> SelectedKeyframesProperty =
         AvaloniaProperty.Register<EditorTimeline, IReadOnlyList<KeyframeAddress>>(nameof(SelectedKeyframes), Array.Empty<KeyframeAddress>(), defaultBindingMode: BindingMode.TwoWay);
 
@@ -76,6 +82,9 @@ public sealed class EditorTimeline : TemplatedControl
     private IReadOnlyList<KeyframeAddress> _selectionBeforeGesture = Array.Empty<KeyframeAddress>();
     private IReadOnlyList<KeyframeAddress> _movingKeys = Array.Empty<KeyframeAddress>();
     private readonly Dictionary<EditorTimelineRow, EditorTimelineTrack> _movingRows = [];
+    private readonly Dictionary<EditorTimelineRow, EditorTimelineTrack> _rowDrafts = [];
+    private EditorTimelineTrack _rulerDrafts = new(KeyframeTrackKind.Bone, "", []);
+    private static readonly IBrush DraftBrush = new SolidColorBrush(Color.Parse("#F3AD43")).ToImmutable();
     private readonly HashSet<string> _expandedGroups = new(StringComparer.Ordinal);
     private IReadOnlyList<EditorTimelineRow> _displayRows = Array.Empty<EditorTimelineRow>();
     /// <summary>Row geometry frozen for the current pointer gesture; authored changes still cancel it.</summary>
@@ -92,6 +101,7 @@ public sealed class EditorTimeline : TemplatedControl
 
     private enum TimelineGesture { None, Ruler, Keys, Box }
 
+    public event EventHandler<TimelineTrackHeaderEventArgs>? TrackHeaderInvoked;
     public event EventHandler? KeyframeSelectionChanged;
     /// <summary>One request on release. The host preflights conflicts and owns the atomic edit and Undo.</summary>
     public event EventHandler<TimelineKeysMoveRequestedEventArgs>? KeysMoveRequested;
@@ -111,7 +121,7 @@ public sealed class EditorTimeline : TemplatedControl
             FirstVisibleFrameProperty, GridBrushProperty, PlayheadBrushProperty,
             ForegroundProperty, BackgroundProperty, FontFamilyProperty, FontSizeProperty,
             FontStyleProperty, FontWeightProperty, FontStretchProperty, BoundsProperty);
-        AffectsRender<EditorTimeline>(TracksProperty, SelectedKeyframesProperty, FirstVisibleTrackProperty, TrackHeaderWidthProperty);
+        AffectsRender<EditorTimeline>(SceneTrackProperty, TracksProperty, FocusedChannelProperty, DraftsProperty, SelectedKeyframesProperty, FirstVisibleTrackProperty, TrackHeaderWidthProperty);
     }
 
     private static readonly HashSet<AvaloniaProperty> PlayheadLayerProperties =
@@ -187,6 +197,8 @@ public sealed class EditorTimeline : TemplatedControl
     public IReadOnlyList<EditorTimelineTrack> FullTracks { get => GetValue(FullTracksProperty); set => SetValue(FullTracksProperty, value); }
     /// <summary>Focused authored row index in <see cref="Tracks"/>; kept on screen across projection changes.</summary>
     public int FocusRow { get => GetValue(FocusRowProperty); set => SetValue(FocusRowProperty, value); }
+    public KeyframeAddress? FocusedChannel { get => GetValue(FocusedChannelProperty); set => SetValue(FocusedChannelProperty, value); }
+    public IReadOnlyList<KeyframeAddress> Drafts { get => GetValue(DraftsProperty); set => SetValue(DraftsProperty, value); }
     public IReadOnlyList<KeyframeAddress> SelectedKeyframes { get => GetValue(SelectedKeyframesProperty); set => SetValue(SelectedKeyframesProperty, value); }
     public int FirstVisibleTrack { get => GetValue(FirstVisibleTrackProperty); set => SetValue(FirstVisibleTrackProperty, value); }
     /// <summary>Use 220 for an integrated label column. Zero preserves the standalone ruler geometry.</summary>
@@ -248,7 +260,10 @@ public sealed class EditorTimeline : TemplatedControl
         using (context.PushClip(new Rect(Bounds.Size)))
         {
             context.FillRectangle(Background ?? Brushes.Transparent, new Rect(Bounds.Size));
-            RenderTracks(context, width, height, header, gridPen, typeface, fontSize);
+            if (SceneTrack is { } sceneTrack) RenderSceneTrack(context, sceneTrack, width, header, gridPen, typeface, fontSize);
+            else RenderTracks(context, width, height, header, gridPen, typeface, fontSize);
+            using (context.PushClip(new Rect(header, 0, Math.Max(0, width - header), RulerHeight)))
+                DrawDraftMarkers(context, _rulerDrafts, header, width, RulerHeight - 5);
             if (_gesture == TimelineGesture.Box)
             {
                 var box = SelectionRectangle();
@@ -289,7 +304,7 @@ public sealed class EditorTimeline : TemplatedControl
             foreach (var tick in BuildVisibleTicks(width - header, FirstVisibleFrame, PixelsPerFrame))
             {
                 var x = SnapStroke(header + tick.X, scale);
-                if ((HasTracks || ActiveTracks.Count != 0) && tick.IsMajor && height > RulerHeight)
+                if ((HasTracks || SceneTrack is not null || ActiveTracks.Count != 0) && tick.IsMajor && height > RulerHeight)
                 {
                     using (context.PushOpacity(.3))
                         context.DrawLine(gridPen, new Point(x, rulerBottom), new Point(x, height));
@@ -344,6 +359,14 @@ public sealed class EditorTimeline : TemplatedControl
     {
         base.OnPointerPressed(e);
         var point = e.GetCurrentPoint(this);
+        if (!e.Handled && IsEffectivelyEnabled && point.Properties.IsLeftButtonPressed && _dragPointer is null
+            && SceneTrack is { } sceneTrack && point.Position.Y >= RulerHeight && point.Position.Y < RulerHeight + TrackRowHeight)
+        {
+            Focus(NavigationMethod.Pointer, e.KeyModifiers);
+            if (point.Position.X >= TrackHeaderWidth)
+                SetCurrentValue(CurrentFrameProperty, SceneFrameAt(sceneTrack, point.Position.X));
+            e.PreventGestureRecognition(); e.Handled = true; return;
+        }
         if (!e.Handled && IsEffectivelyEnabled && point.Properties.IsLeftButtonPressed && _dragPointer is null &&
             point.Position.Y >= RulerHeight && point.Position.Y < Bounds.Height && ActiveTracks.Count != 0)
         {
@@ -477,6 +500,13 @@ public sealed class EditorTimeline : TemplatedControl
         base.OnPropertyChanged(change);
         if (PlayheadLayerProperties.Contains(change.Property)) _playheadLayer?.InvalidateVisual();
         if (change.Property == SelectedKeyframesProperty) KeyframeSelectionChanged?.Invoke(this, EventArgs.Empty);
+        if (change.Property == SceneTrackProperty) InvalidateLayers();
+        if (change.Property == DraftsProperty &&
+            (change.OldValue is not IReadOnlyList<KeyframeAddress> previousDrafts || !previousDrafts.SequenceEqual(Drafts)))
+        {
+            _rulerDrafts = new(KeyframeTrackKind.Bone, "", Drafts.Select(draft => draft.Frame));
+            RebuildRowDrafts();
+        }
         if (change.Property == FullTracksProperty)
         {
             // Only authored source changes may cancel a live gesture; a projection refresh may not.
@@ -488,7 +518,7 @@ public sealed class EditorTimeline : TemplatedControl
         }
         if (change.Property == TracksProperty)
         {
-            RebuildDisplayRows();
+            if (Groups.Count == 0) RebuildDisplayRows();
             var previous = change.OldValue as IReadOnlyList<EditorTimelineTrack>;
             bool contentsChanged = !SameTrackContents(previous, Tracks);
             if (_gesture is TimelineGesture.Keys or TimelineGesture.Box)
@@ -536,6 +566,7 @@ public sealed class EditorTimeline : TemplatedControl
         if (Groups.Count == 0)
         {
             _displayRows = Array.AsReadOnly(Tracks.Select(track => new EditorTimelineRow(track)).ToArray());
+            RebuildRowDrafts();
             return;
         }
         var rows = new List<EditorTimelineRow>();
@@ -545,7 +576,25 @@ public sealed class EditorTimeline : TemplatedControl
             if (_expandedGroups.Contains(group.Key)) rows.AddRange(group.Children);
         }
         _displayRows = rows.AsReadOnly();
+        RebuildRowDrafts();
     }
+
+    private void RebuildRowDrafts()
+    {
+        _rowDrafts.Clear();
+        if (Drafts.Count == 0) return;
+        var byChannel = Drafts.ToLookup(draft => (draft.Kind, draft.Name), draft => draft.Frame);
+        foreach (var row in _displayRows)
+        {
+            var frames = row.Track is { } track ? byChannel[(track.Kind, track.Name)]
+                : row.Group!.Tracks.SelectMany(member => byChannel[(member.Kind, member.Name)]);
+            var markers = new EditorTimelineTrack(KeyframeTrackKind.Bone, "", frames);
+            if (markers.Frames.Count != 0) _rowDrafts[row] = markers;
+        }
+    }
+
+    internal bool IsRowFocused(EditorTimelineRow row) => FocusedChannel is { } channel
+        && (row.Group?.ContainsMember(channel) ?? row.ContainsChannel(channel));
 
     /// <summary>Clamps row scroll to the visible projection and reveals the focused row after a projection change.</summary>
     private void TrackViewChanged(bool contentsChanged)
@@ -557,7 +606,8 @@ public sealed class EditorTimeline : TemplatedControl
     private void BringTrackIntoView(int row)
     {
         var tracks = _displayRows;
-        if (row < 0 || row >= Tracks.Count) return;
+        // Selecting a bone in the viewport highlights its group without moving the author's timeline view.
+        if (Groups.Count != 0 || row < 0 || row >= Tracks.Count) return;
         var focused = Tracks[row];
         var address = new KeyframeAddress(focused.Kind, focused.Name, 0);
         row = -1;
@@ -702,6 +752,10 @@ public sealed class EditorTimeline : TemplatedControl
             {
                 using (context.PushClip(new Rect(6, top, Math.Max(0, header - 12), TrackRowHeight)))
                 {
+                    if (IsRowFocused(track))
+                    {
+                        using (context.PushOpacity(.28)) context.FillRectangle(activeBrush ?? textBrush, new Rect(6, top, Math.Max(0, header - 12), TrackRowHeight));
+                    }
                     var labelText = track.IsGroup ? (IsGroupExpanded(track.Group!.Key) ? "▾  " : "▸  ") + track.Label : track.Label;
                     var label = new FormattedText(labelText, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, Math.Max(13, fontSize), textBrush);
                     context.DrawText(label, new Point(track.IsChild ? 25 : 9, center - label.Height / 2));
@@ -709,6 +763,7 @@ public sealed class EditorTimeline : TemplatedControl
             }
             using (context.PushClip(new Rect(header, RulerHeight, Math.Max(0, width - header), Math.Max(0, height - RulerHeight))))
             {
+                if (_rowDrafts.TryGetValue(track, out var drafts)) DrawDraftMarkers(context, drafts, header, width, center + 7);
                 var first = track.LowerBound(Math.Max(0, FirstVisibleFrame - 6 / PixelsPerFrame));
                 var last = FirstVisibleFrame + (width - header + 6) / PixelsPerFrame;
                 var selectedFrames = selected.Where(track.ContainsChannel).Select(key => key.Frame).ToHashSet();
@@ -757,6 +812,20 @@ public sealed class EditorTimeline : TemplatedControl
             _diamondGeometries.RemoveRange(_drawnDiamondCount, _diamondGeometries.Count - _drawnDiamondCount);
     }
 
+    private void DrawDraftMarkers(DrawingContext context, EditorTimelineTrack drafts, double header, double width, double y)
+    {
+        double first = FirstVisibleFrame - 3 / PixelsPerFrame;
+        double last = FirstVisibleFrame + (width - header + 3) / PixelsPerFrame;
+        double previous = double.NegativeInfinity;
+        for (int index = drafts.LowerBound(first); index < drafts.Frames.Count && drafts.Frames[index] <= last; index++)
+        {
+            double x = header + (drafts.Frames[index] - FirstVisibleFrame) * PixelsPerFrame;
+            if (x - previous < 1) continue;
+            context.FillRectangle(DraftBrush, new Rect(x - 3, y - 2, 6, 4));
+            previous = x;
+        }
+    }
+
     private void DrawDiamond(DrawingContext context, double x, double center, IBrush? fill, Pen pen)
     {
         // Reuse only this render ordinal's exact absolute coordinates. This keeps original
@@ -789,7 +858,20 @@ public sealed class EditorTimeline : TemplatedControl
         if (position.X < TrackHeaderWidth)
         {
             if (track?.Group is { } group) SetGroupExpanded(group.Key, !IsGroupExpanded(group.Key));
+            else if (track?.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
             return;
+        }
+        if (track is not null && _rowDrafts.TryGetValue(track, out var drafts)
+            && Math.Abs(position.Y - (RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight + 7)) <= 3)
+        {
+            int draftFrame = FrameAtX(position.X);
+            int marker = drafts.LowerBound(draftFrame);
+            if (marker < drafts.Frames.Count && drafts.Frames[marker] == (uint)draftFrame)
+            {
+                SetCurrentValue(CurrentFrameProperty, draftFrame);
+                if (track.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
+                return;
+            }
         }
         _gestureTracks = tracks;
         double frame = FirstVisibleFrame + (position.X - TrackHeaderWidth) / PixelsPerFrame;
@@ -948,6 +1030,12 @@ public sealed class EditorTimeline : TemplatedControl
     public readonly record struct TimelineViewport(double FirstVisibleFrame, double PixelsPerFrame);
 }
 
+public sealed class TimelineTrackHeaderEventArgs(EditorTimelineTrack track, KeyModifiers modifiers) : EventArgs
+{
+    public EditorTimelineTrack Track { get; } = track;
+    public KeyModifiers Modifiers { get; } = modifiers;
+}
+
 public sealed class TimelineKeysMoveRequestedEventArgs(IReadOnlyList<KeyframeAddress> selection, long frameDelta) : EventArgs
 {
     public IReadOnlyList<KeyframeAddress> Selection { get; } = Array.AsReadOnly(selection.ToArray());
@@ -968,10 +1056,12 @@ public sealed class EditorTimelineTrack
         ArgumentNullException.ThrowIfNull(name); ArgumentNullException.ThrowIfNull(frames);
         Kind = kind; Name = name; Frames = Array.AsReadOnly(frames.Distinct().OrderBy(f => f).ToArray());
     }
-    internal int LowerBound(double frame)
+    internal int LowerBound(double frame) => FrameLowerBound(Frames, frame);
+
+    internal static int FrameLowerBound(IReadOnlyList<uint> frames, double frame)
     {
-        int low = 0, high = Frames.Count;
-        while (low < high) { int middle = low + (high - low) / 2; if (Frames[middle] < frame) low = middle + 1; else high = middle; }
+        int low = 0, high = frames.Count;
+        while (low < high) { int middle = low + (high - low) / 2; if (frames[middle] < frame) low = middle + 1; else high = middle; }
         return low;
     }
 }

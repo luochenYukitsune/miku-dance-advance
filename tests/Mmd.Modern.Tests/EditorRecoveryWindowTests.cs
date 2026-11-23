@@ -173,11 +173,11 @@ public sealed class EditorRecoveryWindowTests : IAsyncDisposable
             using var passiveJson = JsonDocument.Parse(passive.Checkpoint!.EditorState.GetRawText());
             var passiveState = EditorRecoverySessionState.FromJsonBytes(System.Text.Encoding.UTF8.GetBytes(passiveJson.RootElement.GetRawText()));
             Assert.Equal(light.Id, passiveState.NativeLighting!.SelectedLightId);
-            Assert.Null(passiveState.NativeLighting.ActiveLightId);
+            Assert.Equal(light.Id, passiveState.NativeLighting.ActiveLightId);
             Assert.True(await window.RestoreRecoveryCheckpointAsync(passive.Checkpoint).WaitAsync(TimeSpan.FromSeconds(30), Token));
             var controller = typeof(EditorWindow).GetField("lightController", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window)!;
-            Assert.Null(controller.GetType().GetProperty("SelectedLightId")!.GetValue(controller));
-            Assert.Equal(EditorInspectorPage.Animation, shell.InspectorPage); Assert.False(shell.Workspace.CanUndo);
+            Assert.Equal(light.Id, controller.GetType().GetProperty("SelectedLightId")!.GetValue(controller));
+            Assert.Equal(EditorInspectorPage.Style, shell.InspectorPage); Assert.False(shell.Workspace.CanUndo);
         }
         finally
         {

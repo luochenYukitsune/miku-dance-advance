@@ -56,6 +56,9 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         => EditorRenderEngineBinding.Require(RenderEngine, RenderEngine.Bind(this));
 
     private PmaLoadedProject? package;
+    internal EditorPoseDraftPackage OpenedPoseDrafts { get; private set; } = EditorPoseDraftPackage.Empty;
+    internal Func<IReadOnlyList<SceneActorMotion>, EditorPoseDraftPackage>? CapturePoseDrafts { get; set; }
+    internal void MarkPoseDraftEdited() => IsDirty = true;
     private CancellationTokenSource? shaderPrewarmCts;
     private Task shaderPrewarmTask = Task.CompletedTask;
     private bool disposed;
@@ -63,7 +66,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
         bool PreservePoseDrafts = false, bool PreserveRenderBinding = false,
-        bool BeforeGuessMaterialRoles = true, bool AfterGuessMaterialRoles = true);
+        bool BeforeGuessMaterialRoles = true, bool AfterGuessMaterialRoles = true, Action<bool>? PoseDraftHistory = null);
     private readonly Stack<HistoryStep> undo = [], redo = [];
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
@@ -217,7 +220,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         return id;
     }
 
-    public void CommitMotion(Guid objectId, VmdMotion motion)
+    public void CommitMotion(Guid objectId, VmdMotion motion) => CommitMotion(objectId, motion, null);
+    internal void CommitMotion(Guid objectId, VmdMotion motion, Action<bool>? poseDraftHistory)
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         var old = Motions.Single(actor => actor.ObjectId == objectId);
@@ -234,7 +238,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             int index = edit.Motions.FindIndex(actor => actor.ObjectId == objectId);
             if (index < 0) throw new InvalidOperationException(EditorLocalization.Text("选中的模型已被移除。"));
             edit.Motions[index] = edit.Motions[index] with { Motion = asset?.Motion ?? motion, Asset = asset };
-        });
+        }, null, poseDraftHistory: poseDraftHistory);
     }
 
     private static SceneMotionAsset? CaptureMotion(VmdMotion motion, string name, VmdWriteOptions options)
@@ -380,7 +384,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     }
 
     private void Edit(Action<SceneProjectEdit> edit, Action? commitMappings, IReadOnlyList<(Guid ObjectId, int BoneIndex)>? preserveWorld = null,
-        bool preservePoseDrafts = false, bool preserveRenderBinding = false)
+        bool preservePoseDrafts = false, bool preserveRenderBinding = false, Action<bool>? poseDraftHistory = null)
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         var before = SnapshotMappings();
@@ -396,7 +400,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
         undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata,
-            preservePoseDrafts, preserveRenderBinding, GuessMaterialRoles, GuessMaterialRoles)); redo.Clear();
+            preservePoseDrafts, preserveRenderBinding, GuessMaterialRoles, GuessMaterialRoles, poseDraftHistory)); redo.Clear();
         MarkChanged(preservePoseDrafts, preserveRenderBinding);
     }
 
@@ -473,13 +477,18 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         return true;
     }
 
-    internal bool InheritModelStyle(Guid objectId)
+    internal bool InheritModelStyle(Guid objectId) => SetModelStyle(objectId, null);
+
+    internal bool SetModelStyle(Guid objectId, RenderingPresetReference? style)
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        if (!session.RenderingStyles.ModelOverrides.ContainsKey(objectId)) return false;
+        if (!session.HasSupportedRenderingStyles)
+            throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
         var model = session.Objects.Single(item => item.Id == objectId);
-        ValidateStyleForModels(session.RenderingStyles.DefaultStyle, [model]);
-        CommitStyleChange(session, () => session.SetModelRenderingStyle(objectId, null));
+        RenderingPresetReference? previous = session.RenderingStyles.ModelOverrides.TryGetValue(objectId, out var existing) ? existing : null;
+        if (previous == style) return false;
+        ValidateStyleForModels(style ?? session.RenderingStyles.DefaultStyle, [model]);
+        CommitStyleChange(session, () => session.SetModelRenderingStyle(objectId, style));
         return true;
     }
 
@@ -595,7 +604,14 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     public void Save(string path, CancellationToken token = default)
     {
         string destination = ProjectFormat.RequirePath(path);
-        try { SaveSnapshot(destination, token); }
+        using var snapshot = CaptureRecoverySnapshot(token);
+        SaveCaptured(destination, snapshot, token);
+    }
+
+    internal void SaveCaptured(string path, PmaSaveSnapshot snapshot, CancellationToken token)
+    {
+        string destination = ProjectFormat.RequirePath(path);
+        try { snapshot.Save(destination, token); }
         catch (PmaSaveCommittedException error)
         {
             // The neutral writer proves this operation committed; existence alone is not proof.
@@ -655,7 +671,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (missingHeaders.Count != 0)
             throw new InvalidOperationException(EditorLocalization.Text("以下模型的动作需要明确填写可编码且不超过 20 字节的 VMD 模型头，才可保存或导出：")
                 + string.Join("、", missingHeaders.Select(actor => session.Objects.Single(item => item.Id == actor.ObjectId).Name)));
-        return new PmaSaveOptions { ValidationOptions = PackageLimits, CacheDirectory = PackageCacheDirectory };
+        var options = new PmaSaveOptions { ValidationOptions = PackageLimits, CacheDirectory = PackageCacheDirectory };
+        var drafts = CapturePoseDrafts?.Invoke(Motions) ?? OpenedPoseDrafts.ForModels(Motions);
+        if (drafts.Actors.Length == 0 && package?.OptionalExtensions.ContainsKey(EditorPoseDraftPackage.Extension) != true) return options;
+        return options with { OptionalExtensions = new Dictionary<string, System.Text.Json.JsonElement> { [EditorPoseDraftPackage.Extension] = drafts.Encode() } };
     }
 
     public void Open(string path, CancellationToken token = default) => OpenCore(path, null, false, token);
@@ -693,6 +712,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         long modelMaxBytes = Preferences.PmxMaxBytes;
         var limits = PackageLimits;
         EditorProjectLoadedCandidate loaded;
+        EditorPoseDraftPackage drafts;
         // Models and images are prepared in the background for this open only; the ordered loader consumes them.
         using (var prefetch = EditorAssetPrefetch.Begin(modelMaxBytes))
             loaded = persistence.Load(fullPath, PackageCacheDirectory, prefetch.LoadModel,
@@ -701,6 +721,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         {
             token.ThrowIfCancellationRequested();
             ValidateProjectMetadata(loaded.Metadata, loaded.Package.Session);
+            drafts = EditorPoseDraftPackage.Read(loaded.Package);
             validateCandidate?.Invoke(loaded.Package.Session);
             token.ThrowIfCancellationRequested(); CloseContent();
         }
@@ -711,7 +732,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         }
         // All schemas, renderer metadata and mapping dictionaries were prepared before old owners
         // were released. Publication only transfers complete references and does no renderer binding.
-        package = loaded.Package; Session = loaded.Package.Session;
+        package = loaded.Package; Session = loaded.Package.Session; OpenedPoseDrafts = drafts;
         if (ReferenceEquals(RenderEngine, EditorModernRenderEngine.Instance))
             Session.DeferVertexSkinningToRenderer = true;
         ProjectPath = recovered ? null : fullPath;
@@ -749,7 +770,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (step.SessionEdit && step.After?.Undo() != true) return false;
         undo.Pop(); redo.Push(step); Session = step.Before; ProjectMetadata = step.BeforeMetadata;
         GuessMaterialRoles = step.BeforeGuessMaterialRoles;
-        RestoreMappings(step.BeforeMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
+        RestoreMappings(step.BeforeMappings); step.PoseDraftHistory?.Invoke(true); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     public bool Redo()
     {
@@ -757,7 +778,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (step.SessionEdit && step.After?.Redo() != true) return false;
         redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
         GuessMaterialRoles = step.AfterGuessMaterialRoles;
-        RestoreMappings(step.AfterMappings); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
+        RestoreMappings(step.AfterMappings); step.PoseDraftHistory?.Invoke(false); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
     {
@@ -816,6 +837,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         // (also retained by workspace Undo) is disposed exactly once.
         standaloneSessions.Clear();
         undo.Clear(); redo.Clear();
+        OpenedPoseDrafts = EditorPoseDraftPackage.Empty;
         package = null; Session = null; MaterialBindings.Clear(); StyleGlobalParameters.Clear(); ProjectMetadata = null; importedMotionCodePages.Clear();
         GuessMaterialRoles = true;
         DocumentId = Guid.NewGuid();

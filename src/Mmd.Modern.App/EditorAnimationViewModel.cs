@@ -24,7 +24,9 @@ public enum EditorTimelineTrackMode
     /// <summary>Optionally focus the active model's selected bone or morph row.</summary>
     FollowSelection,
     /// <summary>Show all authored channels of the active model, grouped by its PMX display categories (default).</summary>
-    AllTracks
+    AllTracks,
+    /// <summary>Keep the author's group order, showing channels with registered keys.</summary>
+    KeyedTracks
 }
 
 /// <summary>
@@ -72,7 +74,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private decimal? positionX, positionY, positionZ, rotationX, rotationY, rotationZ, morphWeight;
     private Quaternion sampledRotation = Quaternion.Identity;
     private bool rotationEdited;
-    private readonly Dictionary<Guid, ActorDrafts> actorDrafts = [];
+    private readonly Dictionary<(Guid Actor, int Frame), ActorDrafts> actorDrafts = [];
     private bool preservingRegisterDrafts;
     private sealed class ActorDrafts(PmxModel model, VmdMotion? source)
     {
@@ -95,6 +97,9 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private IReadOnlyList<EditorTimelineTrack> visibleTracks = Array.Empty<EditorTimelineTrack>();
     private EditorTimelineTrackMode timelineTrackMode = EditorTimelineTrackMode.AllTracks;
     private IReadOnlyList<EditorTimelineGroup> timelineGroups = Array.Empty<EditorTimelineGroup>();
+    private IReadOnlyList<EditorTimelineGroup> keyedTimelineGroups = [];
+    private IReadOnlyList<EditorTimelineTrack> allGroupTracks = [];
+    private IReadOnlyList<EditorTimelineTrack> keyedGroupTracks = [];
     private Dictionary<(KeyframeTrackKind Kind, string Name), EditorTimelineTrack> authoredTrackMap = new();
     private Dictionary<(KeyframeTrackKind Kind, string Name), EditorTimelineTrack> visibleTrackMap = new();
     private bool animationContextActive = true;
@@ -105,12 +110,15 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
 
     public EditorAnimationViewModel()
     {
+        RegisterPoseCommand = new AnimationCommand(() => RegisterAsync(bonesOnly: true), () => CanRegisterBones);
         RegisterKeyframeCommand = new AnimationCommand(RegisterKeyframeAsync, () => CanRegister);
         DeleteKeyframesCommand = new AnimationCommand(DeleteKeyframesAsync, () => CanModifySelection);
         CopyKeyframesCommand = new AnimationCommand(() => { CopyKeyframes(); return Task.CompletedTask; }, () => CanEditSelection);
         PasteKeyframesCommand = new AnimationCommand(PasteKeyframesAsync, () => CanPaste);
         MoveKeyframesCommand = new AnimationCommand(MoveKeyframesAsync, () => CanModifySelection);
         ResetPoseCommand = new AnimationCommand(() => { ResetPose(); return Task.CompletedTask; }, () => HasEditableSelection && !IsBusy);
+        CopyPoseCommand = new AnimationCommand(() => { CopyPose(); return Task.CompletedTask; }, () => CanCopyPose);
+        PasteMirroredPoseCommand = new AnimationCommand(() => { PasteMirroredPose(); return Task.CompletedTask; }, () => CanPastePose);
         SelectTimelineRangeCommand = new AnimationCommand(() => { SelectTimelineRange(); return Task.CompletedTask; }, () => CanSelectTimelineRange);
         ClearTimelineSelectionCommand = new AnimationCommand(() => { ClearTimelineSelection(); return Task.CompletedTask; }, () => CanSelectTimelineRange);
         Observe(this, static model => model.RefreshLocalization());
@@ -147,7 +155,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     /// <summary>Bone/morph registration belongs to the authored animation context only.
     /// Camera, world and main light have their own registration entries and must not receive a
     /// retained model channel's key while their context is active.</summary>
-    public bool CanRegister => !IsSelectedUnowned && animationContextActive && HasEditableSelection && !IsBusy && CanMutateProject?.Invoke() != false && DraftIsValid && ValidateInput?.Invoke() != false;
+    public bool CanRegister => !IsSelectedUnowned && animationContextActive && HasEditableSelection && !IsBusy && CanMutateProject?.Invoke() != false && DraftIsValid && (!IsBoneSelected || !HasInvalidBoneRegistration) && ValidateInput?.Invoke() != false;
     public bool CanEditSelection => HasActor && !IsBusy && CanMutateProject?.Invoke() != false && SelectedKeyframes.Count != 0;
     /// <summary>
     /// Delete/Move act on the complete selection, so they are withheld while any selected keyframe
@@ -167,13 +175,18 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     public string SelectionName => IsBoneSelected ? SelectedBone!.Name : IsMorphSelected ? model!.Morphs[morphIndex!.Value].Name : Text("未选择骨骼或表情");
     public string SelectionLabel => HasActor ? $"{ActorDisplayName} › {SelectionName}" : SelectionName;
     public string ModelContextLabel => HasActor ? $"{ActorDisplayName} · {FrameSummary}" : FrameSummary;
-    public string FrameSummary => Format("第 {0} 帧", CurrentFrame) + (HasDraft ? Text(" · 未登记") : "");
+    public string FrameSummary => Format("第 {0} 帧", CurrentFrame)
+        + (!playing && objectId is { } id && actorDrafts.ContainsKey((id, CurrentFrame)) ? Text(" · 未登记") : "");
     public string KeyframeSummary => Format("{0} 个关键帧", motion.BoneKeyframes.Count + motion.MorphKeyframes.Count + motion.IkKeyframes.Count);
     /// <summary>Complete authored rows. Source of truth for validity, edits, save and export.</summary>
     public IReadOnlyList<EditorTimelineTrack> Tracks => tracks;
     /// <summary>Session-only displayed projection of <see cref="Tracks"/>; never persisted or committed.</summary>
     public IReadOnlyList<EditorTimelineTrack> VisibleTracks => visibleTracks;
-    public IReadOnlyList<EditorTimelineGroup> TimelineGroups => IsTimelineAllTracks ? timelineGroups : Array.Empty<EditorTimelineGroup>();
+    public IReadOnlyList<EditorTimelineGroup> TimelineGroups => IsTimelineAllTracks ? timelineGroups
+        : IsTimelineKeyedTracks ? keyedTimelineGroups : Array.Empty<EditorTimelineGroup>();
+    public bool IsTimelineKeyedTracks => timelineTrackMode == EditorTimelineTrackMode.KeyedTracks;
+    public KeyframeAddress? TimelineFocusedChannel => IsBoneSelected ? KeyframeAddress.Bone(SelectedBone!.Name, 0)
+        : IsMorphSelected ? KeyframeAddress.Morph(model!.Morphs[morphIndex!.Value].Name, 0) : null;
     public bool HasVisibleTracks => visibleTracks.Count != 0;
     public EditorTimelineTrackMode TimelineTrackMode => timelineTrackMode;
     public bool IsTimelineFollowSelection => timelineTrackMode == EditorTimelineTrackMode.FollowSelection;
@@ -212,7 +225,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         get
         {
             if (!HasActor) return Text("Mda.Text.Context.Timeline.EmptyNoModel");
-            if (timelineTrackMode == EditorTimelineTrackMode.AllTracks) return Text("Mda.Text.Context.Timeline.EmptyNoKeys");
+            if (!IsTimelineFollowSelection) return Text("Mda.Text.Context.Timeline.EmptyNoKeys");
             if (!animationContextActive) return Text("Mda.Text.Context.Timeline.EmptySceneContext");
             return Text("Mda.Text.Context.Timeline.EmptyNoChannel");
         }
@@ -234,7 +247,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     {
         if (!Enum.IsDefined(mode) || timelineTrackMode == mode) return;
         timelineTrackMode = mode;
-        Changed(nameof(TimelineTrackMode)); Changed(nameof(IsTimelineFollowSelection)); Changed(nameof(IsTimelineAllTracks)); Changed(nameof(TimelineGroups));
+        Changed(nameof(TimelineTrackMode)); Changed(nameof(IsTimelineFollowSelection)); Changed(nameof(IsTimelineAllTracks)); Changed(nameof(IsTimelineKeyedTracks)); Changed(nameof(TimelineGroups));
         RebuildVisibleTracks();
     }
 
@@ -257,7 +270,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         {
             value = Math.Max(0, value);
             if (currentFrame == value) return;
-            currentFrame = value; contextRevision++; actorDrafts.Clear();
+            currentFrame = value; contextRevision++;
             Changed(); Changed(nameof(HasAnyDraft)); Changed(nameof(HasInvalidDrafts)); Changed(nameof(FrameSummary)); Changed(nameof(ModelContextLabel)); LoadPose();
             PoseDraftChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -290,16 +303,17 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             Changed(nameof(SelectionLabel)); Changed(nameof(ModelContextLabel));
             return;
         }
-        bool changedSource = sameActor || (actorId is { } cachedId && actorDrafts.TryGetValue(cachedId, out var cached)
-            && (!ReferenceEquals(cached.Model, actorModel) || !ReferenceEquals(cached.Source, actorMotion)));
-        if (changedSource && !preservingRegisterDrafts) actorDrafts.Clear();
-        if (preservingRegisterDrafts && actorId is { } updatingId && actorDrafts.TryGetValue(updatingId, out var updating))
-            updating.Source = actorMotion;
+        if (actorId is { } nextId)
+            foreach (var (key, pending) in actorDrafts.Where(pair => pair.Key.Actor == nextId).ToArray())
+            {
+                if (!ReferenceEquals(pending.Model, actorModel)) actorDrafts.Remove(key);
+                else pending.Source = actorMotion;
+            }
         objectId = actorId; model = actorModel; actorDisplayName = nextDisplayName;
         sourceMotion = actorMotion; detachment = actorDetachment;
         motion = new MotionEditor(actorMotion ?? new VmdMotion { ModelName = actorModel?.Name ?? string.Empty }).ExportMotion();
         contextRevision++;
-        if (!sameActor) { boneIndex = null; morphIndex = null; selectedKeyframes = Array.Empty<KeyframeAddress>(); }
+        if (!sameActor) { selectedBoneIndices = []; boneIndex = null; morphIndex = null; selectedKeyframes = Array.Empty<KeyframeAddress>(); }
         if (boneIndex is { } b && (model is null || b >= model.Bones.Count)) boneIndex = null;
         if (morphIndex is { } m && (model is null || m >= model.Morphs.Count)) morphIndex = null;
         var existing = ExistingAddresses().ToHashSet();
@@ -310,13 +324,12 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         if (!HasActor) SetStatus("选择模型，再选择骨骼或表情");
     }
 
-    /// <summary>Call on committed project changes, document replacement, Undo or Redo. A synchronous
-    /// selected-channel registration keeps the other unregistered channels until its atomic commit ends.</summary>
+    /// <summary>Explicitly discard all unregistered channels and notify the document owner.</summary>
     public void InvalidateDrafts()
     {
         if (preservingRegisterDrafts || actorDrafts.Count == 0) return;
         actorDrafts.Clear(); contextRevision++;
-        Changed(nameof(HasAnyDraft)); Changed(nameof(HasInvalidDrafts)); LoadPose(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
+        Changed(nameof(HasAnyDraft)); Changed(nameof(HasInvalidDrafts)); NotifyDraftContentEdited(); LoadPose(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>A detached snapshot of complete drafts across every model. Incomplete inputs remain
@@ -324,7 +337,8 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     public IReadOnlyList<EditorAnimationPoseDraft> SnapshotDrafts()
     {
         var result = new List<EditorAnimationPoseDraft>();
-        foreach (var (id, draft) in actorDrafts.OrderBy(pair => pair.Key))
+        if (playing) return result;
+        foreach (var ((id, _), draft) in actorDrafts.Where(pair => pair.Key.Frame == CurrentFrame).OrderBy(pair => pair.Key.Actor))
         {
             foreach (var (index, bone) in draft.Bones.OrderBy(pair => pair.Key))
                 if (bone.IsValid) result.Add(new(id, CurrentFrame, index, null, bone.Translation, bone.Rotation, null));
@@ -338,6 +352,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     {
         var validIndex = index is { } value && HasActor && value >= 0 && value < model!.Bones.Count ? index : null;
         if (boneIndex == validIndex && morphIndex is null) return;
+        selectedBoneIndices = validIndex is { } selected ? [selected] : [];
         boneIndex = validIndex;
         morphIndex = null; contextRevision++;
         RebuildSampler(); RebuildVisibleTracks(); LoadPose(); NotifyContext();
@@ -348,6 +363,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     {
         var validIndex = index is { } value && HasActor && value >= 0 && value < model!.Morphs.Count ? index : null;
         if (morphIndex == validIndex && boneIndex is null) return;
+        selectedBoneIndices = [];
         morphIndex = validIndex;
         boneIndex = null; contextRevision++;
         RebuildSampler(); RebuildVisibleTracks(); LoadPose(); NotifyContext();
@@ -373,31 +389,41 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         if (address.Frame <= int.MaxValue) CurrentFrame = (int)address.Frame;
     }
 
-    public async Task RegisterKeyframeAsync()
+    public Task RegisterKeyframeAsync() => RegisterAsync(bonesOnly: false);
+
+    private async Task RegisterAsync(bool bonesOnly)
     {
-        if (!HasEditableSelection) return;
         if (!animationContextActive)
         { SetStatus("Mda.Text.Context.Timeline.RegisterBlocked"); return; }
-        if (!CanRegister) return;
+        if (!(bonesOnly ? CanRegisterBones : CanRegister)) return;
         try
         {
-        var frame = (uint)CurrentFrame;
-        VmdMotion records;
-        KeyframeAddress address;
-        if (IsBoneSelected)
-        {
-            var bone = SelectedBone!;
-            var template = motion.BoneKeyframes.LastOrDefault(k => k.BoneName == bone.Name && k.Frame == frame);
-            var key = CreateDraftKey(bone, frame, DraftTranslation, DraftRotation, template);
-            records = new() { BoneKeyframes = [key] }; address = KeyframeAddress.Bone(bone.Name, frame);
-        }
-        else
-        {
-            var name = model!.Morphs[morphIndex!.Value].Name;
-            records = new() { MorphKeyframes = [new() { MorphName = name, Frame = frame, Weight = (float)MorphWeight!.Value }] };
-            address = KeyframeAddress.Morph(name, frame);
-        }
-        await ApplyAsync(editor => editor.PrepareRegister(records), "已登记关键帧", [address], (boneIndex, morphIndex));
+            var frame = (uint)CurrentFrame;
+            VmdMotion records;
+            KeyframeAddress[] addresses;
+            if (bonesOnly || IsBoneSelected)
+            {
+                var pending = actorDrafts.GetValueOrDefault((objectId!.Value, CurrentFrame));
+                var indices = pending?.Bones.Count > 0 ? pending.Bones.Keys.Order().ToArray() : SelectedBoneIndices.ToArray();
+                var keys = new List<VmdBoneKeyframe>(indices.Length);
+                foreach (int index in indices)
+                {
+                    var bone = model!.Bones[index];
+                    if (detachment?.BoneNames.Contains(bone.Name) == true) return;
+                    var pose = LocalBonePose(index);
+                    var template = FindExactBoneKey(bone.Name, frame);
+                    keys.Add(CreateDraftKey(bone, frame, pose.Translation, pose.Rotation, template));
+                }
+                records = new() { BoneKeyframes = keys };
+                addresses = keys.Select(key => KeyframeAddress.Bone(key.BoneName, frame)).ToArray();
+            }
+            else
+            {
+                var name = model!.Morphs[morphIndex!.Value].Name;
+                records = new() { MorphKeyframes = [new() { MorphName = name, Frame = frame, Weight = (float)MorphWeight!.Value }] };
+                addresses = [KeyframeAddress.Morph(name, frame)];
+            }
+            await ApplyAsync(editor => editor.PrepareRegister(records), "已登记关键帧", addresses, registerBones: bonesOnly || IsBoneSelected);
         }
         catch (Exception ex) { SetFailure("登记关键帧失败：", ex); }
     }
@@ -457,7 +483,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     }
 
     private async Task ApplyAsync(Func<MotionEditor, MotionEditPlan> prepare, string success, IReadOnlyList<KeyframeAddress> selection,
-        (int? Bone, int? Morph)? registeredChannel = null)
+        bool? registerBones = null)
     {
         if (!HasActor || IsBusy || CanMutateProject?.Invoke() == false || ValidateInput?.Invoke() == false) return;
         isBusy = true; Changed(nameof(IsBusy)); RefreshCommands();
@@ -477,20 +503,15 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             staged.Apply(plan, confirmOverwrite: plan.Conflicts.Count != 0);
             if (staged.Revision == 0) return;
             var candidate = staged.ExportMotion();
-            preservingRegisterDrafts = registeredChannel.HasValue;
+            preservingRegisterDrafts = registerBones.HasValue;
+            RegistrationHistory = registerBones is { } boneRegistration ? CreateRegistrationHistory(actor, boneRegistration) : null;
             try
             {
                 CommitMotion(actor, candidate);
                 if (revision == contextRevision) SetActor(actor, model, candidate, actorDisplayName);
-                if (registeredChannel is { } channel && actorDrafts.TryGetValue(actor, out var pending))
-                {
-                    if (channel.Bone is { } bone) pending.Bones.Remove(bone);
-                    if (channel.Morph is { } morph) pending.Morphs.Remove(morph);
-                    if (pending.IsEmpty) actorDrafts.Remove(actor);
-                    Changed(nameof(HasAnyDraft)); Changed(nameof(HasInvalidDrafts)); LoadPose(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
-                }
+                RegistrationHistory?.Invoke(false);
             }
-            finally { preservingRegisterDrafts = false; }
+            finally { preservingRegisterDrafts = false; RegistrationHistory = null; }
             if (objectId == actor) SelectedKeyframes = selection;
             SetStatus(success);
         }
@@ -543,7 +564,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             }
             else { ClearBoneValues(); morphWeight = null; }
             hasDraft = false; rotationEdited = false;
-            if (objectId is { } id && actorDrafts.TryGetValue(id, out var pending))
+            if (!playing && objectId is { } id && actorDrafts.TryGetValue((id, CurrentFrame), out var pending))
             {
                 if (boneIndex is { } bone && pending.Bones.TryGetValue(bone, out var draft))
                 {
@@ -584,6 +605,10 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     {
         timelineGroups = EditorTimelineGrouping.Build(model, tracks, objectId?.ToString("D") ?? string.Empty,
             Text("Mda.Text.Timeline.Unclassified"), Text("Mda.Text.Timeline.IkDisplay"));
+        keyedTimelineGroups = Array.AsReadOnly(timelineGroups.Select(group => group.WithKeys()).OfType<EditorTimelineGroup>().ToArray());
+        allGroupTracks = Array.AsReadOnly(timelineGroups.SelectMany(group => group.Tracks)
+            .DistinctBy(track => (track.Kind, track.Name)).ToArray());
+        keyedGroupTracks = Array.AsReadOnly(allGroupTracks.Where(track => track.Frames.Count != 0).ToArray());
         Changed(nameof(TimelineGroups));
     }
 
@@ -593,27 +618,22 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     /// </summary>
     private void RebuildVisibleTracks()
     {
-        var visible = new List<EditorTimelineTrack>();
+        IReadOnlyList<EditorTimelineTrack> visible = [];
         if (HasActor)
         {
-            if (timelineTrackMode == EditorTimelineTrackMode.AllTracks) visible.AddRange(tracks);
-            else if (animationContextActive && IsBoneSelected)
+            if (IsTimelineAllTracks) visible = allGroupTracks;
+            else if (IsTimelineKeyedTracks) visible = keyedGroupTracks;
+            else if (animationContextActive && TimelineFocusedChannel is { } channel)
             {
-                var name = SelectedBone!.Name;
-                visible.AddRange(tracks.Where(track => track.Kind == KeyframeTrackKind.Bone
-                    && StringComparer.Ordinal.Equals(track.Name, name)));
-                if (visible.Count == 0) visible.Add(new(KeyframeTrackKind.Bone, name, []));
-            }
-            else if (animationContextActive && IsMorphSelected)
-            {
-                var name = model!.Morphs[morphIndex!.Value].Name;
-                visible.AddRange(tracks.Where(track => track.Kind == KeyframeTrackKind.Morph
-                    && StringComparer.Ordinal.Equals(track.Name, name)));
-                if (visible.Count == 0) visible.Add(new(KeyframeTrackKind.Morph, name, []));
+                visible = [authoredTrackMap.TryGetValue((channel.Kind, channel.Name), out var track)
+                    ? track : new EditorTimelineTrack(channel.Kind, channel.Name, [])];
             }
         }
-        visibleTracks = visible.AsReadOnly();
-        visibleTrackMap = visibleTracks.ToDictionary(track => (track.Kind, track.Name));
+        if (!ReferenceEquals(visibleTracks, visible))
+        {
+            visibleTracks = visible;
+            visibleTrackMap = visible.ToDictionary(track => (track.Kind, track.Name));
+        }
         timelineFocusRow = -1;
         for (int index = 0; index < visibleTracks.Count && timelineFocusRow < 0; index++)
         {
@@ -623,7 +643,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             else if (IsMorphSelected && track.Kind == KeyframeTrackKind.Morph
                 && StringComparer.Ordinal.Equals(track.Name, model!.Morphs[morphIndex!.Value].Name)) timelineFocusRow = index;
         }
-        foreach (var name in new[] { nameof(VisibleTracks), nameof(HasVisibleTracks), nameof(TimelineFocusRow),
+        foreach (var name in new[] { nameof(VisibleTracks), nameof(HasVisibleTracks), nameof(TimelineFocusRow), nameof(TimelineFocusedChannel),
             nameof(ShowTimelineEmptyHint), nameof(TimelineEmptyHint), nameof(HiddenSelectedKeyframeCount),
             nameof(HasHiddenSelectedKeyframes), nameof(HasHiddenSelectedBoneKeyframes), nameof(HiddenSelectionSummary),
             nameof(CanModifySelection), nameof(CanRegister) })
@@ -656,7 +676,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private void NotifyContext()
     {
         foreach (var name in new[] { nameof(ObjectId), nameof(HasActor), nameof(IsBoneSelected), nameof(IsMorphSelected), nameof(IsEmptySelection), nameof(HasEditableSelection), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(SelectedBoneIndex), nameof(SelectedMorphIndex), nameof(SelectedKeyframes), nameof(TimelineSelectionSummary) }) Changed(name);
-        RefreshCommands();
+        Changed(nameof(SelectedBoneIndices)); NotifyDraftAddresses(); RefreshCommands();
     }
     private void SetDraft(ref decimal? field, decimal? value, bool rotation = false, [CallerMemberName] string? property = null)
     {
@@ -666,11 +686,11 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         {
             hasDraft = true; rotationEdited |= rotation;
             var id = objectId!.Value;
-            if (!actorDrafts.TryGetValue(id, out var pending)) actorDrafts.Add(id, pending = new(model!, sourceMotion));
+            if (!actorDrafts.TryGetValue((id, CurrentFrame), out var pending)) actorDrafts.Add((id, CurrentFrame), pending = new(model!, sourceMotion));
             if (boneIndex is { } bone) pending.Bones[bone] = new(positionX, positionY, positionZ, rotationX, rotationY, rotationZ, sampledRotation, rotationEdited);
             else if (morphIndex is { } morph) pending.Morphs[morph] = morphWeight;
             Changed(nameof(HasDraft)); Changed(nameof(SelectedHasDraft)); Changed(nameof(HasAnyDraft)); Changed(nameof(HasInvalidDrafts)); Changed(nameof(FrameSummary)); Changed(nameof(ModelContextLabel));
-            RefreshCommands(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
+            NotifyDraftContentEdited(); RefreshCommands(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -689,7 +709,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     }
     private void RaiseCommandAvailabilityChanged()
     {
-        foreach (var command in new[] { RegisterKeyframeCommand, DeleteKeyframesCommand, CopyKeyframesCommand, PasteKeyframesCommand, MoveKeyframesCommand, ResetPoseCommand, SelectTimelineRangeCommand, ClearTimelineSelectionCommand }) ((AnimationCommand)command).Refresh();
+        foreach (var command in new[] { CopyPoseCommand, PasteMirroredPoseCommand, RegisterPoseCommand, RegisterKeyframeCommand, DeleteKeyframesCommand, CopyKeyframesCommand, PasteKeyframesCommand, MoveKeyframesCommand, ResetPoseCommand, SelectTimelineRangeCommand, ClearTimelineSelectionCommand }) ((AnimationCommand)command).Refresh();
     }
     private void SetStatus(string value, params object?[] arguments)
     { status = value; statusArguments = arguments; statusError = null; Changed(nameof(Status)); ReportStatus?.Invoke(Status); }

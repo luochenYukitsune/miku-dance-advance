@@ -121,6 +121,8 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
             Assert.Contains(pasted.BoneKeyframes, key => key.BoneName == "hand" && key.Frame == 55);
             Assert.Contains(pasted.MorphKeyframes, key => key.MorphName == "smile" && key.Frame == 60);
             Enter(window, "TimelineRangeStartInput", "50"); Enter(window, "TimelineRangeEndInput", "60"); Click(window, "SelectTimelineRangeButton");
+            Assert.Equal(3, shell.Animation.SelectedKeyframes.Count);
+            Assert.Equal(0, shell.Animation.HiddenSelectedKeyframeCount);
             Click(window, "DeleteTimelineKeysButton");
             var deleted = shell.Workspace.Motions.Single(value => value.ObjectId == actor).Motion;
             Assert.DoesNotContain(deleted.BoneKeyframes, key => key.Frame >= 50);
@@ -208,9 +210,13 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
 
     private static void Click(EditorWindow window, string name)
     {
-        window.UpdateLayout(); var button = window.FindControl<Button>(name)!;
+        // Hit-test the geometry displayed by the headless compositor after the range controls reflow.
+        window.UpdateLayout(); AvaloniaHeadlessPlatform.ForceRenderTimerTick(); Dispatcher.UIThread.RunJobs();
+        var button = window.FindControl<Button>(name)!;
         Assert.True(button.IsEnabled, name + " must be enabled");
         Point point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(point);
+        Dispatcher.UIThread.RunJobs();
         window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); Dispatcher.UIThread.RunJobs();
     }
 

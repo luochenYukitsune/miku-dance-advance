@@ -342,14 +342,14 @@ public sealed class EditorLightingGroupInspectorTests : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(directory)) return;
         Directory.CreateDirectory(directory);
         window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-        using var frame = window.CaptureRenderedFrame();
+        using var frame = HeadlessTestHost.CaptureLayoutFrame(window);
         Assert.NotNull(frame); frame.Save(Path.Combine(directory, name + ".png"));
         double width = window.Width, height = window.Height;
         try
         {
             window.Width = 1100; window.Height = 720;
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            using var minimum = window.CaptureRenderedFrame();
+            using var minimum = HeadlessTestHost.CaptureLayoutFrame(window);
             Assert.NotNull(minimum); minimum.Save(Path.Combine(directory, name + "-minimum.png"));
         }
         finally { window.Width = width; window.Height = height; window.UpdateLayout(); }

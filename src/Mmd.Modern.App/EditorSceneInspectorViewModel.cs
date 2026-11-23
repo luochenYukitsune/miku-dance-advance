@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.Application;
 using Mmd.Modern.Application.MotionEditing;
 using Mmd.Modern.Formats;
@@ -18,6 +19,24 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     private PmmCameraPose baseCamera, cameraPose;
     private PmmLightPose baseLight, lightPose;
     private VmdMotion motion = new();
+    private bool primaryLightTrackActive = true;
+    private EditorSceneTimelineTrack cameraTimeline = new(SceneTrackKind.Camera, []);
+    private EditorSceneTimelineTrack lightTimeline = new(SceneTrackKind.Light, []);
+    public bool ShowsPrimaryLightTrack => IsLightInspector && primaryLightTrackActive;
+    public EditorSceneTimelineTrack? ActiveTimelineTrack => IsCameraInspector ? cameraTimeline : ShowsPrimaryLightTrack ? lightTimeline : null;
+
+    internal void SetPrimaryLightTrackActive(bool active)
+    {
+        if (primaryLightTrackActive == active) return;
+        primaryLightTrackActive = active; Changed(nameof(ShowsPrimaryLightTrack)); Changed(nameof(ActiveTimelineTrack));
+    }
+
+    private void RebuildSceneTimeline()
+    {
+        cameraTimeline = new(SceneTrackKind.Camera, motion.CameraKeyframes.Select(key => key.Frame));
+        lightTimeline = new(SceneTrackKind.Light, motion.LightKeyframes.Select(key => key.Frame));
+        Changed(nameof(ActiveTimelineTrack)); Changed(nameof(CameraKeyframeSummary)); Changed(nameof(LightKeyframeSummary));
+    }
     private SceneMotionAsset? source;
     private VmdSceneTracks tracks = new(new VmdMotion());
     private ScenePmmControlState? pmmControls;
@@ -101,7 +120,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
             if (value is < 0 or > 2 || value == sceneSelectionIndex) return;
             sceneSelectionIndex = value; contextRevision++;
             Changed(); Changed(nameof(IsWorldInspector)); Changed(nameof(IsCameraInspector)); Changed(nameof(IsLightInspector));
-            DraftChanged();
+            Changed(nameof(ShowsPrimaryLightTrack)); Changed(nameof(ActiveTimelineTrack)); DraftChanged();
         }
     }
     public int CurrentFrame
@@ -186,7 +205,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         var candidate = new SceneTrackEditor(asset?.Motion ?? new VmdMotion()).ExportMotion();
         var evaluator = new VmdSceneTracks(candidate);
         source = asset; motion = candidate; tracks = evaluator; contextRevision++;
-        LoadRegisteredOrAllPoses(); Changed(nameof(CameraKeyframeSummary)); Changed(nameof(LightKeyframeSummary));
+        LoadRegisteredOrAllPoses(); RebuildSceneTimeline();
     }
 
     public Task RegisterCameraKeyframeAsync()
@@ -262,7 +281,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
                 if (revision == contextRevision)
                 {
                     motion = candidate; tracks = new(candidate); contextRevision++; LoadRegisteredOrAllPoses();
-                    Changed(nameof(CameraKeyframeSummary)); Changed(nameof(LightKeyframeSummary));
+                    RebuildSceneTimeline();
                 }
             }
             finally { committingTrack = null; }

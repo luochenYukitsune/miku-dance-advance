@@ -59,6 +59,7 @@ public sealed class EditorInterpolationCurve : TemplatedControl
     private IPointer? dragPointer;
     private EditorInterpolationChannelViewModel? observedChannel, dragChannel;
     private VmdBezierControl dragStart;
+    internal event Action? EditCompleted;
     public int SelectedHandle { get; private set; } = 1;
 
     static EditorInterpolationCurve()
@@ -155,7 +156,7 @@ public sealed class EditorInterpolationCurve : TemplatedControl
     {
         base.OnPointerReleased(e);
         if (e.Pointer != dragPointer || e.InitialPressMouseButton != MouseButton.Left) return;
-        SetFromPointer(e.GetPosition(this)); EndDrag(cancel: false); e.Handled = true;
+        SetFromPointer(e.GetPosition(this)); EndDrag(cancel: false); e.Handled = true; EditCompleted?.Invoke();
     }
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
@@ -174,7 +175,7 @@ public sealed class EditorInterpolationCurve : TemplatedControl
         var curve = channel.GetCurve();
         int x = SelectedHandle == 1 ? curve.X1 : curve.X2, y = SelectedHandle == 1 ? curve.Y1 : curve.Y2;
         if (e.Key == Key.Left) x -= step; else if (e.Key == Key.Right) x += step; else if (e.Key == Key.Up) y += step; else y -= step;
-        channel.SetHandle(SelectedHandle, Math.Clamp(x, 0, 127), Math.Clamp(y, 0, 127)); e.Handled = true;
+        channel.SetHandle(SelectedHandle, Math.Clamp(x, 0, 127), Math.Clamp(y, 0, 127)); e.Handled = true; EditCompleted?.Invoke();
     }
     protected override void OnLostFocus(RoutedEventArgs e) { EndDrag(cancel: true); base.OnLostFocus(e); }
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) { base.OnAttachedToVisualTree(e); ObserveChannel(); }

@@ -249,6 +249,10 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     public bool HasSelectedModel => modelSelected;
     public bool CanEditSelectedModelStyle => CanEdit && modelSelected;
     public bool CanInheritSelectedModelStyle => CanEditSelectedModelStyle && modelOverride;
+    public EditorStyleInspectorChoice? ModelOverrideChoice => modelOverride ? options.FirstOrDefault(choice => choice.Reference == modelStyle) : null;
+    public string ModelStylePlaceholder => modelOverride && modelStyle is { } retained
+        ? Format("Mda.Text.Context.Inspector.Style.RetainedOption", retained.StableId)
+        : Text("Mda.Text.Context.Inspector.Style.InheritSelected");
     public bool IsModelInherited => modelSelected && !modelOverride;
     public string Status => status;
     public bool HasStatus => hasStatus;
@@ -500,7 +504,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             Changed(nameof(IsModernEngine)); Changed(nameof(IsClassicEngine)); Changed(nameof(ClassicNotice));
             Changed(nameof(GuessMaterialRoles)); Changed(nameof(CanEditGuessMaterialRoles));
             Changed(nameof(CanEditSelectedModelStyle)); Changed(nameof(CanInheritSelectedModelStyle));
-            Changed(nameof(IsModelInherited)); Changed(nameof(Status)); Changed(nameof(HasStatus));
+            Changed(nameof(ModelStylePlaceholder)); Changed(nameof(ModelOverrideChoice)); Changed(nameof(IsModelInherited)); Changed(nameof(Status)); Changed(nameof(HasStatus));
             Changed(nameof(ModelStatus)); Changed(nameof(Notice)); Changed(nameof(HasNotice));
             Changed(nameof(MissingStyleId)); Changed(nameof(MissingStylePluginId));
             Changed(nameof(MissingStylePluginName)); Changed(nameof(MissingStyleCount));

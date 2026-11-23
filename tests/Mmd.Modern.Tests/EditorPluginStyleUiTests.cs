@@ -199,6 +199,24 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 Assert.False(inspector.CanEdit);
                 Assert.False(inspector.CanEditGuessMaterialRoles);
                 Assert.False(string.IsNullOrWhiteSpace(inspector.ClassicNotice));
+                using var classicShell = new EditorShellViewModel(EditorLightPlacement.DefaultCamera, classicWorkspace.RenderEngine);
+                var window = new EditorWindow(false);
+                var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+                viewport.IsSuspended = true; viewport.IsVisible = false;
+                window.DataContext = classicShell;
+                try
+                {
+                    window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                    var tabs = window.FindControl<TabControl>("InspectorPageTabs")!;
+                    Assert.Equal("MME / Toon", ((TabItem)tabs.Items[1]!).Header);
+                    Assert.False(((TabItem)tabs.Items[2]!).IsVisible);
+                    Assert.False(window.FindControl<Button>("AddViewportLightButton")!.IsEffectivelyVisible);
+                    Assert.False(viewport.LightController!.IsEnabled);
+                    classicShell.ShowInspectorPage(EditorInspectorPage.Material);
+                    Assert.True(classicShell.IsStylePage);
+                }
+                finally { window.DataContext = null; window.Close(); }
+
             }
             finally
             {
@@ -341,6 +359,12 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 shell.Animation.SelectBone(0);
                 shell.Animation.PositionX = 1.25m;
                 Assert.True(shell.Animation.HasAnyDraft);
+                var modelStyle = window.FindControl<ComboBox>("ModelStyleOverrideBox")!;
+                modelStyle.SelectedItem = inspector.Options.Single(choice => choice.StableId == "star-rail");
+                Assert.Equal("star-rail", project.GetRenderingStyle(first).StableId);
+                Assert.Equal("endfield", project.GetRenderingStyle(second).StableId);
+                Assert.True(workspace.Undo());
+                Assert.Equal("genshin", project.GetRenderingStyle(first).StableId);
                 var inherit = window.FindControl<Button>("InheritSelectedModelStyleButton")!;
                 Assert.True(inherit.IsEffectivelyEnabled);
                 inherit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

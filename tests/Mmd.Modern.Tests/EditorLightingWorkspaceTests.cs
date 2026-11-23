@@ -30,23 +30,20 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task LightingContextRemovesModelControlsAndLeftTabReturnsToObjects() => await session.Dispatch(() =>
+    public async Task OutlineFiltersAreIndependentOfTheLightingInspector() => await session.Dispatch(() =>
     {
         var (window, shell) = Editor();
         try
         {
             shell.ShowInspectorPage(EditorInspectorPage.Lighting);
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            Assert.False(window.FindControl<ComboBox>("CurrentModelSelector")!.IsEffectivelyVisible);
-            Assert.False(window.FindControl<Button>("InspectorModelPropertiesButton")!.IsEffectivelyVisible);
             Assert.True(window.FindControl<TabControl>("InspectorPageTabs")!.IsEffectivelyVisible);
-            Assert.Equal(3, window.FindControl<TabControl>("InspectorPageTabs")!.SelectedIndex);
-            var tabs = window.FindControl<TabControl>("WorkspaceModeTabs");
-            Assert.NotNull(tabs); Assert.Equal(1, tabs.SelectedIndex);
+            var filter = window.FindControl<ComboBox>("OutlineFilter")!;
+            Assert.Equal(0, filter.SelectedIndex);
             Assert.True(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
-            tabs.SelectedIndex = 0;
-            Assert.Equal(EditorInspectorPage.Animation, shell.InspectorPage);
-            Assert.True(window.FindControl<ComboBox>("CurrentModelSelector")!.IsEffectivelyVisible);
+            filter.SelectedIndex = 1;
+            Assert.Equal(EditorInspectorPage.Lighting, shell.InspectorPage);
+            Assert.True(window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!.IsEffectivelyVisible);
             Assert.False(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
             return true;
         }
@@ -91,8 +88,8 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.Empty(viewport.FrameDecorator(original).Scene.EditorOverlay?.Lines ?? []);
             Assert.False(bones.TryBeginDrag(x, y, 800, 600, camera));
 
-            tabs.SelectedIndex = (int)EditorInspectorPage.Animation;
-            Assert.True(shell.IsAnimationPage);
+            tabs.SelectedIndex = (int)EditorInspectorPage.Style;
+            Assert.True(shell.IsStylePage);
             bones.FramePresented(lateAnimationFrame);
             Assert.False(bones.TryBeginDrag(x, y, 800, 600, camera));
             Assert.True(bones.ShowBones && bones.ShowSelectionBounds && bones.IsManipulationEnabled);
@@ -125,8 +122,8 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
             var section = window.FindControl<Expander>("MainLightSection")!;
-            Assert.Null(viewport.MainLightViewport);
-            section.IsExpanded = true;
+            Assert.True(section.IsExpanded);
+            Assert.NotNull(viewport.MainLightViewport);
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var controller = Assert.IsType<EditorMainLightViewport>(viewport.MainLightViewport);
             var snapshot = shell.Workspace.Session!.CaptureRenderSnapshot();
@@ -145,7 +142,12 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.NotEqual(direction, shell.SceneInspector.LightPose.Direction);
             Assert.True(shell.Workspace.Redo());
             Assert.Equal(direction, shell.SceneInspector.LightPose.Direction);
-            section.IsExpanded = false;
+            // Collapsing parameters or returning to a style preset keeps the lamp draggable.
+            shell.ShowInspectorPage(EditorInspectorPage.Style);
+            Assert.NotNull(viewport.MainLightViewport);
+            var helpers = window.FindControl<Avalonia.Controls.Primitives.ToggleButton>("LightHelpersToggle")!;
+            helpers.IsChecked = false;
+            helpers.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             Assert.Null(viewport.MainLightViewport);
             return true;
@@ -182,6 +184,40 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.Same(before, shell.Workspace.Session.Lighting);
             Assert.True(shell.Workspace.Undo()); // Selection/search added no transaction after the lighting edit.
             Assert.Empty(shell.Workspace.Session.Lighting.Lights);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task OutlineChoosesTheClickedLampAndViewportSelectionKeepsTheStylePage() => await session.Dispatch(() =>
+    {
+        var (window, shell) = Editor();
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+            using var input = File.OpenRead(path);
+            var model = PmdPmxAdapter.Convert(PmdReader.Read(input));
+            shell.Workspace.AddModel(path, EditorProjectWorkspace.CreateModelAsset(model, path), ModelRole.Character);
+            var a = new NativeSceneLight(Guid.NewGuid(), "First", SceneLightKind.Point, Vector3.Zero, Quaternion.Identity, Vector3.One);
+            var b = a with { Id = Guid.NewGuid(), Name = "Second" };
+            shell.Workspace.EditLighting(new(new([a, b])));
+            var view = window.FindControl<EditorViewportHost>("SceneViewport")!;
+            var list = window.FindControl<ListBox>("WorkspaceLightList")!;
+            Assert.True(shell.IsStylePage);
+            list.SelectedItem = list.Items.OfType<EditorNativeLightItem>().Single(light => light.Id == b.Id);
+            Assert.Equal(b.Id, view.LightController!.SelectedLightId);
+            Assert.True(shell.IsLightingPage);
+            shell.ShowInspectorPage(EditorInspectorPage.Style);
+            view.LightController.Select(a.Id);
+            Assert.True(shell.IsStylePage);
+            var toggle = window.FindControl<Avalonia.Controls.Primitives.ToggleButton>("ViewportLightEnabled")!;
+            toggle.IsChecked = false;
+            toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.False(shell.Workspace.Session!.Lighting.Lights.Single(light => light.Id == a.Id).Enabled);
+            Assert.True(shell.Workspace.Session.Lighting.Lights.Single(light => light.Id == b.Id).Enabled);
+            Assert.True(shell.Workspace.Undo());
+            Assert.True(shell.Workspace.Session.Lighting.Lights.Single(light => light.Id == a.Id).Enabled);
             return true;
         }
         finally { Close(window); }
@@ -307,14 +343,14 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
         Directory.CreateDirectory(directory);
         // CPU Skia checks the real Avalonia layout; the native GPU viewport stays suspended.
         window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-        using var frame = window.CaptureRenderedFrame();
+        using var frame = HeadlessTestHost.CaptureLayoutFrame(window);
         Assert.NotNull(frame); frame.Save(Path.Combine(directory, name + ".png"));
         double width = window.Width, height = window.Height;
         try
         {
             window.Width = 1100; window.Height = 720;
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            using var minimum = window.CaptureRenderedFrame();
+            using var minimum = HeadlessTestHost.CaptureLayoutFrame(window);
             Assert.NotNull(minimum); minimum.Save(Path.Combine(directory, name + "-minimum.png"));
         }
         finally { window.Width = width; window.Height = height; window.UpdateLayout(); }

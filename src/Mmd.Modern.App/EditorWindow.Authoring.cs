@@ -117,7 +117,8 @@ public partial class EditorWindow
         boneController.Changed += BoneToolsChanged;
         viewport.BoneController = boneController;
         viewport.LightController = lightController;
-        viewport.FrameDecorator = frame => boneController.DecorateFrame(lightController.DecorateFrame(frame), publishPicking: false);
+        viewport.FrameDecorator = frame => boneController.DecorateFrame(lightController.DecorateFrame(frame), publishPicking: false,
+            lightDragging: lightController.IsDragging || viewport.MainLightViewport?.IsDragging == true);
         SynchronizeBoneTools();
         InitializeLightingInspector(shell);
     }

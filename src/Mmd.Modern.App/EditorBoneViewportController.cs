@@ -8,7 +8,7 @@ namespace Mmd.Modern.App;
 
 /// <summary>Editor-only solved-bone guides and raw local-animation gestures. The borrowed project,
 /// source model and keyframe history are never changed by this controller.</summary>
-public sealed class EditorBoneViewportController
+public sealed partial class EditorBoneViewportController
 {
     private readonly EditorShellViewModel shell;
     private readonly Action requestRender;
@@ -17,6 +17,8 @@ public sealed class EditorBoneViewportController
     private CapturedPose? captured;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<PreviewFrame, CapturedPose> awaitingPresentation = new();
     private Drag? drag;
+    private bool dragEdited;
+    private Vector2 lastDragPoint;
     private PmxModel? visibilityModel;
     private HashSet<int> physicsDrivenBones = [];
     private HashSet<int> fixedAxisMarkerOnlyBones = [];
@@ -26,10 +28,10 @@ public sealed class EditorBoneViewportController
         IReadOnlyList<BoneSegment> BoneSegments, IReadOnlyList<BoneHandle> BoneHandles);
     private sealed record BoneCenter(int Index, Vector2 Point, Vector3 WorldPoint);
     private sealed record BoneSegment(int Index, Vector2 Start, Vector2 End, Vector3 WorldStart, Vector3 WorldEnd);
-    private sealed record BoneHandle(int Index, LightDragAxis Axis, bool Rotate, BoneEditingSpace Space);
+    private sealed record BoneHandle(int Index, LightDragAxis Axis, bool Rotate, BoneEditingSpace Space, Vector2? Corner = null);
     private sealed record Drag(CapturedPose Captured, EditorAnimationViewModel.ViewportBoneDraftState Before,
         BoneEditingBasis Basis, float ParentScale, Vector2 Start, SceneCamera Camera, int Width, int Height,
-        LightDragAxis Axis, bool Rotate);
+        LightDragAxis Axis, bool Rotate, bool Corner);
 
     public EditorBoneViewportController(EditorShellViewModel shell, Action requestRender)
     {
@@ -77,13 +79,14 @@ public sealed class EditorBoneViewportController
         set { if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value)); if (editingSpace == value) return; CancelDrag(); editingSpace = value; Notify(); }
     }
     public bool IsDragging => drag is not null;
+    internal bool HasPointerGesture => IsDragging || pendingPick is not null;
     // Raw draft values are represented by the immutable snapshot identity. Selection and
     // gesture provenance must still differ even when their emitted pixels happen to match.
     internal object PresentationIdentity => new PresentationKey(new(shell.Workspace.Session), shell.ContentRevision,
-        shell.CurrentFrame, new(shell.Browser.SelectedModel), shell.Animation.ObjectId, shell.Animation.SelectedBoneIndex,
+        shell.CurrentFrame, new(shell.Browser.SelectedModel), shell.Animation.ObjectId, shell.Animation.SelectedBoneIndex, new(shell.Animation.SelectedBoneIndices),
         enabled, showBones, showSelectionBounds, manipulate, rotateHandle, editingSpace, new(drag));
     private readonly record struct PresentationKey(EditorPresentationReference Session, long Revision, int Frame,
-        EditorPresentationReference Model, Guid? ObjectId, int? BoneIndex, bool Enabled, bool ShowBones,
+        EditorPresentationReference Model, Guid? ObjectId, int? BoneIndex, EditorPresentationReference Selection, bool Enabled, bool ShowBones,
         bool ShowBounds, bool Manipulate, bool Rotate, BoneEditingSpace Space, EditorPresentationReference Gesture);
 
     /// <summary>Merge with the renderer's requests before the host captures its live or detached pose.
@@ -107,13 +110,13 @@ public sealed class EditorBoneViewportController
 
     /// <summary>The renderer composites these editor lines after the final scene filter. They never
     /// enter scene lighting, reconstruction history or the export/capture path.</summary>
-    public PreviewFrame DecorateFrame(PreviewFrame frame, bool publishPicking = true)
+    public PreviewFrame DecorateFrame(PreviewFrame frame, bool publishPicking = true, bool lightDragging = false)
     {
         ArgumentNullException.ThrowIfNull(frame);
         Synchronize();
         var lastPresented = captured;
         var selected = shell.Browser.SelectedModel;
-        if (!enabled || (!showBones && !showSelectionBounds) || selected is null || shell.Workspace.Session is not { } session
+        if (lightDragging || !enabled || (!showBones && !showSelectionBounds) || selected is null || shell.Workspace.Session is not { } session
             || frame.Width <= 0 || frame.Height <= 0 || !frame.SceneInputs.TryGetValue(selected.ObjectId, out var inputs)
             || !inputs.Visible)
         { captured = null; return frame; }
@@ -128,7 +131,7 @@ public sealed class EditorBoneViewportController
         var lines = new List<ViewportOverlayLine>();
         int? selectedBone = shell.Animation.ObjectId == selected.ObjectId ? shell.Animation.SelectedBoneIndex : null;
         var highlight = new Vector4(.95f, .12f, .18f, 1);
-        if (showBones && selectedBone is { } active && inputs.BoneWorldMatrices.TryGetValue(active, out var activeWorld))
+        if (showBones && selectedBone is { } active && inputs.BoneWorldMatrices.ContainsKey(active))
         {
             DrawBone(active, highlight);
             if (manipulate && TryCreateBasis(captured, active, camera, out var basis, out _))
@@ -142,14 +145,30 @@ public sealed class EditorBoneViewportController
                     if (lines.Count - beforeHandle == (rotateHandle ? RingSegments : 1))
                         boneHandles.Add(new(active, axis, rotateHandle, editingSpace));
                 }
+                if (shell.Animation.CanRotate && frame.Width >= 110 && frame.Height >= 44)
+                {
+                    foreach (var axis in Axes)
+                    {
+                        var center = CornerCenter(axis, frame.Width, frame.Height);
+                        var strokes = CornerGlyph(axis);
+                        if (lineBudget - lines.Count < strokes.Length + 1) break;
+                        var uv = center / new Vector2(frame.Width, frame.Height);
+                        lines.Add(new(uv, uv, AxisColor(axis), 1.5f, ViewportOverlayShape.Square, CornerRadius));
+                        foreach (var (start, end) in strokes) Line(center + start, center + end, AxisColor(axis));
+                        boneHandles.Add(new(active, axis, true, editingSpace, center));
+                    }
+                }
             }
         }
         if (showSelectionBounds && inputs.SourceGeometry is { } geometry) DrawBounds(geometry, new(.46f, .64f, .77f, 1));
         int priorityLineCount = lines.Count;
         if (showBones)
+        {
+            var selectedIndices = shell.Animation.SelectedBoneIndices.Count > 1 ? shell.Animation.SelectedBoneIndices.ToHashSet() : null;
             foreach (int index in Enumerable.Range(0, selected.PmxModel.Bones.Count)
                 .Where(index => index != selectedBone && IsShown(selected.PmxModel, index)))
-                DrawBone(index, new(.12f, .30f, .95f, 1));
+                DrawBone(index, selectedIndices?.Contains(index) == true ? highlight : new(.12f, .30f, .95f, 1));
+        }
 
         var overlay = new ViewportOverlaySnapshot(existing.Concat(lines.Skip(priorityLineCount)).Concat(lines.Take(priorityLineCount)));
         var scene = frame.Scene;
@@ -238,63 +257,78 @@ public sealed class EditorBoneViewportController
     /// Handles must be fully emitted in that frame and match the current mode and editing space.
     /// After centers and selected handles, only bone segments actually drawn in that frame can hit.
     /// A click may select without starting a gesture when the PMX channel disallows that edit.</summary>
-    public bool TryBeginDrag(int x, int y, int width, int height, SceneCamera camera, bool rotate = false)
+    public bool TryBeginDrag(int x, int y, int width, int height, SceneCamera camera, bool rotate = false, bool extendSelection = false)
     {
         ArgumentNullException.ThrowIfNull(camera); Synchronize();
-        if (!enabled || !showBones || shell.IsBusy || drag is not null || captured is not { } pose
+        if (!enabled || !showBones || shell.IsBusy || HasPointerGesture || captured is not { } pose
             || width != pose.RenderFrame.Width || height != pose.RenderFrame.Height || width <= 0 || height <= 0
             || pose.RenderFrame.SourceFrame != shell.CurrentFrame) return false;
         var displayedCamera = pose.RenderFrame.ResolvedCamera ?? pose.RenderFrame.Camera?.CreateCamera()
             ?? pose.RenderFrame.Scene.Surface.Snapshot.Camera;
-        if (camera != displayedCamera) { requestRender(); return false; }
+        if (camera != displayedCamera) { lastPick = null; requestRender(); return false; }
         var mouse = new Vector2(x, y);
-        int? hit = null; float nearest = 100, depth = float.PositiveInfinity;
-        foreach (var center in pose.BoneCenters)
-        {
-            int index = center.Index;
-            if ((uint)index >= (uint)pose.Model.PmxModel.Bones.Count
-                || (index != shell.Animation.SelectedBoneIndex && !IsShown(pose.Model.PmxModel, index))) continue;
-            float distance = Vector2.DistanceSquared(mouse, center.Point), candidateDepth = Vector3.DistanceSquared(center.WorldPoint, camera.Eye);
-            if (distance <= 100 && (hit is null || distance < nearest || (distance == nearest
-                && (candidateDepth < depth || (candidateDepth == depth && index < hit.Value)))))
-            { hit = index; nearest = distance; depth = candidateDepth; }
-        }
         bool rotating = ResolveRotateHandle(rotate || preferredRotateHandle);
         var axis = LightDragAxis.Free;
-        if (manipulate && hit is null && shell.Animation.SelectedBoneIndex is { } selected
+        bool corner = false;
+        int? hit = null;
+        // The corner controls are drawn on top of the model, even if a projected joint is beneath one.
+        if (manipulate && !extendSelection)
+        {
+            foreach (var handle in pose.BoneHandles)
+            {
+                if (handle.Index != shell.Animation.SelectedBoneIndex || handle.Space != editingSpace || handle.Corner is not { } center) continue;
+                var delta = Vector2.Abs(mouse - center);
+                if (delta.X > CornerRadius || delta.Y > CornerRadius) continue;
+                hit = handle.Index; axis = handle.Axis; corner = true; break;
+            }
+        }
+        int[] candidates = hit is null ? CenterCandidates(pose, mouse, camera) : [];
+        if (candidates.Length != 0) hit = candidates[0];
+        if (manipulate && hit is null && !extendSelection && shell.Animation.SelectedBoneIndex is { } selected
             && TryCreateBasis(pose, selected, camera, out var selectedBasis, out _))
         {
             float size = HandleSize(selectedBasis.Origin, camera, width, height), distance = 7;
             foreach (var handle in pose.BoneHandles)
             {
-                if (handle.Index != selected || handle.Rotate != rotating || handle.Space != editingSpace) continue;
+                if (handle.Corner is not null || handle.Index != selected || handle.Rotate != rotating || handle.Space != editingSpace) continue;
                 float test = HandleDistance(selectedBasis, handle.Axis, size, mouse, camera, width, height, rotating);
                 if (test < distance) { distance = test; axis = handle.Axis; hit = selected; }
             }
         }
         if (hit is null)
         {
-            nearest = 36; depth = float.PositiveInfinity;
-            foreach (var segment in pose.BoneSegments)
-            {
-                var direction = segment.End - segment.Start;
-                float length = direction.LengthSquared();
-                float along = length < 1e-6f ? 0 : Math.Clamp(Vector2.Dot(mouse - segment.Start, direction) / length, 0, 1);
-                float distance = Vector2.DistanceSquared(mouse, segment.Start + direction * along);
-                float candidateDepth = Vector3.DistanceSquared(Vector3.Lerp(segment.WorldStart, segment.WorldEnd, along), camera.Eye);
-                if (distance <= 36 && (hit is null || distance < nearest || (distance == nearest
-                    && (candidateDepth < depth || (candidateDepth == depth && segment.Index < hit.Value)))))
-                { hit = segment.Index; nearest = distance; depth = candidateDepth; }
-            }
+            candidates = SegmentCandidates(pose, mouse, camera);
+            if (candidates.Length != 0) hit = candidates[0];
         }
-        if (hit is not { } boneIndex) return false;
+        if (hit is not { } boneIndex) { lastPick = null; return false; }
         if (CanBeginInteraction?.Invoke() == false) return true;
-        if (!ReferenceEquals(shell.Workspace.Session, pose.Session) || shell.ContentRevision != pose.Revision)
-        { requestRender(); return true; }
-        shell.StopPlayback(); shell.Browser.HierarchyTab = 0; shell.Browser.SelectedBoneIndex = boneIndex;
-        shell.SceneSelectionIndex = -1;
+        if (!Current(pose)) { requestRender(); return true; }
+        shell.StopPlayback();
+        if (candidates.Length > 1 && !extendSelection)
+        {
+            var cycle = new PickCycle(pose.Model.ObjectId, pose.Revision, pose.Frame, width, height, camera, mouse, candidates, boneIndex);
+            int next = boneIndex;
+            if (lastPick is { } previous && previous.Matches(cycle) && previous.Selected == shell.Animation.SelectedBoneIndex)
+            {
+                boneIndex = previous.Selected;
+                next = candidates[(Array.IndexOf(candidates, boneIndex) + 1) % candidates.Length];
+            }
+            pendingPick = new(cycle with { Selected = boneIndex }, next);
+        }
+        lastPick = null;
+        if (extendSelection)
+        {
+            var selection = shell.Animation.SelectedBoneIndices.ToList();
+            if (!selection.Remove(boneIndex)) selection.Add(boneIndex);
+            shell.Browser.HierarchyTab = 0;
+            shell.Browser.SelectedBoneIndex = selection.Count == 0 ? null : selection[^1];
+            shell.SceneSelectionIndex = -1;
+            shell.Animation.SelectBones(selection);
+            Notify(); return true;
+        }
+        if (!corner && axis == LightDragAxis.Free) SelectSingleBone(boneIndex);
         SynchronizeHandleMode();
-        rotating = ResolveRotateHandle(rotate || preferredRotateHandle);
+        rotating = corner || ResolveRotateHandle(rotate || preferredRotateHandle);
         if (!manipulate) { Notify(); return true; }
         if (!pose.Model.PmxModel.Bones[boneIndex].Flags.HasFlag(PmxBoneFlags.AllowControl)
             || (rotating ? !shell.Animation.CanRotate : !shell.Animation.CanTranslate))
@@ -312,7 +346,8 @@ public sealed class EditorBoneViewportController
             shell.OperationStatus = EditorLocalization.Text("当前骨骼草稿无效，无法开始拖动。请先修正骨骼属性中的输入。");
             Notify(); return true;
         }
-        drag = new(pose, before, basis, parentScale, mouse, camera, width, height, axis, rotating);
+        dragEdited = false; lastDragPoint = mouse;
+        drag = new(pose, before, basis, parentScale, mouse, camera, width, height, axis, rotating, corner);
         Notify(); return true;
     }
 
@@ -320,8 +355,18 @@ public sealed class EditorBoneViewportController
     {
         using var measure = InteractionDiagnostics.Measure("bone.move", EditorInteractionTrace.CurrentInput);
         Synchronize();
+        if (pendingPick is { } click)
+        {
+            if (Vector2.DistanceSquared(click.Cycle.Point, new(x, y)) <= ClickSlopSquared) return true;
+            // Drag the bone that was selected on press. Only a stationary release advances the cycle.
+            if (drag is null) { pendingPick = click with { Moved = true }; return true; }
+            pendingPick = null;
+        }
         if (drag is not { } gesture) return false;
-        var delta = new Vector2(x, y) - gesture.Start;
+        var mouse = new Vector2(x, y);
+        if (mouse == lastDragPoint) return true;
+        lastDragPoint = mouse;
+        var delta = mouse - gesture.Start;
         var local = gesture.Before.LocalPose;
         if (gesture.Rotate)
         {
@@ -335,7 +380,7 @@ public sealed class EditorBoneViewportController
             }
             else
             {
-                float angle = RotationAngle(gesture, new(x, y));
+                float angle = gesture.Corner ? (delta.X - delta.Y) * .01f : RotationAngle(gesture, new(x, y));
                 rotation = Quaternion.CreateFromAxisAngle(UnitAxis(gesture.Axis), angle);
                 local = gesture.Basis.RotateInBasis(local, rotation);
             }
@@ -359,19 +404,44 @@ public sealed class EditorBoneViewportController
             if (!float.IsFinite(scaledDelta.X) || !float.IsFinite(scaledDelta.Y) || !float.IsFinite(scaledDelta.Z)) return true;
             local = gesture.Basis.TranslateInWorld(local, scaledDelta);
         }
-        if (delta == Vector2.Zero) shell.Animation.RestoreViewportBoneDraft(gesture.Before);
-        else shell.Animation.ApplyViewportBoneDraft(gesture.Before, local);
+        if (delta == Vector2.Zero)
+        {
+            if (!dragEdited) return true;
+            shell.Animation.RestoreViewportBoneDraft(gesture.Before);
+            dragEdited = false;
+        }
+        else
+        {
+            shell.Animation.ApplyViewportBoneDraft(gesture.Before, local);
+            dragEdited = true;
+        }
         Notify(); return true;
     }
 
     /// <summary>Release keeps an unregistered pose. Existing Animation.RegisterKeyframeCommand owns
     /// overwrite confirmation, the project transaction and Undo; release never invokes it.</summary>
-    public bool EndDrag() { Synchronize(); if (drag is null) return false; drag = null; Notify(); return true; }
+    public bool EndDrag(bool finishClick = true)
+    {
+        Synchronize();
+        if (!HasPointerGesture) return false;
+        drag = null;
+        if (finishClick && pendingPick is { Moved: false } click && shell.Animation.SelectedBoneIndex == click.Cycle.Selected
+            && shell.Browser.SelectedModel?.ObjectId == click.Cycle.Actor && shell.CurrentFrame == click.Cycle.Frame
+            && shell.ContentRevision == click.Cycle.Revision)
+        {
+            pendingPick = null;
+            if (click.Next != click.Cycle.Selected) SelectSingleBone(click.Next);
+            lastPick = click.Cycle with { Selected = click.Next };
+        }
+        pendingPick = null;
+        Notify(); return true;
+    }
     public void CancelDrag()
     {
+        pendingPick = null; lastPick = null;
         if (drag is not { } gesture) return;
         drag = null;
-        if (SourceCurrent(gesture.Captured)) shell.Animation.RestoreViewportBoneDraft(gesture.Before);
+        if (dragEdited && SourceCurrent(gesture.Captured)) shell.Animation.RestoreViewportBoneDraft(gesture.Before);
         Notify();
     }
     public void Refresh() { Synchronize(); captured = null; Notify(); }
@@ -574,9 +644,9 @@ public sealed partial class EditorAnimationViewModel
         var draft = new BoneDraft(ToDecimal(pose.Translation.X), ToDecimal(pose.Translation.Y), ToDecimal(pose.Translation.Z),
             ToDecimal(degrees.X), ToDecimal(degrees.Y), ToDecimal(degrees.Z), pose.Rotation, false);
         if (!draft.IsValid) return;
-        if (!actorDrafts.TryGetValue(before.ObjectId, out var pending)) actorDrafts.Add(before.ObjectId, pending = new(before.Model, before.Source));
+        if (!actorDrafts.TryGetValue((before.ObjectId, before.Frame), out var pending)) actorDrafts.Add((before.ObjectId, before.Frame), pending = new(before.Model, before.Source));
         pending.Bones[before.BoneIndex] = draft;
-        LoadPose(); Changed(nameof(HasInvalidDrafts)); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
+        LoadPose(); Changed(nameof(HasInvalidDrafts)); NotifyDraftContentEdited(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
     }
 
     internal void RestoreViewportBoneDraft(ViewportBoneDraftState before)
@@ -584,19 +654,19 @@ public sealed partial class EditorAnimationViewModel
         if (!ViewportContextMatches(before)) return;
         if (before.HadDraft)
         {
-            if (!actorDrafts.TryGetValue(before.ObjectId, out var pending)) actorDrafts.Add(before.ObjectId, pending = new(before.Model, before.Source));
+            if (!actorDrafts.TryGetValue((before.ObjectId, before.Frame), out var pending)) actorDrafts.Add((before.ObjectId, before.Frame), pending = new(before.Model, before.Source));
             pending.Bones[before.BoneIndex] = new(before.X, before.Y, before.Z, before.Pitch, before.Yaw, before.Roll,
                 before.SampledRotation, before.RotationEdited);
         }
-        else if (actorDrafts.TryGetValue(before.ObjectId, out var pending))
+        else if (actorDrafts.TryGetValue((before.ObjectId, before.Frame), out var pending))
         {
             pending.Bones.Remove(before.BoneIndex);
-            if (pending.IsEmpty) actorDrafts.Remove(before.ObjectId);
+            if (pending.IsEmpty) actorDrafts.Remove((before.ObjectId, before.Frame));
         }
-        LoadPose(); Changed(nameof(HasInvalidDrafts)); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
+        LoadPose(); Changed(nameof(HasInvalidDrafts)); NotifyDraftContentEdited(); PoseDraftChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private bool ViewportContextMatches(ViewportBoneDraftState before) => CurrentFrame == before.Frame
         && (objectId == before.ObjectId ? ReferenceEquals(model, before.Model) && ReferenceEquals(sourceMotion, before.Source)
-            : actorDrafts.TryGetValue(before.ObjectId, out var pending) && ReferenceEquals(pending.Model, before.Model) && ReferenceEquals(pending.Source, before.Source));
+            : actorDrafts.TryGetValue((before.ObjectId, before.Frame), out var pending) && ReferenceEquals(pending.Model, before.Model) && ReferenceEquals(pending.Source, before.Source));
 }

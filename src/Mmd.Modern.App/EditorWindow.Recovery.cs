@@ -262,7 +262,7 @@ public partial class EditorWindow
             if (state.NativeLighting is { } native)
             {
                 shell.ShowInspectorPage(native.InspectorPage);
-                _observedInspectorPage = native.InspectorPage;
+                _observedInspectorPage = shell.InspectorPage;
                 nativeInspector.RestoreRecoveryState(native, shell.Workspace.Session!.Lighting, shell.Workspace.DocumentId);
                 lightController?.CancelDrag();
                 lightController?.SelectMany(native.ActiveLightIds.Length > 0 ? native.ActiveLightIds

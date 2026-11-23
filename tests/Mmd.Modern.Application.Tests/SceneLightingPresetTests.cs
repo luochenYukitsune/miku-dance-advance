@@ -12,6 +12,21 @@ public sealed class SceneLightingPresetTests
         new(3, 4, 5), Quaternion.Identity, new(.9f, .8f, .7f), 2, 30, GroupId: group);
 
     [Fact]
+    public void ApplySinglePresetChangesAppearanceAndPreservesTheDestinationAndItsLinks()
+    {
+        var group = new SceneLightGroup(Guid.NewGuid(), "Portrait");
+        var target = Light(group.Id) with { Parent = new(Guid.NewGuid(), 2) };
+        var value = Light() with { Kind = SceneLightKind.Area, AreaSize = new(3, 5), Color = Vector3.UnitY,
+            Position = Vector3.Zero, Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, 1), Intensity = 7 };
+        var original = new SceneLightingSnapshot([target], [group]);
+        var preset = SceneLightingPreset.Capture("Softbox", new([value]), [value.Id]);
+        var updated = Assert.Single(preset.ApplyToLight(original, target.Id).Lights);
+        Assert.Equal(target with { Kind = value.Kind, AreaSize = value.AreaSize, Color = value.Color, Intensity = 7 }, updated);
+        Assert.Equal(target, Assert.Single(original.Lights));
+        Assert.Throws<ArgumentException>(() => SceneLightingPreset.CreateBuiltin(SceneLightingBuiltinPreset.PortraitSoft).ApplyToLight(original, target.Id));
+    }
+
+    [Fact]
     public void PortableCaptureResolvesParentsAndExplicitlyDropsProjectReceiverReferences()
     {
         var group = new SceneLightGroup(Guid.NewGuid(), "Portrait", false, 3);

@@ -34,6 +34,27 @@ internal static class HeadlessTestHost
         return session;
     }
 
+    internal static Avalonia.Media.Imaging.WriteableBitmap CaptureLayoutFrame(Avalonia.Controls.Window window)
+    {
+        // Headless resizes its framebuffer before the compositor submits the resized visual tree.
+        // Pump a platform tick so the snapshot covers the laid-out controls at the requested size.
+        window.UpdateLayout();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        LoadingClockTestDriver.Pump(120);
+        window.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("The window did not render.");
+        var expected = PixelSize.FromSize(window.ClientSize, window.RenderScaling);
+        if (frame.PixelSize != expected)
+        {
+            var actual = frame.PixelSize;
+            frame.Dispose();
+            throw new InvalidOperationException($"Expected framebuffer {expected}, captured {actual}.");
+        }
+        return frame;
+    }
+
     [UnsafeAccessor(UnsafeAccessorKind.Constructor)]
     private static extern HeadlessUnitTestSession CreateSession(AppBuilder builder, CancellationTokenSource shutdown,
         BlockingCollection<(Action, ExecutionContext?)> queue, Task worker, bool isolated);

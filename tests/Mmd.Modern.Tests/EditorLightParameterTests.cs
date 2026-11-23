@@ -280,6 +280,7 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
 
             var advanced = inspector.GetVisualDescendants().OfType<Expander>().Single(control => control.Name == "InlineLightAdvanced");
             Assert.False(advanced.IsExpanded);
+            ExpandTransform(inspector);
             var posX = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightPositionX");
             Assert.True(posX.IsEffectivelyVisible);
 
@@ -317,7 +318,7 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
     }, TestContext.Current.CancellationToken);
 
     [Fact]
-    public async Task DirectionPadDragPreviewsAttachedLightLocallyAndReleasesOneEdit() => await session.Dispatch(() =>
+    public async Task AimMenuEditsAParentedLampInItsLocalSpaceAsOneUndo() => await session.Dispatch(() =>
     {
         var (window, shell, original) = Editor();
         try
@@ -330,32 +331,36 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
             shell.Workspace.EditLighting(new(new([before]), before.Id));
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
-            var pad = inspector.GetVisualDescendants().OfType<EditorLightDirectionPad>().Single();
-            pad.BringIntoView(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var center = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
-            var end = center + new Avalonia.Vector(18, -12);
-            var controller = (EditorLightViewportController)typeof(EditorWindow).GetField("lightController", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
-            window.MouseDown(center, MouseButton.Left); window.MouseMove(end);
-            Assert.True(controller.IsInteracting);
-            var preview = Assert.Single(controller.PreviewLighting.Lights);
-            Assert.True(preview.Direction.X < 0 && preview.Direction.Y < 0);
-            Assert.Equal(before, Assert.Single(project.Lighting.Lights));
-            window.MouseUp(end, MouseButton.Left); Dispatcher.UIThread.RunJobs();
-            Assert.False(controller.IsInteracting);
-            Assert.Equal(preview, Assert.Single(project.Lighting.Lights));
+            Aim(inspector, "InlineLightAimCenterButton");
+            var aimed = Assert.Single(project.Lighting.Lights);
+            Assert.NotEqual(before.Direction, aimed.Direction);
+            Assert.Equal(before.Parent, aimed.Parent);
             var world = Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights);
-            Assert.InRange(Vector3.Distance(Vector3.Transform(preview.Direction, rotation), world.Direction), 0, .0001f);
-            window.MouseDown(center, MouseButton.Left);
-            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
-            window.MouseUp(center, MouseButton.Left);
-            Assert.False(controller.IsInteracting);
-            Assert.Equal(preview, Assert.Single(project.Lighting.Lights));
+            Assert.InRange(Vector3.Distance(Vector3.Transform(aimed.Direction, rotation), world.Direction), 0, .0001f);
             Assert.True(shell.Workspace.Undo());
             Assert.Equal(before, Assert.Single(project.Lighting.Lights));
             return true;
         }
         finally { Close(window); }
     }, TestContext.Current.CancellationToken);
+
+    private static void ExpandTransform(EditorLightInspector inspector)
+    {
+        Dispatcher.UIThread.RunJobs();
+        ((Window)TopLevel.GetTopLevel(inspector)!).UpdateLayout();
+        var section = inspector.GetVisualDescendants().OfType<Expander>().Single(control => control.Name == "LightTransformExpander");
+        section.IsExpanded = true;
+        ((Window)TopLevel.GetTopLevel(inspector)!).UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Aim(EditorLightInspector inspector, string name)
+    {
+        ExpandTransform(inspector);
+        var button = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "LightAimMenu");
+        var item = ((MenuFlyout)button.Flyout!).Items.OfType<MenuItem>().Single(control => control.Name == name);
+        item.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+    }
 
     [Fact]
     public async Task TargetInputsAndQuickAimWorkAndSurviveRecovery() => await session.Dispatch(() =>
@@ -364,6 +369,7 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
         try
         {
             var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            ExpandTransform(inspector);
             var targetX = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control => control.Name == "InlineLightTargetX");
             targetX.GetVisualDescendants().OfType<TextBox>().First().Focus(); Dispatcher.UIThread.RunJobs();
             targetX.Value = 4m; Dispatcher.UIThread.RunJobs();
@@ -374,23 +380,22 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
             var recovery = inspector.CaptureRecoveryState(shell.Workspace.Session.Lighting, EditorInspectorPage.Lighting, Guid.NewGuid());
             Assert.InRange((double)(recovery.Lights[0].TargetX ?? 0m), 3.99, 4.01);
 
-            var centerBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightAimCenterButton");
-            centerBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.True(inspector.GetVisualDescendants().OfType<Expander>().Single(control => control.Name == "LightTransformExpander").IsExpanded);
+            Aim(inspector, "InlineLightAimCenterButton");
             Dispatcher.UIThread.RunJobs();
             var atCenter = Assert.Single(shell.Workspace.Session.Lighting.Lights);
             var expectedLookAt = inspector.CreationCameraProvider?.Invoke().LookAt ?? EditorLightPlacement.DefaultCamera.LookAt;
             Assert.True(Vector3.Distance(atCenter.Target, expectedLookAt) < 0.05f);
 
-            var cameraBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightAimCameraButton");
-            cameraBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Aim(inspector, "InlineLightAimCameraButton");
             Dispatcher.UIThread.RunJobs();
             var fromCam = Assert.Single(shell.Workspace.Session.Lighting.Lights);
             var cam = (inspector.CreationCameraProvider?.Invoke() ?? EditorLightPlacement.DefaultCamera).CreateCamera();
             Assert.InRange(Vector3.Dot(Vector3.Normalize(fromCam.Direction), Vector3.Normalize(cam.Target - cam.Eye)), 0.999f, 1.001f);
 
             float prevZ = fromCam.Direction.Z;
-            var flipBtn = inspector.GetVisualDescendants().OfType<Button>().Single(control => control.Name == "InlineLightFlipHemisphereButton");
-            flipBtn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Aim(inspector, "InlineLightFlipHemisphereButton");
             Dispatcher.UIThread.RunJobs();
             var flipped = Assert.Single(shell.Workspace.Session.Lighting.Lights);
             Assert.True(MathF.Sign(flipped.Direction.Z) != MathF.Sign(prevZ) || MathF.Abs(prevZ) < 1e-4f);
