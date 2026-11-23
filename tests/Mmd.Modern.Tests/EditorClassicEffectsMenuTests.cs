@@ -47,7 +47,9 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 window.DataContext = modern;
                 Assert.Equal(language, EditorLocalization.CurrentLanguage);
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectsMenu")!.IsVisible);
+                Assert.True(window.FindControl<MenuItem>("ModelMaterialStyleMenuItem")!.IsVisible);
                 window.DataContext = classic;
+                Assert.False(window.FindControl<MenuItem>("ModelMaterialStyleMenuItem")!.IsVisible);
                 var menu = window.FindControl<MenuItem>("ClassicEffectsMenu")!;
                 Assert.True(menu.IsVisible);
                 Assert.Equal("MMEffect", menu.Header);
@@ -67,6 +69,17 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 Assert.False(window.FindControl<MenuItem>("ClassicToonSettings")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicToonSlots")!.IsEnabled);
                 window.Show();
+                classic.ShowInspectorPage(EditorInspectorPage.Style);
+                Dispatcher.UIThread.RunJobs();
+                var classicEffects = window.FindControl<Button>("StyleClassicEffectsButton")!;
+                Assert.True(classicEffects.IsEffectivelyVisible);
+                Assert.False(classicEffects.IsEffectivelyEnabled);
+                Assert.False(window.FindControl<ComboBox>("ProjectDefaultStyleBox")!.IsEffectivelyVisible);
+                classic.ShowInspectorPage(EditorInspectorPage.Material);
+                Dispatcher.UIThread.RunJobs();
+                var classicToons = window.FindControl<Button>("MaterialClassicToonButton")!;
+                Assert.True(classicToons.IsEffectivelyVisible);
+                Assert.False(classicToons.IsEffectivelyEnabled);
                 var workArea = window.Screens.Primary!.WorkingArea;
                 window.Position = new PixelPoint(workArea.Right - (int)(window.Bounds.Width * window.RenderScaling), workArea.Y);
                 var menus = window.GetVisualDescendants().OfType<Menu>().SelectMany(bar => bar.Items.OfType<MenuItem>()).ToArray();
@@ -152,7 +165,7 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
         var popup = top.GetVisualDescendants().OfType<Popup>().First();
         Assert.True(popup.IsOpen);
         var viewport = popup.Child!.GetVisualDescendants().OfType<ScrollViewer>().First();
-        foreach (var entry in top.Items.OfType<MenuItem>())
+        foreach (var entry in top.Items.OfType<MenuItem>().Where(item => item.IsVisible))
         {
             var labels = entry.GetVisualDescendants().OfType<TextBlock>()
                 .Where(label => !string.IsNullOrEmpty(label.Text)).ToArray();

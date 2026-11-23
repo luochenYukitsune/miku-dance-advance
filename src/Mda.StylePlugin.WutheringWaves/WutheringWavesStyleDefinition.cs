@@ -678,7 +678,7 @@ public sealed class WutheringWavesStyleDefinition : RenderingStyleDefinitionBase
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip),
                 new("shadow", LocalizedText.From("Shadow Mask", zhCn: "阴影遮罩贴图", en: "Shadow Mask", ja: "シャドウマスク"),
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip)
-            ]),
+            ]) { ReplacesOrdinaryPmxTreatment = true },
         new StyleMaterialModeDescriptor(
             ModeId: WutheringWavesShaders.BodyModuleId,
             DisplayName: LocalizedText.From("Body MatCap", zhCn: "身体 MatCap", en: "Body MatCap", ja: "ボディ MatCap"),
@@ -731,6 +731,6 @@ public sealed class WutheringWavesStyleDefinition : RenderingStyleDefinitionBase
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip),
                 new("matcap", LocalizedText.From("MatCap Map", zhCn: "MatCap 贴图", en: "MatCap Map", ja: "MatCap マップ"),
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip)
-            ])
+            ]) { ReplacesOrdinaryPmxTreatment = true }
     ];
 }

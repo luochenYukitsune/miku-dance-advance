@@ -983,7 +983,7 @@ public sealed class GenshinStyleDefinition : RenderingStyleDefinitionBase
                 zhCn: "原神头发非金属 R/B 通道高光（可与 Hair Shadow Atlas 或金属绑定共用 Lightmap）。",
                 en: "Genshin hair non-metallic R/B channel specular highlight (composable with Hair Shadow Atlas or Metallic sharing Lightmap).",
                 ja: "原神の髪向け非金属 R/B チャンネルハイライト（Hair Shadow Atlas や金属バインディングと併用可能）。"),
-            LegacyAliases: [LegacyModeHairAlias]);
+            LegacyAliases: [LegacyModeHairAlias]) { ReplacesOrdinaryPmxTreatment = true };
 
         var atlasMode = new StyleMaterialModeDescriptor(
             ModeId: ModeHairAtlas,
@@ -1019,7 +1019,7 @@ public sealed class GenshinStyleDefinition : RenderingStyleDefinitionBase
                 "原神昼夜阴影色带图集（显式行号与 AO 控制，可与 RB 高光或金属共用）。",
                 zhCn: "原神昼夜阴影色带图集（显式行号与 AO 控制，可与 RB 高光或金属共用）。",
                 en: "Genshin day/night Hair Shadow Atlas palette (composable with Hair RB or Metallic).",
-                ja: "原神の昼夜シャドウアトラス（RBハイライトや金属マテリアルと併用可能）。"));
+                ja: "原神の昼夜シャドウアトラス（RBハイライトや金属マテリアルと併用可能）。")) { ReplacesOrdinaryPmxTreatment = true };
 
         var metallicMode = new StyleMaterialModeDescriptor(
             ModeId: ModeMetallic,

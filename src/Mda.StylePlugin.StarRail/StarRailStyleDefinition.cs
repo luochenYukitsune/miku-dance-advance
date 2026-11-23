@@ -816,7 +816,7 @@ public sealed class StarRailStyleDefinition : RenderingStyleDefinitionBase
                 "星穹铁道专用头发 B/R 双贴图控制高光。",
                 zhCn: "星穹铁道专用头发 B/R 双贴图控制高光。",
                 en: "Honkai: Star Rail hair highlight controlled by Blue highlight mask and Red shadow mask.",
-                ja: "Blue ハイライトと Red シャドウの2マップによるスターレイル専用髪ハイライト。"));
+                ja: "Blue ハイライトと Red シャドウの2マップによるスターレイル専用髪ハイライト。")) { ReplacesOrdinaryPmxTreatment = true };
 
         var bodyMode = new StyleMaterialModeDescriptor(
             ModeId: ModeBody,
@@ -865,7 +865,7 @@ public sealed class StarRailStyleDefinition : RenderingStyleDefinitionBase
                 "基于 MikkTSpace 切线的星穹铁道角色机身与服饰 MatCap/边缘光。",
                 zhCn: "基于 MikkTSpace 切线的星穹铁道角色机身与服饰 MatCap/边缘光。",
                 en: "Honkai: Star Rail character body MatCap, warm terminator bands, and dielectric Fresnel rim driven by MikkTSpace tangents.",
-                ja: "MikkTSpace接線に基づくスターレイルのボディMatCap・暖色境界帯・フレネルリムライト。"));
+                ja: "MikkTSpace接線に基づくスターレイルのボディMatCap・暖色境界帯・フレネルリムライト。")) { ReplacesOrdinaryPmxTreatment = true };
 
         return [defaultMode, faceSdfMode, hairMode, bodyMode];
     }

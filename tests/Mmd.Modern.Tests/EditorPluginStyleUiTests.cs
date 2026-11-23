@@ -130,6 +130,16 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 Assert.True(workspace.SetDefaultRenderingStyle(inspector.SelectedReference!.Value));
                 inspector.Refresh(workspace.Session, modelId, true, true);
                 Assert.Equal(RenderingPresetReference.BuiltIn(RenderingStyleId.Genshin), workspace.Session!.RenderingStyles.DefaultStyle);
+                inspector.ReportStatus("Applied");
+                var catalog = pluginService.CurrentStyleCatalog;
+                var row = inspector.SelectedChoice;
+                inspector.Refresh(workspace.Session, modelId, true, true);
+                Assert.Same(catalog, pluginService.CurrentStyleCatalog);
+                Assert.Same(row, inspector.SelectedChoice);
+                Assert.Equal("Applied", inspector.Status);
+                Assert.True(inspector.CanEditSelectedModelStyle);
+                Assert.False(inspector.CanInheritSelectedModelStyle);
+                Assert.Contains(workspace.Session.Objects.Single().Name, inspector.ModelStatus);
                 Assert.True(inspector.HasSelectedStyleMetadata);
                 Assert.Equal("MDA", inspector.SelectedStyleAuthor);
                 Assert.Equal("1.0.0", inspector.SelectedStyleVersion);
@@ -180,6 +190,10 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 using var classicWorkspace = CreateClassicWorkspace("inspector-classic");
                 inspector.AttachWorkspace(classicWorkspace);
                 inspector.Refresh(classicWorkspace.Session, null, true, true);
+                Assert.Empty(inspector.Options);
+                Assert.Null(inspector.SelectedReference);
+                Assert.False(inspector.CanEditSelectedModelStyle);
+                Assert.False(inspector.CanInheritSelectedModelStyle);
                 Assert.True(inspector.IsClassicEngine);
                 Assert.False(inspector.IsModernEngine);
                 Assert.False(inspector.CanEdit);
@@ -236,6 +250,10 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                     string enableLabel = EditorLocalization.Text("Mda.Text.Context.Inspector.Style.EnablePluginAndApply");
                     var enableButton = dialog.GetVisualDescendants().OfType<Button>()
                         .Single(b => Equals(b.Content, enableLabel));
+                    // A target already chosen for the restored source must leave the remaining proposal with it.
+                    var restoringCard = enableButton.FindAncestorOfType<Border>()!;
+                    var discardChoice = Assert.Single(restoringCard.GetVisualDescendants().OfType<ComboBox>());
+                    discardChoice.SelectedIndex = 0;
                     enableButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     for (int step = 0; step < 30 && pluginService.FindPluginForStyle("wuthering-waves")?.State != PluginState.Active; step++)
                     {
@@ -247,10 +265,18 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
 
                     // Pick "mmd" for the remaining missing style and confirm replacement.
                     var targetCombo = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>());
+                    Assert.True(targetCombo.IsEffectivelyEnabled);
                     targetCombo.SelectedIndex = 0;
                     Dispatcher.UIThread.RunJobs();
                     Assert.True(confirm.IsEnabled);
 
+                    // The inheriting model has to be renderable with the proposed target before any style is changed.
+                    workspace.MaterialBindings[secondId] = new D3D12MaterialBindingProfile(
+                        "wrong.layout", "Wrong layout", new string('0', 64), []);
+                    confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.False(showTask.IsCompleted);
+                    Assert.Equal("missing-custom-style", workspace.Session.RenderingStyles.DefaultStyle.StableId);
+                    workspace.MaterialBindings.Remove(secondId);
                     confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Dispatcher.UIThread.RunJobs();
 
@@ -278,6 +304,74 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
             }
             return true;
         }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Fact]
+    public async Task ModelStyleInheritanceValidatesTheSelectedModelAndCreatesOneUndoStep()
+        => await session.Dispatch(async () =>
+        {
+            string plugins = Path.Combine(directory, "inherit-plugins");
+            await using var service = CreatePluginService(plugins, Path.Combine(plugins, "enabled.json"), useBundledDefaults: true);
+            await service.InitializeAsync(Token);
+            using var shell = new EditorShellViewModel();
+            var workspace = shell.Workspace;
+            workspace.PackageCacheDirectory = Path.Combine(directory, "inherit-cache");
+            shell.AttachPluginService(service);
+            Guid first = AddModelWithTextures(workspace), second = AddModelWithTextures(workspace);
+            var project = workspace.Session!;
+            project.SetModelRenderingStyle(first, new RenderingPresetReference("genshin"));
+            project.SetModelRenderingStyle(second, new RenderingPresetReference("endfield"));
+            var inspector = shell.StyleInspector;
+            inspector.Refresh(project, first, false, true);
+            Assert.False(inspector.CanInheritSelectedModelStyle);
+            inspector.Refresh(project, first, true, true);
+            Assert.True(inspector.CanInheritSelectedModelStyle);
+
+            var incompatible = new D3D12MaterialBindingProfile("wrong.layout", "Wrong layout", new string('0', 64), []);
+            workspace.MaterialBindings[first] = incompatible;
+            Assert.Throws<InvalidOperationException>(() => workspace.InheritModelStyle(first));
+            Assert.Same(incompatible, workspace.MaterialBindings[first]);
+            Assert.Equal("genshin", project.GetRenderingStyle(first).StableId);
+            workspace.MaterialBindings.Remove(first);
+
+            shell.Browser.SelectedModel = shell.Browser.Models.Single(item => item.ObjectId == first);
+            var window = new EditorWindow(false) { DataContext = shell };
+            try
+            {
+                shell.ShowInspectorPage(EditorInspectorPage.Style);
+                shell.Animation.SelectBone(0);
+                shell.Animation.PositionX = 1.25m;
+                Assert.True(shell.Animation.HasAnyDraft);
+                var inherit = window.FindControl<Button>("InheritSelectedModelStyleButton")!;
+                Assert.True(inherit.IsEffectivelyEnabled);
+                inherit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.True(shell.Animation.HasAnyDraft);
+                Assert.False(inherit.IsEnabled);
+            }
+            finally
+            {
+                window.DataContext = null;
+                window.FindControl<EditorViewportHost>("SceneViewport")!.Dispose();
+                window.Close();
+            }
+            Assert.False(workspace.InheritModelStyle(first));
+            inspector.Refresh(project, first, true, true);
+            Assert.True(inspector.IsModelInherited);
+            Assert.False(inspector.CanInheritSelectedModelStyle);
+            Assert.Equal("mmd", project.GetRenderingStyle(first).StableId);
+            inspector.Refresh(project, second, true, true);
+            Assert.True(inspector.CanInheritSelectedModelStyle);
+            Assert.Equal("endfield", project.GetRenderingStyle(second).StableId);
+            Assert.True(workspace.Undo());
+            Assert.Equal("genshin", project.GetRenderingStyle(first).StableId);
+            Assert.True(workspace.Redo());
+            Assert.False(project.RenderingStyles.ModelOverrides.ContainsKey(first));
+            inspector.Detach();
+            Assert.Empty(inspector.Options);
+            Assert.Null(inspector.SelectedChoice);
+            Assert.False(inspector.HasSelectedModel);
+            Assert.False(inspector.CanManagePlugins);
+            return true;
+        }, Token);
 
     [Fact]
     public async Task ModelPropertiesDynamicMaterialModesValidateResetAndRoundTripSchemaV14()
@@ -414,6 +508,159 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
             {
                 EditorLocalization.SetLanguage(priorLang);
             }
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Theory]
+    [InlineData("genshin", 0.26, 0.22)]
+    [InlineData("star-rail", 0.38, 0.05)]
+    [InlineData("wuthering-waves", 0.12, 0.30)]
+    [InlineData("endfield", 0.30, 0.12)]
+    public async Task OrdinaryPmxControlsFollowPluginDefaultsAndKeepExplicitOverrides(string style, double strength, double width)
+        => await session.Dispatch(async () =>
+        {
+            string install = Path.Combine(directory, "treatment-plugins");
+            await using var plugins = CreatePluginService(install, Path.Combine(install, "enabled.json"), useBundledDefaults: true);
+            await plugins.InitializeAsync(Token);
+            using var workspace = CreateModernWorkspace("treatment-cache", plugins);
+            Guid actor = AddModelWithTextures(workspace);
+            var vm = new EditorModelPropertiesViewModel(workspace, actor);
+            int Index(string id) => vm.StyleChoices.ToList().FindIndex(choice => choice.Reference?.StableId == id);
+            vm.StyleIndex = Index(style);
+            var row = vm.Materials[1];
+            row.RoleIndex = 4;
+            var ordinary = D3D12StylePluginAdapter.ToD3D12Treatment(workspace.StyleCatalog.FindStyle(style)!.DefaultRoleTreatments[StyleMaterialRole.Hair]);
+            Assert.True(row.CanEditOrdinaryPmxTreatment);
+            Assert.Equal(ordinary, row.PmxDefaults);
+            Assert.Equal((decimal)strength, row.PmxHairHighlightStrength);
+            Assert.Equal((decimal)width, row.PmxHairHighlightWidth);
+            Assert.Null(row.Build()!.PmxMaterialTreatment);
+
+            row.PmxHairHighlightWidth = 0.33m;
+            Assert.Equal(ordinary with { HairHighlightWidth = 0.33f }, row.Build()!.PmxMaterialTreatment);
+            var hair = row.DynamicModes.Single(mode => mode.ModeId == "hair");
+            hair.IsEnabled = true;
+            Assert.False(row.CanEditOrdinaryPmxTreatment);
+            row.RoleIndex = 1;
+            Assert.True(row.CanEditOrdinaryPmxTreatment);
+            Assert.Equal(0m, row.PmxHairHighlightStrength);
+            row.RoleIndex = 4;
+            string otherStyle = style == "star-rail" ? "genshin" : "star-rail";
+            vm.StyleIndex = Index(otherStyle);
+            Assert.True(row.CanEditOrdinaryPmxTreatment);
+            Assert.Equal((decimal)workspace.StyleCatalog.FindStyle(otherStyle)!.DefaultRoleTreatments[StyleMaterialRole.Hair].HairHighlightStrength,
+                row.PmxHairHighlightStrength);
+            Assert.Equal(0.33m, row.PmxHairHighlightWidth);
+            vm.StyleIndex = Index(style);
+            Assert.False(row.CanEditOrdinaryPmxTreatment);
+            hair.IsEnabled = false;
+            Assert.Equal(ordinary with { HairHighlightWidth = 0.33f }, row.Build()!.PmxMaterialTreatment);
+            row.ResetPmxTreatment();
+            Assert.Equal((decimal)width, row.PmxHairHighlightWidth);
+            Assert.Null(row.Build()!.PmxMaterialTreatment);
+
+            var neutral = new D3D12PmxMaterialTreatment();
+            var legacy = new EditorMaterialPropertiesItem(row.LocalMaterialIndex, row.Name, row.Build()! with { PmxMaterialTreatment = neutral },
+                D3D12MaterialBindingLayout.Capture(workspace.Session!.Objects[0].Source), vm.Textures, vm.Bones,
+                styleCatalog: workspace.StyleCatalog, effectiveStyleId: style);
+            Assert.Equal(0m, legacy.PmxHairHighlightStrength);
+            Assert.Equal(neutral, legacy.Build()!.PmxMaterialTreatment);
+            legacy.ResetPmxTreatment();
+            Assert.Equal((decimal)strength, legacy.PmxHairHighlightStrength);
+            Assert.Null(legacy.Build()!.PmxMaterialTreatment);
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Fact]
+    public async Task MaterialEditsSurviveSwitchingModelStyleAndClearingOneRowRetainsItsNeighbours()
+        => await session.Dispatch(async () =>
+        {
+            string installDir = Path.Combine(directory, "material-drafts");
+            await using var service = CreatePluginService(installDir, Path.Combine(installDir, "enabled.json"), useBundledDefaults: true);
+            await service.InitializeAsync(Token);
+            using var workspace = CreateModernWorkspace("material-drafts-cache", service);
+            Guid id = AddModelWithTextures(workspace);
+            var vm = new EditorModelPropertiesViewModel(workspace, id);
+            int endfield = vm.StyleChoices.ToList().FindIndex(choice => choice.Reference?.StableId == "endfield");
+            Assert.True(endfield > 1);
+            vm.StyleIndex = endfield;
+            var face = vm.Materials[0];
+            var body = vm.Materials[1];
+            face.OutlinePercent = 175m;
+            body.RoleIndex = 1;
+            var rim = body.DynamicModes.Single(mode => mode.ModeId == "rim");
+            rim.IsEnabled = true;
+            rim.Parameters.Single(parameter => parameter.Key == "edgeStrength").DecimalValue = 0.42m;
+            vm.StyleIndex = 1; // The model currently uses MMD, with its Endfield settings retained.
+            Assert.False(body.HasActiveStylePlugin);
+            Assert.True(vm.TryCreate(out var mapped), vm.ValidationMessage);
+            var saved = Assert.Single(mapped!.MaterialProfile!.Materials);
+            Assert.Equal(1, saved.LocalMaterialIndex);
+            Assert.Equal(0.42, Assert.Single(saved.PluginBindings).NumberValues!["edgeStrength"], 5);
+            workspace.ApplyModelProperties(mapped with { Role = ModelRole.Unspecified });
+
+            var reopened = new EditorModelPropertiesViewModel(workspace, id);
+            reopened.StyleIndex = endfield;
+            body = reopened.Materials[1];
+            var oldRim = body.DynamicModes.Single(mode => mode.ModeId == "rim");
+            Assert.True(oldRim.IsEnabled);
+            oldRim.IsEnabled = false;
+            reopened.StyleIndex = 0;
+            Assert.True(reopened.TryCreate(out var disabled), reopened.ValidationMessage);
+            Assert.Empty(Assert.Single(disabled!.MaterialProfile!.Materials).PluginBindings);
+            Assert.Equal(ModelRole.Unspecified, disabled.Role);
+            Assert.Null(disabled.StyleOverride);
+
+            reopened.SelectedMaterial = body;
+            reopened.ClearSelectedMaterialMapping();
+            Assert.Equal(1, reopened.SelectedMaterial!.LocalMaterialIndex);
+            Assert.False(reopened.SelectedMaterial.HasCustomization);
+            Assert.True(reopened.TryCreate(out var firstClear), reopened.ValidationMessage);
+            Assert.Empty(firstClear!.MaterialProfile!.Materials);
+            Assert.Equal(1.75f, Assert.Single(firstClear.MaterialProfile.OutlineWidths).Scale);
+            reopened.SelectedMaterial = reopened.Materials[0];
+            reopened.ClearSelectedMaterialMapping();
+            Assert.True(reopened.TryCreate(out var finalClear), reopened.ValidationMessage);
+            Assert.Null(finalClear!.MaterialProfile);
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Fact]
+    public async Task MaterialSelectionTracksFilteredRowsAndCurrentModelStyleAfterRefresh()
+        => await session.Dispatch(async () =>
+        {
+            string installDir = Path.Combine(directory, "material-selection");
+            await using var service = CreatePluginService(installDir, Path.Combine(installDir, "enabled.json"), useBundledDefaults: true);
+            await service.InitializeAsync(Token);
+            using var workspace = CreateModernWorkspace("material-selection-cache", service);
+            Guid id = AddModelWithTextures(workspace);
+            var vm = new EditorModelPropertiesViewModel(workspace, id);
+            vm.MaterialSearchText = "#1";
+            Assert.Same(vm.Materials[1], vm.SelectedMaterial);
+            vm.MaterialSearchText = "no authored material with this name";
+            Assert.True(vm.ShowNoMatchingMaterials);
+            Assert.False(vm.HasSelectedMaterial);
+            vm.MaterialSearchText = "";
+            Assert.Same(vm.Materials[0], vm.SelectedMaterial);
+
+            var inspector = new EditorMaterialInspectorViewModel();
+            inspector.Refresh(workspace, id, true, true);
+            inspector.SelectedMaterial = inspector.Materials[1];
+            var stale = inspector.SelectedMaterial;
+            workspace.SetDefaultRenderingStyle(new RenderingPresetReference("endfield"));
+            inspector.Refresh(workspace, id, true, true);
+            Assert.Equal(1, inspector.SelectedMaterialIndex);
+            Assert.NotSame(stale, inspector.SelectedMaterial);
+            Assert.True(inspector.SelectedMaterial!.HasActiveStylePlugin);
+            inspector.SelectedMaterial = stale;
+            Assert.NotSame(stale, inspector.SelectedMaterial);
+            inspector.Refresh(workspace, id, true, false);
+            Assert.False(inspector.CanEdit);
+            inspector.Refresh(workspace, id, true, true);
+            Assert.Equal(1, inspector.SelectedMaterialIndex);
+            inspector.SelectedMaterial = null;
+            Assert.False(inspector.HasSelectedMaterial);
+            Assert.False(inspector.CanEdit);
             return true;
         }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
 

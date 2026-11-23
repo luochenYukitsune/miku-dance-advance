@@ -1349,7 +1349,7 @@ public sealed class EndfieldStyleDefinition : RenderingStyleDefinitionBase
             [
                 new("texture", LocalizedText.From("Green Radial Mask", zhCn: "Green 径向高光遮罩", en: "Green Radial Mask", ja: "Green 放射マスク"),
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip)
-            ]),
+            ]) { ReplacesOrdinaryPmxTreatment = true },
         new StyleMaterialModeDescriptor(
             ModeId: RimModeId,
             DisplayName: LocalizedText.From("Fresnel Rim", zhCn: "物理菲涅尔边缘光", en: "Fresnel Rim", ja: "フレネルリム"),
@@ -1410,7 +1410,7 @@ public sealed class EndfieldStyleDefinition : RenderingStyleDefinitionBase
                     Required: true, Encoding: StyleTextureEncoding.Linear, MipRule: StyleTextureMipRule.PointNoMip),
                 new("matcap", LocalizedText.From("MatCap Color Map", zhCn: "MatCap 颜色贴图", en: "MatCap Color Map", ja: "MatCap カラーマップ"),
                     Required: true, Encoding: StyleTextureEncoding.SrgbColor, MipRule: StyleTextureMipRule.PointNoMip)
-            ]),
+            ]) { ReplacesOrdinaryPmxTreatment = true },
         new StyleMaterialModeDescriptor(
             ModeId: PaletteModeId,
             DisplayName: LocalizedText.From("Downstream Palette", zhCn: "下游调色盘", en: "Downstream Palette", ja: "パレット"),

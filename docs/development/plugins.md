@@ -145,6 +145,7 @@ public interface IRenderingStyleProvider
 - **多语言文本 `LocalizedText`**：支持 `LocalizedText.From(defaultText, zhCn: ..., en: ..., ja: ...)`；宿主面板、模型属性窗口和校验错误会根据界面语言调用 `.Resolve(language)` 自动切换，必要时回退到 `DefaultText`。
 - **动态可组合材质模式 `MaterialModes`（`IReadOnlyList<StyleMaterialModeDescriptor>`）**：
   - `ModeId`、`DisplayName`、`Description`、`AllowedRoles`（限定适配 `Body`/`Face`/`Eye`/`Hair`）、`LegacyAliases`；
+  - 专用模式可在描述器上设置 `ReplacesOrdinaryPmxTreatment = true`。当模式启用且与材质部位匹配时，编辑器会隐藏普通 PMX 微调，保留已保存的参数。会按参数切换回普通着色的模式应保留默认值 `false`。
   - `Parameters`（`IReadOnlyList<StyleParameterDescriptor>`）：模型属性窗口根据 `StyleParameterKind`（`Float`、`Int`、`Bool`、`Enum` + `StyleEnumOption`、`Color3`、`Color4`、`Vector2`、`Vector3`、`Vector4`、`TextureSlot`、`BoneName`）动态生成对应控件与重置默认值能力；
   - `TextureInputs`（`IReadOnlyList<StyleTextureSlotDescriptor>`）：声明局部贴图槽位（`SlotKey`、`DisplayName`、`Required`、`Encoding`、`MipRule`、可选 `SupportsSecondaryTexture` / `SecondaryDisplayName`），宿主按槽位生成模型贴图选择器并在保存时记录纹理指纹保护；
   - `SupportsBoneTracking` + `StyleBoneAxisDefaults`：启用后 UI 自动呈现“固定世界方向采样（`FixedWorld`）”与“绑定骨骼每帧实时跟随（`SelectedBone`）”切换。

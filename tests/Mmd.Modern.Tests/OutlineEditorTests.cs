@@ -141,6 +141,73 @@ public sealed class OutlineEditorTests : IAsyncDisposable
             return true;
         }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
 
+    [Fact]
+    public async Task MaterialStyleTabShowsOnlyControlsUsedByTheSelectedStyleAndRole()
+        => await session.Dispatch(async () =>
+        {
+            EditorLocalization.SetLanguage(EditorLocalization.CurrentLanguage);
+            await using var plugins = await BundledPluginsAsync("role-plugins");
+            using var workspace = Workspace("role-cache", plugins);
+            Guid id = AddModel(workspace, out _);
+            var dialog = new EditorModelPropertiesWindow(workspace, id, initialTabIndex: 1);
+            try
+            {
+                dialog.Show();
+                Dispatcher.UIThread.RunJobs();
+                var model = dialog.ViewModel;
+                var style = Named<ComboBox>(dialog, "ModelStyleSelector");
+                var role = Named<ComboBox>(dialog, "MaterialRoleSelector");
+                bool Visible(string name) => Named<StackPanel>(dialog, name).IsEffectivelyVisible;
+
+                role.SelectedIndex = 2;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(Visible("FaceShadingSection")); // The model initially inherits MMD.
+                var genshin = model.StyleChoices.Single(option => option.Reference?.StableId == "genshin");
+                style.SelectedItem = genshin;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(Visible("FaceShadingSection"));
+                Assert.False(Visible("EyeShadingSection"));
+                Assert.False(Visible("PmxTreatmentSection"));
+                role.SelectedIndex = 3;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(Visible("EyeShadingSection"));
+                Assert.False(Visible("FaceShadingSection"));
+                role.SelectedIndex = 4;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(Visible("PmxTreatmentSection"));
+                Assert.False(Visible("EyeShadingSection"));
+
+                var strength = Named<EditorValueSlider>(dialog, "HairHighlightStrengthSlider");
+                var width = Named<EditorValueSlider>(dialog, "HairHighlightWidthSlider");
+                Assert.Equal(.26m, strength.Number);
+                Assert.Equal(.22m, width.Number);
+                var material = model.SelectedMaterial!;
+                material.PmxHairHighlightWidth = .31m;
+                material.PmxHairHighlightStrength = .34m;
+                strength.ResetToDefault();
+                Assert.Equal(.26m, material.PmxHairHighlightStrength);
+                Assert.Equal(.31m, material.PmxHairHighlightWidth);
+                Click(Named<Button>(dialog, "ResetPmxTreatmentButton"));
+                Assert.Equal(.22m, width.Number);
+                Assert.True(model.TryCreate(out var unchangedTreatment));
+                Assert.Null(Assert.Single(unchangedTreatment!.MaterialProfile!.Materials).PmxMaterialTreatment);
+
+                var slider = Named<EditorValueSlider>(dialog, "MaterialOutlineScaleSlider");
+                Assert.Equal(400d, slider.Maximum);
+                Named<EditorNumericUpDown>(dialog, "MaterialOutlineScaleBox").Value = 325;
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(325m, slider.Number);
+                SaveScreenshot(dialog, "style-material-hair.png");
+                Click(Named<Button>(dialog, "ClearMaterialMappingButton"));
+                Assert.Equal(0, model.SelectedMaterial!.RoleIndex);
+                Assert.Equal(100m, model.SelectedMaterial.OutlinePercent);
+                Assert.Same(genshin, model.StyleChoices[model.StyleIndex]);
+                Assert.Empty(workspace.MaterialBindings);
+            }
+            finally { dialog.Close(); Dispatcher.UIThread.RunJobs(); }
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
     private static void AssertRestored(EditorProjectWorkspace workspace, Guid id, byte[] expectedProfile)
     {
         var profile = workspace.MaterialBindings[id];
@@ -206,7 +273,7 @@ public sealed class OutlineEditorTests : IAsyncDisposable
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static void SaveScreenshot(Window dialog)
+    private static void SaveScreenshot(Window dialog, string filename = "outline-material-dialog.png")
     {
         // Real CPU Skia rendering through Avalonia.Headless; no native HWND or GPU.
         var settled = new DispatcherFrame();
@@ -217,7 +284,7 @@ public sealed class OutlineEditorTests : IAsyncDisposable
         dialog.UpdateLayout();
         using var bitmap = new RenderTargetBitmap(new PixelSize((int)dialog.Bounds.Width, (int)dialog.Bounds.Height), new Vector(96, 96));
         bitmap.Render(dialog);
-        bitmap.Save(Path.Combine(Root, "outline-material-dialog.png"));
+        bitmap.Save(Path.Combine(Root, filename));
     }
 
     public async ValueTask DisposeAsync()

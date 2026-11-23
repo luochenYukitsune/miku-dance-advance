@@ -45,7 +45,8 @@ internal static partial class OriginalFrameShaders
             return lerp(band,saturate((dot(n,l)+.35)*4),StylizedShadeParams.w);
         }
         float4 MdaPSSurfaceStylized(SurfaceOutput v) {
-            float4 color=MdaPSSurfaceCore(v);
+            float hairBand;
+            float4 color=MdaPSSurfaceCore(v,hairBand);
             if(StylizedGradeParams.z<=0) return color;
             if(StylizedShadeParams.x<=0) return float4(StylizedGrade(color.rgb),color.a);
             float3 baseColor=StylizedAlbedo(v);
@@ -76,6 +77,10 @@ internal static partial class OriginalFrameShaders
             #endif
             }
         #ifdef MDA_TOON_PRESERVE_CHROMA
+            // The toon color is reconstructed from albedo, so restore the visible UV-oriented hair band
+            // using the shaded pigment and its remaining headroom.
+            if(hairBand>0)
+                rgb*=1+hairBand*PmxMaterialTreatmentParams.z*saturate(1-max(rgb.r,max(rgb.g,rgb.b)));
             return float4(StylizedPigmentGrade(rgb),color.a);
         #else
             return float4(StylizedGrade(rgb),color.a);

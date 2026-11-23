@@ -825,8 +825,14 @@ public static class D3D12ViewRenderingStyles
         if (classification.TreatmentOverride is { } classTreatment && !D3D12StylePluginAdapter.IsIdentityTreatment(classTreatment))
             return D3D12StylePluginAdapter.ToD3D12Treatment(classTreatment);
 
+        return ResolveDefaultRoleTreatment(style, contractRole, hasDedicatedBinding);
+    }
+
+    internal static D3D12PmxMaterialTreatment? ResolveDefaultRoleTreatment(IRenderingStyleDefinition style,
+        StyleMaterialRole role, bool hasDedicatedBinding)
+    {
         if (!hasDedicatedBinding
-            && style.DefaultRoleTreatments.TryGetValue(contractRole, out var defaultTreatment)
+            && style.DefaultRoleTreatments.TryGetValue(role, out var defaultTreatment)
             && !D3D12StylePluginAdapter.IsIdentityTreatment(defaultTreatment))
             return D3D12StylePluginAdapter.ToD3D12Treatment(defaultTreatment);
 

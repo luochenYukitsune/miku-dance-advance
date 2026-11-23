@@ -464,7 +464,12 @@ public sealed record StyleMaterialModeDescriptor(
     LocalizedText? Description = null,
     bool SupportsBoneTracking = false,
     StyleBoneAxisDefaults? BoneAxisDefaults = null,
-    IReadOnlyList<string>? LegacyAliases = null);
+    IReadOnlyList<string>? LegacyAliases = null)
+{
+    /// <summary>True when this mode always supplies its own material shading for an allowed role.
+    /// Unspecified or conditional modes leave ordinary PMX controls available to the host.</summary>
+    public bool ReplacesOrdinaryPmxTreatment { get; init; }
+}
 
 public enum StyleBoneTrackingMode
 {

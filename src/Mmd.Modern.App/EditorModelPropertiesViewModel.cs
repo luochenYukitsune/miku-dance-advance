@@ -89,7 +89,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         profile = workspace.MaterialBindings.GetValueOrDefault(objectId);
         layout = D3D12MaterialBindingLayout.Capture(source.Source);
         textureDimensions = source.Source.Surface.Snapshot.Textures.Select(static t => (t.Width, t.Height)).ToArray();
-        name = source.Name; roleIndex = source.Role switch { ModelRole.Character => 0, ModelRole.Environment => 1, _ => 2 };
+        name = source.Name; roleIndex = source.Role switch { ModelRole.Character => 0, ModelRole.Environment => 1, ModelRole.Prop => 2, _ => 3 };
         environmentIndoor = session.GetModelPurpose(objectId).EnvironmentIndoor;
         positionX = Decimal(source.Position.X); positionY = Decimal(source.Position.Y); positionZ = Decimal(source.Position.Z);
         initialDegrees = ToDegrees(source.Rotation);
@@ -130,7 +130,8 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     public Guid ObjectId => source.Id;
     public string SourcePath => source.SourcePath;
     public bool HasSourcePath => !string.IsNullOrWhiteSpace(SourcePath);
-    public string[] RoleChoices => [Text("角色"), Text("场景"), Text("道具")];
+    public string[] RoleChoices => [Text("角色"), Text("场景"), Text("道具"), Text("Mda.Text.7409a608060f")];
+    public bool SupportsModernStyles => supportsOutlineScaling;
     public IReadOnlyList<EditorModelStyleChoice> StyleChoices { get; }
     public IReadOnlyList<EditorSourceChoice> Textures { get; }
     public IReadOnlyList<EditorSourceChoice> Bones { get; }
@@ -200,7 +201,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         get => selectedMaterial;
         set
         {
-            if (filteringMaterials) return;
+            if (filteringMaterials || (value is not null && !FilteredMaterials.Contains(value))) return;
             if (Set(ref selectedMaterial, value)) Changed(nameof(HasSelectedMaterial));
         }
     }
@@ -214,7 +215,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
             string validatedName = Name == source.Name ? source.Name : Name.Trim();
             if (string.IsNullOrWhiteSpace(validatedName) || validatedName != source.Name && validatedName.Any(char.IsControl))
                 throw Error("请填写模型名称，且不要包含控制字符。");
-            if (RoleIndex is < 0 or > 2) throw Error("请选择模型用途。");
+            if (RoleIndex is < 0 or > 3) throw Error("请选择模型用途。");
             if ((uint)StyleIndex >= (uint)StyleChoices.Count) throw Error("请选择此模型的画风。");
             var position = new Vector3(OriginalOrNumber(PositionX, source.Position.X, "位置 X"), OriginalOrNumber(PositionY, source.Position.Y, "位置 Y"), OriginalOrNumber(PositionZ, source.Position.Z, "位置 Z"));
             float chosenScale = OriginalOrNumber(Scale, source.Scale, "缩放");
@@ -222,7 +223,7 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
             var rotation = RotationX == Decimal(initialDegrees.X) && RotationY == Decimal(initialDegrees.Y) && RotationZ == Decimal(initialDegrees.Z)
                 ? source.Rotation : Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(Radians(RotationY, "旋转 Y"), Radians(RotationX, "旋转 X"), Radians(RotationZ, "旋转 Z")));
             var mapping = BuildProfile();
-            draft = new(source.Id, validatedName, RoleIndex switch { 0 => ModelRole.Character, 1 => ModelRole.Environment, _ => ModelRole.Prop },
+            draft = new(source.Id, validatedName, RoleIndex switch { 0 => ModelRole.Character, 1 => ModelRole.Environment, 2 => ModelRole.Prop, _ => ModelRole.Unspecified },
                 position, rotation, chosenScale, IkEnabled, MorphsEnabled, PhysicsEnabled, StyleChoices[StyleIndex].Reference, mapping,
                 IsEnvironment ? environmentIndoor : null);
             ValidationMessage = ""; return true;
@@ -271,7 +272,8 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         var rows = Materials.Select(item => item.Build()).Where(row => row is not null).Cast<D3D12MaterialBindingProfileRow>().ToArray();
         var outlines = Materials.Select(item => item.BuildOutline()).OfType<D3D12MaterialBindingProfileOutline>().ToArray();
         bool effectiveGuess = profile?.GuessMaterialRoles ?? workspace.GuessMaterialRoles;
-        if (profile is null && rows.Length == 0 && outlines.Length == 0 && effectiveGuess) return null;
+        if (rows.Length == 0 && outlines.Length == 0 && effectiveGuess && profile?.PipelineId is null
+            && (profile is null || profile.Materials.Count > 0 || profile.OutlineWidths.Count > 0)) return null;
         if (profile is not null && profile.Materials.OrderBy(row => row.LocalMaterialIndex).SequenceEqual(rows)
             && profile.OutlineWidths.OrderBy(row => row.LocalMaterialIndex).SequenceEqual(outlines)
             && profile.GuessMaterialRoles == effectiveGuess) return profile;
@@ -315,23 +317,31 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         Materials.Clear();
         var existing = profile?.Materials.ToDictionary(row => row.LocalMaterialIndex) ?? [];
         var outlines = profile?.OutlineWidths.ToDictionary(row => row.LocalMaterialIndex) ?? [];
-        var styleCatalog = workspace.StyleCatalog;
-        string effectiveStyleId = SelectedEffectiveStyleId();
         for (int index = 0; index < source.Source.Materials.Count; index++)
-        {
-            // Display names come from the actual PMX table; no role or style is inferred from them.
-            var pmxMaterial = index < actor.Model.Materials.Count ? actor.Model.Materials[index] : null;
-            string materialName = pmxMaterial?.Name ?? source.Source.Surface.Snapshot.Materials[index].Name;
-            string materialEnglishName = pmxMaterial?.EnglishName ?? "";
-            Materials.Add(new(index, materialName, existing.GetValueOrDefault(index), layout, Textures, Bones,
-                outlines.GetValueOrDefault(index)?.Scale ?? 1f, supportsOutlineScaling, styleCatalog, effectiveStyleId,
-                source.Id, textureDimensions, materialEnglishName));
-        }
+            Materials.Add(CreateMaterial(index, existing.GetValueOrDefault(index), outlines.GetValueOrDefault(index)?.Scale ?? 1f));
         selectedMaterial = Materials.FirstOrDefault(item => item.LocalMaterialIndex == oldIndex) ?? Materials.FirstOrDefault();
         ApplyMaterialFilter();
         Changed(nameof(SelectedMaterial));
         Changed(nameof(HasSelectedMaterial));
         Changed(nameof(HasMaterials));
+    }
+
+    private EditorMaterialPropertiesItem CreateMaterial(int index, D3D12MaterialBindingProfileRow? row, float outlineScale)
+    {
+        var pmxMaterial = index < actor.Model.Materials.Count ? actor.Model.Materials[index] : null;
+        string materialName = pmxMaterial?.Name ?? source.Source.Surface.Snapshot.Materials[index].Name;
+        return new(index, materialName, row, layout, Textures, Bones, outlineScale, supportsOutlineScaling,
+            workspace.StyleCatalog, SelectedEffectiveStyleId(), source.Id, textureDimensions, pmxMaterial?.EnglishName ?? "");
+    }
+
+    public void ClearSelectedMaterialMapping()
+    {
+        if (SelectedMaterial is not { HasCustomization: true } selected || !FilteredMaterials.Contains(selected)) return;
+        int index = selected.LocalMaterialIndex;
+        var replacement = CreateMaterial(index, null, 1f);
+        Materials[index] = replacement;
+        selectedMaterial = replacement;
+        ApplyMaterialFilter();
     }
 
     private void ApplyMaterialFilter()
@@ -362,11 +372,10 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         {
             filteringMaterials = false;
         }
-        if (previousSelected is not null && ReferenceEquals(selectedMaterial, previousSelected)
-            && FilteredMaterials.Contains(previousSelected))
-        {
-            Changed(nameof(SelectedMaterial));
-        }
+        selectedMaterial = previousSelected is not null && FilteredMaterials.Contains(previousSelected)
+            ? previousSelected : FilteredMaterials.FirstOrDefault();
+        Changed(nameof(SelectedMaterial));
+        Changed(nameof(HasSelectedMaterial));
     }
 
     internal static float Number(decimal? value, string name)
@@ -409,7 +418,8 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     private readonly IReadOnlyList<(int Width, int Height)> textureDimensions;
     private readonly List<PipelineEntry> pipelineEntries = [];
     private readonly List<DynamicModeEntry> legacyDynamicModes = [];
-    private readonly Dictionary<(string StyleId, string ModeId), StyleMaterialBindingData> draftBindings = [];
+    // Retain edited cards across model-style switches, including incomplete input until the user applies the draft.
+    private readonly Dictionary<(string StyleId, string ModeId), EditorStyleModeItem> editedModes = [];
     private readonly ObservableCollection<EditorStyleModeItem> dynamicModes = [];
     private readonly ObservableCollection<EditorStyleModeItem> visibleDynamicModes = [];
     private readonly ObservableCollection<EditorStyleModeItem> incompatibleDynamicModes = [];
@@ -417,11 +427,16 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     private int roleIndex, modeIndex, pipelineIndex;
     private EditorSourceChoice? primaryTexture, secondaryTexture;
     private Vector3 fixedForward, fixedRight;
-    private bool fixedBasisChanged, legacyModeEdited, showIncompatibleModes;
+    private bool fixedBasisChanged, legacyModeEdited, showIncompatibleModes, roleEdited;
     private bool refreshingLocalization, rebuildingDynamicModes;
     private decimal? faceNormal, faceShadow, eyeShadow;
     private decimal? outlinePercent;
-    private decimal? pmxSaturation, pmxTransitionWidthScale, pmxValueContrast, pmxShadeGamma, pmxHairHighlightStrength, pmxHairHighlightWidth;
+    private static readonly D3D12PmxMaterialTreatment NeutralTreatment = new();
+    // An absent field follows the active style. A present null is an unfinished numeric entry.
+    private readonly Dictionary<string, decimal?> pmxOverrides = new(StringComparer.Ordinal);
+    private bool pmxEdited;
+    public D3D12PmxMaterialTreatment PmxDefaults { get; private set; } = NeutralTreatment;
+    public bool CanEditOrdinaryPmxTreatment { get; private set; }
     private string styleValidationMessage = "";
 
     private sealed record PipelineEntry(string StyleId, IRenderingStyleDefinition? Definition);
@@ -461,13 +476,16 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         faceShadow = (decimal)(row?.FaceGeometricShadowStrength ?? 1f);
         eyeShadow = (decimal)(row?.EyeGeometricShadowStrength ?? .2f);
 
-        var tr = row?.PmxMaterialTreatment;
-        pmxSaturation = (decimal)(tr?.Saturation ?? 1f);
-        pmxTransitionWidthScale = (decimal)(tr?.TransitionWidthScale ?? 1f);
-        pmxValueContrast = (decimal)(tr?.ValueContrast ?? 0f);
-        pmxShadeGamma = (decimal)(tr?.ShadeGamma ?? 1f);
-        pmxHairHighlightStrength = (decimal)(tr?.HairHighlightStrength ?? 0f);
-        pmxHairHighlightWidth = (decimal)(tr?.HairHighlightWidth ?? .12f);
+        // The package schema stores whole explicit groups, including intentionally neutral values.
+        if (row?.PmxMaterialTreatment is { } savedTreatment)
+        {
+            pmxOverrides[nameof(PmxSaturation)] = (decimal)savedTreatment.Saturation;
+            pmxOverrides[nameof(PmxTransitionWidthScale)] = (decimal)savedTreatment.TransitionWidthScale;
+            pmxOverrides[nameof(PmxValueContrast)] = (decimal)savedTreatment.ValueContrast;
+            pmxOverrides[nameof(PmxShadeGamma)] = (decimal)savedTreatment.ShadeGamma;
+            pmxOverrides[nameof(PmxHairHighlightStrength)] = (decimal)savedTreatment.HairHighlightStrength;
+            pmxOverrides[nameof(PmxHairHighlightWidth)] = (decimal)savedTreatment.HairHighlightWidth;
+        }
 
         foreach (var def in EditorStyleCatalogOrdering.OrderStyles(this.styleCatalog.Styles))
             pipelineEntries.Add(new(def.StyleId, def));
@@ -489,12 +507,6 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         if (faceBinding?.BoneBinding is { Mode: StyleBoneTrackingMode.SelectedBone, BoneName: { } boneName } && !string.IsNullOrEmpty(boneName))
             SelectedBone = bones.FirstOrDefault(bone => string.Equals(bone.EffectiveName, boneName, StringComparison.Ordinal));
 
-        if (row?.PluginBindings is { Count: > 0 } savedBindings)
-        {
-            foreach (var b in savedBindings)
-                draftBindings[(b.StyleId, b.ModeId)] = b;
-        }
-
         if (!string.IsNullOrWhiteSpace(this.effectiveStyleId) && this.styleCatalog.FindStyle(this.effectiveStyleId) is { } activeStyle)
         {
             foreach (var mode in activeStyle.MaterialModes)
@@ -511,6 +523,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         secondaryTexture = textures.FirstOrDefault(item => item.Index == second);
 
         RebuildDynamicModes();
+        RefreshPmxDefaults();
         ValidateLive();
         Observe(this, static model => model.RefreshLocalization());
     }
@@ -571,15 +584,11 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         || faceNormal != (decimal).35f
         || faceShadow != 1m
         || eyeShadow != (decimal).2f
-        || pmxSaturation != 1m
-        || pmxTransitionWidthScale != 1m
-        || pmxValueContrast != 0m
-        || pmxShadeGamma != 1m
-        || pmxHairHighlightStrength != 0m
-        || pmxHairHighlightWidth != (decimal).12f;
-    private bool HasDormantPluginBindings => dynamicModes.Count > 0
-        ? draftBindings.Keys.Any(k => !string.Equals(k.StyleId, effectiveStyleId, StringComparison.Ordinal))
-        : draftBindings.Count > 0;
+        || pmxOverrides.Count != 0;
+    private int DormantBindingCount => (original?.PluginBindings.Count(binding => binding.StyleId != effectiveStyleId
+            && !TryGetEditedMode(binding, out _)) ?? 0)
+        + editedModes.Values.Count(mode => mode.IsEnabled && mode.StyleId != effectiveStyleId);
+    private bool HasDormantPluginBindings => DormantBindingCount > 0;
 
     public EditorSourceChoice? SelectedBone { get; set; }
     public int RoleIndex
@@ -589,7 +598,12 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         {
             if (refreshingLocalization || roleIndex == value) return;
             roleIndex = value;
+            roleEdited = true;
+            RefreshPmxDefaults();
             Changed();
+            Changed(nameof(IsFaceRole));
+            Changed(nameof(IsEyeRole));
+            Changed(nameof(ExistingMapping));
             Changed(nameof(IsMapped));
             Changed(nameof(ShowMapRoleHint));
             Changed(nameof(IsBodyOrHair));
@@ -611,6 +625,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             if (refreshingLocalization) return;
             modeIndex = value;
             legacyModeEdited = value > 0;
+            RefreshPmxDefaults();
             Changed();
             Changed(nameof(NeedsPrimary));
             Changed(nameof(NeedsSecondary));
@@ -618,6 +633,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             Changed(nameof(IsFace));
             Changed(nameof(PrimaryLabel));
             Changed(nameof(SecondaryLabel));
+            Changed(nameof(ExistingMapping));
             Changed(nameof(HasCustomization));
         }
     }
@@ -628,6 +644,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         {
             if (refreshingLocalization) return;
             pipelineIndex = value;
+            RefreshPmxDefaults();
             Changed();
             Changed(nameof(NeedsSecondary));
             Changed(nameof(PrimaryLabel));
@@ -639,40 +656,112 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     public decimal? FaceNormal { get => faceNormal; set { faceNormal = value; Changed(); Changed(nameof(HasCustomization)); } }
     public decimal? FaceShadow { get => faceShadow; set { faceShadow = value; Changed(); Changed(nameof(HasCustomization)); } }
     public decimal? EyeShadow { get => eyeShadow; set { eyeShadow = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxSaturation { get => pmxSaturation; set { pmxSaturation = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxTransitionWidthScale { get => pmxTransitionWidthScale; set { pmxTransitionWidthScale = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxValueContrast { get => pmxValueContrast; set { pmxValueContrast = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxShadeGamma { get => pmxShadeGamma; set { pmxShadeGamma = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxHairHighlightStrength { get => pmxHairHighlightStrength; set { pmxHairHighlightStrength = value; Changed(); Changed(nameof(HasCustomization)); } }
-    public decimal? PmxHairHighlightWidth { get => pmxHairHighlightWidth; set { pmxHairHighlightWidth = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? PmxSaturation { get => ReadPmx(PmxDefaults.Saturation); set => SetPmx(value, PmxDefaults.Saturation); }
+    public decimal? PmxTransitionWidthScale { get => ReadPmx(PmxDefaults.TransitionWidthScale); set => SetPmx(value, PmxDefaults.TransitionWidthScale); }
+    public decimal? PmxValueContrast { get => ReadPmx(PmxDefaults.ValueContrast); set => SetPmx(value, PmxDefaults.ValueContrast); }
+    public decimal? PmxShadeGamma { get => ReadPmx(PmxDefaults.ShadeGamma); set => SetPmx(value, PmxDefaults.ShadeGamma); }
+    public decimal? PmxHairHighlightStrength { get => ReadPmx(PmxDefaults.HairHighlightStrength); set => SetPmx(value, PmxDefaults.HairHighlightStrength); }
+    public decimal? PmxHairHighlightWidth { get => ReadPmx(PmxDefaults.HairHighlightWidth); set => SetPmx(value, PmxDefaults.HairHighlightWidth); }
     public bool IsMapped => RoleIndex > 0;
+    public bool IsFaceRole => RoleIndex == 2;
+    public bool IsEyeRole => RoleIndex == 3;
+    public bool HasActiveStylePlugin => styleCatalog.FindStyle(effectiveStyleId) is not null;
     public bool IsBodyOrHair => RoleIndex is 1 or 4;
     public bool IsNotBodyOrHair => IsMapped && !IsBodyOrHair;
     public bool IsHairRole => RoleIndex == 4;
     public bool IsMappedAndNotHair => IsMapped && IsBodyOrHair && !IsHairRole;
     public bool SupportsOutlineScaling { get; }
     public bool OutlineScalingUnavailable => !SupportsOutlineScaling;
-    public decimal? OutlinePercent { get => outlinePercent; set { outlinePercent = value; Changed(); Changed(nameof(HasCustomization)); } }
+    public decimal? OutlinePercent { get => outlinePercent; set { outlinePercent = value; Changed(); Changed(nameof(HasCustomization)); Changed(nameof(ExistingMapping)); } }
+
+    private decimal? ReadPmx(float inherited, [CallerMemberName] string property = "") =>
+        pmxOverrides.GetValueOrDefault(property, (decimal)inherited);
+
+    private void SetPmx(decimal? value, float inherited, [CallerMemberName] string property = "")
+    {
+        if (refreshingLocalization || value == ReadPmx(inherited, property)) return;
+        pmxEdited = true;
+        if (value == (decimal)inherited) pmxOverrides.Remove(property);
+        else pmxOverrides[property] = value;
+        Changed(property);
+        Changed(nameof(HasCustomization));
+    }
 
     public void ResetPmxTreatment()
     {
-        PmxSaturation = 1m;
-        PmxTransitionWidthScale = 1m;
-        PmxValueContrast = 0m;
-        PmxShadeGamma = 1m;
-        PmxHairHighlightStrength = 0m;
-        PmxHairHighlightWidth = 0.12m;
+        pmxEdited = true;
+        pmxOverrides.Clear();
+        NotifyPmxValues();
+        Changed(nameof(HasCustomization));
+    }
+
+    private void NotifyPmxValues()
+    {
+        Changed(nameof(PmxSaturation));
+        Changed(nameof(PmxTransitionWidthScale));
+        Changed(nameof(PmxValueContrast));
+        Changed(nameof(PmxShadeGamma));
+        Changed(nameof(PmxHairHighlightStrength));
+        Changed(nameof(PmxHairHighlightWidth));
+    }
+
+    private void RefreshPmxDefaults()
+    {
+        var next = NeutralTreatment;
+        bool editable = false;
+        if (IsBodyOrHair && styleCatalog.FindStyle(effectiveStyleId) is { } style)
+        {
+            var role = D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1));
+            var modes = ActivePmxModes().Where(id => id != "default").Select(id => FindMode(style, id))
+                .Where(mode => mode is null || mode.AllowedRoles.Count == 0 || mode.AllowedRoles.Contains(role)).ToArray();
+            bool dedicated = modes.Length != 0;
+            bool replaces = modes.Any(mode => mode is { ReplacesOrdinaryPmxTreatment: true });
+            editable = !replaces;
+            // Keep dormant ordinary settings available for a later return from a dedicated mode.
+            next = D3D12ViewRenderingStyles.ResolveDefaultRoleTreatment(style, role, dedicated && !replaces) ?? NeutralTreatment;
+        }
+        if (CanEditOrdinaryPmxTreatment != editable)
+        { CanEditOrdinaryPmxTreatment = editable; Changed(nameof(CanEditOrdinaryPmxTreatment)); }
+        if (PmxDefaults == next) return;
+        PmxDefaults = next;
+        Changed(nameof(PmxDefaults));
+        NotifyPmxValues();
+    }
+
+    private IEnumerable<string> ActivePmxModes()
+    {
+        if (legacyModeEdited)
+        {
+            var (style, mode) = ModeIndex switch
+            {
+                2 => (SelectedPipelineEntry()?.StyleId, "face-sdf"),
+                3 => ("genshin", "hair"),
+                4 => ("genshin", "hair-atlas"),
+                5 => (SelectedPipelineEntry()?.StyleId, "hair"),
+                6 => ("endfield", "hair"),
+                _ => (GetDynamicMode(ModeIndex)?.StyleId, GetDynamicMode(ModeIndex)?.Mode.ModeId)
+            };
+            if (style == effectiveStyleId && mode is not null) yield return mode;
+            yield break;
+        }
+        foreach (var mode in dynamicModes)
+            if (mode.IsEnabled) yield return mode.ModeId;
+        foreach (var saved in original?.PluginBindings ?? [])
+            if (saved.StyleId == effectiveStyleId && !dynamicModes.Any(mode => ModeMatches(mode.Mode, saved.ModeId)))
+                yield return saved.ModeId;
     }
 
     internal void UpdateEffectiveStyle(string styleId)
     {
         if (string.Equals(effectiveStyleId, styleId, StringComparison.Ordinal))
             return;
-        SnapshotCurrentDynamicDrafts();
         effectiveStyleId = styleId;
         RebuildDynamicModes();
+        RefreshPmxDefaults();
         ValidateLive();
         Changed(nameof(EffectiveStyleDisplayName));
+        Changed(nameof(HasActiveStylePlugin));
+        Changed(nameof(ExistingMapping));
         Changed(nameof(DynamicModesHeaderHint));
         Changed(nameof(NoDynamicModesNotice));
         Changed(nameof(HasDynamicModes));
@@ -806,79 +895,41 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
                 resultGuards = nextGuards.Values.ToArray();
             }
         }
-        else if (dynamicModes.Count > 0)
+        else if (editedModes.Count == 0 && !fixedBasisChanged)
         {
-            var combined = new List<StyleMaterialBindingData>();
-            // Preserve dormant bindings from other rendering styles so temporary previews remain lossless.
-            if (original is not null)
-            {
-                foreach (var dormant in original.PluginBindings)
-                {
-                    if (string.Equals(dormant.StyleId, effectiveStyleId, StringComparison.Ordinal))
-                        continue;
-                    combined.Add(dormant);
-                    if (dormant.TextureSlots is not null)
-                    {
-                        foreach (int ordinal in dormant.TextureSlots.Values)
-                        {
-                            if (ordinal >= 0 && !nextGuards.ContainsKey(ordinal))
-                            {
-                                var existingGuard = original.TextureGuards.FirstOrDefault(g => g.SourceSceneTextureOrdinal == ordinal);
-                                nextGuards[ordinal] = existingGuard ?? layout.CaptureTexture(ordinal);
-                            }
-                        }
-                    }
-                }
-            }
-
-            foreach (var modeItem in dynamicModes)
-            {
-                if (!modeItem.IsEnabled) continue;
-                var builtBinding = modeItem.BuildBindingData(Label, CaptureOrdinal, strictValidation: true);
-                if (fixedBasisChanged && modeItem.SupportsBoneTracking && modeItem.BoneTrackingModeIndex == 0)
-                {
-                    builtBinding = builtBinding with
-                    {
-                        BoneBinding = new StyleBoneAxisBinding(
-                            StyleBoneTrackingMode.FixedWorld,
-                            FixedWorldForward: fixedForward,
-                            FixedWorldRight: fixedRight)
-                    };
-                }
-                combined.Add(builtBinding);
-            }
-            nextBindings = combined;
-            resultGuards = nextGuards.Values.ToArray();
+            nextBindings = original?.PluginBindings ?? [];
+            resultGuards = original?.TextureGuards ?? [];
         }
         else
         {
-            if (original is null)
+            var combined = new List<StyleMaterialBindingData>();
+            var replaced = new HashSet<EditorStyleModeItem>();
+            foreach (var saved in original?.PluginBindings ?? [])
             {
-                nextBindings = [];
-                resultGuards = [];
-            }
-            else if (fixedBasisChanged)
-            {
-                var updated = new List<StyleMaterialBindingData>(original.PluginBindings.Count);
-                foreach (var binding in original.PluginBindings)
+                if (TryGetEditedMode(saved, out var mode))
                 {
-                    updated.Add(string.Equals(binding.ModeId, "face-sdf", StringComparison.Ordinal)
-                        ? binding with
-                        {
-                            BoneBinding = new StyleBoneAxisBinding(
-                                StyleBoneTrackingMode.FixedWorld,
-                                FixedWorldForward: fixedForward,
-                                FixedWorldRight: fixedRight)
-                        }
-                        : binding);
+                    if (replaced.Add(mode!) && mode!.IsEnabled) combined.Add(BuildMode(mode));
+                    continue;
                 }
-                nextBindings = updated;
-                resultGuards = original.TextureGuards;
+                var binding = fixedBasisChanged && saved.StyleId == effectiveStyleId && saved.ModeId == "face-sdf"
+                    ? saved with { BoneBinding = new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld,
+                        FixedWorldForward: fixedForward, FixedWorldRight: fixedRight) } : saved;
+                combined.Add(binding);
+                if (binding.TextureSlots is not null)
+                    foreach (int ordinal in binding.TextureSlots.Values)
+                        if (ordinal >= 0) CaptureOrdinal(ordinal);
             }
-            else
+            foreach (var mode in editedModes.Values)
+                if (!replaced.Contains(mode) && mode.IsEnabled) combined.Add(BuildMode(mode));
+            nextBindings = combined;
+            resultGuards = nextGuards.Values.ToArray();
+
+            StyleMaterialBindingData BuildMode(EditorStyleModeItem mode)
             {
-                nextBindings = original.PluginBindings;
-                resultGuards = original.TextureGuards;
+                var binding = mode.BuildBindingData(Label, CaptureOrdinal, strictValidation: true);
+                return fixedBasisChanged && mode.StyleId == effectiveStyleId && mode.SupportsBoneTracking && mode.BoneTrackingModeIndex == 0
+                    ? binding with { BoneBinding = new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld,
+                        FixedWorldForward: fixedForward, FixedWorldRight: fixedRight) } : binding;
             }
         }
 
@@ -891,7 +942,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             pmxMaterialTreatment: nextTreatment,
             pluginBindings: nextBindings,
             textureGuards: resultGuards,
-            explicitRole: true);
+            explicitRole: roleEdited || original?.ExplicitRole != false);
 
         row.Validate();
         return row == original ? original : row;
@@ -899,8 +950,10 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 
     private D3D12PmxMaterialTreatment? BuildPmxTreatment(D3D12CharacterMaterialRole role)
     {
-        if (role is not (D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair))
+        if (role is not (D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair) || pmxOverrides.Count == 0)
             return null;
+        if (!pmxEdited && original?.PmxMaterialTreatment is { } saved && original.Role == role)
+            return saved;
 
         float sat = EditorModelPropertiesViewModel.Number(PmxSaturation, Text("Mda.Text.ModelProps.PmxTreatmentSaturation"));
         float transition = EditorModelPropertiesViewModel.Number(PmxTransitionWidthScale, Text("Mda.Text.ModelProps.PmxTreatmentTransition"));
@@ -913,8 +966,6 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 
         var candidate = new D3D12PmxMaterialTreatment(sat, transition, contrast, gamma, hairStrength, hairWidth);
         candidate.Validate();
-        if (original?.PmxMaterialTreatment is null && candidate == new D3D12PmxMaterialTreatment())
-            return null;
         return candidate;
     }
 
@@ -935,24 +986,14 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
                         && !mode.SupportsBoneTracking)
                         continue;
 
-                    StyleMaterialBindingData? previous = null;
-                    if (!draftBindings.TryGetValue((activeStyle.StyleId, mode.ModeId), out previous) && mode.LegacyAliases is not null)
+                    var key = (activeStyle.StyleId, mode.ModeId);
+                    if (!editedModes.TryGetValue(key, out var card))
                     {
-                        foreach (string alias in mode.LegacyAliases)
-                        {
-                            if (draftBindings.TryGetValue((activeStyle.StyleId, alias), out previous))
-                                break;
-                        }
+                        card = new EditorStyleModeItem(activeStyle, mode, Textures, Bones, FindPreviousBinding(activeStyle.StyleId, mode),
+                            () => IsMapped ? D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1)) : null,
+                            () => OnDynamicModeChanged(card!));
                     }
-
-                    dynamicModes.Add(new EditorStyleModeItem(
-                        activeStyle,
-                        mode,
-                        Textures,
-                        Bones,
-                        previous,
-                        () => IsMapped ? D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1)) : null,
-                        OnDynamicModeChanged));
+                    dynamicModes.Add(card);
                 }
             }
         }
@@ -1008,21 +1049,18 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         }
     }
 
-    private void SnapshotCurrentDynamicDrafts()
+    private bool TryGetEditedMode(StyleMaterialBindingData binding, out EditorStyleModeItem? mode)
     {
-        foreach (var modeItem in dynamicModes)
-        {
-            var key = (modeItem.StyleId, modeItem.ModeId);
-            if (modeItem.IsEnabled)
-                draftBindings[key] = modeItem.BuildBindingData(Label, static ordinal => ordinal, strictValidation: false);
-            else
-                draftBindings.Remove(key);
-        }
+        if (editedModes.TryGetValue((binding.StyleId, binding.ModeId), out mode)) return true;
+        mode = editedModes.Values.FirstOrDefault(item => item.StyleId == binding.StyleId && ModeMatches(item.Mode, binding.ModeId));
+        return mode is not null;
     }
 
-    private void OnDynamicModeChanged()
+    private void OnDynamicModeChanged(EditorStyleModeItem mode)
     {
         if (rebuildingDynamicModes) return;
+        editedModes[(mode.StyleId, mode.ModeId)] = mode;
+        RefreshPmxDefaults();
         RefreshDynamicModePartitions();
         ValidateLive();
         Changed(nameof(ExistingMapping));
@@ -1228,34 +1266,13 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 
     private string BuildExistingMappingSummary()
     {
-        var enabled = dynamicModes.Where(static m => m.IsEnabled).ToArray();
-        if (enabled.Length > 0)
-            return Format("Mda.Text.ModelProps.ExistingBindingsList", string.Join(" + ", enabled.Select(static m => m.DisplayName)));
-
-        if (original is null) return Text("此材质尚无显式映射。");
-        var bindings = original.PluginBindings;
-        if (bindings.Count == 0) return Text("当前：显式材质角色与普通 PMX 参数");
-
-        if (HasBinding(bindings, null, "face-sdf")) return Text("当前：FaceSDF");
-        if (HasBinding(bindings, "star-rail", "body") || HasBinding(bindings, "wuthering-waves", "body")) return Text("Mda.Text.1b1caee6a93f");
-        if (HasBinding(bindings, "endfield", "matcap")) return Text("Mda.Text.fbbacdc212d0");
-        if (HasBinding(bindings, "genshin", "metallic")) return Text("Mda.Text.37c4f44fe900");
-        if (HasBinding(bindings, "genshin", "hair-atlas")) return Text("Mda.Text.5bc3bbdf4dbf");
-        if (HasBinding(bindings, "genshin", "hair") || HasBinding(bindings, "genshin", "genshin-hair")) return Text("Mda.Text.cfb66317f18a");
-        if (HasBinding(bindings, "star-rail", "hair") || HasBinding(bindings, "wuthering-waves", "hair")) return Text("当前：星铁／鸣潮头发");
-        if (HasBinding(bindings, "endfield", "hair")) return Text("当前：终末地径向头发");
-
-        var names = bindings.Select(first =>
-        {
-            var def = styleCatalog.FindStyle(first.StyleId);
-            var mode = FindMode(def, first.ModeId);
-            return mode is not null ? ResolveLocalized(mode.DisplayName, mode.ModeId) : $"{first.StyleId} · {first.ModeId}";
-        });
-        return Format("Mda.Text.ModelProps.ExistingBindingsList", string.Join(" + ", names));
-
-        static bool HasBinding(IReadOnlyList<StyleMaterialBindingData> list, string? styleId, string modeId)
-            => list.Any(b => (styleId is null || string.Equals(b.StyleId, styleId, StringComparison.Ordinal))
-                && string.Equals(b.ModeId, modeId, StringComparison.Ordinal));
+        if (!IsMapped) return OutlinePercent is { } percent && percent != 100m
+            ? Format("Mda.Text.ModelProps.OutlineOnly", percent.ToString("0.##")) : Text("此材质尚无显式映射。");
+        if (legacyModeEdited) return ModeIndex > 1 ? ModeChoices[ModeIndex] : Text("当前：显式材质角色与普通 PMX 参数");
+        var enabled = dynamicModes.Where(static m => m.IsEnabled).Select(static m => m.DisplayName).ToArray();
+        if (enabled.Length > 0) return Format("Mda.Text.ModelProps.ExistingBindingsList", string.Join(" + ", enabled));
+        return DormantBindingCount > 0 ? Format("Mda.Text.ModelProps.DormantBindings", DormantBindingCount)
+            : Text("当前：显式材质角色与普通 PMX 参数");
     }
 
     private PipelineEntry? SelectedPipelineEntry()

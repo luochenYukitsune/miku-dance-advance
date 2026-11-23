@@ -62,7 +62,7 @@ public partial class EditorModelPropertiesWindow : Window
             Close(null); args.Handled = true;
         };
         // The AXAML defines exactly three pages (model properties, materials, JSON); unknown page requests fall back to page 0.
-        ModelPropertiesTabs.SelectedIndex = initialTabIndex is >= 0 and <= 2 ? initialTabIndex : 0;
+        ModelPropertiesTabs.SelectedIndex = ViewModel.SupportsModernStyles && initialTabIndex is >= 0 and <= 2 ? initialTabIndex : 0;
         // A stale right-rail material index must not fail the dialog: keep the view model's own default row instead.
         if (initialMaterialIndex is int materialIndex
             && ViewModel.Materials.FirstOrDefault(item => item.LocalMaterialIndex == materialIndex) is { } material)
@@ -81,6 +81,8 @@ public partial class EditorModelPropertiesWindow : Window
         { SetValidationMessage("JSON 有尚未载入的修改，请先点“载入 JSON 草稿”，或“刷新为当前草稿”放弃这些文本修改。"); return; }
         if (ViewModel.TryCreate(out var draft)) Close(draft);
     }
+
+    private void ClearSelectedMaterialMapping(object? sender, RoutedEventArgs args) => ViewModel.ClearSelectedMaterialMapping();
 
     private void CancelProperties(object? sender, RoutedEventArgs args) { if (!browsing) Close(null); }
 
