@@ -88,6 +88,10 @@
           </StackPanel>
           <StackPanel Spacing="6" IsVisible="{Binding HasDirection}">
             <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.DirectionSection}" Classes="group" />
+            <validated:EditorLightDirectionPad Name="InlineLightDirectionPad" Direction="{Binding LightDirectionVector, Mode=OneWay}"
+                IsVisible="{Binding UseModernControls}" Height="104" MinHeight="104"
+                EditStarted="BeginParameterEdit" EditPreview="PreviewPadEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
+                ToolTip.Tip="{DynamicResource Mda.Text.LightAim.LocalPadHint}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.DirectionPad}" />
             <StackPanel Spacing="4">
               <Button Name="InlineLightAimCenterButton" Classes="action" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                       Height="NaN" MinHeight="28" Padding="8,4"
@@ -140,9 +144,12 @@
               <validated:EditorNumericUpDown Name="InlineLightIntensity" Grid.Column="2" Classes="editorNumber" Value="{Binding Intensity, Mode=TwoWay}" Minimum="0" Increment="0.05" FormatString="0.###" ValueChanged="PreviewNumericInput" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.c56114268030}" />
             </Grid>
             <validated:EditorLightParameterSlider Name="LightBrightnessSlider" Tag="brightness" IsVisible="{Binding UseModernControls}"
-                Minimum="0" Maximum="3" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
+                Minimum="0" Maximum="{Binding BrightnessSliderMaximum}" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
                 EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
                 AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Brightness}" />
+            <Button Name="ResetLightBrightnessButton" Classes="action" IsVisible="{Binding UseModernControls}"
+                    Content="{DynamicResource Mda.Text.Context.Lighting.ResetBrightness}" Click="ResetLightBrightness"
+                    Height="NaN" MinHeight="28" Padding="10,4" HorizontalAlignment="Left" />
           </StackPanel>
           <StackPanel Spacing="8" IsVisible="{Binding UseModernControls}">
             <CheckBox Tag="shadows" Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />

@@ -255,11 +255,18 @@ internal sealed class D3D12GpuRuntime:IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if(fence.CompletedValue==ulong.MaxValue)throw new InvalidOperationException("D3D12 device removed.");
     }
-    internal void WaitForIdle()
+    internal void WaitForIdle() => Drain(forDisposal: false);
+    internal void WaitForIdleForDisposal() => Drain(forDisposal: true);
+
+    private void Drain(bool forDisposal)
     {
-        ObjectDisposedException.ThrowIf(disposed,this);
-        if(IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
-        Wait(fenceValue);foreach(var slot in slots)Retire(slot);
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (IsRecording) throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");
+        // Device removal signals all fences with UINT64_MAX. No further GPU access
+        // is possible, so disposal can retire every slot even though rendering must fail.
+        if (forDisposal) fenceWaiter.Wait(fenceValue, CancellationToken.None);
+        else Wait(fenceValue);
+        foreach (var slot in slots) Retire(slot);
         Transients.ReleaseIdle();
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
@@ -270,7 +277,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     public void Dispose()
     {
         if(disposed)return;
-        try{Abort();WaitForIdle();}
+        try{Abort();WaitForIdleForDisposal();}
         finally
         {
             disposed=true;Transients.Dispose();pipelineLibrary.Dispose();

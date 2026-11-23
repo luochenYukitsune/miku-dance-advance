@@ -10,7 +10,7 @@ internal sealed class D3D12FenceWaiter(ID3D12Fence fence) : IDisposable
 {
     // Device removal sets the fence to UINT64_MAX and signals pending events; the bounded wait only
     // re-reads the fence as a safety net and never ends a wait early.
-    private static readonly TimeSpan RecheckInterval = TimeSpan.FromMilliseconds(100);
+    internal static readonly TimeSpan RecheckInterval = TimeSpan.FromMilliseconds(100);
     private readonly ConcurrentBag<AutoResetEvent> idle = [];
     private readonly List<AutoResetEvent> created = [];
 

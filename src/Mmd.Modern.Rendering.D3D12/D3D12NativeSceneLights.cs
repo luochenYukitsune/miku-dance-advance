@@ -34,22 +34,7 @@ internal static class NativeLightShadowProjection
                 light with { Kind = SceneLightKind.Point, Position = NativeAreaLight.SamplePosition(light, sample) })).ToArray();
         if (light.Kind == SceneLightKind.Directional)
         {
-            Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
-            if (!scene.HasDeferredDeformation || scene.Indices.IsEmpty)
-            {
-                foreach (uint index in scene.Indices)
-                {
-                    var p = Vector3.Transform(scene.GetVertex((int)index).Position, scene.World);
-                    minimum = Vector3.Min(minimum, p); maximum = Vector3.Max(maximum, p);
-                }
-            }
-            else
-            {
-                ModernDirectionalShadowProjection.ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
-            }
-            Vector3 center = minimum * .5f + maximum * .5f;
-            float radius = MathF.Max((maximum - minimum).Length() * .53f, .1f);
-            if (!float.IsFinite(radius)) throw new ArgumentException("Scene bounds exceed the native shadow projection range.", nameof(scene));
+            var (center, radius) = directionalBounds.GetValue(scene, ComputeDirectionalBounds);
             var direction = Direction(light);
             var view = Matrix4x4.CreateLookAt(center - direction * (radius + 1), center, Up(direction));
             return RequireFinite([view * Matrix4x4.CreateOrthographic(2 * radius, 2 * radius, .01f, 2 * radius + 2)]);
@@ -65,6 +50,32 @@ internal static class NativeLightShadowProjection
         Vector3[] directions = [Vector3.UnitX, -Vector3.UnitX, Vector3.UnitY, -Vector3.UnitY, Vector3.UnitZ, -Vector3.UnitZ];
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 2, 1, near, light.Range);
         return RequireFinite(directions.Select(direction => Matrix4x4.CreateLookAt(light.Position, light.Position + direction, Up(direction)) * projection).ToArray());
+    }
+
+    // Geometry and its world transform are immutable for the lifetime of a snapshot.
+    private sealed record DirectionalBounds(Vector3 Center, float Radius);
+    private static readonly ConditionalWeakTable<SceneSnapshot, DirectionalBounds> directionalBounds = new();
+
+    private static DirectionalBounds ComputeDirectionalBounds(SceneSnapshot scene)
+    {
+        if (scene.Indices.IsEmpty) return new(Vector3.Zero, .1f);
+        Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
+        if (!scene.HasDeferredDeformation)
+        {
+            foreach (uint index in scene.Indices)
+            {
+                var p = Vector3.Transform(scene.GetVertex((int)index).Position, scene.World);
+                minimum = Vector3.Min(minimum, p); maximum = Vector3.Max(maximum, p);
+            }
+        }
+        else
+        {
+            ModernDirectionalShadowProjection.ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
+        }
+        Vector3 center = minimum * .5f + maximum * .5f;
+        float radius = MathF.Max((maximum - minimum).Length() * .53f, .1f);
+        if (!float.IsFinite(radius)) throw new ArgumentException("Scene bounds exceed the native shadow projection range.", nameof(scene));
+        return new(center, radius);
     }
 
     private static Matrix4x4[] RequireFinite(Matrix4x4[] matrices)

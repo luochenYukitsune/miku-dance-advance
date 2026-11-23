@@ -24,6 +24,9 @@ public partial class EditorWindow
     {
         var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
+        var mainInspector = this.FindControl<EditorMainLightInspector>("MainLightInspector")!;
+        mainInspector.DirectionEditStarting = CanBeginLightGesture;
+        mainInspector.DirectionEditingChanged = viewport.SetMainLightPadEditing;
         _mainLightViewport = new(shell.SceneInspector, CanBeginLightGesture, viewport.RequestRender);
         inspector.CommitRequested = CommitInlineLighting;
         inspector.SelectionRequested = id => lightController?.Select(id);
@@ -46,33 +49,8 @@ public partial class EditorWindow
             lightController.CanBeginEdit = CanBeginLightGesture;
             lightController.IsEnabled = true;
         }
-        if (boneController is not null) boneController.CanBeginInteraction = CanBeginBoneInteraction;
         InitializeInspectorPages(shell);
         RefreshLightingInspector();
-    }
-
-    private bool CanBeginBoneInteraction()
-    {
-        if (_shell is not { IsBusy: false } shell) return false;
-        long revision = shell.ContentRevision;
-        if (!CommitPendingInlineLighting()) return false;
-        if (shell.InspectorPage == EditorInspectorPage.Lighting)
-        {
-            // Move/rotate handles are explicit animation editing and return to the animation page.
-            // A plain select is ordinary object selection: it updates the shared selection but keeps the
-            // user's manually chosen lighting page, releasing only the additional-light viewport handle.
-            if (boneController?.IsManipulationEnabled == true)
-            {
-                if (!LeaveLightContext()) return false;
-            }
-            else if (lightController?.SelectedLightId is not null)
-            {
-                lightController.Select(null);
-            }
-        }
-        // Committing a light invalidates the bone hit geometry captured before this callback.
-        // Consume this click; the render requested above supplies the next valid bone target.
-        return revision == shell.ContentRevision;
     }
 
     private bool CanBeginLightGesture()
@@ -279,11 +257,18 @@ public partial class EditorWindow
         _ = NavigateInspectorPage(EditorInspectorPage.Lighting);
         if (CommitInlineLighting(draft))
         {
-            if (lightController is { } controller) controller.RotateHandle = false;
-            this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = false;
-            RefreshLightingInspector();
+            // Moving a directional lamp only moves its icon. Start with the tool that
+            // changes the light; positional lamps share the current move/rotate tool.
+            bool rotate = kind == SceneLightKind.Directional
+                || kind != SceneLightKind.Point && lightController?.RotateHandle == true;
+            SetLightTransformMode(rotate);
             shell.OperationStatus = draft.Snapshot.Lights.Single(light => light.Id == draft.SelectedLightId).Enabled
-                ? Text("灯光已添加。直接拖动图标移动，或切换旋转调整方向。")
+                ? Text(kind switch
+                {
+                    SceneLightKind.Directional => "Mda.Text.Context.Lighting.AddedDirectional",
+                    SceneLightKind.Point => "Mda.Text.Context.Lighting.AddedPoint",
+                    _ => "Mda.Text.Context.Lighting.AddedPositional"
+                })
                 : Format("Mda.Text.Context.Lighting.AddedDisabledAtCapacity", SceneLightingSnapshot.MaxActiveLights);
         }
     }
@@ -305,8 +290,14 @@ public partial class EditorWindow
     private void SetLightTransformMode(bool rotate)
     {
         if (lightController is not { } controller) return;
+        if (!controller.HelpersVisible)
+        {
+            this.FindControl<ToggleButton>("LightHelpersToggle")!.IsChecked = true;
+            controller.HelpersVisible = true;
+        }
         controller.RotateHandle = rotate;
-        this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = rotate;
+        // Selection refresh can coerce a single point light back to move mode.
+        this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = controller.RotateHandle;
         RefreshLightingInspector();
     }
 

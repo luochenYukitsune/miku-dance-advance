@@ -193,8 +193,11 @@ public static class LightViewportInteraction
             && Vector2.DistanceSquared(mouse, targetPixel) <= 81
             && (nearest is null || Vector2.DistanceSquared(mouse, targetPixel) < distance))
             return new(aimed, LightDragAxis.Free, Target: true);
-        if (nearest is { } hit) return new(hit, LightDragAxis.Free);
-        if (selected is not { } id || lights.Lights.FirstOrDefault(light => light.Id == id) is not { } active) return null;
+        LightViewportHit? body = nearest is { } hit ? new(hit, LightDragAxis.Free) : null;
+        if (selected is not { } id || lights.Lights.FirstOrDefault(light => light.Id == id) is not { } active) return body;
+        // Keep the selected body available for free drag. Its colored axes and rings are
+        // drawn in front of other lamps, and must remain grabbable where icons overlap.
+        if (body is { } picked && (picked.LightId == id || selectedIds?.Contains(picked.LightId) == true)) return body;
         if (selectedIds is { Count: > 1 } && selectionPivot is { } pivot
             && TryProject(pivot, camera, width, height, out var centerPixel)
             && Vector2.DistanceSquared(mouse, centerPixel) <= 81)
@@ -206,7 +209,7 @@ public static class LightViewportInteraction
             float candidate = HandleDistance(selectionPivot ?? active.Position, axis, size, mouse, camera, width, height, rotate);
             if (candidate < distance) { distance = candidate; bestAxis = axis; }
         }
-        return bestAxis is { } chosen ? new(id, chosen) : null;
+        return bestAxis is { } chosen ? new(id, chosen) : body;
     }
 
     public static ViewportOverlaySnapshot CreateOverlay(SceneLightingSnapshot lights, Guid? selected,

@@ -9,6 +9,7 @@ using Mmd.Modern.App;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
+using Mmd.Modern.ViewOutput;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -47,6 +48,64 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.Equal(EditorInspectorPage.Animation, shell.InspectorPage);
             Assert.True(window.FindControl<ComboBox>("CurrentModelSelector")!.IsEffectivelyVisible);
             Assert.False(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task LightingTabHidesBoneGeometryAndPickingAndPreservesThePoseDraft() => await session.Dispatch(() =>
+    {
+        var (window, shell) = Editor();
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+            using var input = File.OpenRead(path);
+            var asset = EditorProjectWorkspace.CreateModelAsset(PmdPmxAdapter.Convert(PmdReader.Read(input)), path);
+            var objectId = shell.Workspace.AddModel(path, asset, ModelRole.Character);
+            shell.RefreshWorkspace(objectId);
+            shell.Browser.SelectedBoneIndex = 0;
+            shell.Animation.PositionX = 2.5m;
+            var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+            var bones = viewport.BoneController!;
+            bones.ShowBones = true;
+            bones.ShowSelectionBounds = true;
+            bones.IsManipulationEnabled = true;
+            bones.EditingSpace = BoneEditingSpace.Global;
+            var requests = bones.SnapshotRequests([]);
+            Assert.NotEmpty(requests);
+            var snapshot = shell.Workspace.Session!.CaptureRenderSnapshot(requests);
+            var camera = viewport.CurrentCamera;
+            var original = new PreviewFrame(800, 600, snapshot.SourceFrame, snapshot.Scene, snapshot.Camera,
+                snapshot.Light, snapshot.SelfShadow) { ResolvedCamera = camera, SceneInputs = snapshot.SceneInputs };
+            var withBones = viewport.FrameDecorator!(original);
+            var center = withBones.Scene.EditorOverlay!.Lines.First(line =>
+                (line.Shape is ViewportOverlayShape.Circle or ViewportOverlayShape.Square) && line.Color.X > .9f);
+            int x = (int)Math.Round(center.Start.X * 800), y = (int)Math.Round(center.Start.Y * 600);
+            bones.FramePresented(withBones);
+            var lateAnimationFrame = viewport.FrameDecorator(original);
+            var tabs = window.FindControl<TabControl>("InspectorPageTabs")!;
+            tabs.SelectedIndex = (int)EditorInspectorPage.Lighting;
+            Assert.True(shell.IsLightingPage);
+            Assert.Empty(bones.SnapshotRequests([]));
+            Assert.Empty(viewport.FrameDecorator(original).Scene.EditorOverlay?.Lines ?? []);
+            Assert.False(bones.TryBeginDrag(x, y, 800, 600, camera));
+
+            tabs.SelectedIndex = (int)EditorInspectorPage.Animation;
+            Assert.True(shell.IsAnimationPage);
+            bones.FramePresented(lateAnimationFrame);
+            Assert.False(bones.TryBeginDrag(x, y, 800, 600, camera));
+            Assert.True(bones.ShowBones && bones.ShowSelectionBounds && bones.IsManipulationEnabled);
+            Assert.Equal(BoneEditingSpace.Global, bones.EditingSpace);
+            Assert.Equal(0, shell.Browser.SelectedBoneIndex);
+            Assert.Equal(2.5m, shell.Animation.PositionX);
+            Assert.True(shell.Animation.HasDraft);
+            Assert.NotEmpty(bones.SnapshotRequests([]));
+            var restored = viewport.FrameDecorator(original);
+            Assert.Equal(withBones.Scene.EditorOverlay.Lines, restored.Scene.EditorOverlay!.Lines.ToArray());
+            bones.FramePresented(restored);
+            Assert.True(bones.TryBeginDrag(x, y, 800, 600, camera));
+            bones.EndDrag();
             return true;
         }
         finally { Close(window); }

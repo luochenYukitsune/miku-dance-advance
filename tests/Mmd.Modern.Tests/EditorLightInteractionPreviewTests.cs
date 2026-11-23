@@ -85,6 +85,30 @@ public sealed class EditorLightInteractionPreviewTests
         Assert.Equal(2, controller.PreviewLighting.Lights[0].Intensity);
     }
 
+    [Fact]
+    public void RepeatedPointerSamplesKeepTheLastPreviewWithoutAnotherRenderRequest()
+    {
+        using var workspace = Workspace();
+        var light = Light();
+        workspace.EditLighting(new(new([light])));
+        int renders = 0;
+        var controller = new EditorLightViewportController(workspace, workspace.EditLighting, () => renders++);
+        controller.Select(light.Id);
+        Present(workspace, controller);
+        Assert.True(controller.TryBeginDrag(400, 300, 800, 600, Camera));
+        int atStart = renders;
+        Assert.True(controller.MoveDrag(400, 300));
+        Assert.Equal(atStart, renders);
+        Assert.True(controller.MoveDrag(430, 310));
+        var moved = controller.PreviewLighting;
+        Assert.True(controller.MoveDrag(430, 310));
+        Assert.Equal(atStart + 1, renders);
+        Assert.Same(moved, controller.PreviewLighting);
+        Assert.True(controller.MoveDrag(400, 300));
+        Assert.Equal(light, controller.PreviewLighting.Lights[0]);
+        Assert.False(controller.EndDrag());
+    }
+
     private static NativeSceneLight Light() => new(Guid.NewGuid(), "fill", SceneLightKind.Spot,
         Vector3.Zero, Quaternion.Identity, Vector3.One);
     private static EditorProjectWorkspace Workspace()

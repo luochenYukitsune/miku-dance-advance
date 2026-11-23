@@ -82,6 +82,43 @@ public sealed class EditorLightParentInspectorTests : IAsyncDisposable
     }, TestContext.Current.CancellationToken);
 
     [Fact]
+    public async Task ViewAimUsesWorldCoordinatesForScaledRotatedBoneLights() => await session.Dispatch(() =>
+    {
+        var objectId = Guid.NewGuid();
+        var light = Light() with { Parent = new(objectId, 0) };
+        var transform = Matrix4x4.CreateScale(2) * Matrix4x4.CreateRotationY(1.2f) * Matrix4x4.CreateTranslation(20, 3, -9);
+        var inspector = Inspector(light, [new(objectId, "Model", ["hand"])], _ => transform);
+        var camera = EditorLightPlacement.DefaultCamera;
+        inspector.CreationCameraProvider = () => camera;
+        List<NativeSceneLight> commits = [];
+        inspector.CommitRequested = draft => { commits.Add(Assert.Single(draft.Snapshot.Lights)); return true; };
+        var window = Host(inspector);
+        try
+        {
+            void Click(string name) => inspector.GetVisualDescendants().OfType<Button>().Single(b => b.Name == name)
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Click("InlineLightAimCenterButton");
+            var aimed = Assert.Single(commits);
+            Assert.Equal(light.Position, aimed.Position);
+            Assert.Equal(light.Parent, aimed.Parent);
+            var world = SceneLightTransform.ToWorld(aimed, transform);
+            Assert.InRange(Vector3.Distance(camera.LookAt, world.Target), 0, .0001f);
+            Assert.InRange(MathF.Abs(Vector3.Distance(world.Position, camera.LookAt) - aimed.AimDistance!.Value), 0, .0001f);
+
+            Click("InlineLightAimCameraButton");
+            Assert.Equal(2, commits.Count);
+            var aligned = SceneLightTransform.ToWorld(commits[1], transform);
+            var view = camera.CreateCamera();
+            Assert.InRange(Vector3.Distance(aligned.Direction, Vector3.Normalize(view.Target - view.Eye)), 0, .0001f);
+            Assert.Equal(world.Position, aligned.Position);
+            Assert.Equal(world.Range, aligned.Range);
+            Assert.Equal(world.AimDistance, aligned.AimDistance);
+            return true;
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
     public async Task InvalidRawInputBlocksAttachmentBeforeTransformResolutionAndRestoresChoice() => await session.Dispatch(() =>
     {
         var light = Light(); var objectId = Guid.NewGuid(); int resolves = 0, commits = 0;

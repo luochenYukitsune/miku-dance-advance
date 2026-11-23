@@ -37,9 +37,19 @@ public partial class EditorLightInspector : UserControl
             CaptureRawControlText();
             if (ViewModel?.SelectedLight is { } light && !ReferenceEquals(renderedColorSource, light)) RefreshColor();
         };
-        KeyDown += (_, args) =>
+        KeyDown += (sender, args) =>
         {
             if (recoveryRestoreDepth != 0) return;
+            if (args.Key == Key.Escape && args.Source is TextBox { Name: "LightHexColor" } color
+                && ViewModel?.SelectedLight is { } light && ReferenceEquals(color.DataContext, light))
+            {
+                rawHexText.Remove(light.Id);
+                DataValidationErrors.ClearErrors(color);
+                RefreshColor();
+                TryReadLightingDraft(out _);
+                args.Handled = true;
+                return;
+            }
             if (args.Key == Key.Escape && numericEdit is not null)
             {
                 CancelActiveParameterEdit();
@@ -428,12 +438,14 @@ public partial class EditorLightInspector : UserControl
         DataValidationErrors.ClearErrors(input);
         TryCommit();
     }
-    private static bool ReadHex(TextBox input, EditorNativeLightItem light)
+    private bool ReadHex(TextBox input, EditorNativeLightItem light)
     {
         string value = (input.Text ?? "").Trim().TrimStart('#');
         if (value.Length != 6 || !uint.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint rgb))
         {
-            DataValidationErrors.SetError(input, new FormatException(Text("请填写六位十六进制颜色，例如 #FFFFFF。")));
+            const string message = "Mda.Text.c0cb93ed68b6";
+            DataValidationErrors.SetError(input, new FormatException(Text(message)));
+            ViewModel?.SetValidationMessage(message);
             return false;
         }
         DataValidationErrors.ClearErrors(input);

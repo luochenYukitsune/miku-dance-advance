@@ -21,6 +21,7 @@ public sealed class EditorLightViewportController
     // primitive objects. Tag a light primitive so presentation still identifies this geometry.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ViewportOverlayLine, CapturedLights> awaitingPresentation = new();
     private Drag? drag;
+    private Vector2 lastDragPointer;
     private SceneLightingSnapshot? parameterPreview;
     private IReadOnlyList<Guid> selectedIds = Array.Empty<Guid>();
     private object selectionIdentity = new();
@@ -74,6 +75,7 @@ public sealed class EditorLightViewportController
         EditorPresentationReference Gesture, EditorPresentationReference Parameters);
     public Guid? SelectedLightId => editor.SelectedId;
     public IReadOnlyList<Guid> SelectedLightIds => selectedIds;
+    internal SceneLightingSnapshot? TransientLighting => parameterPreview ?? (drag is null ? null : editor.Snapshot);
     public SceneLightingSnapshot PreviewLighting { get { Synchronize(); return parameterPreview ?? editor.Snapshot; } }
 
     /// <summary>Inspector gestures use the same renderer decorator as viewport gestures. This slot
@@ -84,7 +86,7 @@ public sealed class EditorLightViewportController
         if (draft is not null && (workspace.Session is null || drag is not null
             || !draft.Snapshot.Lights.Select(light => light.Id).SequenceEqual(editor.Lights.Select(light => light.Id)))) return false;
         parameterPreview = draft?.Snapshot;
-        captured = null;
+        // Keep hit-testing the displayed frame while a newer inspector preview is queued.
         requestRender();
         return true;
     }
@@ -150,6 +152,7 @@ public sealed class EditorLightViewportController
     public void FramePresented(PreviewFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
+        captured = null;
         if (!enabled || !helpersVisible) return;
         foreach (var line in frame.Scene.EditorOverlay?.Lines ?? [])
             if (awaitingPresentation.TryGetValue(line, out var pose))
@@ -167,8 +170,7 @@ public sealed class EditorLightViewportController
         Synchronize();
         if (!enabled || !helpersVisible || workspace.Session is null || drag is not null || captured is not { } pose
             || width <= 0 || height <= 0 || width != pose.Width || height != pose.Height) return false;
-        if (camera != pose.Camera || !pose.Lights.AuthoredLighting.Lights.SequenceEqual(editor.Snapshot.Lights)
-            || !pose.Lights.AuthoredLighting.Groups.SequenceEqual(editor.Snapshot.Groups))
+        if (camera != pose.Camera || !SourceCurrent(pose))
         { requestRender(); return false; }
         bool rotating = rotate || rotateHandle;
         var selected = pose.Selected == editor.SelectedId && pose.SelectedIds.SequenceEqual(selectedIds)
@@ -180,7 +182,12 @@ public sealed class EditorLightViewportController
         // A host guard may resolve another draft synchronously. Never carry its old hit
         // across the resulting project edit; the next presented frame will supply it.
         Synchronize();
-        if (!SourceCurrent(pose)) { requestRender(); return true; }
+        // A focused numeric field can put the displayed marker at a draft position.
+        // Let its hit reach the commit guard before comparing it with the document.
+        if (!SourceCurrent(pose) || parameterPreview is not null
+            || !pose.Lights.AuthoredLighting.Lights.SequenceEqual(editor.Snapshot.Lights)
+            || !pose.Lights.AuthoredLighting.Groups.SequenceEqual(editor.Snapshot.Groups))
+        { requestRender(); return true; }
         if (!selectedIds.Contains(hit.LightId)) Select(hit.LightId);
         var authored = editor.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         var originals = pose.Lights.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
@@ -192,6 +199,7 @@ public sealed class EditorLightViewportController
             && LightViewportInteraction.TryProject(pivot, pose.Camera, width, height, out var center))
             anchor = LightViewportInteraction.Translate(pivot, new Vector2(x, y) - center,
                 pose.Camera, width, height, hit.Axis);
+        lastDragPointer = new(x, y);
         editor.BeginEdit(); drag = new(originals, authored, pose.Lights.ParentTransforms, pose.SourceFrame,
             pivot, anchor, new(x, y), pose.Camera, width, height, hit.Axis,
             rotating && !hit.Target, hit.Target); Notify(); return true;
@@ -201,7 +209,9 @@ public sealed class EditorLightViewportController
     {
         Synchronize();
         if (drag is not { } gesture) return false;
-        var delta = new Vector2(x, y) - gesture.Start;
+        var pointer = new Vector2(x, y);
+        if (pointer == lastDragPointer) return true;
+        var delta = pointer - gesture.Start;
         var rotation = delta == Vector2.Zero || !gesture.Rotate ? Quaternion.Identity
             : gesture.Axis == LightDragAxis.Free ? LightViewportInteraction.Rotate(Quaternion.Identity, delta, gesture.Camera)
             : LightViewportInteraction.RotateOnAxis(Quaternion.Identity, gesture.Pivot,
@@ -238,6 +248,7 @@ public sealed class EditorLightViewportController
         }
         catch (ArgumentException) { return false; }
         editor.ReplaceSnapshot(next);
+        lastDragPointer = pointer;
         requestRender(); return true;
     }
 

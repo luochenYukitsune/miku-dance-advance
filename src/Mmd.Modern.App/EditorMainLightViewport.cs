@@ -18,6 +18,7 @@ internal sealed class EditorMainLightViewport(EditorSceneInspectorViewModel mode
     private Vector2 start;
     private Vector3 direction;
     internal bool IsDragging => gesture is not null;
+    internal Vector3? PreviewDirection => IsDragging ? direction : null;
     internal void ClearPresentation()
     {
         presented = null;

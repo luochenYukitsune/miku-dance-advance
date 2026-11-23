@@ -1,6 +1,8 @@
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;
 using System.Numerics;
+using System.Reflection;
+using Vortice.Direct3D12;
 using Xunit;
 namespace Mmd.Modern.Tests;
 
@@ -37,6 +39,36 @@ public sealed class D3D12FrameSessionTests
         using var fresh=new D3D12FrameSession();
         Assert.Equal(actual.Rgba,fresh.Capture(scene,width,height).Rgba);
     }
+    [Fact]
+    public void RemovalFenceAllowsTeardownAndANewSessionRendersTheSameLighting()
+    {
+        var scene = D3D12NativeLightTests.Fixture();
+        var light = D3D12NativeLightTests.Light(SceneLightKind.Point) with { CastShadows = false };
+        var lit = D3D12NativeLightTests.WithLight(scene, [light]);
+        using var session = new D3D12FrameSession();
+        var expected = session.Capture(lit, 129, 97);
+        Assert.NotEqual(session.Capture(scene, 129, 97).Rgba, expected.Rgba);
+        var runtime = session.Runtime;
+        var frame = runtime.Begin();
+        var owned = frame.Own(runtime.Device.CreateFence(0, FenceFlags.None));
+        runtime.Wait(runtime.Submit());
+
+        // All GPU work has completed. Exercise the DXGI removal sentinel on this
+        // session's private fence without removing the device used by other tests.
+        var field = typeof(D3D12GpuRuntime).GetField("fence", BindingFlags.Instance | BindingFlags.NonPublic);
+        var fence = Assert.IsAssignableFrom<ID3D12Fence>(field!.GetValue(runtime));
+        fence.Signal(ulong.MaxValue);
+        Assert.Equal(ulong.MaxValue, runtime.CompletedFence);
+        Assert.Throws<InvalidOperationException>(session.WaitForIdle);
+        session.Dispose();
+        Assert.Equal(IntPtr.Zero, owned.NativePointer);
+        Assert.Equal(IntPtr.Zero, fence.NativePointer);
+        Assert.Equal(IntPtr.Zero, runtime.Device.NativePointer);
+
+        using var fresh = new D3D12FrameSession();
+        Assert.Equal(expected.Rgba, fresh.Capture(lit, 129, 97).Rgba);
+    }
+
     [Fact] public void PersistentGpuFramesReuseImmutableResourcesWithoutReadback()
     {
         var scene=D3D12OriginalFrameTests.Shadow(true);using var session=new D3D12FrameSession();

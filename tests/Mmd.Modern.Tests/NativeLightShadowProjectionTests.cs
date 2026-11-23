@@ -59,6 +59,16 @@ public sealed class NativeLightShadowProjectionTests
     }
 
     [Fact]
+    public void EmptySceneSupportsDirectionalShadowUntilGeometryIsVisibleAgain()
+    {
+        var light = Light(SceneLightKind.Directional);
+        var empty = Assert.Single(NativeLightShadowProjection.Create(SceneSnapshot.CreateEmpty(), light));
+        Assert.True(Matrix4x4.Invert(empty, out var inverse));
+        Assert.True(float.IsFinite(inverse.GetDeterminant()));
+        Assert.NotEqual(empty, Assert.Single(NativeLightShadowProjection.Create(Fixture(), light)));
+    }
+
+    [Fact]
     public void SharedConstantLayoutFitsThirtyTwoAreaLightsWithinOneCbv()
     {
         Assert.Equal(80, Marshal.SizeOf<D3D12OriginalStyleRenderer.NativeLightConstants>());

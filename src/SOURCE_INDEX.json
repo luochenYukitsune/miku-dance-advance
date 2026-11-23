@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-20T06:05:30.5620386Z",
+    "generatedAtUtc":  "2026-11-23T03:06:53.4385391Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -60,16 +60,16 @@
                      "cache":  "D:/desktop/mmopensource/.dev-cache"
                  },
     "coverage":  {
-                     "expectedCsharpAndProjectFiles":  1545,
-                     "indexedCsharpAndProjectFiles":  1545,
+                     "expectedCsharpAndProjectFiles":  1547,
+                     "indexedCsharpAndProjectFiles":  1547,
                      "missing":  [
 
                                  ],
                      "extra":  [
 
                                ],
-                     "srcCsharpAndProjectFiles":  742,
-                     "testCsharpAndProjectFiles":  791,
+                     "srcCsharpAndProjectFiles":  743,
+                     "testCsharpAndProjectFiles":  792,
                      "sourceProjectCount":  26,
                      "testProjectCount":  11,
                      "toolProjectCount":  3,
@@ -325,7 +325,7 @@
                                                    ],
                          "purpose":  "Avalonia/MVVM、视口/导入/播放/镜头/截图和当前光源/Demo编排",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  189,
+                         "sourceAndProjectFileCount":  190,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -416,7 +416,7 @@
                                                    ],
                          "purpose":  "跨模块核心、物理、效果、D3D12 GPU、App和集成测试",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  517,
+                         "sourceAndProjectFileCount":  518,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -1568,8 +1568,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  2037,
-                      "sha256":  "50e9987da5442f1d213efbe313a9d3cad0ce4badece00f1980a65e233fd261af",
+                      "bytes":  2461,
+                      "sha256":  "5f9e4fe992604d7cf34a14774e45bd1da3ac1de92ecfcac6a003cfc37105210f",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1581,8 +1581,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11051,
-                      "sha256":  "67b3e1cf03276bda3c3e90a84d326695d54f9a9c09eb800a7f3cbff8e27e138d",
+                      "bytes":  9786,
+                      "sha256":  "25cc6db736857fe505a0fe8c6ff39a9bad387afdf35f63627926055a0dad7ed6",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1802,8 +1802,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  38350,
-                      "sha256":  "e31d26ce547808e025835d59d5b85d522644f22ed0a7db4c54c29efcbc3d5515",
+                      "bytes":  38509,
+                      "sha256":  "7fa54728a13e2f8d1a422b9481921651eaa59d040e0515c12a310acdb64532ef",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2283,8 +2283,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  38760,
-                      "sha256":  "0539a406c4715312bf4f4d34abb67928f0148a45220fc70ef121a32eb577c8ee",
+                      "bytes":  39013,
+                      "sha256":  "c6623bc0c4bb03446b20e6841d43ea875dec461a12aca46bec6877d8142f4f45",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2348,8 +2348,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  27159,
-                      "sha256":  "b3b56e38d11c8021ce8f1df333fd14697492a6bcf2588bc5a24d3cbcf10476f0",
+                      "bytes":  27292,
+                      "sha256":  "a02382883751f24b9318f7b371c06432fc4444f5b4e252d1f36d3b2f8a16a69a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2387,8 +2387,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  17725,
-                      "sha256":  "e192957e33073cd745a4929ca3c03e8238bdc6907deb3e5bf1a53dc5ea1d51a8",
+                      "bytes":  18514,
+                      "sha256":  "c3ab360a2489a29fb717ca91b89cf4f8eb884ba5852c8bc1f40ed1efe67fc150",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2439,8 +2439,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  802,
-                      "sha256":  "c3ba17e38fee4e0e6a37564894337565b3640d41846fb48db6daac3f4d93856d",
+                      "bytes":  941,
+                      "sha256":  "ebd365e5163582f1d65296f66e4947271e795b808c8e7860384e1e39ce7531c3",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2452,8 +2452,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  1994,
-                      "sha256":  "291834da4d2883ea8990cc3c465d6038480cea10ecf6227cfdb1f5af7c4869c6",
+                      "bytes":  2049,
+                      "sha256":  "ff47b2d389dd00a0571f3e57ddf3ef07565dc345a41025fb360aab94c78a65ef",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2465,8 +2465,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  18806,
-                      "sha256":  "5916e6617e6be08616c3d6d5c9e3e78784f34e77846b51dc1032bb9ee5963251",
+                      "bytes":  20147,
+                      "sha256":  "de6fb4c11a01c3ae32ae6a1bf0f2bfb1409a3cec185b362c5d9d8f1a3b27c61e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2504,8 +2504,21 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  1422,
-                      "sha256":  "0310f3467cf7b6d8f9519e5ffdafe92a447361e867222ad3dcddada19d946220",
+                      "bytes":  3166,
+                      "sha256":  "6f9b8a3728b40f07a9e346d1d2bf8d761628ae5067957479a9dcc8c3d4ac1857",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorMainLightViewport.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  6276,
+                      "sha256":  "7bb66c5e98fa5a2cd64a7b9dcbaa3fd32010e0bc86712cdb9aa79bff8275be21",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3180,8 +3193,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  25749,
-                      "sha256":  "a8e178c9592feeb752f603b973b0166088e811c7903f1720af81b43d5fc5854b",
+                      "bytes":  25800,
+                      "sha256":  "aead7a1002cee82232342c20e0baea0ea092a7f33c51c1841c09b2e4c245ec15",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3193,8 +3206,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4739,
-                      "sha256":  "c175e583d30ca68ca031c7bfc9a015033d9d9724ab56a10e984867096989895b",
+                      "bytes":  4733,
+                      "sha256":  "f08f90cee3af7572fd687cf5ba3f1f7f0550ff1f2537a5635a451bddf311f5d5",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3440,8 +3453,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  58534,
-                      "sha256":  "9ef46bd946209f9e54893909a937e4de36c40f0dc0580673ec249a6f7087e052",
+                      "bytes":  64444,
+                      "sha256":  "94db0c387e08755371bf7eaf1656585dd7b3d1fdf3d43ff476c915b49e78b77c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3531,8 +3544,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  44576,
-                      "sha256":  "835180dddaaeb71a820fe1cdd185e9b7ec6f23fc15c86ab96471860b25899c16",
+                      "bytes":  44870,
+                      "sha256":  "a1526d0c77e42d6cfd5c990d5ee6cd68cf4ebc37984cfd85ed17d5df92bafef5",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3648,8 +3661,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  13913,
-                      "sha256":  "65fa70c488c1cf94eb2fc7abd728c60d0b1f2cbbb64543cadbc25099f1042f0e",
+                      "bytes":  14008,
+                      "sha256":  "9500f5b3bb414362c610dfc4e7f928638c59fc71e9d865ff91265d81224b67bb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3687,8 +3700,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  17716,
-                      "sha256":  "37b2b966ae7dc839c442857ec896cac9de728b737d631c1e888e697cd699812d",
+                      "bytes":  17896,
+                      "sha256":  "d1b43eb905b860a4849b9e897dc64a58966828f4121f04dfc381c258d4b51d4e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3700,8 +3713,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  3022,
-                      "sha256":  "e7267dc2bbe6a23c98a56820ac85910b3327c2bbb918f7b64f1dba6dd0e788c8",
+                      "bytes":  3160,
+                      "sha256":  "8d4edc2b03d19c5cabbfef6c37837be2a1bd91bd1fc99154247b513518784f33",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3739,8 +3752,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  16546,
-                      "sha256":  "4e1c54bda1b2f1919492c473581657eac3c3053451028354a89f979513a3bf26",
+                      "bytes":  16565,
+                      "sha256":  "d806e91dde8504cf17255b0a959b688ffaec9cb7077482c24bda490927875a73",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3817,8 +3830,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  23038,
-                      "sha256":  "f167a166e45a91e4c4d8a430ce7e62c5431779ce4d7306f01626dd9f126089b3",
+                      "bytes":  26666,
+                      "sha256":  "6a0ab6c4a09a578f12ceb9289c406ebc50a632d9ee666a1963cf0036fef41b90",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -4727,8 +4740,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  24272,
-                      "sha256":  "90a8f2b6fa1ae6924368f9cbac060a5966ba6b646b11d507beb8b4351023fbe4",
+                      "bytes":  24268,
+                      "sha256":  "d398f6f898b2e37060cd8755c35cf012c7b45edb68ed805bf40f25fc31128830",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -5039,8 +5052,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  46972,
-                      "sha256":  "215b94ae532a7807f8a9448a14b2a8d7205471d0d5739b5dce8b8e4f4b337744",
+                      "bytes":  46968,
+                      "sha256":  "8ab93e0237972eb5df6a36fd85f4ff5f351ef3332e4a0121cdeb6a96514004a8",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -5130,8 +5143,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  94058,
-                      "sha256":  "a577533ab7b47e2364cbda8012eb6709f27d071a6bd0d058a4921244ff4ccba6",
+                      "bytes":  93898,
+                      "sha256":  "43372318f66078f7e0bf66010e70ce987ec5cd7e81fce5892022f96e738e7527",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -5741,8 +5754,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  12614,
-                      "sha256":  "b9e91ea22b900784c2fb68e7b9206ced1e1e7836d3ea78a28f3b93f47376c9d2",
+                      "bytes":  13390,
+                      "sha256":  "85e367fa8cea96deebfc2e63300289d4618548378f005acd101875ee876267ff",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -7444,8 +7457,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  30401,
-                      "sha256":  "4adb6d0f63b1fa933986c23d03bc3e18c89a1966ed8cd7df07c6d38f7d71b8b4",
+                      "bytes":  30477,
+                      "sha256":  "f5b4b8f91f6b9a78d803fc7c3926ad82e50809a4b65ff6be6c72b2ad2d9a6798",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -7821,8 +7834,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14431,
-                      "sha256":  "b1310fcc2cce9d5331e0d38a9a31a3b7adbcdace62705abcf09375df17151cb2",
+                      "bytes":  14453,
+                      "sha256":  "681eb9a5c20ef80e281e1a318059951640e6c4e048a2aea06195fc9e43bb1bc5",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -7886,8 +7899,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  2622,
-                      "sha256":  "dbfcdbfa5a5efa27bb8fe5f81108b43fd3829c52c950ef7ab73e62b53fa99932",
+                      "bytes":  2623,
+                      "sha256":  "540b7768c402147f81230f906a84cb4459a0610ab405f183b3ba47677cca6457",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -7899,8 +7912,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  6813,
-                      "sha256":  "49815cfe53aa57c333db16c82a5a496bfc7383f03b7bdd85c6fc640cc33b7461",
+                      "bytes":  6824,
+                      "sha256":  "5af06ba08b4e79b3540a67867713ecd04f7d05f182289222b515fc9af0e375d2",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -7912,8 +7925,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  75131,
-                      "sha256":  "962685d60cbe898fbac3c1f8491a7dea814367dc92d1bf1227e10f879ca47c34",
+                      "bytes":  75598,
+                      "sha256":  "b594be2f9dc3716c75093049998728cb4969add883dcc64389e52c170e296db7",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -7925,8 +7938,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  7681,
-                      "sha256":  "77e944d6bb013dcff5146f5a74ee34c51a149a495c15eb1ecf55ad352bb3dcee",
+                      "bytes":  7854,
+                      "sha256":  "19fbd0dbfc888d24481896a930ecf5634bf5abc397d2cea045a462a282629e31",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -7977,8 +7990,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14699,
-                      "sha256":  "433cf8628a4a3de8def73da4957fe173a0adb20281affb5b2a03662150397de6",
+                      "bytes":  14710,
+                      "sha256":  "8cd7e4cd679ce55bab04fefb0c78af0e694455ccc5090b161e40c459759437eb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8029,8 +8042,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  18659,
-                      "sha256":  "fcc909a907cc61777253276de0c13b689dc96ed3f3f2158bd35b58883577cc55",
+                      "bytes":  19094,
+                      "sha256":  "b4f5500ff79ad0931b00b146c855fb7932f1488c05e330a154e503967667a73d",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8107,8 +8120,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  21904,
-                      "sha256":  "554564b5992cc22351e0b8a61bd03e463291a8b688cc1ad66c68c21090fdc985",
+                      "bytes":  22381,
+                      "sha256":  "c07cf570162d31e019f0c8b341149a082bba7a7f46a21b51c56df6c8bb995d9a",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8172,8 +8185,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  19666,
-                      "sha256":  "9cf86ade1fb071c2ae8fbcda1b0929b1559ec9f08ebd21d4146c7822175868fb",
+                      "bytes":  19677,
+                      "sha256":  "6d895190f0a23fa7f7595fdd30fe178d40723a0e12f15cb50954b1bf456254c4",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8523,8 +8536,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15409,
-                      "sha256":  "be60471a39c1f9280356eb754b48a819234b359ba3582d337822d5bb4db20121",
+                      "bytes":  15996,
+                      "sha256":  "4fdd6c09162fd014eafcabec9e64ccccc26e0c2587c45d8db28f30a67e855af5",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8575,8 +8588,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15532,
-                      "sha256":  "8889cbd8feb81faf57fd8120efdf61c3d45acfe160f940d85146bee0312957da",
+                      "bytes":  15543,
+                      "sha256":  "6d997094d1d10b4c24efc72c209b652356175f6fe51585230b9d68392aca4a93",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8666,8 +8679,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  21692,
-                      "sha256":  "d948fe7fb565a55876098cdf9ed5c1f4624bbccfc2b9a6019106c8c10b1c5777",
+                      "bytes":  21703,
+                      "sha256":  "b928db5bc4aec43d27f54468a753b5de724c3680e8482acd2126ab71b5c929bd",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -11674,8 +11687,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  43976,
-                      "sha256":  "fe964430338300d25ff68b8fa15aa3a82b6eb07a42b7f72d98ec3b1045a6099d",
+                      "bytes":  44369,
+                      "sha256":  "708ff628f49bb1d5d4be6b37eee4c123f144cd10d010f48c6396466b0bd4be81",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -15209,8 +15222,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4943,
-                      "sha256":  "e1db17e6850241a599152ceebbc631bf0ff675acc9b57b42e05e77c69afd4c03",
+                      "bytes":  5502,
+                      "sha256":  "c9f7e3dd9255ac2175499496b0dafff8e53c44a3c053e424aca832b5d14bdda5",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -15225,8 +15238,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5300,
-                      "sha256":  "fc7ee5e00848c1475d7d221047500d304926afc10ae6de79fda8cb0621d5ac97",
+                      "bytes":  6916,
+                      "sha256":  "a9fc3deb4f9145cb528160d0269493549db665c2ac72f63d95230a6ab1701c04",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -15673,8 +15686,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5493,
-                      "sha256":  "59655ee5ed85ab3f6aa4e6f5abc438d1e6f77e0c8a1348fe75098a7d7b636177",
+                      "bytes":  5928,
+                      "sha256":  "6c2249d3d3fb5c4b642623944e4424a69a002cb3893f71d84f25b473609fc0b3",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17705,8 +17718,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4557,
-                      "sha256":  "49b85a66877de141f0ccaa35e35ca560413c49e7727796c74f6eb75f4ccd7693",
+                      "bytes":  5851,
+                      "sha256":  "acbf31de04ac97eaa7cfdbf66b99b7f66b98534bbb44a02703b02ecd1575eb97",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17721,8 +17734,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4471,
-                      "sha256":  "313d0e24e7c00d6573bec7ec5af2593df0d83d674e0161fbc12aae0289699f52",
+                      "bytes":  4628,
+                      "sha256":  "b39cfd8b5900c3ba8665348361a97119ada74b730c3fc6adf9b031bf110ac681",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17769,8 +17782,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  12723,
-                      "sha256":  "ccb1575572e13dc42ed3367bc98c0f9744f6798e12a3885696b7d8d88604576e",
+                      "bytes":  19013,
+                      "sha256":  "63a8b899d4b6b0e54933dc5427a3ca2d23d28d89874373dec79c6dcb9c077af8",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17785,8 +17798,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5786,
-                      "sha256":  "1145e306e14c1046a876e118ab6ec961a176b8fc1d7f09bdcc2c3b95c805751e",
+                      "bytes":  6845,
+                      "sha256":  "35e445ee30864c44dfc5e197bc55ff87177928fd6ec2fad791f30233bb105b79",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17801,8 +17814,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20105,
-                      "sha256":  "486a47e2c1d579043595ff89750d547013074ffea8cdf0924d124cac2d34c135",
+                      "bytes":  26104,
+                      "sha256":  "5dfbb94aa6aff858cd8557856a4757b0ad3106ed1ed0e064fed5c8f0f0a13c16",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17817,8 +17830,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14035,
-                      "sha256":  "53c2e2552ed904d8d4bc299294b9f2b354ccd30e0de79a7fe43098d8f68b004b",
+                      "bytes":  16185,
+                      "sha256":  "59327e5cd7e6e8de3219259286d2198c9f1fb2e13b32603b454c1b82e3fb710d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17865,8 +17878,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11005,
-                      "sha256":  "39fd49d27233e6d58522c96efdd8eadacae17dc465ac7f2c822b9822b46eb2cd",
+                      "bytes":  16633,
+                      "sha256":  "702b7ec4786a9f549c0ef6ab6bc7348f6b5fca24e56c8a595b4e0b1bf0d54d73",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17881,8 +17894,24 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  7663,
-                      "sha256":  "4108632e3365d8cc42807a71437e045cf8b8f83d700bd46c6dd5391df88d519d",
+                      "bytes":  8085,
+                      "sha256":  "51dee1324d9742fbc3a6af93db93071a7126d87a316f8cd49bbecd920444ca54",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.Tests/EditorMainLightViewportTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  4378,
+                      "sha256":  "02643d6dd0461a6eb3b77036edbb529df6e6cead86933449f1a212a64f2bbb00",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -18041,8 +18070,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  19130,
-                      "sha256":  "dd92f317ebcfc3c60a550a285c2bb1a1001c0e1de0a825993c3aafeae6e431d3",
+                      "bytes":  19192,
+                      "sha256":  "e097088398ce545cd2e94de87d5f7878ff7f09bb87b2df2f8ebb2abd1f2740f3",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -18505,8 +18534,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  23066,
-                      "sha256":  "595b3fc735b933385e0a51169ed89810bddddbb6eff93792ff9d4ebef6081d93",
+                      "bytes":  29793,
+                      "sha256":  "321b2ef9d74be3afbdec399c9475c7edb1a148d8960357f290d06e6c6415a1ba",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -19657,8 +19686,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20114,
-                      "sha256":  "654340798764995ed9daa37b8accb3a198d0ddb5d523233fb522366a89aebc07",
+                      "bytes":  20353,
+                      "sha256":  "961af45837c8ef90615593e8400c211f7b7e181eb1dc78c26e8a42ba4f9803df",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -19929,8 +19958,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4431,
-                      "sha256":  "3cbe7106dd7fa07a23ee3b8456dcb1f85bf04ab288bdb61bfb28b0aacbd83bef",
+                      "bytes":  6319,
+                      "sha256":  "fa31d8d469ca4c4da3f9a48b6a8f5f4b5719229eb84aeebb9cefbd7f798f030e",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -20089,8 +20118,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4285,
-                      "sha256":  "451480cbbe0866d294df587125a675bbf15947ea8bdc880cd2b29fa23d439206",
+                      "bytes":  4779,
+                      "sha256":  "25c031b21885e62c446ba59de3beaafb39093d0ac0354084318973c4ebeec6f6",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -21193,8 +21222,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11157,
-                      "sha256":  "5b8316820f93523da446857c6ca91fe5455df315cfa6655824b72d5ebac9acbd",
+                      "bytes":  12019,
+                      "sha256":  "6cdae942495b4d5ea9b49e42b6be3812fdec55c3e8f16ab1e256edbcbb49aa44",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21673,8 +21702,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  16924,
-                      "sha256":  "856c95275d4b90a1200287cc8d0ba320327912eb7427f1ad727238f13e44d461",
+                      "bytes":  16670,
+                      "sha256":  "4a2994508a15d0066787259779a603efd8ffcddfcd85778d909d511ae1faa90f",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21801,8 +21830,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  10006,
-                      "sha256":  "edf6607c6b5dee217959f7ce021f179a17840ebb1af79520285ba98d85397c83",
+                      "bytes":  10943,
+                      "sha256":  "3e0bb72a84bfe9aec3c39859cfbe98ccdf325a2756694335bd81048330239dfb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21833,8 +21862,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  2817,
-                      "sha256":  "c6620265cd4620cc37a42edf7fed1960bbdc4a5055e6051964cf49cb5863122f",
+                      "bytes":  3668,
+                      "sha256":  "161358a16eeb448f127790acce055201722fda79f0eecbd638242be2c746765a",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -23699,24 +23728,24 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  130234,
-                                "sha256":  "6296eb55fb53d29b5d0d3c8b7a92048f687e342cbc447421301db8566c0880f2"
+                                "bytes":  131100,
+                                "sha256":  "263d634db405bff73b668536c019d49062b203e335ba930d79e7ad47b33f2927"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  164562,
-                                "sha256":  "ebeecfdef5b8ef476e381e80ba7bd31953f3e96926c35d79fb5d3769a237e2f7"
+                                "bytes":  165806,
+                                "sha256":  "37a6d7cdb27bf7cf58cb038decdab505dfa584ce95c37245f2ee5ff22f8c10d2"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  84892,
-                                "sha256":  "e2d8e1403199532a0cbeba1518594b060e92e92576808b49d7bbc7c5473024f9"
+                                "bytes":  85055,
+                                "sha256":  "74b18693cdf9c01c2f9df4df8f4e483eda2e1d0f7c656a9aba1cd6af8bb36141"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/README.md",
@@ -23731,8 +23760,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  125723,
-                                "sha256":  "656f3c88036296a6bc89ffb4744e4abe9338e6819433f0a88d4d6635ed5e16cf"
+                                "bytes":  126480,
+                                "sha256":  "497cb5ceb8eb684b151b478085878b9d83338f793d295f4ae60bfa10e3c6b24e"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -23779,16 +23808,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  38713,
-                                "sha256":  "4780b12a8fae3163aa2fae17b556e0621a9396ace7f54930c7eda20904b36643"
+                                "bytes":  39224,
+                                "sha256":  "d67bf07366f36cee222b359c24fd1b087892084fea1150a995327befdb500fd5"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorMainLightInspector.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  12068,
-                                "sha256":  "ab142c7d2035d02660d8d6b1c4c3582283a3abc9ec909a08d65e029cfa9d4cd9"
+                                "bytes":  12053,
+                                "sha256":  "c8a49179de428420cc755a35e8ff889cc1b1037ec63f864880da73a58cb8d748"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorModelBrowser.axaml",
@@ -23875,8 +23904,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  114796,
-                                "sha256":  "f9eed9e85e0b95681cf887dac0485028e7f9d1a3328c6aca9daa245c57a6f526"
+                                "bytes":  115302,
+                                "sha256":  "4d05cf7ef763e6c4da9d1c6cb01a0cdff78a4ba5eed8f30be55c892e24b4776f"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",

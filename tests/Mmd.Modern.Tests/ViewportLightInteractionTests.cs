@@ -34,6 +34,21 @@ public sealed class ViewportLightInteractionTests
         Assert.Throws<ArgumentException>(()=>new ViewportOverlaySnapshot([new(new(float.NaN,0),Vector2.One,Vector4.One)]));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelectedTransformHandleRemainsGrabbableOverAnotherLamp(bool rotate)
+    {
+        var active = new NativeSceneLight(Guid.NewGuid(), "active", SceneLightKind.Spot,
+            Vector3.Zero, Quaternion.Identity, Vector3.One);
+        var position = rotate ? Vector3.Normalize(new Vector3(1, 1, 0)) : Vector3.UnitX;
+        var other = active with { Id = Guid.NewGuid(), Position = position };
+        var lights = new SceneLightingSnapshot([active, other]);
+        Assert.True(LightViewportInteraction.TryProject(position, Camera, 800, 600, out var mouse));
+        var hit = LightViewportInteraction.HitTest(lights, active.Id, mouse, Camera, 800, 600, 1, rotate);
+        Assert.Equal(new LightViewportHit(active.Id, rotate ? LightDragAxis.Z : LightDragAxis.X), hit);
+    }
+
     [Fact] public void ExactOverlapsPickTheSelectedCopyBeforeTheOriginalIdentity()
     {
         var original = new NativeSceneLight(Guid.Parse("00000000-0000-0000-0000-000000000001"), "original",

@@ -1,3 +1,5 @@
+using Avalonia;
+using Avalonia.Input;
 using System.Numerics;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -109,6 +111,44 @@ public sealed class EditorMainLightDirectionTests : IAsyncDisposable
         Assert.NotEqual(beforeBack, model.IsMainLightBacklit);
         Assert.True(MathF.Abs(model.LightPose.Direction.Z) > 0.05f);
     }
+
+    [Fact]
+    public async Task MainDirectionPadMouseAndKeyboardEditOnlyTheUnregisteredPose() => await session.Dispatch(() =>
+    {
+        var model = new EditorSceneInspectorViewModel();
+        var original = model.LightPose;
+        var inspector = new EditorMainLightInspector { DataContext = model };
+        var window = new Window { Width = 500, Height = 850, Content = inspector };
+        try
+        {
+            window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var pad = inspector.FindControl<EditorLightDirectionPad>("MainLightDirectionPad")!;
+            var center = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
+            var target = center + new Avalonia.Vector(18, -10);
+            window.MouseDown(center, MouseButton.Left);
+            window.MouseMove(target);
+            Assert.True(model.HasLightDraft);
+            Assert.True(model.LightDirectionVector.X < 0 && model.LightDirectionVector.Y < 0);
+            Assert.InRange(Math.Abs(model.LightDirectionVector.Length() - original.Direction.Length()), 0, .00001f);
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            window.MouseUp(target, MouseButton.Left);
+            Assert.Equal(original, model.LightPose);
+            Assert.False(model.HasLightDraft);
+
+            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            var keyboard = model.LightPose;
+            Assert.True(model.HasLightDraft);
+            Assert.NotEqual(original.Direction, keyboard.Direction);
+            window.MouseDown(target, MouseButton.Left);
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            window.MouseUp(target, MouseButton.Left);
+            Assert.Equal(keyboard, model.LightPose);
+            Assert.True(model.HasLightDraft);
+            return true;
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task PanelAngleInputAndFlipEditTheSameDraft() => await session.Dispatch(() =>

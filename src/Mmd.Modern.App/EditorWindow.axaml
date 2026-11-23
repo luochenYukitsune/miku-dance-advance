@@ -634,6 +634,8 @@
                            Classes="caption" Margin="6,12" TextWrapping="Wrap" />
               </Grid>
               <StackPanel Grid.Row="2" Margin="4,8,0,0" Spacing="6">
+                <TextBlock Name="LightBrowserValidation" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}"
+                           Classes="caption" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                 <TextBlock Text="{Binding LightCountSummary}" Classes="caption" />
                 <TextBlock Text="{Binding SelectionHint}" Classes="caption" TextWrapping="Wrap" />
               </StackPanel>
@@ -882,7 +884,7 @@
                             Classes="editorAdvanced" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                     <StackPanel IsEnabled="{Binding HasProject}" Margin="0,10,0,0" Spacing="6">
                       <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource Mda.Text.Context.Lighting.MainLightViewportDrag}" />
-                      <local:EditorMainLightInspector DataContext="{Binding SceneInspector}" />
+                      <local:EditorMainLightInspector Name="MainLightInspector" DataContext="{Binding SceneInspector}" />
                     </StackPanel>
                   </Expander>
                 </StackPanel>

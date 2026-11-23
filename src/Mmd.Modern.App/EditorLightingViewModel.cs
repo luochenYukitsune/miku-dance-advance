@@ -207,6 +207,7 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         }
         red = Decimal(light.Color.X); green = Decimal(light.Color.Y); blue = Decimal(light.Color.Z);
         intensity = Decimal(light.Intensity); range = Decimal(light.Range);
+        EnsureBrightnessSliderRange();
         areaWidth = Decimal(light.AreaSize?.X ?? 5); areaHeight = Decimal(light.AreaSize?.Y ?? 5);
         areaSizeSpecified = light.AreaSize is not null;
         innerConeDegrees = Decimal(light.InnerConeRadians * 180 / MathF.PI); outerConeDegrees = Decimal(light.OuterConeRadians * 180 / MathF.PI);
@@ -282,7 +283,28 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
     public decimal? Red { get => red; set => Set(ref red, value); }
     public decimal? Green { get => green; set => Set(ref green, value); }
     public decimal? Blue { get => blue; set => Set(ref blue, value); }
-    public decimal? Intensity { get => intensity; set { if (Set(ref intensity, value)) Changed(nameof(BrightnessSliderPosition)); } }
+    public decimal? Intensity
+    {
+        get => intensity;
+        set
+        {
+            if (!Set(ref intensity, value)) return;
+            if (BrightnessSliderPosition > BrightnessSliderMaximum) EnsureBrightnessSliderRange();
+            Changed(nameof(BrightnessSliderPosition));
+        }
+    }
+    public double BrightnessSliderMaximum { get; private set; } = 3;
+    internal void EnsureBrightnessSliderRange()
+    {
+        // Keep the track stable during a drag. Extend it for typed HDR values or a new
+        // gesture starting at the limit, while keeping ordinary lights easy to adjust.
+        double position = BrightnessSliderPosition;
+        if (position < BrightnessSliderMaximum) return;
+        double maximum = Math.Min(Math.Ceiling(position) + 1, EditorLightParameterScale.BrightnessPosition(decimal.MaxValue));
+        if (maximum == BrightnessSliderMaximum) return;
+        BrightnessSliderMaximum = maximum;
+        Changed(nameof(BrightnessSliderMaximum));
+    }
     public decimal? Range { get => range; set { if (Set(ref range, value)) { Changed(nameof(DistanceSliderPosition)); if (!aimDistanceModified) SyncDisplayedTarget(); } } }
     public double BrightnessSliderPosition => EditorLightParameterScale.BrightnessPosition(Intensity);
     public double DistanceSliderPosition => EditorLightParameterScale.DistancePosition(Range);
@@ -491,28 +513,6 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         SetOrientation(nextRotation, updateTarget: true);
     }
 
-    internal void ApplyAimTarget(Vector3 target, bool growRange = true)
-    {
-        var pos = CurrentPosition();
-        if (!Finite(pos) || !Finite(target)) return;
-        var offset = target - pos;
-        float dist = offset.Length();
-        if (!float.IsFinite(dist) || dist < 1e-4f) return;
-        var currentRotation = CurrentRotation();
-        var currentDir = Vector3.Transform(-Vector3.UnitZ, currentRotation);
-        var nextRotation = KindIndex == (int)SceneLightKind.Point
-            ? currentRotation
-            : Quaternion.Normalize(SceneLightAim.Arc(currentDir, offset / dist) * currentRotation);
-        aimDistance = dist;
-        aimDistanceModified = true;
-        targetEdited = true;
-        if (growRange && dist > CurrentRange() * SceneLightFalloff.MaxReferenceFraction)
-            Range = Decimal(dist / SceneLightFalloff.MaxReferenceFraction);
-        SetOrientation(nextRotation, updateTarget: false);
-        targetX = Decimal(target.X); targetY = Decimal(target.Y); targetZ = Decimal(target.Z);
-        Changed(nameof(TargetX)); Changed(nameof(TargetY)); Changed(nameof(TargetZ));
-    }
-
     internal void FlipHemisphere()
     {
         var next = Controls.EditorLightAngles.FlipHemisphereDirection(CurrentDirection(), IsBacklit);
@@ -520,30 +520,31 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
         ApplyAimDirection(next);
     }
 
-    internal bool AimAtSceneCenter(PmmCameraPose camera)
+    internal void AimFromView(NativeSceneLight local, Matrix4x4 parentWorld, PmmCameraPose camera, bool atCenter)
     {
-        var lookAt = camera.LookAt;
-        if (!Finite(lookAt)) return false;
-        var pos = CurrentPosition();
-        if (Vector3.Distance(pos, lookAt) >= 0.05f)
+        var world = local.Parent is null ? local : SceneLightTransform.ToWorld(local, parentWorld);
+        bool useTarget = atCenter && Vector3.Distance(world.Position, camera.LookAt) >= .05f;
+        NativeSceneLight aimed;
+        if (useTarget)
+            aimed = SceneLightAim.AimAt(world, camera.LookAt);
+        else
         {
-            ApplyAimTarget(lookAt);
-            return true;
+            var view = EditorLightPlacement.ValidateCamera(camera);
+            var turn = SceneLightAim.Arc(world.Direction, view.Target - view.Eye);
+            aimed = world with { Rotation = Quaternion.Normalize(turn * world.Rotation) };
         }
-        return AimFromCamera(camera);
-    }
 
-    internal bool AimFromCamera(PmmCameraPose camera)
-    {
-        try
+        // Position inherits the full parent transform. Aim distance and range stay in scene units.
+        var orientation = local.Parent is null ? aimed.Rotation
+            : SceneLightTransform.ToLocal(aimed, local.Parent, parentWorld).Rotation;
+        if (useTarget)
         {
-            var cam = EditorLightPlacement.ValidateCamera(camera);
-            var forward = cam.Target - cam.Eye;
-            if (!Finite(forward) || forward.LengthSquared() < 1e-12f) return false;
-            ApplyAimDirection(forward);
-            return true;
+            aimDistance = aimed.AimDistance;
+            aimDistanceModified = true;
+            targetEdited = true;
+            if (aimed.Range != local.Range) Range = Decimal(aimed.Range);
         }
-        catch (ArgumentException) { return false; }
+        SetOrientation(orientation, updateTarget: true);
     }
 
     private void SetOrientation(Quaternion nextRotation, bool updateTarget)

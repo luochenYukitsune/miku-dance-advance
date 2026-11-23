@@ -4,6 +4,7 @@ using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
 using Mmd.Modern.ViewOutput;
+using Mmd.Modern.Rendering.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -64,6 +65,47 @@ public sealed class EditorLightSelectionGestureTests
         Assert.Equal(new(3, 2, 0), Assert.Single(frame.Scene.Lighting!.Lights).Position);
         Assert.Equal(4, frame.Scene.Lighting.EffectiveLights[0].Intensity);
         Assert.Equal(light, Assert.Single(workspace.Session.Lighting.Lights));
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public void ClickingANumericPreviewRunsTheCommitGuardBeforeStartingAnotherGesture(bool valid, bool previewPresented)
+    {
+        using var workspace = Workspace();
+        var light = Light(Vector3.Zero);
+        workspace.EditLighting(new(new([light])));
+        var controller = new EditorLightViewportController(workspace, workspace.EditLighting, () => { });
+        controller.Select(light.Id);
+        var moved = light with { Position = new(2, 1, 0) };
+        var preview = new EditorLightingDraft(new([moved]), moved.Id);
+        Present(workspace, controller);
+        Assert.True(controller.SetParameterPreview(preview));
+        if (previewPresented) Present(workspace, controller);
+        int attempts = 0;
+        controller.CanBeginEdit = () =>
+        {
+            attempts++;
+            if (!valid) return false;
+            workspace.EditLighting(preview);
+            controller.SetParameterPreview(null);
+            return true;
+        };
+        var hit = Pixel(previewPresented ? moved.Position : light.Position);
+        Assert.True(controller.TryBeginDrag(hit.X, hit.Y, 800, 600, Camera));
+        Assert.Equal(1, attempts);
+        Assert.False(controller.IsDragging);
+        Assert.Equal(valid ? moved : light, Assert.Single(workspace.Session!.Lighting.Lights));
+        if (valid)
+        {
+            Present(workspace, controller);
+            controller.CanBeginEdit = null;
+            var committed = Pixel(moved.Position);
+            Assert.True(controller.TryBeginDrag(committed.X, committed.Y, 800, 600, Camera));
+            Assert.True(controller.IsDragging);
+            controller.CancelDrag();
+        }
     }
 
     [Fact]
@@ -180,6 +222,34 @@ public sealed class EditorLightSelectionGestureTests
         Assert.NotEqual(first.Rotation, lights[0].Rotation); Assert.Equal(lights[0].Rotation, lights[1].Rotation);
         Assert.Equal(other, lights[2]);
         Assert.True(workspace.Undo()); Assert.Equal(new[] { first, second, other }, workspace.Session.Lighting.Lights);
+    }
+
+    [Theory]
+    [Trait("Category", "Gpu")]
+    [InlineData(SceneLightKind.Point, false)]
+    [InlineData(SceneLightKind.Directional, true)]
+    [InlineData(SceneLightKind.Spot, true)]
+    [InlineData(SceneLightKind.Area, true)]
+    public void BodyGestureChangesRenderedLightAndUndoRestoresThePixels(SceneLightKind kind, bool rotate)
+    {
+        using var workspace = Workspace();
+        var lamp = D3D12NativeLightTests.Light(kind) with { CastShadows = false };
+        workspace.EditLighting(new(new([lamp])));
+        var controller = new EditorLightViewportController(workspace, workspace.EditLighting, () => { });
+        controller.Select(lamp.Id);
+        controller.RotateHandle = rotate;
+        Present(workspace, controller);
+        var fixture = D3D12NativeLightTests.Fixture();
+        using var gpu = new D3D12FrameSession();
+        byte[] Capture() => gpu.Capture(D3D12NativeLightTests.WithLight(fixture, workspace.Session!.Lighting.Lights), 129, 97).Rgba;
+        var before = Capture();
+        var start = Pixel(lamp.Position);
+        Assert.True(controller.TryBeginDrag(start.X, start.Y, 800, 600, Camera));
+        Assert.True(controller.MoveDrag(start.X + 230, start.Y + 40));
+        Assert.True(controller.EndDrag());
+        Assert.NotEqual(before, Capture());
+        Assert.True(workspace.Undo());
+        Assert.Equal(before, Capture());
     }
 
     [Fact]

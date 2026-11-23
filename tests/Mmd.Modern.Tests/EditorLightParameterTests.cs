@@ -51,6 +51,20 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
         Assert.Equal(0m, EditorLightParameterScale.BrightnessValue(0));
     }
 
+    [Fact]
+    public void HdrBrightnessKeepsSliderHeadroomWithoutMovingTheTrackDuringADrag()
+    {
+        var item = new EditorNativeLightItem(Light() with { Intensity = 90 });
+        Assert.True(item.BrightnessSliderMaximum > EditorLightParameterScale.BrightnessPosition(100));
+        double end = item.BrightnessSliderMaximum;
+        item.Intensity = EditorLightParameterScale.BrightnessValue(end);
+        Assert.Equal(end, item.BrightnessSliderMaximum);
+        item.EnsureBrightnessSliderRange();
+        Assert.True(item.BrightnessSliderMaximum > end);
+        item.Intensity = decimal.MaxValue;
+        Assert.Equal(decimal.MaxValue, EditorLightParameterScale.BrightnessValue(item.BrightnessSliderMaximum));
+    }
+
     [Theory]
     [InlineData(.00001f)]
     [InlineData(.001f)]
@@ -166,6 +180,65 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
         finally { Close(window); }
     }, TestContext.Current.CancellationToken);
 
+    [Theory]
+    [InlineData(SceneLightKind.Directional)]
+    [InlineData(SceneLightKind.Spot)]
+    public async Task ResetBrightnessRepairsTextAndOnlyChangesIntensityInOneUndo(SceneLightKind kind) => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var before = light with { Intensity = 0, Kind = kind };
+            shell.Workspace.EditLighting(new(new([before]), before.Id));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var brightness = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(c => c.Name == "InlineLightIntensity");
+            var reset = inspector.GetVisualDescendants().OfType<Button>().Single(c => c.Name == "ResetLightBrightnessButton");
+            Assert.True(reset.IsEffectivelyVisible);
+            brightness.Text = "unfinished";
+            inspector.ViewModel!.SelectedLight!.Name = "pending name";
+            reset.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            float expected = EditorLightPlacement.Create(Guid.NewGuid(), "new", kind, EditorLightPlacement.DefaultCamera).Intensity;
+            var updated = shell.Workspace.Session!.Lighting;
+            Assert.Equal(before with { Intensity = expected }, Assert.Single(updated.Lights));
+            Assert.True(brightness.IsInputValid);
+            Assert.Equal("pending name", inspector.ViewModel.SelectedLight.Name);
+            reset.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.Same(updated, shell.Workspace.Session.Lighting);
+            Assert.True(shell.Workspace.Undo());
+            Assert.Equal(before, Assert.Single(shell.Workspace.Session.Lighting.Lights));
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task InvalidHexExplainsBlockedEditAndEscapeRestoresTheColorWithoutHistory() => await session.Dispatch(() =>
+    {
+        var (window, shell, light) = Editor();
+        try
+        {
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "LightHexColor");
+            var source = shell.Workspace.Session!.Lighting;
+            hex.Focus();
+            hex.Text = "#12";
+            Assert.False(inspector.TryCommit());
+            var feedback = window.FindControl<TextBlock>("LightBrowserValidation")!;
+            Assert.True(feedback.IsVisible);
+            Assert.Contains("#FFFFFF", feedback.Text);
+
+            hex.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Assert.Equal("#FFFFFF", hex.Text);
+            Assert.True(inspector.TryCommit());
+            Assert.False(feedback.IsVisible);
+            Assert.Same(source, shell.Workspace.Session.Lighting);
+            Assert.Equal(light, Assert.Single(source.Lights));
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
     [Fact]
     public async Task DraftsStayWithTheirDocumentAndDeletedLightsDoNotReviveOldInput() => await session.Dispatch(() =>
     {
@@ -238,6 +311,47 @@ public sealed class EditorLightParameterTests : IAsyncDisposable
             Assert.Equal(light, Assert.Single(shell.Workspace.Session.Lighting.Lights));
             Assert.True(shell.Workspace.Undo());
             Assert.Empty(shell.Workspace.Session.Lighting.Lights);
+            return true;
+        }
+        finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task DirectionPadDragPreviewsAttachedLightLocallyAndReleasesOneEdit() => await session.Dispatch(() =>
+    {
+        var (window, shell, original) = Editor();
+        try
+        {
+            var project = shell.Workspace.Session!;
+            var actor = project.Objects[0].Id;
+            var rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, .7f);
+            project.Edit(edit => edit.Composition.SetTransform(actor, new(3, 0, 0), rotation, 2), TestContext.Current.CancellationToken);
+            var before = original with { Parent = new(actor) };
+            shell.Workspace.EditLighting(new(new([before]), before.Id));
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
+            var pad = inspector.GetVisualDescendants().OfType<EditorLightDirectionPad>().Single();
+            pad.BringIntoView(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var center = pad.TranslatePoint(new(pad.Bounds.Width / 2, pad.Bounds.Height / 2), window)!.Value;
+            var end = center + new Avalonia.Vector(18, -12);
+            var controller = (EditorLightViewportController)typeof(EditorWindow).GetField("lightController", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(window)!;
+            window.MouseDown(center, MouseButton.Left); window.MouseMove(end);
+            Assert.True(controller.IsInteracting);
+            var preview = Assert.Single(controller.PreviewLighting.Lights);
+            Assert.True(preview.Direction.X < 0 && preview.Direction.Y < 0);
+            Assert.Equal(before, Assert.Single(project.Lighting.Lights));
+            window.MouseUp(end, MouseButton.Left); Dispatcher.UIThread.RunJobs();
+            Assert.False(controller.IsInteracting);
+            Assert.Equal(preview, Assert.Single(project.Lighting.Lights));
+            var world = Assert.Single(project.CaptureRenderSnapshot().Scene.Lighting!.Lights);
+            Assert.InRange(Vector3.Distance(Vector3.Transform(preview.Direction, rotation), world.Direction), 0, .0001f);
+            window.MouseDown(center, MouseButton.Left);
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            window.MouseUp(center, MouseButton.Left);
+            Assert.False(controller.IsInteracting);
+            Assert.Equal(preview, Assert.Single(project.Lighting.Lights));
+            Assert.True(shell.Workspace.Undo());
+            Assert.Equal(before, Assert.Single(project.Lighting.Lights));
             return true;
         }
         finally { Close(window); }

@@ -135,6 +135,7 @@ public partial class EditorWindow
     private void ApplyInspectorPagePresentation(EditorShellViewModel shell)
     {
         bool lighting = shell.InspectorPage == EditorInspectorPage.Lighting;
+        this.FindControl<EditorViewportHost>("SceneViewport")!.SetBoneToolsEnabled(!lighting);
         this.FindControl<Control>("BoneToolsContainer")!.IsVisible = !lighting;
         this.FindControl<Control>("LightToolsBar")!.IsVisible = lighting;
     }
