@@ -125,7 +125,7 @@ public static class PmmProjectImport
                         else if (extension.Equals(".pmd", StringComparison.OrdinalIgnoreCase))
                         {
                             using var input = File.OpenRead(asset.Path!);
-                            model = PmdPmxAdapter.Convert(PmdReader.Read(input));
+                            model = PmdPmxAdapter.Convert(PmdReader.Read(input), Path.GetDirectoryName(asset.Path));
                         }
                         else throw new NotSupportedException("PMM project character import supports PMX and PMD assets; this model reference is retained for repair.");
                     }

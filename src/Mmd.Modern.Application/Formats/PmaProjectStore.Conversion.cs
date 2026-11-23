@@ -165,10 +165,9 @@ public static partial class PmaProjectStore
                 || ids.Distinct().Count() != ids.Length) throw new InvalidDataException("Invalid project conversion archive index.");
             archiveIds.AddRange(ids);
         }
-        var modelHashes = manifest.Models.ToDictionary(m => m.ObjectId, m => files[m.EditedModelPath].Sha256);
+        var signature = manifest.Models.Select(model => model.ObjectId.ToString("N") + ":" + files[model.EditedModelPath].Sha256)
+            .ToHashSet(StringComparer.Ordinal);
         var actors = layout["objects"]!.AsArray().Select(actor => actor!.AsObject()).ToArray();
-        var signature = actors.Select(actor => actor["id"]!.GetValue<Guid>())
-            .Select(id => id.ToString("N") + ":" + modelHashes[id]).ToArray();
         var archivedExtensions = extensions.Where(pair => excluded.ExcludesExtension(pair.Key)).ToDictionary();
         var resourceNames = files.Keys.Where(excluded.ExcludesResource).Order(StringComparer.Ordinal).ToArray();
         var purposes = new Dictionary<Guid, JsonObject>();
@@ -223,8 +222,8 @@ public static partial class PmaProjectStore
             // Keep those authored edits and defer an overlapping archive, just like a resource collision.
             bool overlapsLayout = (archive.Lighting is not null && hasLighting) || actors.Any(actor =>
                 archive.Purposes.ContainsKey(actor["id"]!.GetValue<Guid>()) && HasAuthoredPurpose(actor["purpose"]!.AsObject()));
-            if (restored || overlapsLayout || !signature.SequenceEqual(archive.Models) || archive.Extensions.Keys.Any(extensions.ContainsKey)
-                || archive.Resources.Any(files.ContainsKey))
+            if (restored || overlapsLayout || archive.Models.Length != signature.Count || !signature.SetEquals(archive.Models)
+                || archive.Extensions.Keys.Any(extensions.ContainsKey) || archive.Resources.Any(files.ContainsKey))
             { deferred = true; continue; }
             if (archive.Lighting is { } previous)
             {
@@ -262,7 +261,8 @@ public static partial class PmaProjectStore
         {
             var id = Guid.NewGuid();
             string root = ArchiveDirectory(id), path = root + "state.json";
-            var archive = new EngineArchive(PackageFormat(sourceKind), manifest.ProjectId, signature, lighting, purposes, archivedExtensions, resourceNames);
+            var archive = new EngineArchive(PackageFormat(sourceKind), manifest.ProjectId, signature.Order(StringComparer.Ordinal).ToArray(),
+                lighting, purposes, archivedExtensions, resourceNames);
             files.Add(path, WriteJsonFile(stage, path, archive, archiveLimit));
             foreach (var key in archivedExtensions.Keys) extensions.Remove(key);
             for (int i = 0; i < resourceNames.Length; i++) RenameResource(resourceNames[i], root + i + ".bin");

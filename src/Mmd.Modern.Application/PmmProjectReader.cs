@@ -90,7 +90,7 @@ public static class PmmProjectReader
         {
             var loaded = Load(path);
             if (loaded.Pmx is not null) return loaded.Pmx;
-            var converted = PmdPmxAdapter.Convert(loaded.Pmd!);
+            var converted = PmdPmxAdapter.Convert(loaded.Pmd!, System.IO.Path.GetDirectoryName(path));
             assets[path] = loaded with { Pmx = converted }; return converted;
         }
     }

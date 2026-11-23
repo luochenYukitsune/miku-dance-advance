@@ -110,7 +110,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             ".pmx" => PmxReader.Read(input, new PmxReadOptions { MaxInputBytes = maxBytes }),
             // The existing bridge retains PMD display groups, animation and physics semantics.
             // Its reader still enforces the separate 512 MiB PMD parsing limit.
-            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input)),
+            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input), Path.GetDirectoryName(Path.GetFullPath(path))),
             _ => throw new NotSupportedException(EditorLocalization.Text("模型载入支持 PMX 或 PMD 文件。"))
         };
         return model;

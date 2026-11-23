@@ -247,7 +247,9 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
     public void CaptureBoneBasis(SceneProjectSession session, EditorStyleModeItem? targetMode = null)
     {
         var material = SelectedMaterial ?? throw new InvalidOperationException(Text("请先选择材质。"));
-        var chosenBone = targetMode?.SelectedBone ?? material.SelectedBone;
+        if (targetMode is not null && (!targetMode.SupportsBoneTracking || !material.DynamicModes.Contains(targetMode)))
+            throw Error("请先选择材质。");
+        var chosenBone = targetMode is null ? material.SelectedBone : targetMode.SelectedBone;
         if (chosenBone is not { Index: >= 0 } bone || bone.Index >= actor.Model.Bones.Count)
             throw Error("Mda.Text.ModelProps.SelectBoneError");
         // The exact authored actor and source identity must still be present; never reuse an index across models.
@@ -263,7 +265,8 @@ public sealed class EditorModelPropertiesViewModel : INotifyPropertyChanged
         var right = Vector3.TransformNormal(Vector3.UnitX, world);
         if (targetMode is not null)
             targetMode.SetFixedBasis(forward, right);
-        material.SetFixedBasis(forward, right);
+        else
+            material.SetFixedBasis(forward, right);
         ValidationMessage = Text("Mda.Text.ModelProps.CapturedFixedBasisStatus");
     }
 
@@ -426,8 +429,8 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     private string effectiveStyleId;
     private int roleIndex, modeIndex, pipelineIndex;
     private EditorSourceChoice? primaryTexture, secondaryTexture;
-    private Vector3 fixedForward, fixedRight;
-    private bool fixedBasisChanged, legacyModeEdited, showIncompatibleModes, roleEdited;
+    private readonly Dictionary<(string StyleId, string ModeId), StyleBoneAxisBinding> sampledBases = [];
+    private bool legacyModeEdited, showIncompatibleModes, roleEdited;
     private bool refreshingLocalization, rebuildingDynamicModes;
     private decimal? faceNormal, faceShadow, eyeShadow;
     private decimal? outlinePercent;
@@ -501,9 +504,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         if (pipelineIndex < 0 && pipelineEntries.Count > 0)
             pipelineIndex = 0;
 
-        var faceBinding = row?.PluginBindings.FirstOrDefault(static binding => string.Equals(binding.ModeId, "face-sdf", StringComparison.Ordinal));
-        fixedForward = faceBinding?.BoneBinding?.FixedWorldForward ?? Vector3.UnitZ;
-        fixedRight = faceBinding?.BoneBinding?.FixedWorldRight ?? Vector3.UnitX;
+        var faceBinding = row?.PluginBindings.FirstOrDefault(binding => binding.StyleId == this.effectiveStyleId && binding.ModeId == "face-sdf");
         if (faceBinding?.BoneBinding is { Mode: StyleBoneTrackingMode.SelectedBone, BoneName: { } boneName } && !string.IsNullOrEmpty(boneName))
             SelectedBone = bones.FirstOrDefault(bone => string.Equals(bone.EffectiveName, boneName, StringComparison.Ordinal));
 
@@ -580,7 +581,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         || dynamicModes.Any(static m => m.IsEnabled)
         || HasDormantPluginBindings
         || (legacyModeEdited && ModeIndex > 1)
-        || fixedBasisChanged
+        || sampledBases.Count != 0
         || faceNormal != (decimal).35f
         || faceShadow != 1m
         || eyeShadow != (decimal).2f
@@ -625,6 +626,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             if (refreshingLocalization) return;
             modeIndex = value;
             legacyModeEdited = value > 0;
+            Changed(nameof(FixedBasisSummary));
             RefreshPmxDefaults();
             Changed();
             Changed(nameof(NeedsPrimary));
@@ -644,6 +646,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         {
             if (refreshingLocalization) return;
             pipelineIndex = value;
+            Changed(nameof(FixedBasisSummary));
             RefreshPmxDefaults();
             Changed();
             Changed(nameof(NeedsSecondary));
@@ -756,6 +759,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         if (string.Equals(effectiveStyleId, styleId, StringComparison.Ordinal))
             return;
         effectiveStyleId = styleId;
+        Changed(nameof(FixedBasisSummary));
         RebuildDynamicModes();
         RefreshPmxDefaults();
         ValidateLive();
@@ -833,14 +837,53 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
 
     public string ExistingMapping => BuildExistingMappingSummary();
 
-    public string FixedBasisSummary => Format("固定世界方向  前 ({0:0.###}, {1:0.###}, {2:0.###})  右 ({3:0.###}, {4:0.###}, {5:0.###})",
-        fixedForward.X, fixedForward.Y, fixedForward.Z, fixedRight.X, fixedRight.Y, fixedRight.Z);
+    private (string StyleId, string ModeId) FixedBasisTarget => GetDynamicMode(ModeIndex) is { } extra
+        ? (extra.StyleId, extra.Mode.ModeId)
+        : (ModeIndex == 2 ? SelectedPipelineEntry()?.StyleId ?? effectiveStyleId : effectiveStyleId, "face-sdf");
+
+    private EditorStyleModeItem? FindModeCard(string styleId, string modeId) =>
+        editedModes.GetValueOrDefault((styleId, modeId)) ?? dynamicModes.FirstOrDefault(mode =>
+            mode.StyleId == styleId && ModeMatches(mode.Mode, modeId));
+
+    private StyleBoneAxisBinding FixedBasisFor(string styleId, string modeId)
+    {
+        if (FindModeCard(styleId, modeId) is { } card) return card.FixedWorldBasis;
+        if (sampledBases.TryGetValue((styleId, modeId), out var basis)) return basis;
+        var saved = original?.PluginBindings.FirstOrDefault(binding => binding.StyleId == styleId && binding.ModeId == modeId)?.BoneBinding;
+        return new(StyleBoneTrackingMode.FixedWorld, FixedWorldForward: saved?.FixedWorldForward ?? Vector3.UnitZ,
+            FixedWorldRight: saved?.FixedWorldRight ?? Vector3.UnitX);
+    }
+
+    public string FixedBasisSummary
+    {
+        get
+        {
+            var (style, mode) = FixedBasisTarget;
+            var basis = FixedBasisFor(style, mode);
+            var forward = basis.FixedWorldForward!.Value;
+            var right = basis.FixedWorldRight!.Value;
+            return Format("固定世界方向  前 ({0:0.###}, {1:0.###}, {2:0.###})  右 ({3:0.###}, {4:0.###}, {5:0.###})",
+                forward.X, forward.Y, forward.Z, right.X, right.Y, right.Z);
+        }
+    }
 
     public void SetFixedBasis(Vector3 forward, Vector3 right)
     {
         if (!float.IsFinite(forward.LengthSquared()) || !float.IsFinite(right.LengthSquared()) || forward.LengthSquared() < 1e-8f || right.LengthSquared() < 1e-8f)
             throw Error("所选骨骼的朝向无效。");
-        fixedForward = Vector3.Normalize(forward); fixedRight = Vector3.Normalize(right); fixedBasisChanged = true; Changed(nameof(FixedBasisSummary)); Changed(nameof(HasCustomization));
+        var target = FixedBasisTarget;
+        if (FindModeCard(target.StyleId, target.ModeId) is { } card)
+        {
+            card.BoneTrackingModeIndex = 0;
+            card.SetFixedBasis(forward, right);
+        }
+        else
+        {
+            // The legacy picker can target a style whose mode card has never been opened.
+            sampledBases[target] = new(StyleBoneTrackingMode.FixedWorld, FixedWorldForward: Vector3.Normalize(forward),
+                FixedWorldRight: Vector3.Normalize(right));
+        }
+        Changed(nameof(FixedBasisSummary)); Changed(nameof(HasCustomization));
     }
 
     public D3D12MaterialBindingProfileRow? Build()
@@ -895,7 +938,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
                 resultGuards = nextGuards.Values.ToArray();
             }
         }
-        else if (editedModes.Count == 0 && !fixedBasisChanged)
+        else if (editedModes.Count == 0 && sampledBases.Count == 0)
         {
             nextBindings = original?.PluginBindings ?? [];
             resultGuards = original?.TextureGuards ?? [];
@@ -908,29 +951,22 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
             {
                 if (TryGetEditedMode(saved, out var mode))
                 {
-                    if (replaced.Add(mode!) && mode!.IsEnabled) combined.Add(BuildMode(mode));
+                    if (replaced.Add(mode!) && mode!.IsEnabled)
+                        combined.Add(mode.BuildBindingData(Label, CaptureOrdinal, strictValidation: true));
                     continue;
                 }
-                var binding = fixedBasisChanged && saved.StyleId == effectiveStyleId && saved.ModeId == "face-sdf"
-                    ? saved with { BoneBinding = new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld,
-                        FixedWorldForward: fixedForward, FixedWorldRight: fixedRight) } : saved;
+                var binding = sampledBases.TryGetValue((saved.StyleId, saved.ModeId), out var basis)
+                    ? saved with { BoneBinding = basis } : saved;
                 combined.Add(binding);
                 if (binding.TextureSlots is not null)
                     foreach (int ordinal in binding.TextureSlots.Values)
                         if (ordinal >= 0) CaptureOrdinal(ordinal);
             }
             foreach (var mode in editedModes.Values)
-                if (!replaced.Contains(mode) && mode.IsEnabled) combined.Add(BuildMode(mode));
+                if (!replaced.Contains(mode) && mode.IsEnabled)
+                    combined.Add(mode.BuildBindingData(Label, CaptureOrdinal, strictValidation: true));
             nextBindings = combined;
             resultGuards = nextGuards.Values.ToArray();
-
-            StyleMaterialBindingData BuildMode(EditorStyleModeItem mode)
-            {
-                var binding = mode.BuildBindingData(Label, CaptureOrdinal, strictValidation: true);
-                return fixedBasisChanged && mode.StyleId == effectiveStyleId && mode.SupportsBoneTracking && mode.BoneTrackingModeIndex == 0
-                    ? binding with { BoneBinding = new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld,
-                        FixedWorldForward: fixedForward, FixedWorldRight: fixedRight) } : binding;
-            }
         }
 
         var row = new D3D12MaterialBindingProfileRow(
@@ -992,6 +1028,12 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
                         card = new EditorStyleModeItem(activeStyle, mode, Textures, Bones, FindPreviousBinding(activeStyle.StyleId, mode),
                             () => IsMapped ? D3D12StylePluginAdapter.ToContractRole((D3D12CharacterMaterialRole)(RoleIndex - 1)) : null,
                             () => OnDynamicModeChanged(card!));
+                        if (sampledBases.Remove(key, out var basis))
+                        {
+                            card.BoneTrackingModeIndex = 0;
+                            card.SetFixedBasis(basis.FixedWorldForward!.Value, basis.FixedWorldRight!.Value);
+                            editedModes[key] = card;
+                        }
                     }
                     dynamicModes.Add(card);
                 }
@@ -1060,6 +1102,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
     {
         if (rebuildingDynamicModes) return;
         editedModes[(mode.StyleId, mode.ModeId)] = mode;
+        if (mode.SupportsBoneTracking && FixedBasisTarget == (mode.StyleId, mode.ModeId)) Changed(nameof(FixedBasisSummary));
         RefreshPmxDefaults();
         RefreshDynamicModePartitions();
         ValidateLive();
@@ -1117,11 +1160,10 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
         if (mode.TextureInputs.Count >= 2)
             slots["secondary"] = captureSlot(SecondaryTexture, "FaceSDF 副图");
 
-        var boneBinding = new StyleBoneAxisBinding(
-            StyleBoneTrackingMode.FixedWorld,
-            FixedWorldForward: fixedForward,
-            FixedWorldRight: fixedRight);
-        return BuildBindingFromDescriptor(style, mode, slots, boneBinding, FindPreviousBinding(style.StyleId, mode));
+        var boneBinding = FixedBasisFor(style.StyleId, mode.ModeId);
+        var previous = FindModeCard(style.StyleId, mode.ModeId)?.BuildBindingData(Label, static ordinal => ordinal, strictValidation: false)
+            ?? FindPreviousBinding(style.StyleId, mode);
+        return BuildBindingFromDescriptor(style, mode, slots, boneBinding, previous);
     }
 
     private StyleMaterialBindingData BuildHighlightShadowHairBinding(Func<EditorSourceChoice?, string, int> captureSlot)
@@ -1166,7 +1208,7 @@ public sealed class EditorMaterialPropertiesItem : INotifyPropertyChanged
                 slots[second.SlotKey] = captureSlot(SecondaryTexture, ResolveLocalized(second.DisplayName, second.SlotKey));
         }
         StyleBoneAxisBinding? boneBinding = entry.Mode.SupportsBoneTracking
-            ? new StyleBoneAxisBinding(StyleBoneTrackingMode.FixedWorld, FixedWorldForward: fixedForward, FixedWorldRight: fixedRight)
+            ? FixedBasisFor(entry.StyleId, entry.Mode.ModeId)
             : null;
         return BuildBindingFromDescriptor(entry.Definition, entry.Mode, slots, boneBinding, FindPreviousBinding(entry.StyleId, entry.Mode));
     }

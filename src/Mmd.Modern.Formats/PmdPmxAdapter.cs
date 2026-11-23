@@ -12,11 +12,19 @@ namespace Mmd.Modern.Formats;
 public static class PmdPmxAdapter
 {
     private static readonly string[] CommonToons = Enumerable.Range(1, 10).Select(i => $"toon{i:00}.bmp").ToArray();
-    public static PmxModel Convert(PmdModel source)
+    public static PmxModel Convert(PmdModel source) => Convert(source, null);
+
+    /// <summary>When a model directory is available, its own toon01..10.bmp takes precedence over the shared MMD slot.</summary>
+    public static PmxModel Convert(PmdModel source, string? modelDirectory)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.UnparsedTailBytes != 0 || source.UnknownTailData.Length != 0)
             throw new NotSupportedException("PMD has an unknown trailer; conversion would discard data.");
+        var commonToonIndices = source.ToonTextures.Select(name =>
+        {
+            int slot = Array.FindIndex(CommonToons, candidate => candidate.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return slot >= 0 && modelDirectory is not null && File.Exists(Path.Combine(modelDirectory, name)) ? -1 : slot;
+        }).ToArray();
         var textures = new List<string>();
         int Texture(string name)
         {
@@ -47,8 +55,7 @@ public static class PmdPmxAdapter
             {
                 if (m.ToonIndex >= source.ToonTextures.Length) throw new InvalidDataException("Invalid PMD toon index.");
                 string name = source.ToonTextures[m.ToonIndex];
-                int common = Array.FindIndex(CommonToons,
-                    candidate => name.Equals(candidate, StringComparison.OrdinalIgnoreCase));
+                int common = commonToonIndices[m.ToonIndex];
                 if (common >= 0)
                 { toonMode = PmxToonMode.Common; toon = common; }
                 else toon = Texture(name);

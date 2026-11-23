@@ -571,6 +571,112 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
             return true;
         }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task FaceSdfBoneSampleStaysWithItsStyleAfterSwitchingBack(bool editOriginalCard, bool useLegacyCapture)
+        => await session.Dispatch(async () =>
+        {
+            string install = Path.Combine(directory, "face-basis-plugins");
+            await using var plugins = CreatePluginService(install, Path.Combine(install, "enabled.json"), useBundledDefaults: true);
+            await plugins.InitializeAsync(Token);
+            using var workspace = CreateModernWorkspace("face-basis-cache", plugins);
+            Guid actor = AddModelWithTextures(workspace);
+            var initial = new EditorModelPropertiesViewModel(workspace, actor);
+            initial.Materials[0].RoleIndex = 2;
+            var genshin = ConfigureFixedFaceSdf(initial, "genshin");
+            var project = workspace.Session!;
+            var world = project.CaptureRenderSnapshot([new(actor, [0])]).SceneInputs[actor].BoneWorldMatrices[0];
+            var sampledForward = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, world));
+            var sampledRight = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitX, world));
+            genshin.SetFixedBasis(-sampledForward, -sampledRight);
+            Assert.True(initial.TryCreate(out var before), initial.ValidationMessage);
+            workspace.ApplyModelProperties(before!);
+            var original = Assert.Single(Assert.Single(workspace.MaterialBindings[actor].Materials).PluginBindings).BoneBinding!;
+
+            var vm = new EditorModelPropertiesViewModel(workspace, actor);
+            var endfield = ConfigureFixedFaceSdf(vm, "endfield");
+            endfield.SelectedBone = vm.Bones[0];
+            if (useLegacyCapture)
+            {
+                vm.SelectedMaterial!.SelectedBone = vm.Bones[0];
+                vm.CaptureBoneBasis(project);
+            }
+            else vm.CaptureBoneBasis(project, endfield);
+            vm.StyleIndex = vm.StyleChoices.ToList().FindIndex(choice => choice.Reference?.StableId == "genshin");
+            if (editOriginalCard)
+                vm.SelectedMaterial!.DynamicModes.Single(mode => mode.ModeId == "face-sdf").Parameters
+                    .Single(parameter => parameter.Key == "transition").DecimalValue = 0.5m;
+            Assert.True(vm.TryCreate(out var after), vm.ValidationMessage);
+            workspace.ApplyModelProperties(after!);
+            var bindings = Assert.Single(workspace.MaterialBindings[actor].Materials).PluginBindings;
+            Assert.Equal(original, Assert.Single(bindings, binding => binding.StyleId == "genshin").BoneBinding);
+            var sampled = Assert.Single(bindings, binding => binding.StyleId == "endfield").BoneBinding!;
+            Assert.Equal(StyleBoneTrackingMode.FixedWorld, sampled.Mode);
+            Assert.Equal(sampledForward, sampled.FixedWorldForward);
+            Assert.Equal(sampledRight, sampled.FixedWorldRight);
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FaceSdfBoneSampleIsSharedByCardAndLegacyEditorForTheSameBinding(bool sampleInLegacyEditor)
+        => await session.Dispatch(async () =>
+        {
+            string install = Path.Combine(directory, "face-basis-entry-points");
+            await using var plugins = CreatePluginService(install, Path.Combine(install, "enabled.json"), useBundledDefaults: true);
+            await plugins.InitializeAsync(Token);
+            using var workspace = CreateModernWorkspace("face-basis-entry-cache", plugins);
+            Guid actor = AddModelWithTextures(workspace);
+            var project = workspace.Session!;
+            var world = project.CaptureRenderSnapshot([new(actor, [0])]).SceneInputs[actor].BoneWorldMatrices[0];
+            var expectedForward = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, world));
+            var expectedRight = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitX, world));
+            var initial = new EditorModelPropertiesViewModel(workspace, actor);
+            initial.Materials[0].RoleIndex = 2;
+            ConfigureFixedFaceSdf(initial, "genshin").SetFixedBasis(-expectedForward, -expectedRight);
+            Assert.True(initial.TryCreate(out var previous), initial.ValidationMessage);
+            workspace.ApplyModelProperties(previous!);
+
+            var vm = new EditorModelPropertiesViewModel(workspace, actor);
+            var row = vm.SelectedMaterial!;
+            var card = row.DynamicModes.Single(mode => mode.ModeId == "face-sdf");
+            card.Parameters.Single(parameter => parameter.Key == "transition").DecimalValue = 0.42m;
+            card.SelectedBone = vm.Bones[0];
+            row.SelectedBone = vm.Bones[0];
+            if (!sampleInLegacyEditor) vm.CaptureBoneBasis(project, card);
+            row.ModeIndex = 2; // Legacy FaceSDF controls explicitly select image slots for this same plugin.
+            row.PrimaryTexture = vm.Textures[1];
+            row.SecondaryTexture = vm.Textures[2];
+            if (sampleInLegacyEditor)
+            {
+                vm.CaptureBoneBasis(project);
+                row.ModeIndex = 0; // Apply through the dynamic mode card.
+            }
+            Assert.True(vm.TryCreate(out var updated), vm.ValidationMessage);
+            workspace.ApplyModelProperties(updated!);
+            var face = Assert.Single(Assert.Single(workspace.MaterialBindings[actor].Materials).PluginBindings);
+            Assert.Equal("genshin", face.StyleId);
+            Assert.Equal("face-sdf", face.ModeId);
+            Assert.Equal(expectedForward, face.BoneBinding!.FixedWorldForward);
+            Assert.Equal(expectedRight, face.BoneBinding.FixedWorldRight);
+            Assert.Equal(0.42, face.NumberValues!["transition"], 5);
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    private static EditorStyleModeItem ConfigureFixedFaceSdf(EditorModelPropertiesViewModel editor, string style)
+    {
+        editor.StyleIndex = editor.StyleChoices.ToList().FindIndex(choice => choice.Reference?.StableId == style);
+        var card = editor.SelectedMaterial!.DynamicModes.Single(mode => mode.ModeId == "face-sdf");
+        card.IsEnabled = true;
+        card.BoneTrackingModeIndex = 0;
+        for (int i = 0; i < card.TextureSlots.Count; i++)
+            card.TextureSlots[i].SelectedPrimary = editor.Textures[i + 1];
+        return card;
+    }
+
     [Fact]
     public async Task MaterialEditsSurviveSwitchingModelStyleAndClearingOneRowRetainsItsNeighbours()
         => await session.Dispatch(async () =>

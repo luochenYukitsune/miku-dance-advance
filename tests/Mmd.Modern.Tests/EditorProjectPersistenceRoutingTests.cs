@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.IO.Compression;
 using System.Numerics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Avalonia.Controls;
@@ -140,6 +142,78 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
             Assert.Equal(12u, Assert.Single(result.Motions.Single().Motion.BoneKeyframes).Frame);
             return true;
         }, Token);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ClassicConversionUsesCanonicalPmdToonFromThePackageBeforeOriginalMmd(bool packagedToon)
+        => await dispatcher.Dispatch(() =>
+        {
+            using var files = new Fixture();
+            string source = files.Path("source.pma"), copy = files.Path("copy.pmc");
+            byte[] bitmap = EditorClassicToonPackageTests.Bitmap();
+            WriteCanonicalPmdPackage(files, source, packagedToon ? bitmap : null);
+            if (!packagedToon)
+            {
+                var error = Assert.Throws<NotSupportedException>(() => PmaProjectStore.ConvertPackage(source, copy, files.DirectoryPath, Token));
+                Assert.Contains("requires original MMD", error.Message);
+                Assert.False(File.Exists(copy));
+                return true;
+            }
+
+            PmaProjectStore.ConvertPackage(source, copy, files.DirectoryPath, Token);
+            using var classic = new EditorProjectWorkspace(files.ProductionEngine()) { PackageCacheDirectory = files.Path("classic-cache") };
+            classic.Open(copy, Token);
+            var model = Assert.Single(classic.Motions).Model;
+            var material = Assert.Single(model.Materials);
+            Assert.Equal(PmxToonMode.Separate, material.ToonMode);
+            Assert.Equal("toon01.bmp", model.Textures[material.ToonTextureIndex]);
+            var surface = Assert.Single(classic.Session!.Objects).Source.Surface.Snapshot;
+            var bound = surface.Textures[Assert.Single(surface.Materials).ToonTexture];
+            Assert.Equal(SceneTextureKind.Image, bound.Kind);
+            Assert.Equal(EditorTextureLoader.Decode(bitmap, "toon01.bmp", Token).Rgba.ToArray(), bound.Rgba.ToArray());
+            return true;
+        }, Token);
+
+    // Author a valid package with the original PMD basename. A regular PMA save rewrites
+    // portable texture names and stores the animated actor as PMX, so it cannot exercise this case.
+    private static void WriteCanonicalPmdPackage(Fixture files, string destination, byte[]? toon)
+    {
+        string directory = files.Path("loose"), actor = Path.Combine(directory, "actor");
+        Directory.CreateDirectory(actor);
+        const string modelPath = "actor/model.pmd", projectPath = "project.mmdscene";
+        string modelFile = Path.Combine(directory, modelPath);
+        var pmd = new PmdModel("model", [new(Vector3.Zero, Vector3.UnitZ, Vector2.Zero, 0, 0, 1),
+            new(Vector3.UnitX, Vector3.UnitZ, Vector2.Zero, 0, 0, 1), new(Vector3.UnitY, Vector3.UnitZ, Vector2.Zero, 0, 0, 1)],
+            [0, 1, 2], [new ModelMaterial(Vector4.One, Vector3.Zero, new(.3f), 4, "", 0, 3) { ToonIndex = 0 }],
+            [new("root", -1, Vector3.Zero)], 0);
+        File.WriteAllBytes(modelFile, PmdWriter.ToBytes(pmd));
+        if (toon is not null) File.WriteAllBytes(Path.Combine(actor, "toon01.bmp"), toon);
+        using var modern = new EditorProjectWorkspace();
+        Guid id = modern.AddModel(modelFile, EditorProjectWorkspace.LoadModelAsset(modelFile, Token), ModelRole.Prop);
+        modern.Session!.Save(Path.Combine(directory, projectPath), new() { CopyModelAssets = false }, Token);
+        var resources = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Select(file =>
+        {
+            byte[] bytes = File.ReadAllBytes(file);
+            return new { path = Path.GetRelativePath(directory, file).Replace('\\', '/'), bytes, sha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)) };
+        }).ToArray();
+        using var zip = ZipFile.Open(destination, ZipArchiveMode.Create);
+        using (var stream = zip.CreateEntry("manifest.json").Open())
+            JsonSerializer.Serialize(stream, new
+            {
+                format = PmaProjectStore.Format, version = 1, minimumReaderVersion = 1, producer = "fixture",
+                projectId = Guid.NewGuid(), projectPath, projectSchema = SceneAnimationProjectStore.SettingsVersion,
+                files = resources.Select(item => new { item.path, length = item.bytes.Length, item.sha256 }),
+                models = new[] { new { objectId = id, originalSourcePath = modelPath, originalModelPath = modelPath, editedModelPath = modelPath } },
+                requiredExtensions = Array.Empty<string>(), optionalExtensions = new { }
+            });
+        foreach (var item in resources.DistinctBy(item => item.sha256))
+        {
+            using var blob = zip.CreateEntry("blobs/" + item.sha256).Open();
+            blob.Write(item.bytes);
+        }
+        Directory.Delete(directory, recursive: true);
+    }
 
     [Fact]
     [Trait("Category", "Gpu")]

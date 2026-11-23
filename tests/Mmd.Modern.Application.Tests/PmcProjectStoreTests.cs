@@ -198,6 +198,69 @@ public sealed class PmcProjectStoreTests : IDisposable
         if (fromModern) Assert.Equal(light, Assert.Single(restored.Session.Lighting.Lights));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReorderedActorsRestoreOnlyWhenEachStillHasItsArchivedModel(bool swapModels)
+    {
+        using var project = Fixture(separateToon: true);
+        using var other = Fixture(separateToon: true, name: "second");
+        var firstActor = project.Objects[0];
+        var otherActor = other.Objects[0];
+        var light = new NativeSceneLight(Guid.NewGuid(), "follow", SceneLightKind.Point, Vector3.One,
+            Quaternion.Identity, Vector3.One, Parent: new(firstActor.Id));
+        project.Edit(edit =>
+        {
+            edit.Composition.Add(otherActor.Name, otherActor.SourcePath, ModelRole.Prop, otherActor.Source);
+            edit.Lighting.Add(light);
+        }, Token);
+        var secondId = project.Objects[1].Id;
+        string original = Package("original", false), classic = Package("classic", true);
+        Save(false, original, project, Options(), Token);
+        PmaProjectStore.ConvertPackage(original, classic, directory, Token);
+
+        if (swapModels)
+        {
+            string edited = Package("swapped", true);
+            using var loaded = Load(true, classic);
+            // Both the actor IDs and the set of model digests survive, but neither actor owns its original model.
+            var versions = loaded.Session.Objects;
+            Save(true, edited, loaded.Session, Options() with { ModelOverrides = new Dictionary<Guid, PmxModel>
+            {
+                [firstActor.Id] = LoadAsset(versions[1].SourcePath, Token).Model,
+                [secondId] = LoadAsset(versions[0].SourcePath, Token).Model,
+            } }, Token);
+            classic = edited;
+        }
+        PmaProjectStoreTests.RewritePackagedFile(classic, "project.mmdscene", bytes =>
+        {
+            var document = JsonNode.Parse(bytes)!;
+            var actors = document["layout"]!["objects"]!.AsArray();
+            var first = actors[0];
+            actors.RemoveAt(0);
+            actors.Add(first);
+            return JsonSerializer.SerializeToUtf8Bytes(document);
+        });
+
+        string back = Package("back", false);
+        var report = PmaProjectStore.ConvertPackage(classic, back, directory, Token);
+        Assert.Equal(!swapModels, report.RestoredArchive);
+        Assert.Equal(swapModels, report.DeferredArchive);
+        using var result = Load(false, back);
+        Assert.Equal(new[] { secondId, firstActor.Id }, result.Session.Objects.Select(actor => actor.Id));
+        if (swapModels)
+        {
+            Assert.Empty(result.Session.Lighting.Lights);
+            Assert.All(result.Session.Objects, actor => Assert.Equal(ModelRole.Unspecified, actor.Role));
+            Assert.Contains(result.ResourcePaths, path => path.EndsWith("/state.json", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Equal(light, Assert.Single(result.Session.Lighting.Lights));
+            Assert.Equal(new[] { ModelRole.Prop, ModelRole.Character }, result.Session.Objects.Select(actor => actor.Role));
+        }
+    }
+
     [Fact]
     public void ChangedActorSetDefersRestorationAndKeepsTheArchiveInTheConvertedProject()
     {
@@ -458,12 +521,12 @@ public sealed class PmcProjectStoreTests : IDisposable
             AdditionalResources = new Dictionary<string, ReadOnlyMemory<byte>> { [path] = image },
         };
     }
-    private SceneProjectSession Fixture(bool separateToon = false)
+    private SceneProjectSession Fixture(bool separateToon = false, string name = "actor")
     {
         var template = PmmMotionAdapterTests.Pmx(["root"]);
         var model = new PmxModel
         {
-            Header = template.Header, Name = "actor", EnglishName = "", Comment = "opaque archive fixture", EnglishComment = "",
+            Header = template.Header, Name = name, EnglishName = "", Comment = "opaque archive fixture", EnglishComment = "",
             Vertices = new[] { Vector3.Zero, Vector3.UnitX, Vector3.UnitY }.Select(position => new PmxVertex
             { Position = position, Normal = Vector3.UnitZ, Uv = Vector2.Zero, AdditionalUvs = [], WeightType = PmxVertexWeightType.Bdef1,
                 BoneIndices = [0, -1, -1, -1], BoneWeights = [1, 0, 0, 0], EdgeScale = 1 }).ToArray(),
@@ -474,8 +537,8 @@ public sealed class PmcProjectStoreTests : IDisposable
             Bones = template.Bones, Morphs = [], DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = [],
         };
         if (separateToon) File.WriteAllBytes(Path.Combine(directory, "authored.bmp"), ToonImage());
-        string source = Path.Combine(directory, "actor.pmx"); File.WriteAllBytes(source, PmxWriter.ToBytes(model));
-        var composition = new SceneCompositionEditor(); composition.Add("actor", source, ModelRole.Character, Rest(model));
+        string source = Path.Combine(directory, name + ".pmx"); File.WriteAllBytes(source, PmxWriter.ToBytes(model));
+        var composition = new SceneCompositionEditor(); composition.Add(name, source, ModelRole.Character, Rest(model));
         return new(composition, new(), [], new TrackingPhysics(), new() { Width = 1280, Height = 720 }, cancellationToken: Token);
     }
     private static OriginalFrameScene Rest(PmxModel model) => new(PmxOriginalStyleAdapter.FromRestPose(model).Scene,

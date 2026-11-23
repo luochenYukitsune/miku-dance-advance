@@ -454,12 +454,12 @@ public static partial class PmaProjectStore
     private static bool ValidateModelDependencies(string stage, string path, Dictionary<string, FileData> files, PmaLoadOptions limits)
     {
         string parent = path[..(path.LastIndexOf('/') + 1)];
-        void RequireTexture(string reference, bool sharedToon = false)
+        bool RequireTexture(string reference, bool sharedToon = false)
         {
-            if (reference.Length == 0) return;
+            if (reference.Length == 0) return false;
             ValidatePath(reference);
-            if (files.ContainsKey(parent + reference)) return;
-            if (sharedToon && IsSharedPmdToon(reference)) return;
+            if (files.ContainsKey(parent + reference)) return true;
+            if (sharedToon && IsSharedPmdToon(reference)) return false;
             throw new InvalidDataException("PMA model texture refers outside its packaged resources.");
         }
         using var input = File.OpenRead(Path.Combine(stage, path));
@@ -479,8 +479,8 @@ public static partial class PmaProjectStore
             {
                 foreach (string reference in material.Texture.Split('*')) RequireTexture(reference);
                 string? toon = material.ToonIndex < model.ToonTextures.Length ? model.ToonTextures[material.ToonIndex] : null;
-                if (toon is not null) RequireTexture(toon, sharedToon: true);
-                if (material.IndexCount > 0 && (string.IsNullOrWhiteSpace(toon) || IsSharedPmdToon(toon)))
+                bool hasPackagedToon = toon is not null && RequireTexture(toon, sharedToon: true);
+                if (material.IndexCount > 0 && !hasPackagedToon)
                     requiresOriginalToons = true;
             }
             return requiresOriginalToons;
