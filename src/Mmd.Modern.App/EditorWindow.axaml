@@ -25,7 +25,7 @@
     <Style Selector="PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /><Setter Property="Width" Value="16" /><Setter Property="Height" Value="16" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="20" /><Setter Property="Margin" Value="0" />
-      <Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Padding" Value="9,0" /><Setter Property="CornerRadius" Value="4" />
+      <Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Padding" Value="9,0" /><Setter Property="CornerRadius" Value="5" />
       <Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" /><Setter Property="Transitions"><Transitions /></Setter>
       <Setter Property="Template">
@@ -42,9 +42,16 @@
     <Style Selector="Button.action"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="HorizontalContentAlignment" Value="Center" /><Setter Property="Height" Value="28" /></Style>
     <Style Selector="Button.action:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
     <Style Selector="Button.action:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
+    <Style Selector="Button.accentAction"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelectionBorder}" /><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="Button.accentAction /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="Button.accentAction TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
+    <Style Selector="Button.accentAction:pointerover"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
+    <Style Selector="Button.accentAction:disabled"><Setter Property="Background" Value="{DynamicResource MdaButtonDisabled}" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Button.accentAction:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
+    <Style Selector="Button.accentAction:disabled TextBlock"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
     <Style Selector="Button.action.icon PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
     <Style Selector="Button.action.icon:disabled PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
-    <Style Selector="Button.transport"><Setter Property="Width" Value="32" /><Setter Property="Padding" Value="7,0" /></Style>
+    <Style Selector="Button.transport"><Setter Property="Width" Value="30" /><Setter Property="Padding" Value="6,0" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
     <Style Selector="Button:pressed"><Setter Property="Background" Value="{DynamicResource EditorHover}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorMuted}" /></Style>
     <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
@@ -61,24 +68,24 @@
     <Style Selector="Button:disabled PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
     <Style Selector="Button:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
     <!-- Play/pause: icon follows the state; while playing the button carries the accent so the state reads at a glance. -->
-    <Style Selector="Button.playToggle.playing"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="Button.playToggle.playing"><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelectionBorder}" /></Style>
     <Style Selector="Button.playToggle.playing PathIcon"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
     <Style Selector="Button.playToggle.playing TextBlock"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
     <Style Selector="ToggleButton.guide">
       <Setter Property="Height" Value="26" /><Setter Property="MinHeight" Value="20" /><Setter Property="Margin" Value="0" />
       <Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
       <Setter Property="Padding" Value="8,0" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" /><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="5" /><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" />
       <Setter Property="Template">
         <ControlTemplate>
           <Border Name="GuideSurface" Background="{TemplateBinding Background}" BorderThickness="{TemplateBinding BorderThickness}"
-                  BorderBrush="{TemplateBinding BorderBrush}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                  BorderBrush="{TemplateBinding BorderBrush}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
             <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="ToggleButton.guide:checked"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /></Style>
+    <Style Selector="ToggleButton.guide:checked"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /><Setter Property="Background" Value="{DynamicResource EditorSelectedSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSelectionBorder}" /></Style>
     <Style Selector="ToggleButton.guide:pointerover"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
     <Style Selector="ToggleButton.guide:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
     <Style Selector="ToggleButton.guide PathIcon"><Setter Property="Foreground" Value="{DynamicResource EditorMuted}" /></Style>
@@ -87,6 +94,8 @@
     <Style Selector="ToggleButton.guide:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /><Setter Property="Background" Value="Transparent" /></Style>
     <Style Selector="ToggleButton.guide TextBlock"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
     <Style Selector="ToggleButton.guide AccessText"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
+    <Style Selector="Border.segmentedGroup"><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="6" /><Setter Property="Padding" Value="2" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+    <Style Selector="Border.segmentedGroup ToggleButton.guide"><Setter Property="Height" Value="22" /><Setter Property="MinHeight" Value="20" /><Setter Property="CornerRadius" Value="4" /><Setter Property="Padding" Value="7,0" /></Style>
     <!-- Compact template follows Avalonia 11.3.22 Simple TextBox named parts; Suki 5.3.0 adds an extra 5 px outer inset. -->
     <Style Selector="TextBox">
       <Setter Property="CaretBrush" Value="{DynamicResource EditorText}" /><Setter Property="SelectionBrush" Value="{DynamicResource EditorSelectedSurface}" />
@@ -136,17 +145,17 @@
         </Border>
       </ControlTemplate></Setter>
     </Style>
-    <Style Selector="TextBox.editorSearch"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="8,2" /><Setter Property="FontSize" Value="13" /><Setter Property="CornerRadius" Value="4" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="TextBox.editorSearch"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="8,2" /><Setter Property="FontSize" Value="13" /><Setter Property="CornerRadius" Value="5" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
     <Style Selector="TextBox.editorSearch:focus"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
     <Style Selector="TextBox.editorSearch:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
-    <Style Selector="TextBox.timelineRangeNumber"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="7,2" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="TextAlignment" Value="Right" /><Setter Property="CornerRadius" Value="4" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
+    <Style Selector="TextBox.timelineRangeNumber"><Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Padding" Value="7,2" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" /><Setter Property="TextAlignment" Value="Right" /><Setter Property="CornerRadius" Value="5" /><Setter Property="BorderThickness" Value="1" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /></Style>
     <Style Selector="TextBox.timelineRangeNumber:focus"><Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" /></Style>
     <Style Selector="TextBox.timelineRangeNumber:disabled"><Setter Property="Opacity" Value="1" /><Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" /></Style>
     <Style Selector="NumericUpDown.editorNumber">
       <Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Margin" Value="0" />
       <Setter Property="Padding" Value="7,2" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" />
       <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
-      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="ShowButtonSpinner" Value="False" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="5" /><Setter Property="ShowButtonSpinner" Value="False" />
       <Setter Property="TextAlignment" Value="Right" /><Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Template"><ControlTemplate>
         <ButtonSpinner Name="PART_Spinner" AllowSpin="{TemplateBinding AllowSpin}" ShowButtonSpinner="False" HorizontalContentAlignment="Stretch" Padding="0">
@@ -169,7 +178,7 @@
     <Style Selector="ComboBox">
       <Setter Property="Height" Value="28" /><Setter Property="MinHeight" Value="28" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
       <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
-      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="5" /><Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="FontSize" Value="{DynamicResource EditorBodySize}" />
       <Setter Property="PlaceholderForeground" Value="{DynamicResource EditorMuted}" />
       <Setter Property="Template"><ControlTemplate>
@@ -363,21 +372,22 @@
       <Setter Property="Height" Value="52" />
       <Setter Property="Padding" Value="6,4" />
     </Style>
-    <Style Selector="FlyoutPresenter"><Setter Property="Background" Value="{DynamicResource EditorSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="Padding" Value="16" /></Style>
+    <Style Selector="FlyoutPresenter"><Setter Property="Background" Value="{DynamicResource EditorSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="6" /><Setter Property="Padding" Value="14" /></Style>
     <Style Selector="GridSplitter"><Setter Property="Background" Value="Transparent" /></Style>
     <Style Selector="GridSplitter:pointerover"><Setter Property="Background" Value="{DynamicResource EditorMuted}" /></Style>
-    <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource EditorBorder}" /><Setter Property="Margin" Value="0,6" /></Style>
+    <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource EditorSectionRule}" /><Setter Property="Margin" Value="0,6" /></Style>
     <Style Selector="MenuItem"><Setter Property="FontSize" Value="14" /><Setter Property="FontWeight" Value="Normal" /><Setter Property="Padding" Value="12,4" /></Style>
     <Style Selector="Border.panel"><Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" /></Style>
     <Style Selector="Border.panelHeader"><Setter Property="Background" Value="{DynamicResource EditorChrome}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="Padding" Value="12,0" /></Style>
     <Style Selector="Border.menuBar"><Setter Property="Background" Value="{DynamicResource EditorMenuSurface}" /></Style>
     <Style Selector="Border.projectBar"><Setter Property="Background" Value="{DynamicResource EditorChromeActive}" /></Style>
-    <Style Selector="Border.viewportBar"><Setter Property="Background" Value="{DynamicResource EditorMenuSurface}" /></Style>
-    <Style Selector="Border.viewportBar Button"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /><Setter Property="Padding" Value="7,0" /></Style>
+    <Style Selector="Border.viewportBar"><Setter Property="Background" Value="{DynamicResource EditorChrome}" /></Style>
+    <Style Selector="Border.viewportBar Button"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /><Setter Property="Padding" Value="7,0" /><Setter Property="Height" Value="24" /><Setter Property="MinHeight" Value="20" /></Style>
     <Style Selector="Border.viewportBar Button TextBlock"><Setter Property="FontSize" Value="{DynamicResource EditorMetadataSize}" /></Style>
-    <Style Selector="Border.viewportBar ToggleButton.guide"><Setter Property="Padding" Value="6,0" /></Style>
+    <Style Selector="Border.viewportBar ToggleButton.guide"><Setter Property="Padding" Value="6,0" /><Setter Property="Height" Value="24" /></Style>
+    <Style Selector="Border.viewportBar ToggleButton.guide.icon"><Setter Property="Width" Value="26" /><Setter Property="Padding" Value="4,0" /></Style>
     <Style Selector="Border.secondaryBar"><Setter Property="Background" Value="{DynamicResource EditorSubtleSurface}" /></Style>
-    <Style Selector="Border.parameterHeader"><Setter Property="Background" Value="{DynamicResource EditorSubtleSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSectionRule}" /><Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="Padding" Value="8,2" /><Setter Property="Margin" Value="-4,0,-4,0" /></Style>
+    <Style Selector="Border.parameterHeader"><Setter Property="Background" Value="{DynamicResource EditorSubtleSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorSectionRule}" /><Setter Property="BorderThickness" Value="0,0,0,1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="Padding" Value="8,4" /><Setter Property="Margin" Value="0,2,0,0" /></Style>
     <Style Selector="Border.rulerCell"><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1,0,0,0" /><Setter Property="Padding" Value="6,0,0,0" /></Style>
     <Style Selector="Border.timeColumn"><Setter Property="BorderBrush" Value="{DynamicResource EditorTimelineGrid}" /><Setter Property="BorderThickness" Value="1,0,0,0" /></Style>
     <!-- Background feedback stays on small controls. Text, focus borders, layout
@@ -460,25 +470,27 @@
       <x:Double x:Key="EditorBodySize">14</x:Double><x:Double x:Key="EditorTitleSize">15</x:Double><x:Double x:Key="EditorMetadataSize">12</x:Double>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="EditorSurface" Color="#0F1216" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#151A20" /><SolidColorBrush x:Key="EditorText" Color="#ECEFF2" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#A4ACB6" /><SolidColorBrush x:Key="EditorDisabledText" Color="#69717B" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#2B333D" /><SolidColorBrush x:Key="EditorSelection" Color="#3DD68C" />
-          <SolidColorBrush x:Key="EditorHover" Color="#222A34" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#19302A" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#1A2027" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#1B2129" />
+          <SolidColorBrush x:Key="EditorSurface" Color="#0D1116" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#151B22" /><SolidColorBrush x:Key="EditorText" Color="#EEF1F4" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#9DA7B4" /><SolidColorBrush x:Key="EditorDisabledText" Color="#636C77" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#28313D" /><SolidColorBrush x:Key="EditorSelection" Color="#3DD68C" /><SolidColorBrush x:Key="EditorSelectionBorder" Color="#2B7A54" />
+          <SolidColorBrush x:Key="EditorHover" Color="#222B36" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#17342A" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#1B222B" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#11161D" />
           <SolidColorBrush x:Key="EditorLoadingAccent" Color="#3DD68C" />
           <SolidColorBrush x:Key="EditorErrorAccent" Color="#F0A39A" />
-          <SolidColorBrush x:Key="EditorMenuSurface" Color="#151A20" /><SolidColorBrush x:Key="EditorChrome" Color="#181D24" /><SolidColorBrush x:Key="EditorChromeActive" Color="#222A34" />
-          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#151A20" /><SolidColorBrush x:Key="EditorSectionRule" Color="#232A33" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
+          <SolidColorBrush x:Key="EditorAxisX" Color="#EE7878" /><SolidColorBrush x:Key="EditorAxisY" Color="#58D68D" /><SolidColorBrush x:Key="EditorAxisZ" Color="#62AAFF" />
+          <SolidColorBrush x:Key="EditorMenuSurface" Color="#11161C" /><SolidColorBrush x:Key="EditorChrome" Color="#1A212A" /><SolidColorBrush x:Key="EditorChromeActive" Color="#1F2732" />
+          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#181F28" /><SolidColorBrush x:Key="EditorSectionRule" Color="#222B35" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#4CE298" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#202833" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#313C4A" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A3442" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#333F50" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#181E25" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#636C77" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="EditorSurface" Color="#F6F7F9" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="EditorText" Color="#1A1D21" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#5B636E" /><SolidColorBrush x:Key="EditorDisabledText" Color="#9AA1AA" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#D9DEE5" /><SolidColorBrush x:Key="EditorSelection" Color="#12844A" />
-          <SolidColorBrush x:Key="EditorHover" Color="#E9EDF2" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#DFF2E7" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#EEF1F4" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#EEF1F4" />
+          <SolidColorBrush x:Key="EditorSurface" Color="#EBEEF2" /><SolidColorBrush x:Key="EditorPanelSurface" Color="#FAFBFC" /><SolidColorBrush x:Key="EditorText" Color="#1A1F24" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#59636E" /><SolidColorBrush x:Key="EditorDisabledText" Color="#96A0AA" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#D2DAE3" /><SolidColorBrush x:Key="EditorSelection" Color="#12844A" /><SolidColorBrush x:Key="EditorSelectionBorder" Color="#7EC8A0" />
+          <SolidColorBrush x:Key="EditorHover" Color="#E7ECF2" /><SolidColorBrush x:Key="EditorSelectedSurface" Color="#DCF2E6" /><SolidColorBrush x:Key="EditorTimelineGrid" Color="#EAEFF4" />
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#FFFFFF" />
           <SolidColorBrush x:Key="EditorLoadingAccent" Color="#12844A" />
           <SolidColorBrush x:Key="EditorErrorAccent" Color="#A3453D" />
-          <SolidColorBrush x:Key="EditorMenuSurface" Color="#FFFFFF" /><SolidColorBrush x:Key="EditorChrome" Color="#EEF1F4" /><SolidColorBrush x:Key="EditorChromeActive" Color="#E3E8EE" />
-          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#F0F2F5" /><SolidColorBrush x:Key="EditorSectionRule" Color="#E4E8ED" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
+          <SolidColorBrush x:Key="EditorAxisX" Color="#C93B3B" /><SolidColorBrush x:Key="EditorAxisY" Color="#1D8348" /><SolidColorBrush x:Key="EditorAxisZ" Color="#2563EB" />
+          <SolidColorBrush x:Key="EditorMenuSurface" Color="#F2F4F7" /><SolidColorBrush x:Key="EditorChrome" Color="#EFF2F6" /><SolidColorBrush x:Key="EditorChromeActive" Color="#E4EAF1" />
+          <SolidColorBrush x:Key="EditorSubtleSurface" Color="#EEF2F6" /><SolidColorBrush x:Key="EditorSectionRule" Color="#E0E6ED" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#0E6E3D" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CBD3DD" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EFF3F7" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E9F0" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EFF2F5" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#96A0AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
       <ResourceDictionary.MergedDictionaries><ResourceInclude Source="avares://Mmd.Modern.App/Assets/Icons/PhosphorRegular.axaml" /></ResourceDictionary.MergedDictionaries>
       <StreamGeometry x:Key="Mda.Icon.Undo">M 3,9 L 8.5,3.5 L 9.9,4.9 L 6.8,8 L 14.5,8 A 6,6 0 0 1 14.5,20 L 8,20 L 8,18 L 14.5,18 A 4,4 0 0 0 14.5,10 L 6.8,10 L 9.9,13.1 L 8.5,14.5 Z</StreamGeometry>
@@ -575,19 +587,21 @@
             </Grid.ColumnDefinitions>
             <Border Name="LeftRailPanel" Classes="panel">
           <Border Name="TimelinePanel">
-            <Grid RowDefinitions="Auto,Auto,*,32">
-              <Grid ColumnDefinitions="*,Auto" Margin="8,3,6,3">
-                <TextBlock Text="{DynamicResource Mda.Text.1de9cb58bf0b}" Classes="section" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Name="LoadMotionButton" Classes="action" Content="{DynamicResource Mda.Text.f85f287978ca}" Command="{Binding ImportMotionCommand}" />
-              </Grid>
-              <WrapPanel Grid.Row="1" IsVisible="{Binding IsSceneInspector}" Margin="6,3">
-                <Button Name="TimelineRegisterCamera" Classes="action" Content="{DynamicResource Mda.Text.a619bd96a115}"
+            <Grid RowDefinitions="36,Auto,*,32">
+              <Border Classes="panelHeader" Padding="10,0">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{DynamicResource Mda.Text.1de9cb58bf0b}" Classes="section" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Name="LoadMotionButton" Classes="action" Height="24" MinHeight="22" Padding="8,0" FontSize="12" Content="{DynamicResource Mda.Text.f85f287978ca}" Command="{Binding ImportMotionCommand}" />
+                </Grid>
+              </Border>
+              <WrapPanel Grid.Row="1" IsVisible="{Binding IsSceneInspector}" Margin="8,4">
+                <Button Name="TimelineRegisterCamera" Classes="action accentAction" Height="25" MinHeight="22" Padding="8,0" FontSize="12" Content="{DynamicResource Mda.Text.a619bd96a115}"
                     IsVisible="{Binding IsCameraInspector}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
-                <Button Name="TimelineRegisterMainLight" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}"
+                <Button Name="TimelineRegisterMainLight" Classes="action accentAction" Height="25" MinHeight="22" Padding="8,0" FontSize="12" Content="{DynamicResource Mda.Text.e4b84a93325e}"
                     IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Command="{Binding SceneInspector.RegisterLightKeyframeCommand}" />
               </WrapPanel>
-              <Border Grid.Row="1" Name="TimelineBatchTools" IsVisible="{Binding IsAnimationInspector}" Padding="6,0,6,5"
-                      BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
+              <Border Grid.Row="1" Name="TimelineBatchTools" IsVisible="{Binding IsAnimationInspector}" Padding="8,6"
+                      Background="{DynamicResource EditorSubtleSurface}" BorderBrush="{DynamicResource EditorSectionRule}" BorderThickness="0,0,0,1">
                 <Border.Styles>
                   <Style Selector="Button.timelineAction">
                     <Setter Property="Width" Value="26" /><Setter Property="Height" Value="26" />
@@ -603,12 +617,14 @@
                     <Setter Property="Stroke" Value="{DynamicResource EditorDisabledText}" />
                   </Style>
                 </Border.Styles>
-                <StackPanel Spacing="4">
+                <StackPanel Spacing="5">
                   <WrapPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,8,0">
-                      <ToggleButton Name="TimelineAllTracksToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.AllTracks}" IsChecked="{Binding Animation.IsTimelineAllTracks, Mode=OneWay}" Click="SelectTimelineAllTracks" />
-                      <ToggleButton Name="TimelineKeyedToggle" Classes="guide" Content="{DynamicResource Mda.Text.Timeline.KeyedOnly}" IsChecked="{Binding Animation.IsTimelineKeyedTracks, Mode=OneWay}" Click="SelectTimelineKeyedTracks" />
-                    </StackPanel>
+                    <Border Classes="segmentedGroup" Margin="0,0,8,0">
+                      <StackPanel Orientation="Horizontal" Spacing="2">
+                        <ToggleButton Name="TimelineAllTracksToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.AllTracks}" IsChecked="{Binding Animation.IsTimelineAllTracks, Mode=OneWay}" Click="SelectTimelineAllTracks" />
+                        <ToggleButton Name="TimelineKeyedToggle" Classes="guide" Content="{DynamicResource Mda.Text.Timeline.KeyedOnly}" IsChecked="{Binding Animation.IsTimelineKeyedTracks, Mode=OneWay}" Click="SelectTimelineKeyedTracks" />
+                      </StackPanel>
+                    </Border>
                     <StackPanel Orientation="Horizontal" Spacing="2">
                       <Button Name="CopyTimelineKeysButton" Classes="action timelineAction" Command="{Binding Animation.CopyKeyframesCommand}"
                               ToolTip.Tip="{DynamicResource Mda.Text.63d90d977348}" AutomationProperties.Name="{DynamicResource Mda.Text.63d90d977348}">
@@ -680,35 +696,37 @@
               <TextBlock Text="{Binding Animation.TimelineEmptyHint}" IsVisible="{Binding Animation.ShowTimelineEmptyHint}" Classes="caption" MaxWidth="520" TextWrapping="Wrap" />
             </Border>
           </Grid>
-              <Grid Grid.Row="3" Margin="6,0" ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding Animation.TimelineFooterSummary}" ToolTip.Tip="{Binding Animation.KeyframeSummary}" IsVisible="{Binding IsAnimationInspector}" Classes="caption" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                <StackPanel IsVisible="{Binding IsSceneInspector}" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding SceneInspector.CameraKeyframeSummary}" IsVisible="{Binding IsCameraInspector}" Classes="caption" TextTrimming="CharacterEllipsis" />
-                  <TextBlock Text="{Binding SceneInspector.LightKeyframeSummary}" IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Classes="caption" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <Button Name="TimelineZoomOutButton" Classes="action icon" Width="26" Height="24" MinHeight="20" Padding="0"
-                        Click="ZoomTimelineOut" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}"
-                        AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}">
-                  <PathIcon Data="{StaticResource Mda.Icon.Minus}" Width="12" Height="12" />
-                </Button>
-                <Button Name="TimelineZoomInButton" Classes="action icon" Width="26" Height="24" MinHeight="20" Padding="0"
-                        Click="ZoomTimelineIn" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}"
-                        AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}">
-                  <PathIcon Data="{StaticResource Mda.Icon.Plus}" Width="12" Height="12" />
-                </Button>
-                <Button Name="TimelineZoomFitButton" Classes="action" Height="24" MinHeight="20" Padding="8,0" FontSize="12"
-                        Content="{DynamicResource Mda.Text.Ux.Timeline.ZoomFit}" Click="ZoomTimelineFit"
-                        ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomFitTip}" />
-                </StackPanel>
-              </Grid>
+              <Border Grid.Row="3" Classes="secondaryBar" BorderBrush="{DynamicResource EditorSectionRule}" BorderThickness="0,1,0,0" Padding="8,0">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Animation.TimelineFooterSummary}" ToolTip.Tip="{Binding Animation.KeyframeSummary}" IsVisible="{Binding IsAnimationInspector}" Classes="caption" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                  <StackPanel IsVisible="{Binding IsSceneInspector}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding SceneInspector.CameraKeyframeSummary}" IsVisible="{Binding IsCameraInspector}" Classes="caption" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding SceneInspector.LightKeyframeSummary}" IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Classes="caption" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <Button Name="TimelineZoomOutButton" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
+                          Click="ZoomTimelineOut" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}"
+                          AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}">
+                    <PathIcon Data="{StaticResource Mda.Icon.Minus}" Width="12" Height="12" />
+                  </Button>
+                  <Button Name="TimelineZoomInButton" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
+                          Click="ZoomTimelineIn" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}"
+                          AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}">
+                    <PathIcon Data="{StaticResource Mda.Icon.Plus}" Width="12" Height="12" />
+                  </Button>
+                  <Button Name="TimelineZoomFitButton" Classes="action" Height="22" MinHeight="20" Padding="8,0" FontSize="12"
+                          Content="{DynamicResource Mda.Text.Ux.Timeline.ZoomFit}" Click="ZoomTimelineFit"
+                          ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomFitTip}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
             </Grid>
           </Border>
         </Border>
         <Border Name="LeftSplitterLine" Grid.Column="1" Width="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Name="LeftRailSplitter" Grid.Column="1" ResizeDirection="Columns" HorizontalAlignment="Stretch" />
         <Border Name="ViewportPanel" Grid.Column="2" Classes="panel" MinWidth="280">
           <Grid RowDefinitions="Auto,*">
-            <Border Classes="panelHeader viewportBar" MinHeight="36" Padding="6,2">
+            <Border Classes="panelHeader viewportBar" Height="36" MinHeight="36" Padding="8,0">
               <WrapPanel VerticalAlignment="Center">
                   <Button Name="ViewportQualityButton" Classes="action" Click="OpenPreviewSettings" ToolTip.Tip="{DynamicResource Mda.Text.cafed7fda215}" AutomationProperties.Name="{DynamicResource Mda.Text.cafed7fda215}"><TextBlock Text="{DynamicResource Mda.Text.Layout.Quality}" /></Button>
                   <Button Name="ViewportLightingButton" Click="OpenSceneLighting" IsEnabled="{Binding HasProject}" ToolTip.Tip="{DynamicResource Mda.Text.b0b5621643a6}"><StackPanel Orientation="Horizontal" Spacing="4"><PathIcon Data="{StaticResource Phosphor.lightbulb}" Width="14" Height="14" /><TextBlock Text="{DynamicResource Mda.Text.3b579010a041}" /></StackPanel></Button>
@@ -743,8 +761,8 @@
           </Grid>
         </Border>
           </Grid>
-          <Border Name="TransportAndToolsBar" Grid.Row="1" Classes="panelHeader secondaryBar" BorderThickness="0,1,0,1" MinHeight="34" Padding="6,2">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+          <Border Name="TransportAndToolsBar" Grid.Row="1" Classes="panelHeader secondaryBar" BorderThickness="0,1,0,1" MinHeight="36" Padding="8,3">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
               <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                 <Button Name="GoToStartButton" Classes="transport" Command="{Binding GoToStartCommand}" ToolTip.Tip="{DynamicResource Mda.Text.c8acd431ade6}"><PathIcon Data="{StaticResource Phosphor.skip-back}" /></Button>
                 <Button Name="PreviousFrameButton" Classes="transport" Command="{Binding PreviousFrameCommand}" ToolTip.Tip="{DynamicResource Mda.Text.55f98f45f7f4}"><PathIcon Data="{StaticResource Phosphor.caret-left}" /></Button>
@@ -759,25 +777,32 @@
                     <Border.IsVisible><MultiBinding Converter="{x:Static BoolConverters.And}">
                       <Binding Path="Browser.HasSelectedModel" /><Binding Path="IsAnimationInspector" />
                     </MultiBinding></Border.IsVisible>
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                      <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                        <Border Width="1" Height="16" Margin="0,0,5,0" Background="{DynamicResource EditorBorder}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Border Width="1" Height="16" Margin="0,0,4,0" Background="{DynamicResource EditorBorder}" />
                         <ToggleButton Name="BoneGuidesToggle" Classes="guide" IsChecked="True" Click="ToggleBoneGuides" ToolTip.Tip="{DynamicResource Mda.Text.4ffb9f9932d0}"><StackPanel Orientation="Horizontal" Spacing="5"><PathIcon Data="{StaticResource Phosphor.bone}" /><TextBlock Text="{DynamicResource Mda.Text.7fbaf8247802}" /></StackPanel></ToggleButton>
-                        <Border Width="1" Height="16" Margin="5,0" Background="{DynamicResource EditorBorder}" />
-                        <ToggleButton Name="BoneSelectMode" Classes="guide" Content="{DynamicResource Mda.Text.c11330b85234}" IsChecked="True" Click="SelectBoneSelection" />
-                        <ToggleButton Name="BoneMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" Click="SelectBoneMove" IsEnabled="{Binding Animation.CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.4dd8ed2692ec}" />
-                        <ToggleButton Name="BoneRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="ToggleBoneRotation" IsEnabled="{Binding Animation.CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.029793bce021}" />
+                        <Border Classes="segmentedGroup" Margin="2,0">
+                          <StackPanel Orientation="Horizontal" Spacing="2">
+                            <ToggleButton Name="BoneSelectMode" Classes="guide" Content="{DynamicResource Mda.Text.c11330b85234}" IsChecked="True" Click="SelectBoneSelection" />
+                            <ToggleButton Name="BoneMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" Click="SelectBoneMove" IsEnabled="{Binding Animation.CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.4dd8ed2692ec}" />
+                            <ToggleButton Name="BoneRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="ToggleBoneRotation" IsEnabled="{Binding Animation.CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.029793bce021}" />
+                          </StackPanel>
+                        </Border>
                       </StackPanel>
                       <TextBlock Grid.Column="1" Text="{Binding Animation.SelectionName}" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Animation.SelectionLabel}" />
                     </Grid>
                   </Border>
                 </Border>
                 <Border Name="LightToolsBar" Background="Transparent" BorderThickness="0" Padding="0" IsVisible="False" MinHeight="28">
-                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                      <Border Width="1" Height="16" Margin="0,0,5,0" Background="{DynamicResource EditorBorder}" />
-                      <ToggleButton Name="LightMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" IsChecked="True" Click="SelectLightMove" ToolTip.Tip="{DynamicResource Mda.Text.6a4888adf1ac}" />
-                      <ToggleButton Name="LightRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="SelectLightRotate" ToolTip.Tip="{DynamicResource Mda.Text.b1109aa379f8}" />
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                      <Border Width="1" Height="16" Margin="0,0,4,0" Background="{DynamicResource EditorBorder}" />
+                      <Border Classes="segmentedGroup">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                          <ToggleButton Name="LightMoveMode" Classes="guide" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" IsChecked="True" Click="SelectLightMove" ToolTip.Tip="{DynamicResource Mda.Text.6a4888adf1ac}" />
+                          <ToggleButton Name="LightRotateMode" Classes="guide" Content="{DynamicResource Mda.Text.68eb90fa809e}" Click="SelectLightRotate" ToolTip.Tip="{DynamicResource Mda.Text.b1109aa379f8}" />
+                        </StackPanel>
+                      </Border>
                     </StackPanel>
                     <TextBlock Name="SelectedLightName" Grid.Column="1" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                   </Grid>
@@ -791,31 +816,33 @@
               <TabItem Header="{DynamicResource Mda.Text.Layout.Curve}" /><TabItem Name="MorphDockTab" Header="{DynamicResource Mda.Text.Layout.Morphs}" /><TabItem Header="{DynamicResource Mda.Text.Layout.Values}" />
             </TabControl>
             <Grid Name="AnimationDockColumns" Grid.Row="1" ColumnDefinitions="146,*,284">
-              <Border Name="CurveDockDivider" Width="1" HorizontalAlignment="Right" Margin="0,6" Background="{DynamicResource EditorBorder}" IsHitTestVisible="False" />
-              <Border Name="MorphDockDivider" Grid.Column="1" Width="1" HorizontalAlignment="Right" Margin="0,6" Background="{DynamicResource EditorBorder}" IsHitTestVisible="False" />
-              <Grid Name="CurveDockPanel" Margin="4,2" RowDefinitions="Auto,*">
+              <Border Name="CurveDockDivider" Width="1" HorizontalAlignment="Right" Margin="0,8" Background="{DynamicResource EditorSectionRule}" IsHitTestVisible="False" />
+              <Border Name="MorphDockDivider" Grid.Column="1" Width="1" HorizontalAlignment="Right" Margin="0,8" Background="{DynamicResource EditorSectionRule}" IsHitTestVisible="False" />
+              <Grid Name="CurveDockPanel" Margin="8,4" RowDefinitions="Auto,*">
                 <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.Curve}" Classes="group" VerticalAlignment="Center" />
-                  <Button Grid.Column="1" Classes="action" Content="…" AutomationProperties.Name="{DynamicResource Mda.Text.d20383c88bb0}" ToolTip.Tip="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /></Grid>
+                  <Button Grid.Column="1" Classes="action" Height="24" MinHeight="22" Padding="8,0" Content="…" AutomationProperties.Name="{DynamicResource Mda.Text.d20383c88bb0}" ToolTip.Tip="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /></Grid>
                 <StackPanel Grid.Row="1" IsVisible="{Binding !#InlineCurveEditor.IsEnabled}" Margin="0,6">
                   <TextBlock Text="{DynamicResource Mda.Text.99108876ba90}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsAnimationInspector}" />
                   <TextBlock Text="{DynamicResource Mda.Text.b7a9483d1b58}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsCameraInspector}" />
                 </StackPanel>
-                <Grid Grid.Row="1" Name="InlineCurveEditor" IsVisible="{Binding #InlineCurveEditor.IsEnabled}" x:DataType="local:EditorInterpolationViewModel" RowDefinitions="Auto,*">
+                <Grid Grid.Row="1" Name="InlineCurveEditor" IsVisible="{Binding #InlineCurveEditor.IsEnabled}" x:DataType="local:EditorInterpolationViewModel" RowDefinitions="Auto,*" Margin="0,4,0,0">
                   <ComboBox Name="InlineCurveChannel" ItemsSource="{Binding Channels}" SelectedItem="{Binding SelectedChannel, Mode=TwoWay}" HorizontalAlignment="Stretch" MinWidth="0">
                     <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorInterpolationChannelViewModel"><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
                   </ComboBox>
-                  <local:EditorInterpolationCurve Grid.Row="1" Name="InlineCurveGraph" MinHeight="0" MinWidth="0" ToolTip.Tip="{DynamicResource Mda.Text.2db8f928f49f}" AutomationProperties.Name="{DynamicResource Mda.Text.9ac701a5a520}" Channel="{Binding SelectedChannel}" Background="{DynamicResource EditorPanelSurface}" Foreground="{DynamicResource EditorText}" />
+                  <Border Grid.Row="1" Margin="0,4,0,0" Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="5" Padding="2">
+                    <local:EditorInterpolationCurve Name="InlineCurveGraph" MinHeight="0" MinWidth="0" ToolTip.Tip="{DynamicResource Mda.Text.2db8f928f49f}" AutomationProperties.Name="{DynamicResource Mda.Text.9ac701a5a520}" Channel="{Binding SelectedChannel}" Background="Transparent" Foreground="{DynamicResource EditorText}" />
+                  </Border>
                 </Grid>
               </Grid>
               <local:EditorMorphDock Name="MorphDockPanel" Grid.Column="1" />
-              <Grid Name="StandardSelectionInspector" Grid.Column="2" RowDefinitions="Auto,*" Margin="5,0,5,0">
+              <Grid Name="StandardSelectionInspector" Grid.Column="2" RowDefinitions="Auto,*" Margin="8,4">
                 <Grid IsVisible="{Binding IsSceneInspector}" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" Margin="0,2">
                   <TextBlock Name="InspectorTitle" Text="{Binding InspectorTitle}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                   <Button Grid.Column="1" Classes="action icon" Command="{Binding SceneInspector.RevertDraftCommand}" IsVisible="{Binding IsCameraInspector}"
                           ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" AutomationProperties.Name="{DynamicResource Mda.Text.e0534b8a4e46}">
                     <PathIcon Data="{StaticResource Phosphor.arrows-clockwise}" Width="14" Height="14" />
                   </Button>
-                  <Button Name="RegisterCameraKeyframeButton" Grid.Column="2" Classes="action" IsVisible="{Binding IsCameraInspector}"
+                  <Button Name="RegisterCameraKeyframeButton" Grid.Column="2" Classes="action accentAction" IsVisible="{Binding IsCameraInspector}"
                           Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.a619bd96a115}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
                   <Button Grid.Column="3" Classes="action" Content="{DynamicResource Mda.Text.c6550984b1e3}"
                           Command="{Binding SelectAnimationContextCommand}" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" />
@@ -832,23 +859,25 @@
         </Grid>
         <Border Name="RightSplitterLine" Grid.Column="1" Width="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Name="RightRailSplitter" Grid.Column="1" ResizeDirection="Columns" HorizontalAlignment="Stretch" />
         <Border Name="RightRailPanel" Grid.Column="2" Classes="panel">
-          <Grid RowDefinitions="Auto,*">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="4" Margin="5,2">
-              <ToggleButton Name="OutlineToggle" IsChecked="True" Padding="6,0" Content="{DynamicResource Mda.Text.Layout.Outline}" Click="ToggleOutline" Classes="guide" />
-              <ComboBox Name="OutlineFilter" Grid.Column="1" SelectedIndex="0" MinWidth="0" HorizontalAlignment="Stretch" SelectionChanged="ChangeOutlineFilter" />
-              <Button Name="AddBrowserLightButton" Grid.Column="2" Padding="7,0" FontSize="{DynamicResource EditorMetadataSize}" IsVisible="{Binding SupportsModernLightingWorkspace}" Content="{DynamicResource Mda.Text.8ffd49a5b1b9}" IsEnabled="{Binding HasProject}">
-                <Button.Flyout><MenuFlyout>
-                  <MenuItem Header="{DynamicResource Mda.Text.dcf867d64ba7}" Click="AddDirectionalLight" />
-                  <MenuItem Header="{DynamicResource Mda.Text.164901accbd4}" Click="AddPointLight" />
-                  <MenuItem Header="{DynamicResource Mda.Text.5af0185beb3e}" Click="AddSpotLight" />
-                  <MenuItem Header="{DynamicResource Mda.Text.Context.Lighting.Area}" Click="AddAreaLight" />
+          <Grid RowDefinitions="36,*">
+            <Border Classes="panelHeader" Padding="8,0">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="5">
+                <ToggleButton Name="OutlineToggle" IsChecked="True" Height="24" Padding="6,0" Content="{DynamicResource Mda.Text.Layout.Outline}" Click="ToggleOutline" Classes="guide" />
+                <ComboBox Name="OutlineFilter" Grid.Column="1" Height="26" MinHeight="26" SelectedIndex="0" MinWidth="0" HorizontalAlignment="Stretch" SelectionChanged="ChangeOutlineFilter" />
+                <Button Name="AddBrowserLightButton" Grid.Column="2" Height="24" MinHeight="22" Padding="7,0" FontSize="{DynamicResource EditorMetadataSize}" IsVisible="{Binding SupportsModernLightingWorkspace}" Content="{DynamicResource Mda.Text.8ffd49a5b1b9}" IsEnabled="{Binding HasProject}">
+                  <Button.Flyout><MenuFlyout>
+                    <MenuItem Header="{DynamicResource Mda.Text.dcf867d64ba7}" Click="AddDirectionalLight" />
+                    <MenuItem Header="{DynamicResource Mda.Text.164901accbd4}" Click="AddPointLight" />
+                    <MenuItem Header="{DynamicResource Mda.Text.5af0185beb3e}" Click="AddSpotLight" />
+                    <MenuItem Header="{DynamicResource Mda.Text.Context.Lighting.Area}" Click="AddAreaLight" />
                   <Separator />
                   <MenuItem Name="AddThreePointLightGroup" Header="{DynamicResource Mda.Text.Layout.ThreePoint}" Click="AddThreePointLighting" />
                   <MenuItem Header="{DynamicResource Mda.Text.Context.Lighting.Presets.IndoorWindow}" Click="AddWindowLighting" />
                   <MenuItem Header="{DynamicResource Mda.Text.Layout.ImportLights}" Click="ImportOutlineLightingPreset" />
-                </MenuFlyout></Button.Flyout>
-              </Button>
-            </Grid>
+                  </MenuFlyout></Button.Flyout>
+                </Button>
+              </Grid>
+            </Border>
             <Grid Name="RightDockRows" Grid.Row="1" RowDefinitions="220,4,*">
               <ScrollViewer Name="OutlineScroll" HorizontalScrollBarVisibility="Disabled"><StackPanel>
             <local:EditorModelBrowser Name="ModelBrowserSurface" DataContext="{Binding Browser}" MaxHeight="280" />
@@ -897,7 +926,7 @@
               </StackPanel></ScrollViewer>
               <GridSplitter Name="OutlineSplitter" Grid.Row="1" ResizeDirection="Rows" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" />
               <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
-            <Border Name="ModelSelectionHeader" IsVisible="{Binding !IsLightingPage}" Classes="panelHeader secondaryBar" Padding="8,4">
+            <Border Name="ModelSelectionHeader" IsVisible="{Binding !IsLightingPage}" Classes="panelHeader secondaryBar" BorderThickness="0,1,0,1" Padding="8,5">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                 <ComboBox Name="CurrentModelSelector" Grid.Column="0" PlaceholderText="{DynamicResource Mda.Text.Context.ReplaceModel.Current}" ItemsSource="{Binding Browser.Models}"
                           SelectedItem="{Binding Browser.SelectedModel, Mode=TwoWay}" IsEnabled="{Binding Browser.HasModels}"
@@ -908,12 +937,12 @@
                   </DataTemplate></ComboBox.ItemTemplate>
                 </ComboBox>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                  <Button Name="InspectorModelPropertiesButton" Classes="action icon" Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}"
+                  <Button Name="InspectorModelPropertiesButton" Classes="action icon" Width="28" Height="24" Padding="0" Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}"
                           ToolTip.Tip="{DynamicResource Mda.Text.814c34f6f2d1}" AutomationProperties.Name="{DynamicResource Mda.Text.814c34f6f2d1}">
                     <PathIcon Data="{StaticResource Mda.Icon.ModelProperties}" Width="14" Height="14" />
                   </Button>
                   <Button Name="InspectorReplaceModelButton" Classes="action" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
-                          Command="{Binding Browser.ReplaceModelCommand}" IsEnabled="{Binding Browser.CanReplaceModel}" Height="22" MinHeight="20" FontSize="12" Padding="7,0"
+                          Command="{Binding Browser.ReplaceModelCommand}" IsEnabled="{Binding Browser.CanReplaceModel}" Height="24" MinHeight="22" FontSize="12" Padding="8,0"
                           ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
                 </StackPanel>
               </Grid>
@@ -936,7 +965,7 @@
               <!-- Page 1: project-default style; only explicit selection commits, inherited models only. -->
               <ScrollViewer Name="StyleInspectorPage" IsVisible="{Binding IsStylePage}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="12,10,12,14" Spacing="8">
-                  <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" Padding="10"
+                  <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="5" Padding="10"
                           IsVisible="{Binding StyleInspector.IsClassicEngine}">
                     <StackPanel Spacing="8">
                       <TextBlock Text="{Binding StyleInspector.ClassicNotice}" Classes="caption" TextWrapping="Wrap" />
@@ -950,7 +979,7 @@
                       <Button Name="StyleManagePluginsButton" Grid.Column="1" Classes="action"
                               Content="{DynamicResource Mda.Text.Ux.Inspector.Style.ManagePlugins}"
                               Click="OpenPlugins" IsEnabled="{Binding StyleInspector.CanManagePlugins}"
-                              Height="22" MinHeight="20" FontSize="12" Padding="7,0" VerticalAlignment="Center"
+                              Height="24" MinHeight="22" FontSize="12" Padding="8,0" VerticalAlignment="Center"
                               ToolTip.Tip="{DynamicResource Mda.Text.Plugins.Title}" />
                     </Grid>
                     <ComboBox Name="ProjectDefaultStyleBox" ItemsSource="{Binding StyleInspector.Options}"
@@ -970,7 +999,7 @@
                         </DataTemplate>
                       </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="10"
+                    <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="5" Padding="10"
                             IsVisible="{Binding StyleInspector.HasMissingStyle}">
                       <StackPanel Spacing="8">
                         <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" />
@@ -1020,7 +1049,7 @@
                       <Expander Name="StyleMetadataExpander" Classes="editorAdvanced" IsExpanded="False"
                                 Header="{DynamicResource Mda.Text.Context.Inspector.Style.InfoHeader}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                        <Border Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" Padding="10">
+                        <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="5" Padding="10">
                           <StackPanel Spacing="6">
                             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="3">
                               <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoSource}" Classes="caption" />
@@ -1057,7 +1086,7 @@
                       <ListBox Name="InspectorMaterialList" ItemsSource="{Binding MaterialInspector.Materials}"
                                SelectedItem="{Binding MaterialInspector.SelectedMaterial, Mode=TwoWay}" MaxHeight="220"
                                DoubleTapped="MaterialListDoubleTapped"
-                               Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4"
+                               Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="5"
                                AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}">
                         <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ListBox.ItemTemplate>
                       </ListBox>
@@ -1118,7 +1147,7 @@
            PlacementTarget="{Binding #ProjectHeaderBar}" Placement="BottomEdgeAlignedRight" HorizontalOffset="-12" VerticalOffset="8"
            IsLightDismissEnabled="False" ShouldUseOverlayLayer="False" WindowManagerAddShadowHint="False"
            TakesFocusFromNativeControl="False">
-      <Border Name="LowPreviewFrameRateReminder" Width="300" Padding="12" CornerRadius="4"
+      <Border Name="LowPreviewFrameRateReminder" Width="300" Padding="12" CornerRadius="6"
               Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1">
         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="6">
           <PathIcon Data="{StaticResource Phosphor.warning-circle}" Width="14" Height="14"

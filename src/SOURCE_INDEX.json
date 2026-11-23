@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-23T20:56:38.5304006Z",
+    "generatedAtUtc":  "2026-11-23T22:06:44.3123640Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -23880,16 +23880,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  134568,
-                                "sha256":  "6efe7b2356fec74495e5193cd2fd1e825f8b985316674f45e6ef5f087e9878bf"
+                                "bytes":  134670,
+                                "sha256":  "0733a215d86c7a04833b518e7911916026df59eba5ae9f3f53cdc6f3a2254f84"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  169697,
-                                "sha256":  "d8bc606530fc6ea2b54aeb71a63dee0f32467612c9672cf4cc8a0c9de01c5750"
+                                "bytes":  169949,
+                                "sha256":  "92a2a642e19cbf8de1dfc2cb4a72803eb1351cc1c6204375bff4f2b7fd440030"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
@@ -23912,8 +23912,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  129804,
-                                "sha256":  "94f6cf1fb66c8f273a50b5c8d35ef8f5e1efe390467e1996ee5446a04bd14a57"
+                                "bytes":  129764,
+                                "sha256":  "0792b84d140e759968a2df93090715dd9b9a3523659a8479167ab134a65c801c"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -23928,8 +23928,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  8130,
-                                "sha256":  "1aa4bd499c2c0f6540017173b3faad63c14e5b7b418dba0f278bfc293930a672"
+                                "bytes":  8455,
+                                "sha256":  "6d3cb26f7dc70c94733fb93afd0698c07b6ba208095ca462843802813cc9eb42"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorDialogStyles.axaml",
@@ -23937,7 +23937,7 @@
                                 "role":  "product-support",
                                 "productModule":  "GUI",
                                 "bytes":  10557,
-                                "sha256":  "9884ad08765a80444c03f50510abc35c90c264ab689f6b617f762f403ba4ccfe"
+                                "sha256":  "1f16c3e46ed6cd44964fdb04c6601c1398e495e3cd47aabd93705c8085b1d5ec"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorInterpolationWindow.axaml",
@@ -23960,8 +23960,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  38616,
-                                "sha256":  "b630ae5ad9f12d85506f040a8c966599db77f54f9989bce2bd141ab0134330a9"
+                                "bytes":  38732,
+                                "sha256":  "608ac461340d428194bdf07d621add77dd23e2938852c2c563ac90fd3ba7a8c8"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorMainLightInspector.axaml",
@@ -23976,8 +23976,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  12822,
-                                "sha256":  "e28deaf160ce5e7721793af2921503890f9c49ef30ff83f044c12f830c600ea7"
+                                "bytes":  13025,
+                                "sha256":  "7135770ab07a16f0b47f3bc95d1ef14c6c6b97832c3f3dadf7dd4e8709058188"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorModelPropertiesWindow.axaml",
@@ -23992,8 +23992,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  2085,
-                                "sha256":  "0a1d20d26d454172b4df6f6f48434232abef3b012127dc163d4cddb184b09910"
+                                "bytes":  2142,
+                                "sha256":  "9eee04e8a86c92275fe6461567eeb736a77ff6c2d6f9986e449a8bc1bc988f35"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorPmmImportWindow.axaml",
@@ -24009,7 +24009,7 @@
                                 "role":  "product-support",
                                 "productModule":  "GUI",
                                 "bytes":  16431,
-                                "sha256":  "81eb16337b5b554fc6ee572cba09dcfc3e4306f79f25db53b1f942eb7c4e6512"
+                                "sha256":  "5c2916186117cad41260b66995fc971edc214189d32487ffa27b031bc5bdd2bd"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorPreferencesWindow.axaml",
@@ -24064,8 +24064,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  126874,
-                                "sha256":  "111844c671c34ba0c0e953a3cded676fa566ee8bd319c7a98c8167b195a88d44"
+                                "bytes":  131317,
+                                "sha256":  "9062b2993c706729362e056fef573d53eea28f91a45f5c1f3f0a9d258ed22829"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",

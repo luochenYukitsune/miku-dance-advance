@@ -13,18 +13,18 @@
               ToolTip.Tip="{DynamicResource Mda.Text.cb5d682bac3d}" AutomationProperties.Name="{DynamicResource Mda.Text.cb5d682bac3d}">
         <PathIcon Data="{StaticResource Phosphor.arrows-clockwise}" Width="14" Height="14" />
       </Button>
-      <Button Grid.Column="2" Name="RegisterKeyframeButton" Classes="action" IsVisible="{Binding !IsMorphSelected}" Command="{Binding RegisterPoseCommand}"
+      <Button Grid.Column="2" Name="RegisterKeyframeButton" Classes="action accentAction" IsVisible="{Binding !IsMorphSelected}" Command="{Binding RegisterPoseCommand}"
               Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" />
-      <Button Grid.Column="2" Name="RegisterAnimationKeyframeButton" Classes="action" IsVisible="{Binding IsMorphSelected}" Command="{Binding RegisterKeyframeCommand}"
+      <Button Grid.Column="2" Name="RegisterAnimationKeyframeButton" Classes="action accentAction" IsVisible="{Binding IsMorphSelected}" Command="{Binding RegisterKeyframeCommand}"
               Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" />
       <ToggleButton Grid.Column="3" Name="SelectedKeyToolsToggle" Classes="guide" Content="…" IsVisible="{Binding HasActor}"
                     ToolTip.Tip="{DynamicResource Mda.Text.618770d3d2c8}" AutomationProperties.Name="{DynamicResource Mda.Text.618770d3d2c8}" />
     </Grid>
-    <StackPanel Grid.Row="1" Spacing="3" IsVisible="{Binding !#SelectedKeyToolsPanel.IsVisible}">
+    <StackPanel Grid.Row="1" Spacing="4" IsVisible="{Binding !#SelectedKeyToolsPanel.IsVisible}">
       <TextBlock Text="{DynamicResource Mda.Text.93278e57bd0f}" Classes="caption"
                  TextWrapping="Wrap" IsVisible="{Binding IsEmptySelection}" />
-      <Grid IsVisible="{Binding IsBoneSelected}" ColumnDefinitions="Auto,*,*,*" RowDefinitions="16,28,28" ColumnSpacing="3" RowSpacing="2">
-        <TextBlock Grid.Column="1" Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="3" Text="Z" Classes="axis" />
+      <Grid IsVisible="{Binding IsBoneSelected}" ColumnDefinitions="Auto,*,*,*" RowDefinitions="16,28,28" ColumnSpacing="4" RowSpacing="3">
+        <TextBlock Grid.Column="1" Text="X" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisX}" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisY}" /><TextBlock Grid.Column="3" Text="Z" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisZ}" />
         <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.1fb4d574da92}" Classes="caption" VerticalAlignment="Center" />
         <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.68eb90fa809e}" Classes="caption" VerticalAlignment="Center" />
         <validated:EditorNumericUpDown Name="BonePositionX" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
@@ -50,9 +50,9 @@
                        Value="{Binding MorphWeight, Mode=TwoWay}" IsEnabled="{Binding CanEditMorph}" ToolTip.Tip="{DynamicResource Mda.Text.e085c868f733}" />
         </Grid>
       </StackPanel>
-      <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding IsBoneSelected}">
-        <Button Name="CopyPoseButton" Classes="action" Height="24" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.CopyPose}" Command="{Binding CopyPoseCommand}" />
-        <Button Name="MirrorPoseButton" Classes="action" Height="24" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.MirrorPose}" Command="{Binding PasteMirroredPoseCommand}" />
+      <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0" IsVisible="{Binding IsBoneSelected}">
+        <Button Name="CopyPoseButton" Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.CopyPose}" Command="{Binding CopyPoseCommand}" />
+        <Button Name="MirrorPoseButton" Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.MirrorPose}" Command="{Binding PasteMirroredPoseCommand}" />
       </StackPanel>
     </StackPanel>
     <StackPanel Grid.Row="1" Name="SelectedKeyToolsPanel" Spacing="4">

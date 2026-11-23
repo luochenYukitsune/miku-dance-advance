@@ -11,27 +11,27 @@
            the popup styles; EditorWindow's own resources remain authoritative. -->
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="EditorSurface" Color="#0F1216" />
-          <SolidColorBrush x:Key="EditorPanelSurface" Color="#151A20" />
-          <SolidColorBrush x:Key="EditorText" Color="#ECEFF2" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#A4ACB6" />
-          <SolidColorBrush x:Key="EditorDisabledText" Color="#69717B" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#2B333D" />
+          <SolidColorBrush x:Key="EditorSurface" Color="#0D1116" />
+          <SolidColorBrush x:Key="EditorPanelSurface" Color="#151B22" />
+          <SolidColorBrush x:Key="EditorText" Color="#EEF1F4" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#9DA7B4" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#636C77" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#28313D" />
           <SolidColorBrush x:Key="EditorSelection" Color="#3DD68C" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#1B2129" />
-          <SolidColorBrush x:Key="EditorHover" Color="#222A34" />
-          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#19302A" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaDanger" Color="#C2453A" /><SolidColorBrush x:Key="MdaDangerHover" Color="#D35248" /><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#11161D" />
+          <SolidColorBrush x:Key="EditorHover" Color="#222B36" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#17342A" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#4CE298" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaDanger" Color="#C2453A" /><SolidColorBrush x:Key="MdaDangerHover" Color="#D35248" /><SolidColorBrush x:Key="MdaButton" Color="#202833" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#313C4A" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A3442" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#333F50" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#181E25" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#636C77" /></ResourceDictionary>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="EditorSurface" Color="#F6F7F9" />
-          <SolidColorBrush x:Key="EditorPanelSurface" Color="#FFFFFF" />
-          <SolidColorBrush x:Key="EditorText" Color="#1A1D21" />
-          <SolidColorBrush x:Key="EditorMuted" Color="#5B636E" />
-          <SolidColorBrush x:Key="EditorDisabledText" Color="#9AA1AA" />
-          <SolidColorBrush x:Key="EditorBorder" Color="#D9DEE5" />
+          <SolidColorBrush x:Key="EditorSurface" Color="#EBEEF2" />
+          <SolidColorBrush x:Key="EditorPanelSurface" Color="#FAFBFC" />
+          <SolidColorBrush x:Key="EditorText" Color="#1A1F24" />
+          <SolidColorBrush x:Key="EditorMuted" Color="#59636E" />
+          <SolidColorBrush x:Key="EditorDisabledText" Color="#96A0AA" />
+          <SolidColorBrush x:Key="EditorBorder" Color="#D2DAE3" />
           <SolidColorBrush x:Key="EditorSelection" Color="#12844A" />
-          <SolidColorBrush x:Key="EditorInputSurface" Color="#EEF1F4" />
-          <SolidColorBrush x:Key="EditorHover" Color="#E9EDF2" />
-          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#DFF2E7" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaDanger" Color="#B3382E" /><SolidColorBrush x:Key="MdaDangerHover" Color="#9C2F26" /><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
+          <SolidColorBrush x:Key="EditorInputSurface" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="EditorHover" Color="#E7ECF2" />
+          <SolidColorBrush x:Key="EditorSelectedSurface" Color="#DCF2E6" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#0E6E3D" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaDanger" Color="#B3382E" /><SolidColorBrush x:Key="MdaDangerHover" Color="#9C2F26" /><SolidColorBrush x:Key="MdaButton" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CBD3DD" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EFF3F7" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E9F0" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EFF2F5" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#96A0AA" /></ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Styles.Resources>
@@ -117,7 +117,7 @@
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
     <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
     <Setter Property="FontFamily" Value="{DynamicResource EditorFont}" />
-    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="CornerRadius" Value="5" />
   </Style>
   <Style Selector="ToolTip TextBlock, ToolTip AccessText">
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />

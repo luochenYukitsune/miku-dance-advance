@@ -31,11 +31,11 @@
       <TextBlock Text="{Binding SelectionSummary}" Classes="group" IsVisible="{Binding ShowBatchControls}" />
       <WrapPanel Orientation="Horizontal" Margin="0,0,0,-4">
         <Button Name="DuplicateSelectedLightsButton" Classes="action" Content="{Binding DuplicateSelectionLabel}" Click="DuplicateLights"
-                Height="NaN" MinHeight="28" Padding="10,4" Margin="0,0,6,4" />
+                Height="26" MinHeight="26" Padding="10,0" Margin="0,0,6,4" />
         <Button Name="GroupSelectedLightsButton" Classes="action" Content="{Binding GroupSelectionLabel}" Click="GroupLights" IsEnabled="{Binding CanGroupSelection}"
-                Height="NaN" MinHeight="28" Padding="10,4" Margin="0,0,6,4" />
+                Height="26" MinHeight="26" Padding="10,0" Margin="0,0,6,4" />
         <Button Classes="action" Content="{Binding DissolveSelectionLabel}" Click="DissolveLightGroups" IsVisible="{Binding CanDissolveSelection}"
-                Height="NaN" MinHeight="28" Padding="10,4" Margin="0,0,6,4" />
+                Height="26" MinHeight="26" Padding="10,0" Margin="0,0,6,4" />
       </WrapPanel>
       <StackPanel IsVisible="{Binding ShowBatchControls}" Spacing="6">
         <StackPanel Spacing="2" IsVisible="{Binding HasSelectedLight}">
@@ -85,13 +85,13 @@
               <TextBox Grid.Column="2" Name="LightHexColor" Classes="editorSearch" LostFocus="CommitHexColor" AutomationProperties.Name="{DynamicResource Mda.Text.2582a5c98b76}" />
             </Grid>
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <Button Width="24" Height="24" Padding="3" Tag="#FFFFFF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.f56e7eff58bf}" AutomationProperties.Name="{DynamicResource Mda.Text.f56e7eff58bf}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#FFFFFF" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#FFE7C7" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.966c66b331ea}" AutomationProperties.Name="{DynamicResource Mda.Text.966c66b331ea}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#FFE7C7" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#FFBD78" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.b5159bb8082c}" AutomationProperties.Name="{DynamicResource Mda.Text.b5159bb8082c}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#FFBD78" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#CDE5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.0ef411a8a875}" AutomationProperties.Name="{DynamicResource Mda.Text.0ef411a8a875}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#CDE5FF" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#82B5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.67035e6b7f82}" AutomationProperties.Name="{DynamicResource Mda.Text.67035e6b7f82}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#82B5FF" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#FFC7DB" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.dbd379b39f0d}" AutomationProperties.Name="{DynamicResource Mda.Text.dbd379b39f0d}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#FFC7DB" /></Button>
-              <Button Width="24" Height="24" Padding="3" Tag="#D6C7FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.2ed9c6fabac2}" AutomationProperties.Name="{DynamicResource Mda.Text.2ed9c6fabac2}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="2" Background="#D6C7FF" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#FFFFFF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.f56e7eff58bf}" AutomationProperties.Name="{DynamicResource Mda.Text.f56e7eff58bf}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#FFFFFF" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#FFE7C7" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.966c66b331ea}" AutomationProperties.Name="{DynamicResource Mda.Text.966c66b331ea}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#FFE7C7" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#FFBD78" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.b5159bb8082c}" AutomationProperties.Name="{DynamicResource Mda.Text.b5159bb8082c}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#FFBD78" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#CDE5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.0ef411a8a875}" AutomationProperties.Name="{DynamicResource Mda.Text.0ef411a8a875}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#CDE5FF" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#82B5FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.67035e6b7f82}" AutomationProperties.Name="{DynamicResource Mda.Text.67035e6b7f82}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#82B5FF" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#FFC7DB" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.dbd379b39f0d}" AutomationProperties.Name="{DynamicResource Mda.Text.dbd379b39f0d}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#FFC7DB" /></Button>
+              <Button Width="24" Height="24" Padding="3" CornerRadius="4" Tag="#D6C7FF" Click="ChooseColor" ToolTip.Tip="{DynamicResource Mda.Text.2ed9c6fabac2}" AutomationProperties.Name="{DynamicResource Mda.Text.2ed9c6fabac2}"><Border Width="16" Height="16" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="3" Background="#D6C7FF" /></Button>
             </StackPanel>
           </StackPanel>
           <StackPanel Spacing="2">
