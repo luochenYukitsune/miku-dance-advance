@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-23T19:54:41.9753258Z",
+    "generatedAtUtc":  "2026-11-23T20:56:38.5304006Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -3596,8 +3596,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  8709,
-                      "sha256":  "6af2f1a6facb33320521f73ce6044c45ca70e8c1f0072060b7ad82ca9809cc6f",
+                      "bytes":  8901,
+                      "sha256":  "6175f4b7e9b6fd057905d21b605f8ac276360c8318e513ec95c4c8574b157639",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3622,8 +3622,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  45905,
-                      "sha256":  "c628951b43fceb81dd020f47d9e07f284ed0f2006ef34fe5b058f95356740cb9",
+                      "bytes":  45847,
+                      "sha256":  "ebadc0a69b7066b4661fb964f8211300178884149492a160a170b4fed712402a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -22078,8 +22078,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20312,
-                      "sha256":  "b552f7598467906052a635c311700e14447570149e9fb0eaf5cffd108a4738cb",
+                      "bytes":  26025,
+                      "sha256":  "a71cc4fa0a54be41e47aafa5758bf52fe79c018bca9c425766fd9225eaaaf7da",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -23960,8 +23960,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  38353,
-                                "sha256":  "3868a924fdd7fb8de7e3fa9f4f5adac76c858b7a8ea4294acbedba34897b99a8"
+                                "bytes":  38616,
+                                "sha256":  "b630ae5ad9f12d85506f040a8c966599db77f54f9989bce2bd141ab0134330a9"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorMainLightInspector.axaml",
@@ -24064,8 +24064,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  125813,
-                                "sha256":  "3a63c93433a893fa9060c9cd9550f0e02b8414d7e789b3e58ad75d2fd62503e5"
+                                "bytes":  126874,
+                                "sha256":  "111844c671c34ba0c0e953a3cded676fa566ee8bd319c7a98c8167b195a88d44"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",

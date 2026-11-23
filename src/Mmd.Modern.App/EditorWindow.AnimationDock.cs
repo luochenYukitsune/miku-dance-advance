@@ -80,10 +80,11 @@ public partial class EditorWindow
         AnimationDockToggle.IsVisible = hasAnimationContext;
         AnimationDock.IsVisible = hasAnimationContext && animationDockExpanded;
         bool modelContext = (_shell?.SceneSelectionIndex ?? -1) < 0;
-        bool compact = AnimationDock.Bounds.Width < (modelContext ? 765 : 630);
+        double available = AnimationDock.Bounds.Width;
+        bool compact = available > 0 && available < (modelContext ? 720 : 580);
         bool hasCurves = modelContext || _shell?.IsCameraInspector == true;
         AnimationDockTabs.IsVisible = hasCurves && compact;
-        AnimationDock.Height = AnimationDockTabs.IsVisible ? 170 : 164;
+        AnimationDock.Height = AnimationDockTabs.IsVisible ? 172 : 168;
         CurveDockDivider.IsVisible = hasCurves && !compact;
         MorphDockDivider.IsVisible = modelContext && !compact;
         MorphDockTab.IsVisible = modelContext;
@@ -91,9 +92,11 @@ public partial class EditorWindow
         if (AnimationDockTabs.SelectedIndex < 0) AnimationDockTabs.SelectedIndex = 0;
         int selected = AnimationDockTabs.SelectedIndex;
         var columns = AnimationDockColumns.ColumnDefinitions;
-        columns[0].Width = compact ? GridLength.Star : new GridLength(modelContext ? 145 : 154);
+        double curveWidth = modelContext ? (available >= 980 ? 160 : 144) : 154;
+        double valuesWidth = available >= 980 ? 296 : 276;
+        columns[0].Width = compact ? GridLength.Star : new GridLength(curveWidth);
         columns[1].Width = !compact && modelContext ? GridLength.Star : new GridLength(0);
-        columns[2].Width = compact ? new GridLength(0) : modelContext ? new GridLength(270) : GridLength.Star;
+        columns[2].Width = compact ? new GridLength(0) : modelContext ? new GridLength(valuesWidth) : GridLength.Star;
         Grid.SetColumn(MorphDockPanel, compact ? 0 : 1);
         Grid.SetColumn(StandardSelectionInspector, compact ? 0 : 2);
         CurveDockPanel.IsVisible = hasCurves && (!compact || selected == 0);

@@ -25,8 +25,8 @@ public partial class EditorWindow : Window
     private long _mappedRevision = -1;
     private long _mappedBindingRevision = -1;
     private SceneProjectSession? _mappedSession;
-    private const double DefaultLeftRailWidth = 320;
-    private const double DefaultRightRailWidth = 292;
+    private const double DefaultLeftRailWidth = 296;
+    private const double DefaultRightRailWidth = 294;
     private const double DefaultSplitterSize = 4;
     private bool _isLeftRailVisible = true;
     private bool _isRightRailVisible = true;
@@ -224,21 +224,20 @@ public partial class EditorWindow : Window
         SetAnimationDockVisible(true);
         SetOutlineVisible(true);
         OutlineFilter.SelectedIndex = 0;
-        GetColumn("LeftRailColumn", 0).Width = new GridLength(DefaultLeftRailWidth);
-        GetColumn("RightRailColumn", 4).Width = new GridLength(DefaultRightRailWidth);
+        GetColumn("UpperStageColumnsGrid", 0).Width = new GridLength(DefaultLeftRailWidth);
+        GetColumn("WorkspaceColumnsGrid", 2).Width = new GridLength(DefaultRightRailWidth);
     }
 
-    private ColumnDefinition GetColumn(string name, int index)
-        => NameScope.GetNameScope(this)?.Find(name) as ColumnDefinition
-            ?? this.FindControl<Grid>("WorkspaceColumnsGrid")!.ColumnDefinitions[index];
+    private ColumnDefinition GetColumn(string gridName, int index)
+        => this.FindControl<Grid>(gridName)!.ColumnDefinitions[index];
 
     private void SetLeftRailVisible(bool visible)
     {
         var panel = this.FindControl<Border>("LeftRailPanel")!;
         var line = this.FindControl<Border>("LeftSplitterLine")!;
         var splitter = this.FindControl<GridSplitter>("LeftRailSplitter")!;
-        var column = GetColumn("LeftRailColumn", 0);
-        var splitterColumn = GetColumn("LeftSplitterColumn", 1);
+        var column = GetColumn("UpperStageColumnsGrid", 0);
+        var splitterColumn = GetColumn("UpperStageColumnsGrid", 1);
         if (!visible && _isLeftRailVisible)
         {
             double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;
@@ -260,8 +259,8 @@ public partial class EditorWindow : Window
         var panel = this.FindControl<Border>("RightRailPanel")!;
         var line = this.FindControl<Border>("RightSplitterLine")!;
         var splitter = this.FindControl<GridSplitter>("RightRailSplitter")!;
-        var column = GetColumn("RightRailColumn", 4);
-        var splitterColumn = GetColumn("RightSplitterColumn", 3);
+        var column = GetColumn("WorkspaceColumnsGrid", 2);
+        var splitterColumn = GetColumn("WorkspaceColumnsGrid", 1);
         if (!visible && _isRightRailVisible)
         {
             double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;

@@ -65,21 +65,23 @@
     </StackPanel>
     <ItemsControl ItemsSource="{Binding InspectorLights}">
       <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EditorNativeLightItem">
-        <StackPanel Spacing="8" IsVisible="{Binding IsInspectorVisible}">
-          <StackPanel Spacing="6">
-            <TextBlock Text="{DynamicResource Mda.Text.7cb9050d7b72}" Classes="group" />
+        <StackPanel Spacing="6" IsVisible="{Binding IsInspectorVisible}">
+          <StackPanel Spacing="4">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Text="{DynamicResource Mda.Text.7cb9050d7b72}" Classes="group" VerticalAlignment="Center" />
+              <CheckBox Grid.Column="1" Tag="enabled" Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" MinHeight="24" />
+            </Grid>
             <TextBox Name="LightNameInput" Classes="editorSearch" Text="{Binding Name, Mode=TwoWay}" LostFocus="CommitInput" AutomationProperties.Name="{DynamicResource Mda.Text.7cb9050d7b72}" />
             <ComboBox Name="InlineLightKind" ItemsSource="{Binding KindChoices}" SelectedIndex="{Binding KindIndex, Mode=OneWay}"
                       SelectionChanged="CommitLightKind" IsVisible="{Binding UseModernControls}" HorizontalAlignment="Stretch"
                       AutomationProperties.Name="{DynamicResource Mda.Text.0a10a5398b8a}">
               <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorLightKindChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
             </ComboBox>
-            <CheckBox Tag="enabled" Content="{DynamicResource Mda.Text.0d6601d54d15}" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitToggle" />
           </StackPanel>
-          <StackPanel Spacing="6">
+          <StackPanel Spacing="4">
             <Border Classes="parameterHeader"><TextBlock Text="{Binding ColorLabel}" Classes="group" /></Border>
             <Grid ColumnDefinitions="36,8,*">
-              <Border Name="LightColorSwatch" Width="36" Height="28" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" />
+              <Border Name="LightColorSwatch" Width="36" Height="26" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" />
               <TextBox Grid.Column="2" Name="LightHexColor" Classes="editorSearch" LostFocus="CommitHexColor" AutomationProperties.Name="{DynamicResource Mda.Text.2582a5c98b76}" />
             </Grid>
             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -101,12 +103,14 @@
                 Minimum="0" Maximum="{Binding BrightnessSliderMaximum}" SmallChange="0.02" LargeChange="0.2" Value="{Binding BrightnessSliderPosition, Mode=OneWay}"
                 EditStarted="BeginParameterEdit" EditPreview="PreviewParameterEdit" EditCompleted="CompleteParameterEdit" EditCanceled="CancelParameterEdit"
                 AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Brightness}" />
-            <Button Name="ResetLightBrightnessButton" Classes="action" IsVisible="{Binding UseModernControls}"
-                    Content="{DynamicResource Mda.Text.Context.Lighting.ResetBrightness}" Click="ResetLightBrightness"
-                    Height="NaN" MinHeight="28" Padding="10,4" HorizontalAlignment="Left" />
           </StackPanel>
-          <StackPanel Spacing="8" IsVisible="{Binding UseModernControls}">
-            <CheckBox Tag="shadows" Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" />
+          <StackPanel Spacing="6" IsVisible="{Binding UseModernControls}">
+            <WrapPanel Orientation="Horizontal">
+              <CheckBox Tag="shadows" Margin="0,0,10,2" Content="{DynamicResource Mda.Text.eddb92cad478}" IsChecked="{Binding CastShadows, Mode=TwoWay}" Click="CommitToggle" MinHeight="24" />
+              <Button Name="ResetLightBrightnessButton" Classes="action" IsVisible="{Binding UseModernControls}"
+                      Content="{DynamicResource Mda.Text.Context.Lighting.ResetBrightness}" Click="ResetLightBrightness"
+                      Height="24" MinHeight="24" Padding="8,0" FontSize="12" Margin="0,0,0,2" />
+            </WrapPanel>
             <StackPanel Spacing="2" IsVisible="{Binding HasRange}">
               <Grid ColumnDefinitions="*,8,96">
                 <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.Distance}" VerticalAlignment="Center" TextWrapping="Wrap" />
