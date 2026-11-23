@@ -144,16 +144,17 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
         }, Token);
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task ClassicConversionUsesCanonicalPmdToonFromThePackageBeforeOriginalMmd(bool packagedToon)
+    [InlineData("toon01.bmp")]
+    [InlineData("TOON01.BMP")]
+    [InlineData(null)]
+    public async Task ClassicConversionUsesCanonicalPmdToonFromThePackageBeforeOriginalMmd(string? packagedName)
         => await dispatcher.Dispatch(() =>
         {
             using var files = new Fixture();
             string source = files.Path("source.pma"), copy = files.Path("copy.pmc");
             byte[] bitmap = EditorClassicToonPackageTests.Bitmap();
-            WriteCanonicalPmdPackage(files, source, packagedToon ? bitmap : null);
-            if (!packagedToon)
+            bool modelCanReadToon = WriteCanonicalPmdPackage(files, source, packagedName, bitmap);
+            if (!modelCanReadToon)
             {
                 var error = Assert.Throws<NotSupportedException>(() => PmaProjectStore.ConvertPackage(source, copy, files.DirectoryPath, Token));
                 Assert.Contains("requires original MMD", error.Message);
@@ -177,7 +178,7 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
 
     // Author a valid package with the original PMD basename. A regular PMA save rewrites
     // portable texture names and stores the animated actor as PMX, so it cannot exercise this case.
-    private static void WriteCanonicalPmdPackage(Fixture files, string destination, byte[]? toon)
+    private static bool WriteCanonicalPmdPackage(Fixture files, string destination, string? packagedName, byte[] toon)
     {
         string directory = files.Path("loose"), actor = Path.Combine(directory, "actor");
         Directory.CreateDirectory(actor);
@@ -188,7 +189,10 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
             [0, 1, 2], [new ModelMaterial(Vector4.One, Vector3.Zero, new(.3f), 4, "", 0, 3) { ToonIndex = 0 }],
             [new("root", -1, Vector3.Zero)], 0);
         File.WriteAllBytes(modelFile, PmdWriter.ToBytes(pmd));
-        if (toon is not null) File.WriteAllBytes(Path.Combine(actor, "toon01.bmp"), toon);
+        if (packagedName is not null) File.WriteAllBytes(Path.Combine(actor, packagedName), toon);
+        // The conversion stage is on this same volume. Probe its actual behavior, including
+        // case-sensitive directories on Windows or case-insensitive volumes on other platforms.
+        bool modelCanReadToon = File.Exists(Path.Combine(actor, "toon01.bmp"));
         using var modern = new EditorProjectWorkspace();
         Guid id = modern.AddModel(modelFile, EditorProjectWorkspace.LoadModelAsset(modelFile, Token), ModelRole.Prop);
         modern.Session!.Save(Path.Combine(directory, projectPath), new() { CopyModelAssets = false }, Token);
@@ -213,6 +217,7 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
             blob.Write(item.bytes);
         }
         Directory.Delete(directory, recursive: true);
+        return modelCanReadToon;
     }
 
     [Fact]

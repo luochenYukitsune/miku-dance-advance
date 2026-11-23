@@ -459,7 +459,9 @@ public static partial class PmaProjectStore
             if (reference.Length == 0) return false;
             ValidatePath(reference);
             if (files.ContainsKey(parent + reference)) return true;
-            if (sharedToon && IsSharedPmdToon(reference)) return false;
+            // Canonical PMD slots use a model-local override if the loader can open that
+            // basename in the extracted model directory, including its actual casing rules.
+            if (sharedToon && IsSharedPmdToon(reference)) return File.Exists(Path.Combine(stage, parent + reference));
             throw new InvalidDataException("PMA model texture refers outside its packaged resources.");
         }
         using var input = File.OpenRead(Path.Combine(stage, path));
@@ -475,11 +477,16 @@ public static partial class PmaProjectStore
             var model = PmdReader.Read(input);
             if (model.UnknownTailData.Length != 0 || model.UnparsedTailBytes != 0) throw new NotSupportedException("Unknown PMD trailer dependencies cannot be validated.");
             bool requiresOriginalToons = false;
+            var packagedToons = new Dictionary<byte, bool>();
             foreach (var material in model.Materials)
             {
                 foreach (string reference in material.Texture.Split('*')) RequireTexture(reference);
-                string? toon = material.ToonIndex < model.ToonTextures.Length ? model.ToonTextures[material.ToonIndex] : null;
-                bool hasPackagedToon = toon is not null && RequireTexture(toon, sharedToon: true);
+                if (!packagedToons.TryGetValue(material.ToonIndex, out bool hasPackagedToon))
+                {
+                    hasPackagedToon = material.ToonIndex < model.ToonTextures.Length
+                        && RequireTexture(model.ToonTextures[material.ToonIndex], sharedToon: true);
+                    packagedToons.Add(material.ToonIndex, hasPackagedToon);
+                }
                 if (material.IndexCount > 0 && !hasPackagedToon)
                     requiresOriginalToons = true;
             }
