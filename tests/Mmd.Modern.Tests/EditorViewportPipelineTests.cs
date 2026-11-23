@@ -326,31 +326,183 @@ public sealed class EditorViewportPipelineTests(EditorViewportPipelineSession fi
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task BackendFailureIsReportedAndExplicitRestartRecovers(bool factoryFailure)
+    [InlineData("factory")]
+    [InlineData("permit")]
+    [InlineData("present")]
+    public async Task BackendRebuildsWithoutNewInputAndCanAddAndEditLights(string failure)
     {
-        var failed = new FakeRenderer { FailPresent = true }; var recovered = new FakeRenderer(); int count = 0;
+        var failed = new FakeRenderer { FailPresent = failure == "present", FailPermit = failure == "permit" };
+        var recovered = new FakeRenderer();
+        int creations = 0;
         var f = await Create(_ =>
         {
-            if (Interlocked.Increment(ref count) != 1) return recovered;
-            if (factoryFailure) throw new InvalidOperationException("factory failure");
+            if (Interlocked.Increment(ref creations) != 1) return recovered;
+            if (failure == "factory") throw new InvalidOperationException("factory failure");
             return failed;
         });
         try
         {
-            var error = await Next(f.Errors);
-            Assert.Contains(factoryFailure ? "factory failure" : "present failure", error.Message);
-            Assert.True(await Ui(() => f.Host.HasRendererError));
-            await Ui(() => { f.Host.RestartRenderer(); f.Request(5); return true; });
-            Assert.Equal(5, (await Next(recovered.Frames)).SourceFrame);
+            Assert.Equal(0, (await Next(recovered.Frames)).SourceFrame);
+            Assert.Equal(failure == "factory" ? 0 : 1, failed.Disposals);
+            recovered.Release(0);
+            await Next(f.Callbacks);
+            var lamp = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point,
+                Vector3.Zero, Quaternion.Identity, Vector3.One);
+            await Ui(() => { f.Project.Edit(edit => edit.Lighting.Add(lamp), Token); f.Host.RequestRender(); return true; });
+            Assert.Equal(lamp, Assert.Single((await Next(recovered.Frames)).Scene.Lighting!.Lights));
+            recovered.Release(1);
+            await Next(f.Callbacks);
+            var brighter = lamp with { Intensity = 3 };
+            await Ui(() => { f.Project.Edit(edit => edit.Lighting.Update(brighter), Token); f.Host.RequestRender(); return true; });
+            Assert.Equal(brighter, Assert.Single((await Next(recovered.Frames)).Scene.Lighting!.Lights));
+            await Next(f.Callbacks);
+            Assert.False(await Ui(() => f.Host.HasRendererError));
+            Assert.False(f.Errors.Reader.TryRead(out _));
+            Assert.Equal(2, Volatile.Read(ref creations));
+        }
+        finally { await Cleanup(f, failed, recovered); }
+    }
+
+    [Fact]
+    public async Task RepeatedFactoryFailureStopsUntilExplicitRetry()
+    {
+        var recovered = new FakeRenderer();
+        int creations = 0;
+        var f = await Create(_ => Interlocked.Increment(ref creations) <= 2
+            ? throw new InvalidOperationException("factory failure") : recovered);
+        try
+        {
+            Assert.Equal("factory failure", (await Next(f.Errors)).Message);
+            await Ui(() =>
+            {
+                f.Host.RequestRender();
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(f.Host.HasRendererError);
+                Assert.Equal(2, Volatile.Read(ref creations));
+                f.Host.RestartRenderer();
+                return true;
+            });
+            Assert.Equal(0, (await Next(recovered.Frames)).SourceFrame);
             recovered.Release(0);
             await Next(f.Callbacks);
             Assert.False(await Ui(() => f.Host.HasRendererError));
+            Assert.Equal(3, Volatile.Read(ref creations));
         }
-        finally { await Cleanup(f, failed, recovered); }
-        Assert.Equal(factoryFailure ? 0 : 1, failed.Disposals);
-        Assert.Equal(1, recovered.Disposals);
+        finally { await Cleanup(f, recovered); }
+    }
+
+    [Fact]
+    public async Task SuccessfulPresentationRearmsRecoveryForALaterBackendFailure()
+    {
+        var first = new FakeRenderer { FailPresent = true };
+        var second = new FakeRenderer();
+        var third = new FakeRenderer();
+        var backends = new[] { first, second, third };
+        int creations = 0;
+        var f = await Create(_ => backends[Interlocked.Increment(ref creations) - 1]);
+        try
+        {
+            await Next(second.Frames);
+            second.Release(0);
+            await Next(f.Callbacks);
+            await Ui(() => { f.Request(5); return true; });
+            Assert.Equal(5, (await Next(second.Frames)).SourceFrame);
+            second.Fail(1);
+            Assert.Equal(5, (await Next(third.Frames)).SourceFrame);
+            third.Release(0);
+            await Next(f.Callbacks);
+            Assert.False(f.Errors.Reader.TryRead(out _));
+            Assert.Equal(3, Volatile.Read(ref creations));
+        }
+        finally { await Cleanup(f, backends); }
+    }
+
+    [Fact]
+    public async Task ClearingMainLightDraftAfterCaptureFailureRestoresTheSampledLight()
+    {
+        var first = new FakeRenderer();
+        var recovered = new FakeRenderer();
+        var draft = new PmmLightPose(new(.5f), Vector3.UnitX);
+        int creations = 0;
+        var f = await Create(_ => Interlocked.Increment(ref creations) == 1 ? first : recovered,
+            host => host.FrameDecorator = frame => frame.Light == draft
+                ? throw new InvalidOperationException("bad light draft") : frame);
+        try
+        {
+            var original = await Next(first.Frames);
+            first.Release(0);
+            await Next(f.Callbacks);
+            await Ui(() => { f.Host.SetLightPose(draft); return true; });
+            Assert.Equal("bad light draft", (await Next(f.Errors)).Message);
+            Assert.True(await Ui(() => f.Host.HasRendererError));
+            await Ui(() => { f.Host.SetLightPose(null); return true; });
+            Assert.Equal(original.Light, (await Next(recovered.Frames)).Light);
+            recovered.Release(0);
+            await Next(f.Callbacks);
+            Assert.False(await Ui(() => f.Host.HasRendererError));
+            Assert.Equal(2, Volatile.Read(ref creations));
+        }
+        finally { await Cleanup(f, first, recovered); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UndoOfFailedLightingPresentsTheCorrectedFrame(bool undoWhilePresenting)
+    {
+        var first = new FakeRenderer();
+        var repeatedFailure = new FakeRenderer { FailPresent = true };
+        var recovered = new FakeRenderer();
+        int creations = 0;
+        var f = await Create(_ => Interlocked.Increment(ref creations) switch
+        {
+            1 => first,
+            2 when !undoWhilePresenting => repeatedFailure,
+            _ => recovered
+        });
+        try
+        {
+            await Next(first.Frames);
+            first.Release(0);
+            await Next(f.Callbacks);
+            var lamp = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point,
+                Vector3.Zero, Quaternion.Identity, Vector3.One);
+            await Ui(() =>
+            {
+                f.Project.Edit(edit => edit.Lighting.Add(lamp), Token);
+                f.Host.RequestRender();
+                return true;
+            });
+            Assert.Equal(lamp, Assert.Single((await Next(first.Frames)).Scene.Lighting!.Lights));
+            async Task Undo() => Assert.True(await Ui(() =>
+            {
+                var changed = f.Project.Undo(Token);
+                f.Host.RequestRender();
+                return changed;
+            }));
+            if (undoWhilePresenting) await Undo();
+            first.Fail(1);
+            if (!undoWhilePresenting)
+            {
+                Assert.Equal("present failure", (await Next(f.Errors)).Message);
+                await Ui(() =>
+                {
+                    f.Host.RequestRender();
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.True(f.Host.HasRendererError);
+                    Assert.Equal(2, Volatile.Read(ref creations));
+                    return true;
+                });
+                await Undo();
+            }
+            Assert.Empty((await Next(recovered.Frames)).Scene.Lighting!.Lights);
+            recovered.Release(0);
+            await Next(f.Callbacks);
+            Assert.False(await Ui(() => f.Host.HasRendererError));
+            Assert.False(f.Errors.Reader.TryRead(out _));
+            Assert.Equal(undoWhilePresenting ? 2 : 3, Volatile.Read(ref creations));
+        }
+        finally { await Cleanup(f, first, repeatedFailure, recovered); }
     }
 
     private async Task<Fixture> Create(Func<ViewRenderRequest, IEditorViewportRenderer> factory,
@@ -417,6 +569,7 @@ public sealed class EditorViewportPipelineTests(EditorViewportPipelineSession fi
         private int aheadRecordings;
         private int presents, disposals;
         public bool FailPresent { get; init; }
+        public bool FailPermit { get; init; }
         public bool GateFramePermits { get; init; }
         public bool SupportsRecordingAhead { get; init; }
         public Channel<int> PermitWaits { get; } = Channel.CreateUnbounded<int>();
@@ -431,6 +584,7 @@ public sealed class EditorViewportPipelineTests(EditorViewportPipelineSession fi
         public EditorViewportPresentationStatistics Statistics => new(CounterBase + Volatile.Read(ref presents), 0, 0, 0, 100, 80, 2, null);
         public async ValueTask WaitForNextFrameAsync(CancellationToken cancellationToken = default)
         {
+            if (FailPermit) throw new InvalidOperationException("frame permit failure");
             if (!GateFramePermits) return;
             int index = Interlocked.Increment(ref permitWaits) - 1;
             PermitWaits.Writer.TryWrite(index);
@@ -454,6 +608,7 @@ public sealed class EditorViewportPipelineTests(EditorViewportPipelineSession fi
         public ValueTask ResizeAsync(int width, int height, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
         public ValueTask UpdateQualityAsync(ViewQualityOptions quality, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
         public ValueTask DisposeAsync() { Interlocked.Increment(ref disposals); return ValueTask.CompletedTask; }
+        public void Fail(int index) => gates[index].TrySetException(new InvalidOperationException("present failure"));
         public void Release(int index) => gates[index].TrySetResult();
         public void ReleasePermit(int index) => permits[index].TrySetResult();
         public void ReleaseAhead(int index) => aheadGates[index].TrySetResult();

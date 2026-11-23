@@ -13,6 +13,7 @@ public partial class EditorWindow
         viewport.PreparationChanged += LoadingPreparationChanged;
         viewport.FramePresented += LoadingFramePresented;
         viewport.Error += LoadingFrameFailed;
+        viewport.LightingFrameRetrying += shell.BeginPreviewAttempt;
         shell.PosePreview.PreparationChanged += LoadingPreparationChanged;
         AttachPreviewFrameRate(viewport);
         RefreshLoadingState();
@@ -24,6 +25,7 @@ public partial class EditorWindow
         viewport.PreparationChanged -= LoadingPreparationChanged;
         viewport.FramePresented -= LoadingFramePresented;
         viewport.Error -= LoadingFrameFailed;
+        viewport.LightingFrameRetrying -= shell.BeginPreviewAttempt;
         shell.PosePreview.PreparationChanged -= LoadingPreparationChanged;
         DetachPreviewFrameRate(shell, viewport);
         _waitingForOperationFrame = false;

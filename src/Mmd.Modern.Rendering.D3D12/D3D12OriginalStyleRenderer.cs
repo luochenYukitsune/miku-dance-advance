@@ -180,7 +180,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
     }
     public void Dispose()
     {
-        if(disposed)return;runtime.WaitForIdle();disposed=true;captureRecorder?.Dispose();
+        if(disposed)return;runtime.WaitForIdleForDisposal();disposed=true;captureRecorder?.Dispose();
         DisposeOutlinePipeline();DisposeFramePipelines();DisposeCharacterOutlinePipelines();
         DisposeGiGBufferPipelines();
         foreach(var value in pipelines.Values){value.DoubleSided.Dispose();value.CullBack.Dispose();value.Root.Dispose();}pipelines.Clear();

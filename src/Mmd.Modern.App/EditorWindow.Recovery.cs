@@ -268,7 +268,7 @@ public partial class EditorWindow
                 lightController?.SelectMany(native.ActiveLightIds.Length > 0 ? native.ActiveLightIds
                     : native.ActiveLightId is { } id ? [id] : [], native.ActiveLightId);
                 if (lightController is { } controller) controller.RotateHandle = native.RotateHandle;
-                this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = native.RotateHandle;
+                this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = lightController?.RotateHandle ?? false;
                 ApplyInspectorPagePresentation(shell);
             }
             RefreshViewport(this, EventArgs.Empty);

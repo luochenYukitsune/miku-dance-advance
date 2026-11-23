@@ -26,6 +26,17 @@ public sealed class D3D12FrameLatencyPermitTests
     }
 
     [Fact]
+    public async Task DeviceFailureReachesTheRenderLoopEvenIfTheSwapchainNeverSignals()
+    {
+        using var ready = new AutoResetEvent(false);
+        using var permit = new D3D12FrameLatencyPermit(ready, ownsHandle: false,
+            checkDevice: () => throw new InvalidOperationException("device removed"));
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            permit.WaitAsync(Token).AsTask().WaitAsync(TimeSpan.FromSeconds(5), Token));
+        Assert.Equal("device removed", failure.Message);
+    }
+
+    [Fact]
     public async Task DisposeUnblocksWaitBeforeReleasingHandleAndRejectsNewWaits()
     {
         using var ready = new EventWaitHandle(false, EventResetMode.AutoReset);

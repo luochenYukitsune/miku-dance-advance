@@ -51,6 +51,16 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private SceneCamera currentCamera = OriginalCameraPose.CreateCamera();
     private PmmCameraPose? manualCameraPose, sampledCameraPose;
     private PmmLightPose? manualLightPose;
+    // UI-owned immutable input identity from the last capture. An ordinary repaint of the same
+    // failed frame stays stopped, while a corrected draft or Undo can start a fresh attempt.
+    private readonly record struct LightingInputs(SceneLightingSnapshot? Authored, SceneLightingSnapshot? Draft,
+        PmmLightPose? MainLight, Vector3? DragDirection);
+    private LightingInputs lightingAtCapture;
+    private bool canRetryLightingFrame;
+    private bool backendRetryUsed;
+    internal event Action? LightingFrameRetrying;
+    private LightingInputs CurrentLightingInputs() => new(project is { IsDisposed: false } ? project.Lighting : null,
+        LightController?.TransientLighting, manualLightPose, MainLightViewport?.PreviewDirection);
     private bool showWorldGuides = true;
     private ViewQualityOptions quality = EditorPreferences.DefaultPreviewQuality;
     private IEditorRenderEngine renderEngine = EditorModernRenderEngine.Instance;
@@ -159,7 +169,18 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     }
     // Read only for realtime preview work. Capture/export factories never read this slot,
     // and the public Quality remains the user's complete per-view preference throughout a gesture.
-    internal ViewQualityOptions EffectivePreviewQuality => LightController?.InteractionQuality(quality) ?? quality;
+    internal ViewQualityOptions EffectivePreviewQuality =>
+        (mainLightPadEditing || MainLightViewport?.IsDragging == true) && quality.EffectiveGi.Enabled && EditorRenderEngineOptions.UsesModernQualityPreferences(renderEngine)
+            ? quality with { Gi = RayGiOptions.Off }
+            : LightController?.InteractionQuality(quality) ?? quality;
+
+    private bool mainLightPadEditing;
+    internal void SetMainLightPadEditing(bool editing)
+    {
+        if (mainLightPadEditing == editing) return;
+        mainLightPadEditing = editing;
+        RequestRender();
+    }
 
     public SceneCamera CurrentCamera => currentCamera;
     /// <summary>Machine-local camera controls; object/bone/light gestures keep screen-space direction.</summary>
@@ -190,6 +211,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public Func<PreviewFrame, PreviewFrame>? FrameDecorator { get; set; }
     public EditorLightViewportController? LightController { get; set; }
     public EditorBoneViewportController? BoneController { get; set; }
+    internal void SetBoneToolsEnabled(bool enabled)
+    {
+        if (BoneController is not { } bones) return;
+        // Finish a live gesture just like pointer release. Switching tools must retain
+        // the user's unregistered pose, including the last movement before navigation.
+        if (!enabled && bones.IsDragging && bones.EndDrag() && childWindow != nint.Zero && GetCapture() == childWindow)
+            ReleaseCapture();
+        bones.IsEnabled = enabled;
+    }
     public bool RotateLightHandle { get; set; }
     private EditorMainLightViewport? mainLightViewport;
     private bool mainLightCaptured;
@@ -334,7 +364,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             return;
         }
         if (!disposing && !disposed) ObserveDiagnosticTimeline();
-        if (disposing || disposed || IsSuspended || !HasCaptureSurface) return;
+        if (disposing || disposed || IsSuspended || !HasCaptureSurface || TryRetryLightingFrame()) return;
         lock (workerGate)
         {
             if (!accepting || failed) return;
@@ -367,12 +397,20 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         Dispatcher.UIThread.Post(() => CapturePendingFrame(version, token), DispatcherPriority.Background);
     }
 
+    private bool TryRetryLightingFrame()
+    {
+        if (!HasRendererError || !canRetryLightingFrame || CurrentLightingInputs() == lightingAtCapture) return false;
+        RestartRenderer();
+        LightingFrameRetrying?.Invoke();
+        return true;
+    }
+
     /// <summary>Retries a failed backend or rebuilds it after explicit mapping changes.</summary>
     public void RestartRenderer()
     {
         Dispatcher.UIThread.VerifyAccess();
         lock (workerGate) { InvalidateRecordingAheadLocked(); frameWaitCancellation?.Cancel(); framePermitReady = false; revision++; rendererReady = false; failed = false; pending = null; capturePosted = false; capturePostToken++; capturedDemandSequence = demandSequence; sceneInputRequests = []; poseFrameAdmission.Clear(); }
-        HasRendererError = false; PrepareNextFrame();
+        HasRendererError = false; canRetryLightingFrame = false; PrepareNextFrame();
     }
 
     /// <summary>Releases preview GPU resources before offline export while retaining the native
@@ -475,7 +513,11 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             captureInProgress = true;
             capturedDemandSequence = demandSequence;
         }
-        try { capture(); }
+        try
+        {
+            lightingAtCapture = CurrentLightingInputs();
+            capture();
+        }
         catch (Exception error)
         {
             long failureToken;
@@ -489,8 +531,13 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             if (IsCurrentCapture(version, failureToken))
             {
-                HasRendererError = true; SetPreparingFrame(false);
-                if (IsCurrentCapture(version, failureToken)) Error?.Invoke(error);
+                canRetryLightingFrame = true;
+                HasRendererError = true;
+                if (!TryRetryLightingFrame())
+                {
+                    SetPreparingFrame(false);
+                    if (IsCurrentCapture(version, failureToken)) Error?.Invoke(error);
+                }
             }
         }
         finally
@@ -757,6 +804,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!IsCurrent(work.Revision) || work.RecordAhead && !IsCurrentRecordingEpoch(work.RecordingEpoch)) return;
+                    backendRetryUsed = false; // A rebuilt device has recovered only after it presents a frame.
                     ObserveDiagnosticTimeline(); // UI-only clock refresh; this is not a scan-out observation.
                     RecordWorkStage("render.ui-presented", work,
                         elapsedTicks: callbackPostedAt == 0 ? 0 : Stopwatch.GetTimestamp() - callbackPostedAt);
@@ -789,13 +837,36 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
 
     private async Task FailRendererAsync(Exception error, long version)
     {
+        bool released = true;
         try { await ReleaseRendererAsync().ConfigureAwait(false); }
-        catch (Exception cleanupError) { error.Data["ViewportCleanupError"] = cleanupError; }
+        catch (Exception cleanupError)
+        {
+            released = false;
+            error.Data["ViewportCleanupError"] = cleanupError;
+        }
         lock (workerGate)
         {
             if (revision == version) { failed = true; rendererReady = false; framePermitReady = false; pending = null; capturedDemandSequence = demandSequence; capturePosted = false; capturePostToken++; poseFrameAdmission.Clear(); }
         }
-        Dispatcher.UIThread.Post(() => { if (IsCurrent(version)) { HasRendererError = true; SetPreparingFrame(false); Error?.Invoke(error); } }, DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!IsCurrent(version)) return;
+            // Device removal, a failed frame permit, and factory/presentation failures can
+            // leave the swapchain black even when no user input changes. Rebuild once and
+            // capture the current scene again. Keep ownership of incomplete native cleanup.
+            if (released && !backendRetryUsed)
+            {
+                backendRetryUsed = true;
+                RestartRenderer();
+                return;
+            }
+            canRetryLightingFrame = released;
+            HasRendererError = true;
+            // A newer edit can arrive while the old frame is presenting or releasing GPU resources.
+            if (TryRetryLightingFrame()) return;
+            SetPreparingFrame(false);
+            if (IsCurrent(version)) Error?.Invoke(error);
+        }, DispatcherPriority.Background);
     }
 
     private void CompleteActiveWork()

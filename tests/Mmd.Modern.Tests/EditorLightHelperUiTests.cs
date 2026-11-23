@@ -79,5 +79,30 @@ public sealed class EditorLightHelperUiTests : IAsyncDisposable
         }
     }, TestContext.Current.CancellationToken);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MainLightDragRestoresPreviewQualityOnReleaseOrCancel(bool cancel) => await session.Dispatch(() =>
+    {
+        using var host = new EditorViewportHost();
+        var quality = new ViewQualityOptions(Gi: new(Mode: LightingMode.SoftwareRayTracing));
+        host.Quality = quality;
+        var main = new EditorMainLightViewport(new(), () => true, host.RequestRender);
+        host.MainLightViewport = main;
+        var camera = SceneCamera.Default;
+        var frame = main.Decorate(new PreviewFrame(800, 600, 0,
+            new(new(SceneSnapshot.CreateEmpty(camera), [])), null, null, null), camera);
+        main.FramePresented(frame);
+        var source = frame.Scene.EditorOverlay!.Lines.First(line => line.Shape == ViewportOverlayShape.Circle).Start * new Vector2(800, 600);
+        Assert.True(main.TryBegin(source, camera, 800, 600));
+        main.Move(source + Vector2.UnitX);
+        Assert.False(host.EffectivePreviewQuality.EffectiveGi.Enabled);
+        Assert.Same(quality, host.Quality);
+        if (cancel) main.Cancel();
+        else main.End(source + Vector2.UnitX);
+        Assert.Same(quality, host.EffectivePreviewQuality);
+        return true;
+    }, TestContext.Current.CancellationToken);
+
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }

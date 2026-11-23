@@ -41,7 +41,19 @@ public sealed class EditorBoneViewportController
     /// <summary>Resolve other pending editor inputs before changing the selected bone. A refused
     /// hit is consumed so it cannot accidentally orbit the camera.</summary>
     public Func<bool>? CanBeginInteraction { get; set; }
-    public bool IsEnabled { get => enabled; set { if (enabled == value) return; CancelDrag(); enabled = value; Notify(); } }
+    public bool IsEnabled
+    {
+        get => enabled;
+        set
+        {
+            if (enabled == value) return;
+            CancelDrag();
+            enabled = value;
+            captured = null;
+            awaitingPresentation.Clear();
+            Notify();
+        }
+    }
     public bool ShowBones { get => showBones; set { if (showBones == value) return; CancelDrag(); showBones = value; captured = null; Notify(); } }
     public bool ShowSelectionBounds { get => showSelectionBounds; set { if (showSelectionBounds == value) return; showSelectionBounds = value; Notify(); } }
     public bool IsManipulationEnabled

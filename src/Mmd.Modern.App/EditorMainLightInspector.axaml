@@ -8,6 +8,10 @@
        It is hosted by the right-rail Lighting page; camera/world stay in EditorSceneInspector. -->
   <StackPanel Spacing="10">
     <StackPanel Spacing="5" IsEnabled="{Binding CanEdit}">
+      <validated:EditorLightDirectionPad Name="MainLightDirectionPad" Height="104" MinHeight="104"
+          Direction="{Binding LightDirectionVector, Mode=OneWay}" EditStarted="BeginDirectionEdit" EditPreview="PreviewDirectionEdit"
+          EditCompleted="CompleteDirectionEdit" EditCanceled="CancelDirectionEdit"
+          ToolTip.Tip="{DynamicResource Mda.Text.LightAim.PadHint}" AutomationProperties.Name="{DynamicResource Mda.Text.LightAim.DirectionPad}" />
       <!-- Source angles: where the light comes from, as seen from the default camera. -->
       <Grid ColumnDefinitions="Auto,8,*,8,64" RowDefinitions="Auto,4,Auto" Margin="0,2,0,0">
         <TextBlock Text="{DynamicResource Mda.Text.LightAim.Azimuth}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Mda.Text.LightAim.AzimuthHint}" />

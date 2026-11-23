@@ -92,7 +92,8 @@ public sealed class D3D12SwapchainPresenter : IDisposable
             IntPtr handle = createdSwapchain.FrameLatencyWaitableObject;
             if (handle == IntPtr.Zero || handle == new IntPtr(-1))
                 throw new InvalidOperationException("DXGI did not provide a frame-latency waitable object for the preview swapchain.");
-            createdPermit = new D3D12FrameLatencyPermit(new D3D12OwnedWaitHandle(handle), ownsHandle: true);
+            createdPermit = new D3D12FrameLatencyPermit(new D3D12OwnedWaitHandle(handle), ownsHandle: true,
+                checkDevice: () => session.Runtime.Device.DeviceRemovedReason.CheckError());
             swapchain = createdSwapchain;
             framePermit = createdPermit;
             this.width = width; this.height = height;
@@ -201,7 +202,7 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     {
         if (disposed) return;
         framePermit.Dispose();
-        try { WaitForIdle(); }
+        try { session.Runtime.WaitForIdleForDisposal(); }
         finally { disposed = true; ReleaseBackbuffers(); swapchain.Dispose(); session.Dispose(); }
     }
 }
@@ -219,14 +220,16 @@ internal sealed class D3D12FrameLatencyPermit : IDisposable
     private readonly object sync = new();
     private readonly WaitHandle ready;
     private readonly bool ownsHandle;
+    private readonly Action? checkDevice;
     private readonly CancellationTokenSource closing = new();
     private int waiters;
     private bool disposed, acquired;
 
-    internal D3D12FrameLatencyPermit(WaitHandle ready, bool ownsHandle)
+    internal D3D12FrameLatencyPermit(WaitHandle ready, bool ownsHandle, Action? checkDevice = null)
     {
         this.ready = ready;
         this.ownsHandle = ownsHandle;
+        this.checkDevice = checkDevice;
     }
 
     internal ValueTask WaitAsync(CancellationToken cancellationToken)
@@ -258,7 +261,12 @@ internal sealed class D3D12FrameLatencyPermit : IDisposable
     {
         try
         {
-            int signaled = WaitHandle.WaitAny([ready, cancellationToken.WaitHandle, closing.Token.WaitHandle]);
+            WaitHandle[] handles = [ready, cancellationToken.WaitHandle, closing.Token.WaitHandle];
+            // A removed device may never signal the swapchain again. Only check its
+            // health on a stalled wait; a slow but healthy display still owns the permit.
+            int signaled;
+            while ((signaled = WaitHandle.WaitAny(handles, D3D12FenceWaiter.RecheckInterval)) == WaitHandle.WaitTimeout)
+                checkDevice?.Invoke();
             // Preserve a consumed signal if the recording is cancelled before Present.
             if (signaled == 0) lock (sync) acquired = true;
             cancellationToken.ThrowIfCancellationRequested();

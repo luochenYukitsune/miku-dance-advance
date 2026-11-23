@@ -884,7 +884,26 @@ public sealed class D3D12FrameRenderer : IDisposable
         temporalPass?.Dispose();temporalPass=null;xeSsTemporalPass?.Dispose();xeSsTemporalPass=null;
         dlssTemporalPass?.Dispose();dlssTemporalPass=null;
     }
-    public void Dispose(){if(disposed)return;if(runtime.IsRecording)throw new InvalidOperationException("Submit or abort the open GPU frame before waiting for idle.");try{runtime.WaitForIdle();}finally{disposed=true;mipmapCache.Clear();targetRecorder.Clear();DisposeTemporalPasses();temporalInputs?.Dispose();try{rayGiRenderer?.Dispose();}finally{try{frameDescriptors.Dispose();}finally{cache.Dispose();if(ownsOriginalRecorder)originalRecorder.Dispose();if(ownsRuntime)runtime.Dispose();}}}}
+    public void Dispose()
+    {
+        if (disposed) return;
+        runtime.WaitForIdleForDisposal();
+        disposed = true;
+        mipmapCache.Clear();
+        targetRecorder.Clear();
+        // Native upscalers may report a teardown error after device loss. Release
+        // independent pools and the owning device before reporting those failures.
+        IDisposable?[] resources = [temporalPass, xeSsTemporalPass, dlssTemporalPass, temporalInputs,
+            rayGiRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
+            ownsRuntime ? runtime : null];
+        List<Exception>? failures = null;
+        foreach (var resource in resources)
+        {
+            try { resource?.Dispose(); }
+            catch (Exception error) { (failures ??= []).Add(error); }
+        }
+        if (failures is not null) throw new AggregateException("D3D12 frame renderer disposal failed.", failures);
+    }
 
     internal sealed class MipmapTextureCache
     {

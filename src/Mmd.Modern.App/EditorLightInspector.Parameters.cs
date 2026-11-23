@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -12,7 +13,7 @@ namespace Mmd.Modern.App;
 
 public partial class EditorLightInspector
 {
-    private sealed record ParameterEdit(EditorLightParameterSlider Slider, EditorNativeLightItem Light,
+    private sealed record ParameterEdit(Control Control, EditorNativeLightItem Light,
         EditorRecoveryNativeLightDraft Before, SceneLightingSnapshot Source, Guid? Document);
     private sealed record NumericEdit(EditorNativeLightItem Light,
         EditorRecoveryNativeLightDraft Before, SceneLightingSnapshot Source, Guid? Document);
@@ -34,28 +35,30 @@ public partial class EditorLightInspector
 
     private void BeginParameterEdit(object? sender, CancelEventArgs args)
     {
-        if (sender is not EditorLightParameterSlider slider || !modernParameters || refreshing || recoveryRestoreDepth != 0
+        if (sender is not Control control || !modernParameters || refreshing || recoveryRestoreDepth != 0
             || EditStartingRequested?.Invoke() == false || !TryCommit() || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light })
         { args.Cancel = true; return; }
-        parameterEdit = new(slider, light, light.CaptureRecoveryDraft(), source, sourceDocumentId);
+        if (Equals(control.Tag, "brightness")) light.EnsureBrightnessSliderRange();
+        parameterEdit = new(control, light, light.CaptureRecoveryDraft(), source, sourceDocumentId);
     }
     private void PreviewParameterEdit(object? sender, EventArgs args)
     {
-        if (updatingParameter || parameterEdit is not { } edit || !ReferenceEquals(edit.Slider, sender)) return;
+        if (sender is not EditorLightParameterSlider slider || updatingParameter || parameterEdit is not { } edit
+            || !ReferenceEquals(edit.Control, sender)) return;
         if (!ReferenceEquals(edit.Source, source) || edit.Document != sourceDocumentId || ViewModel?.SelectedLight?.Id != edit.Light.Id)
         { CancelActiveParameterEdit(); return; }
         updatingParameter = true;
         try
         {
-            decimal value = (decimal)edit.Slider.Value;
-            switch (edit.Slider.Tag)
+            decimal value = (decimal)slider.Value;
+            switch (slider.Tag)
             {
-                case "brightness": edit.Light.Intensity = EditorLightParameterScale.BrightnessValue(edit.Slider.Value); break;
-                case "distance": edit.Light.Range = EditorLightParameterScale.DistanceValue(edit.Slider.Value); break;
+                case "brightness": edit.Light.Intensity = EditorLightParameterScale.BrightnessValue(slider.Value); break;
+                case "distance": edit.Light.Range = EditorLightParameterScale.DistanceValue(slider.Value); break;
                 case "width": edit.Light.BeamWidthDegrees = value; break;
                 case "softness": edit.Light.EdgeSoftnessPercent = value; break;
-                case "areaWidth": edit.Light.AreaWidth = EditorLightParameterScale.DistanceValue(edit.Slider.Value); break;
-                case "areaHeight": edit.Light.AreaHeight = EditorLightParameterScale.DistanceValue(edit.Slider.Value); break;
+                case "areaWidth": edit.Light.AreaWidth = EditorLightParameterScale.DistanceValue(slider.Value); break;
+                case "areaHeight": edit.Light.AreaHeight = EditorLightParameterScale.DistanceValue(slider.Value); break;
                 default: return;
             }
             if (ViewModel.TryCreate(out var draft) && draft is not null && PreviewRequested?.Invoke(draft) == false)
@@ -63,16 +66,27 @@ public partial class EditorLightInspector
         }
         finally { updatingParameter = false; }
     }
+    private void PreviewPadEdit(object? sender, Vector3 direction)
+    {
+        if (parameterEdit is not { } edit || !ReferenceEquals(edit.Control, sender)) return;
+        if (!ReferenceEquals(edit.Source, source) || edit.Document != sourceDocumentId || ViewModel?.SelectedLight != edit.Light)
+        { CancelActiveParameterEdit(); return; }
+        // The pad and the hemisphere switch author in the same space as the light's rotation.
+        edit.Light.ApplyAimDirection(direction);
+        if (ViewModel.TryCreate(out var draft) && draft is not null && PreviewRequested?.Invoke(draft) == false)
+            CancelActiveParameterEdit();
+    }
+
     private void CompleteParameterEdit(object? sender, EventArgs args)
     {
-        if (parameterEdit is not { } edit || !ReferenceEquals(edit.Slider, sender)) return;
+        if (parameterEdit is not { } edit || !ReferenceEquals(edit.Control, sender)) return;
         parameterEdit = null;
         try { TryCommit(); }
         finally { PreviewRequested?.Invoke(null); }
     }
     private void CancelParameterEdit(object? sender, EventArgs args)
     {
-        if (parameterEdit is { } edit && ReferenceEquals(edit.Slider, sender)) CancelActiveParameterEdit();
+        if (parameterEdit is { } edit && ReferenceEquals(edit.Control, sender)) CancelActiveParameterEdit();
     }
     private void OnInspectorGotFocus(object? sender, Avalonia.Input.GotFocusEventArgs args)
     {
@@ -95,21 +109,59 @@ public partial class EditorLightInspector
         numeric.GetVisualDescendants().OfType<TextBox>().FirstOrDefault()?.Focus();
     }
 
-    private void AimLightAtCenter(object? sender, RoutedEventArgs args)
+    private void ResetLightBrightness(object? sender, RoutedEventArgs args)
     {
-        if (refreshing || recoveryRestoreDepth != 0 || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light }) return;
-        if (modernParameters && EditStartingRequested?.Invoke() == false) return;
-        var camera = CreationCameraProvider?.Invoke() ?? ViewModel.CreationCamera;
-        if (!light.AimAtSceneCenter(camera)) return;
-        TryCommit();
+        if (!modernParameters || refreshing || committing || recoveryRestoreDepth != 0
+            || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light }
+            || sender is not Button button || !ReferenceEquals(button.DataContext, light)
+            || EditStartingRequested?.Invoke() == false) return;
+
+        var committed = source.Lights.Single(item => item.Id == light.Id);
+        float brightness = EditorLightPlacement.DefaultIntensity(committed.Kind);
+        // The shortcut also repairs malformed brightness text. Other unfinished inputs stay local.
+        committing = true;
+        try
+        {
+            if (committed.Intensity != brightness)
+            {
+                var snapshot = source.WithLights(source.Lights.Select(item => item.Id == light.Id
+                    ? item with { Intensity = brightness } : item));
+                if (CommitRequested?.Invoke(new(snapshot, light.Id)) != true) return;
+                source = snapshot;
+            }
+            light.Intensity = (decimal)brightness;
+            var input = this.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(control =>
+                control.Name == "InlineLightIntensity" && ReferenceEquals(control.DataContext, light));
+            input.SetCurrentValue(NumericUpDown.TextProperty, ((decimal)brightness).ToString(input.FormatString, input.NumberFormat));
+            if (rawNumericText.TryGetValue(light.Id, out var fields))
+                rawNumericText[light.Id] = fields.Remove("InlineLightIntensity");
+        }
+        finally { committing = false; }
+        TryReadLightingDraft(out _);
     }
 
-    private void AimLightFromCamera(object? sender, RoutedEventArgs args)
+    private void AimLightAtCenter(object? sender, RoutedEventArgs args) => AimSelectedLight(atCenter: true);
+    private void AimLightFromCamera(object? sender, RoutedEventArgs args) => AimSelectedLight(atCenter: false);
+
+    private void AimSelectedLight(bool atCenter)
     {
-        if (refreshing || recoveryRestoreDepth != 0 || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light }) return;
-        if (modernParameters && EditStartingRequested?.Invoke() == false) return;
-        var camera = CreationCameraProvider?.Invoke() ?? ViewModel.CreationCamera;
-        if (!light.AimFromCamera(camera)) return;
+        if (refreshing || committing || recoveryRestoreDepth != 0
+            || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } model
+            || modernParameters && EditStartingRequested?.Invoke() == false
+            || !TryReadLightingDraft(out var draft) || draft is null) return;
+        try
+        {
+            var local = draft.Snapshot.Lights.Single(item => item.Id == light.Id);
+            var parentWorld = local.Parent is { } parent
+                ? resolveParentTransform?.Invoke(parent) ?? throw new InvalidOperationException()
+                : Matrix4x4.Identity;
+            light.AimFromView(local, parentWorld, CreationCameraProvider?.Invoke() ?? model.CreationCamera, atCenter);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
+        {
+            model.SetValidationMessage("Mda.Text.Context.Lighting.AimFailed");
+            return;
+        }
         TryCommit();
     }
 
@@ -211,7 +263,8 @@ public partial class EditorLightInspector
         }
         if (parameterEdit is not { } edit) return;
         parameterEdit = null;
-        edit.Slider.CancelEdit();
+        if (edit.Control is EditorLightParameterSlider slider) slider.CancelEdit();
+        else if (edit.Control is EditorLightDirectionPad pad) pad.CancelEdit();
         edit.Light.RestoreInput(edit.Before);
         PreviewRequested?.Invoke(null);
     }

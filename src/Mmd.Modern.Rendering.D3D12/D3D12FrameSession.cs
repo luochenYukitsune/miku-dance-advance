@@ -101,6 +101,7 @@ public sealed class D3D12FrameSession:IDisposable
         lock (prewarmGate)
         {
             if (disposed) return;
+            if (Runtime.IsRecording) throw new InvalidOperationException("Submit or abort the open GPU frame before disposing the session.");
             disposed = true;
             cts = prewarmCts;
             prewarmCts = null;
@@ -113,6 +114,7 @@ public sealed class D3D12FrameSession:IDisposable
             try { task.GetAwaiter().GetResult(); } catch { }
             cts.Dispose();
         }
-        renderer.Dispose();Runtime.Dispose();
+        try { renderer.Dispose(); }
+        finally { Runtime.Dispose(); }
     }
 }
