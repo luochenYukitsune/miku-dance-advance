@@ -57,6 +57,17 @@ public sealed partial class D3D9ClassicEffectsPreparation
         return new(D3D9EffectDependencyStatus.Complete, new(emm, frozen), diagnostics);
     }
 
+    /// <summary>Give converted objects explicit no-effect assignments without discovering or opening
+    /// neighbouring FX files. The synthetic EMM path supplies only a lexical context.</summary>
+    public static D3D9ClassicEffectsPreparation CreateUnassigned(string absoluteEmmPath,
+        IEnumerable<EmmObjectBinding> bindings, CancellationToken cancellationToken = default)
+    {
+        var document = EmmReader.Read("[Info]\nVersion=3\n[Object]\n[Effect]\nDefault=none\n"u8);
+        var plan = EmmImportPlan.Create(document, absoluteEmmPath, bindings, Path.GetDirectoryName(absoluteEmmPath));
+        var roots = D3D9EffectProjectRoots.Create(plan, _ => null, cancellationToken);
+        return new(D3D9EmmPma.Capture(plan, []), D3D9FrozenEffectProject.Capture(roots, null, cancellationToken));
+    }
+
     /// <summary>Uses only validated package metadata and bytes. Legacy packages without frozen choices
     /// need an explicit import; this method never re-runs implicit discovery against original directories.</summary>
     public static D3D9ClassicEffectsPreparation Recover(D3D9ClassicPreparedProject project)

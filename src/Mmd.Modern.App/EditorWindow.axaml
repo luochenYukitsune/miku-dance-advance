@@ -506,10 +506,12 @@
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.39932f24fe11}" /></MenuItem.Header>
             <MenuItem Header="{DynamicResource Mda.Text.36c3ca51b182}" Command="{Binding NewProjectCommand}" InputGesture="Ctrl+N" /><MenuItem Header="{DynamicResource Mda.Text.7490115b7a71}" Command="{Binding OpenProjectCommand}" InputGesture="Ctrl+O" /><Separator />
             <MenuItem Header="{DynamicResource Mda.Text.b6ab3d8870aa}" Command="{Binding ImportModelCommand}" /><MenuItem Header="{DynamicResource Mda.Text.25aed4b73b5c}" Command="{Binding ImportMotionCommand}" /><MenuItem Header="{DynamicResource Mda.Text.ae7f218be0f9}" Click="ImportPose" /><Separator />
-            <MenuItem Header="{DynamicResource Mda.Text.8bdf49fb2914}" Command="{Binding SaveProjectCommand}" InputGesture="Ctrl+S" /><MenuItem Header="{DynamicResource Mda.Text.9016c463977d}" Command="{Binding SaveAsCommand}" InputGesture="Ctrl+Shift+S" /><MenuItem Header="{DynamicResource Mda.Text.9837932b374e}" Click="SavePmm" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.23d7044e6320}" Click="ExportMotion" /><MenuItem Header="{DynamicResource Mda.Text.409eb92cb153}" Click="ExportPose" />
+            <MenuItem Header="{DynamicResource Mda.Text.8bdf49fb2914}" Command="{Binding SaveProjectCommand}" InputGesture="Ctrl+S" /><MenuItem Header="{DynamicResource Mda.Text.9016c463977d}" Command="{Binding SaveAsCommand}" InputGesture="Ctrl+Shift+S" />
+            <MenuItem Name="ConvertProjectMenuItem" Header="{Binding ConvertProjectLabel}" Command="{Binding ConvertProjectCommand}" />
+            <MenuItem Header="{DynamicResource Mda.Text.9837932b374e}" Click="SavePmm" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.23d7044e6320}" Click="ExportMotion" /><MenuItem Header="{DynamicResource Mda.Text.409eb92cb153}" Click="ExportPose" />
           </MenuItem>
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.051836569928}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.926a50b98ece}" Command="{Binding UndoCommand}" InputGesture="Ctrl+Z" /><MenuItem Header="{DynamicResource Mda.Text.03717b6f1070}" Command="{Binding RedoCommand}" InputGesture="Ctrl+Y" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.c61bade89d5a}" Command="{Binding Animation.CopyKeyframesCommand}" InputGesture="Ctrl+C" /><MenuItem Header="{DynamicResource Mda.Text.c2449cd74350}" Command="{Binding Animation.PasteKeyframesCommand}" InputGesture="Ctrl+V" /></MenuItem>
-          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}" Click="OpenModelProperties" /><MenuItem Header="{DynamicResource Mda.Text.a0e377b3005d}" Click="OpenModelMaterialProperties" /><MenuItem Header="{DynamicResource Mda.Text.df725de98db0}" Click="OpenRigSettings" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}" Click="OpenModelProperties" /><MenuItem Name="ModelMaterialStyleMenuItem" Header="{DynamicResource Mda.Text.a0e377b3005d}" IsVisible="{Binding StyleInspector.IsModernEngine}" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" Click="OpenModelMaterialProperties" /><MenuItem Name="RestoreUnownedModelDataMenuItem" Header="{DynamicResource Mda.Text.Context.ReplaceModel.Unowned}" Click="RestoreUnownedModelData" IsEnabled="{Binding Browser.HasSelectedModel}" /><MenuItem Header="{DynamicResource Mda.Text.df725de98db0}" Click="OpenRigSettings" /></MenuItem>
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.b15435ced2c9}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /><MenuItem Header="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding Animation.RegisterKeyframeCommand}" InputGesture="Enter" /></MenuItem>
           <MenuItem Name="ViewMenuItem"><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.1c5c06713870}" /></MenuItem.Header>
             <MenuItem Name="ShowLeftRailMenuItem" Header="{DynamicResource Mda.Text.Ux.View.ShowLeftRail}" ToggleType="CheckBox" IsChecked="True" Click="ToggleLeftRail" />
@@ -755,118 +757,130 @@
                 <StackPanel Margin="12,10,12,14" Spacing="8">
                   <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" Padding="10"
                           IsVisible="{Binding StyleInspector.IsClassicEngine}">
-                    <TextBlock Text="{Binding StyleInspector.ClassicNotice}" Classes="caption" TextWrapping="Wrap" />
-                  </Border>
-                  <Border Classes="parameterHeader">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Title}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                      <Button Name="StyleManagePluginsButton" Grid.Column="1" Classes="action"
-                              Content="{DynamicResource Mda.Text.Ux.Inspector.Style.ManagePlugins}"
-                              Click="OpenPlugins" IsEnabled="{Binding StyleInspector.CanManagePlugins}"
-                              Height="22" MinHeight="20" FontSize="12" Padding="7,0" VerticalAlignment="Center"
-                              ToolTip.Tip="{DynamicResource Mda.Text.Plugins.Title}" />
-                    </Grid>
-                  </Border>
-                  <ComboBox Name="ProjectDefaultStyleBox" ItemsSource="{Binding StyleInspector.Options}"
-                            SelectedItem="{Binding StyleInspector.SelectedChoice, Mode=TwoWay}"
-                            SelectionChanged="CommitProjectDefaultStyle" IsEnabled="{Binding StyleInspector.CanEdit}"
-                            AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Style.Title}">
-                    <ComboBox.ItemTemplate>
-                      <DataTemplate x:DataType="local:EditorStyleInspectorChoice">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                          <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                          <Border Grid.Column="1" Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}"
-                                  BorderThickness="1" CornerRadius="3" Padding="5,1" VerticalAlignment="Center" IsVisible="{Binding HasSourceTag}">
-                            <TextBlock Text="{Binding SourceTag}" Classes="caption" FontSize="10" />
-                          </Border>
-                        </Grid>
-                      </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                  </ComboBox>
-                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Hint}" Classes="caption" TextWrapping="Wrap" />
-                  <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="10"
-                          IsVisible="{Binding StyleInspector.HasMissingStyle}">
                     <StackPanel Spacing="8">
-                      <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" />
-                      <Button Name="EnableMissingStylePluginButton" Classes="action"
-                              Content="{DynamicResource Mda.Text.Context.Inspector.Style.EnablePluginAndApply}"
-                              Click="EnableMissingStylePlugin" IsVisible="{Binding StyleInspector.HasMissingStylePlugin}"
-                              IsEnabled="{Binding StyleInspector.CanEnableMissingStylePlugin}" HorizontalAlignment="Stretch" />
-                      <Button Name="OpenStyleReplacementDialogButton" Classes="action"
-                              Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenReplacementDialog}"
-                              Click="OpenStyleReplacementDialog" IsEnabled="{Binding StyleInspector.CanOpenStyleReplacementDialog}"
-                              HorizontalAlignment="Stretch" />
+                      <TextBlock Text="{Binding StyleInspector.ClassicNotice}" Classes="caption" TextWrapping="Wrap" />
+                      <Button Name="StyleClassicEffectsButton" Classes="action" Content="{DynamicResource Mda.Text.Mme.Assignment}" Click="OpenClassicEffects"
+                              IsEnabled="{Binding #ClassicEffectAssignment.IsEffectivelyEnabled}" HorizontalAlignment="Stretch" />
                     </StackPanel>
                   </Border>
-                  <StackPanel IsVisible="{Binding !StyleInspector.HasMissingStyle}">
-                    <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasNotice}" />
-                  </StackPanel>
-                  <StackPanel Spacing="2" IsVisible="{Binding StyleInspector.HasSelectedStyleMetadata}">
-                    <TextBlock Name="SelectedStyleMetaSummaryText" Text="{Binding StyleInspector.SelectedStyleMetaSummary}"
-                               Classes="caption" TextTrimming="CharacterEllipsis" />
-                    <Expander Name="StyleMetadataExpander" Classes="editorAdvanced" IsExpanded="False"
-                              Header="{DynamicResource Mda.Text.Context.Inspector.Style.InfoHeader}"
-                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                      <Border Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" Padding="10">
-                        <StackPanel Spacing="6">
-                          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="3">
-                            <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoSource}" Classes="caption" />
-                            <TextBlock Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleSource}" Classes="caption" TextWrapping="Wrap" />
-                            <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoVersion}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleVersion}" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleVersion}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleVersion}" />
-                            <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoAuthor}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleAuthor}" />
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleAuthor}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasSelectedStyleAuthor}" />
+                  <StackPanel Spacing="8" IsVisible="{Binding StyleInspector.IsModernEngine}">
+                    <Border Classes="parameterHeader">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Title}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <Button Name="StyleManagePluginsButton" Grid.Column="1" Classes="action"
+                                Content="{DynamicResource Mda.Text.Ux.Inspector.Style.ManagePlugins}"
+                                Click="OpenPlugins" IsEnabled="{Binding StyleInspector.CanManagePlugins}"
+                                Height="22" MinHeight="20" FontSize="12" Padding="7,0" VerticalAlignment="Center"
+                                ToolTip.Tip="{DynamicResource Mda.Text.Plugins.Title}" />
+                      </Grid>
+                    </Border>
+                    <ComboBox Name="ProjectDefaultStyleBox" ItemsSource="{Binding StyleInspector.Options}"
+                              SelectedItem="{Binding StyleInspector.SelectedChoice, Mode=TwoWay}"
+                              SelectionChanged="CommitProjectDefaultStyle" IsEnabled="{Binding StyleInspector.CanEdit}"
+                              AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Style.Title}">
+                      <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="local:EditorStyleInspectorChoice">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <Border Grid.Column="1" Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource EditorBorder}"
+                                    BorderThickness="1" CornerRadius="3" Padding="5,1" VerticalAlignment="Center" IsVisible="{Binding HasSourceTag}">
+                              <TextBlock Text="{Binding SourceTag}" Classes="caption" FontSize="10" />
+                            </Border>
                           </Grid>
-                          <TextBlock Text="{Binding StyleInspector.SelectedStyleDescription}" Classes="caption" TextWrapping="Wrap"
-                                     IsVisible="{Binding StyleInspector.HasSelectedStyleDescription}" />
-                        </StackPanel>
-                      </Border>
-                    </Expander>
+                        </DataTemplate>
+                      </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Hint}" Classes="caption" TextWrapping="Wrap" />
+                    <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="10"
+                            IsVisible="{Binding StyleInspector.HasMissingStyle}">
+                      <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" />
+                        <Button Name="EnableMissingStylePluginButton" Classes="action"
+                                Content="{DynamicResource Mda.Text.Context.Inspector.Style.EnablePluginAndApply}"
+                                Click="EnableMissingStylePlugin" IsVisible="{Binding StyleInspector.HasMissingStylePlugin}"
+                                IsEnabled="{Binding StyleInspector.CanEnableMissingStylePlugin}" HorizontalAlignment="Stretch" />
+                        <Button Name="OpenStyleReplacementDialogButton" Classes="action"
+                                Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenReplacementDialog}"
+                                Click="OpenStyleReplacementDialog" IsEnabled="{Binding StyleInspector.CanOpenStyleReplacementDialog}"
+                                HorizontalAlignment="Stretch" />
+                      </StackPanel>
+                    </Border>
+                    <StackPanel IsVisible="{Binding !StyleInspector.HasMissingStyle}">
+                      <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasNotice}" />
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                      <CheckBox Name="GuessMaterialRolesCheckBox" IsChecked="{Binding StyleInspector.GuessMaterialRoles, Mode=OneWay}"
+                                Click="ToggleGuessMaterialRoles" IsEnabled="{Binding StyleInspector.CanEditGuessMaterialRoles}"
+                                ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}">
+                        <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesLabel}" TextWrapping="Wrap" />
+                      </CheckBox>
+                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.ModelScope}" Classes="group" /></Border>
+                    <TextBlock Text="{Binding StyleInspector.ModelStatus}" TextWrapping="Wrap" />
+                    <StackPanel Spacing="6" IsVisible="{Binding StyleInspector.HasSelectedModel}">
+                      <Button Name="StyleModelPropertiesButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenModelProperties}"
+                              Click="OpenModelMaterialProperties" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" HorizontalAlignment="Stretch" />
+                      <Button Name="InheritSelectedModelStyleButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.InheritSelected}"
+                              Click="InheritSelectedModelStyle" IsEnabled="{Binding StyleInspector.CanInheritSelectedModelStyle}" IsVisible="{Binding !StyleInspector.IsModelInherited}" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding StyleInspector.Status}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasStatus}" />
+                    <StackPanel Spacing="2" IsVisible="{Binding StyleInspector.HasSelectedStyleMetadata}">
+                      <TextBlock Name="SelectedStyleMetaSummaryText" Text="{Binding StyleInspector.SelectedStyleMetaSummary}"
+                                 Classes="caption" TextTrimming="CharacterEllipsis" />
+                      <Expander Name="StyleMetadataExpander" Classes="editorAdvanced" IsExpanded="False"
+                                Header="{DynamicResource Mda.Text.Context.Inspector.Style.InfoHeader}"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Border Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4" Padding="10">
+                          <StackPanel Spacing="6">
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="3">
+                              <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoSource}" Classes="caption" />
+                              <TextBlock Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleSource}" Classes="caption" TextWrapping="Wrap" />
+                              <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoVersion}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleVersion}" />
+                              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleVersion}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleVersion}" />
+                              <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.Context.Inspector.Style.InfoAuthor}" Classes="caption" IsVisible="{Binding StyleInspector.HasSelectedStyleAuthor}" />
+                              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding StyleInspector.SelectedStyleAuthor}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasSelectedStyleAuthor}" />
+                            </Grid>
+                            <TextBlock Text="{Binding StyleInspector.SelectedStyleDescription}" Classes="caption" TextWrapping="Wrap"
+                                       IsVisible="{Binding StyleInspector.HasSelectedStyleDescription}" />
+                          </StackPanel>
+                        </Border>
+                      </Expander>
+                    </StackPanel>
                   </StackPanel>
-                  <StackPanel Spacing="2">
-                    <CheckBox Name="GuessMaterialRolesCheckBox" IsChecked="{Binding StyleInspector.GuessMaterialRoles, Mode=OneWay}"
-                              Click="ToggleGuessMaterialRoles" IsEnabled="{Binding StyleInspector.CanEditGuessMaterialRoles}"
-                              ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}">
-                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesLabel}" TextWrapping="Wrap" />
-                    </CheckBox>
-                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}" Classes="caption" TextWrapping="Wrap" />
-                  </StackPanel>
-                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.ModelScope}" Classes="group" /></Border>
-                  <TextBlock Text="{Binding StyleInspector.ModelStatus}" TextWrapping="Wrap" />
-                  <Button Name="StyleModelPropertiesButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenModelProperties}"
-                          Click="OpenModelProperties" IsEnabled="{Binding StyleInspector.HasSelectedModel}" HorizontalAlignment="Stretch" />
-                  <Button Name="RestoreUnownedModelDataButton" Classes="action" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Unowned}"
-                          Click="RestoreUnownedModelData" IsEnabled="{Binding Browser.HasSelectedModel}" HorizontalAlignment="Stretch" />
-                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.77ccdb7ba817}" Classes="group" /></Border>
-                  <Button Name="StylePreviewQualityButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.PreviewQuality}"
-                          Click="OpenPreviewSettings" HorizontalAlignment="Stretch" />
-                  <TextBlock Text="{Binding StyleInspector.Status}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasStatus}" />
                 </StackPanel>
               </ScrollViewer>
               <!-- Page 2: selected-model materials. Read-only projection; editing opens the existing dialog. -->
               <ScrollViewer Name="MaterialInspectorPage" IsVisible="{Binding IsMaterialPage}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="12,12,12,16" Spacing="12">
-                  <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Title}" Classes="group" /></Border>
-                  <TextBlock Text="{Binding MaterialInspector.ModelSummary}" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasModel}" />
-                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoModel}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasNoModel}" />
-                  <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoMaterials}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.NeedsMaterialData}" />
-                  <StackPanel Spacing="8" IsVisible="{Binding MaterialInspector.HasMaterials}">
-                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}" Classes="caption" />
-                    <ListBox Name="InspectorMaterialList" ItemsSource="{Binding MaterialInspector.Materials}"
-                             SelectedItem="{Binding MaterialInspector.SelectedMaterial, Mode=TwoWay}" MaxHeight="220"
-                             DoubleTapped="MaterialListDoubleTapped"
-                             Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4"
-                             AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}">
-                      <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ListBox.ItemTemplate>
-                    </ListBox>
-                    <StackPanel Spacing="8" IsVisible="{Binding MaterialInspector.HasExplicitProfile}">
-                      <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Selected}" Classes="group" /></Border>
-                      <TextBlock Text="{Binding MaterialInspector.SelectedMaterialMapping}" Classes="caption" TextWrapping="Wrap" />
+                  <StackPanel Spacing="8" IsVisible="{Binding StyleInspector.IsClassicEngine}">
+                    <TextBlock Text="{Binding StyleInspector.ClassicNotice}" Classes="caption" TextWrapping="Wrap" />
+                    <Button Name="MaterialClassicToonButton" Classes="action" Content="{DynamicResource Mda.Text.Mme.ToonSlots}" Click="OpenClassicToonSlots"
+                            IsEnabled="{Binding #ClassicToonSlots.IsEffectivelyEnabled}" HorizontalAlignment="Stretch" />
+                  </StackPanel>
+                  <StackPanel Spacing="8" IsVisible="{Binding StyleInspector.IsModernEngine}">
+                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Title}" Classes="group" /></Border>
+                    <TextBlock Text="{Binding MaterialInspector.ModelSummary}" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasModel}" />
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoModel}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.HasNoModel}" />
+                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.NoMaterials}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding MaterialInspector.NeedsMaterialData}" />
+                    <StackPanel Spacing="8" IsVisible="{Binding MaterialInspector.HasMaterials}">
+                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}" Classes="caption" />
+                      <ListBox Name="InspectorMaterialList" ItemsSource="{Binding MaterialInspector.Materials}"
+                               SelectedItem="{Binding MaterialInspector.SelectedMaterial, Mode=TwoWay}" MaxHeight="220"
+                               DoubleTapped="MaterialListDoubleTapped"
+                               Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="1" CornerRadius="4"
+                               AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Material.ListLabel}">
+                        <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" /></DataTemplate></ListBox.ItemTemplate>
+                      </ListBox>
+                      <StackPanel Spacing="8" IsVisible="{Binding MaterialInspector.HasSelectedMaterial}">
+                        <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.Selected}" Classes="group" /></Border>
+                        <TextBlock Text="{Binding MaterialInspector.SelectedMaterialMapping}" Classes="caption" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.MappingSummary}" Classes="group" /></Border>
+                      <TextBlock Text="{Binding MaterialInspector.ProfileSummary}" Classes="caption" TextWrapping="Wrap" />
+                      <Button Classes="action" Name="EditMaterialButton" Content="{DynamicResource Mda.Text.Context.Inspector.Material.EditAction}"
+                              Click="EditSelectedMaterial" IsEnabled="{Binding MaterialInspector.CanEdit}" HorizontalAlignment="Stretch" />
                     </StackPanel>
-                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Material.MappingSummary}" Classes="group" /></Border>
-                    <TextBlock Text="{Binding MaterialInspector.ProfileSummary}" Classes="caption" TextWrapping="Wrap" />
-                    <Button Classes="action" Name="EditMaterialButton" Content="{DynamicResource Mda.Text.Context.Inspector.Material.EditAction}"
-                            Click="EditSelectedMaterial" IsEnabled="{Binding MaterialInspector.CanEdit}" HorizontalAlignment="Stretch" />
                   </StackPanel>
                 </StackPanel>
               </ScrollViewer>

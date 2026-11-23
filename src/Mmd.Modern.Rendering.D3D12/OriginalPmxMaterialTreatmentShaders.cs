@@ -18,7 +18,8 @@ internal static partial class OriginalFrameShaders
                 rgb*=((1-contrast)+contrast*value);
             return rgb;
         }
-        float3 PmxGenericHair(SurfaceOutput v,float3 n,float3 h,float3 l,float3 baseColor) {
+        float3 PmxGenericHair(SurfaceOutput v,float3 n,float3 h,float3 l,float3 baseColor,out float band) {
+            band=0;
             float3 dpdx=ddx(v.WorldPosition), dpdy=ddy(v.WorldPosition);
             float2 duvdx=ddx(v.Uv), duvdy=ddy(v.Uv);
             float uvScale=max(max(abs(duvdx.x),abs(duvdx.y)),max(abs(duvdy.x),abs(duvdy.y)));
@@ -36,9 +37,13 @@ internal static partial class OriginalFrameShaders
             tangent*=rsqrt(length2);
             float tangentHalf=dot(tangent,h);
             float lobe=1-tangentHalf*tangentHalf;
-            float band=smoothstep(1-PmxMaterialTreatmentParams.w,1,lobe)*saturate(dot(n,l))*step(0,dot(n,h));
+            band=smoothstep(1-PmxMaterialTreatmentParams.w,1,lobe)*saturate(dot(n,l))*step(0,dot(n,h));
             float3 tint=max(baseColor,0)/max(1,max(baseColor.r,max(baseColor.g,baseColor.b)));
             return tint*PmxMaterialTreatmentParams.z*band;
+        }
+        float3 PmxGenericHair(SurfaceOutput v,float3 n,float3 h,float3 l,float3 baseColor) {
+            float band;
+            return PmxGenericHair(v,n,h,l,baseColor,band);
         }
         """;
 }

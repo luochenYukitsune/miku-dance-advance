@@ -81,7 +81,7 @@ public sealed partial class EditorClassicToonPackageTests
         using var stream = File.OpenRead(path);
         return EditorProjectWorkspace.CreateModelAsset(PmxReader.Read(stream), path, token);
     }
-    private static byte[] Bitmap()
+    internal static byte[] Bitmap()
     {
         byte[] bytes = new byte[58];
         using var stream = new MemoryStream(bytes, writable: true); using var writer = new BinaryWriter(stream);
@@ -90,7 +90,7 @@ public sealed partial class EditorClassicToonPackageTests
         writer.Write(0); writer.Write(4); writer.Write(0); writer.Write(0); writer.Write(0); writer.Write(0);
         writer.Write(new byte[] { 51, 34, 17, 0 }); return bytes;
     }
-    private static PmxModel Model(IReadOnlyList<PmxMaterial>? materials = null)
+    internal static PmxModel Model(IReadOnlyList<PmxMaterial>? materials = null)
     {
         var template = EditorRecoveryPmaIntegrationTests.Model();
         return new()

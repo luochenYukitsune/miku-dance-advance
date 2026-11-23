@@ -92,9 +92,106 @@ public sealed class D3D12StylizedShadingTests
                 report.Append($"{Presets[a + 1]}/{Presets[b + 1]}={MeanDifference(captures[a], captures[b]):F2} ");
         for (int a = 0; a < captures.Length; a++)
         {
-            Assert.True(MeanDifference(raw, captures[a]) > 6, $"{Presets[a + 1]} vs mmd");
+            double distanceFromMmd = MeanDifference(raw, captures[a]);
+            Assert.True(distanceFromMmd > 6, $"{Presets[a + 1]}/mmd={distanceFromMmd:F2}, {report}");
             for (int b = a + 1; b < captures.Length; b++)
                 Assert.True(MeanDifference(captures[a], captures[b]) > 3, $"{Presets[a + 1]} vs {Presets[b + 1]}: {report}");
+        }
+    }
+
+    [Theory, Trait("Category", "Gpu")]
+    [InlineData("genshin")]
+    [InlineData("star-rail")]
+    [InlineData("wuthering-waves")]
+    [InlineData("endfield")]
+    public void PaintedHighlightsKeepTheirHueAndTextureDetailAcrossTheToonBands(string family)
+    {
+        const int width = 160, height = 96, columns = 6;
+        byte[] texels =
+        [
+            237, 188, 126, 255, 247, 196, 131, 255, // Two warm highlights of the same hue.
+            116, 193, 239, 255, 121, 200, 248, 255, // Two cool highlights of the same hue.
+            170, 120, 85, 128, 240, 210, 160, 0,
+        ];
+        var vertices = new List<SceneVertex>();
+        var indices = new List<uint>();
+        void Strip(float centerY, Vector3 normal)
+        {
+            uint first = (uint)vertices.Count;
+            vertices.AddRange([
+                new(new(-1.5f, centerY - .2f, 0), normal, new(0, 1)),
+                new(new(1.5f, centerY - .2f, 0), normal, new(1, 1)),
+                new(new(1.5f, centerY + .2f, 0), normal, new(1, 0)),
+                new(new(-1.5f, centerY + .2f, 0), normal, new(0, 0)),
+            ]);
+            indices.AddRange([first, first + 2, first + 1, first, first + 3, first + 2]);
+        }
+        // Grazing observation of the fully lit strip exercises the rim's bright-end headroom.
+        Strip(.65f, Vector3.UnitX);
+        Strip(0f, -Vector3.UnitX);
+        Strip(-.65f, Vector3.UnitX);
+        var camera = new SceneCamera(new(0, 0, -6), Vector3.Zero, Vector3.UnitY, 2.4f, .1f, 20);
+        var mesh = new SceneSnapshot(vertices.ToArray(), indices.ToArray(), [
+            new("衣服", 0, 12, Vector4.One, Vector3.Zero, Vector3.Zero, 1, DiffuseTexture: 0),
+            new("Eye_L", 12, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1, DiffuseTexture: 0)],
+            [new("paint", columns, 1, texels)], camera: camera, lightDirection: Vector3.UnitX);
+        var binding = new OriginalStyleMaterialBinding(Vector3.One, DoubleSided: true);
+        var frame = new OriginalFrameScene(new(mesh, [binding, binding],
+            new(Vector3.One, Vector3.Zero, Matrix4x4.Identity, OriginalTextureSampling.PointClamp)),
+            options: D3D12OriginalFrameTests.Options() with { BackgroundColor = Vector4.Zero });
+        var styled = D3D12ViewRenderingStyles.Resolve(frame, TestStylePlugins.AllPresetCatalog,
+            [new SceneRenderingStyleBinding(ObjectId, new(family), ModelRole.Character, 0, 2, true)],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
+
+        using var session = new D3D12FrameSession();
+        var reference = session.Capture(frame, width, height);
+        var output = session.Capture(styled.Scene, width, height, surfaceStyles: styled.SurfaceStyles);
+        byte[] Pixel(float row, int col)
+        {
+            var clip = Vector4.Transform(new Vector4(-1.5f + (col + .5f) * 3 / columns, row, 0, 1),
+                camera.ViewProjection(width, height));
+            var x = (int)((.5f + .5f * clip.X / clip.W) * width);
+            var y = (int)((.5f - .5f * clip.Y / clip.W) * height);
+            return output.Rgba.AsSpan((y * width + x) * 4, 4).ToArray();
+        }
+        for (int offset = 3; offset < reference.Rgba.Length; offset += 4)
+            Assert.Equal(reference.Rgba[offset], output.Rgba[offset]);
+        Assert.Equal(128, Pixel(.65f, 4)[3]);
+        Assert.Equal(0, Pixel(.65f, 5)[3]);
+
+        var grade = TestStylePlugins.GetStyle(family).DefaultStylizedShading!;
+        for (int col = 0; col < 4; col++)
+        {
+            int peak = col < 2 ? 0 : 2, low = 2 - peak;
+            var source = texels.AsSpan(col * 4, 3);
+            var lit = Pixel(.65f, col);
+            var shadow = Pixel(0, col);
+            float sourceChroma = source[peak] - source[low], litChroma = lit[peak] - lit[low];
+            Assert.True(litChroma > 0 && lit[3] == 255);
+            // A hue-preserving saturation/value adjustment keeps the green channel at
+            // the same relative position between the red and blue endpoints (8-bit output).
+            Assert.InRange(MathF.Abs((source[1] - source[low]) / sourceChroma - (lit[1] - lit[low]) / litChroma), 0, .02f);
+            Assert.True(litChroma / lit[peak] >= sourceChroma / source[peak] - .01f);
+            Assert.True(shadow[peak] < lit[peak] && shadow[peak] > shadow[low]);
+            if (col % 2 == 0)
+            {
+                var next = Pixel(.65f, col + 1);
+                Assert.True(next[peak] >= lit[peak] + 2 && next[peak] < 255,
+                    $"{family}: painted highlights {col}/{col + 1} became {lit[peak]}/{next[peak]}");
+            }
+
+            // The eye retains its original per-channel grade on the authored lit texel.
+            var eye = Pixel(-.65f, col);
+            var rgb = new Vector3(source[0], source[1], source[2]) / 255;
+            float luma = Vector3.Dot(rgb, new(.2126f, .7152f, .0722f));
+            var saturated = new Vector3(luma) + (rgb - new Vector3(luma)) * grade.Saturation;
+            for (int channel = 0; channel < 3; channel++)
+            {
+                float value = Math.Clamp(saturated[channel], 0, 1);
+                value = float.Lerp(value, value * value * (3 - 2 * value), grade.Contrast);
+                value = value * grade.Brightness / (1 + (grade.Brightness - 1) * value);
+                Assert.InRange(MathF.Abs(eye[channel] - value * 255), 0, 1.1f);
+            }
         }
     }
 

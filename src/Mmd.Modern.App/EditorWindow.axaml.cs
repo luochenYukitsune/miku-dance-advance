@@ -133,6 +133,7 @@ public partial class EditorWindow : Window
         _shell.OpenProjectRequested = OpenProjectAsync;
         _shell.SaveProjectRequested = () => SaveProjectAsync(false);
         _shell.SaveAsRequested = () => SaveProjectAsync(true);
+        _shell.ConvertProjectRequested = ConvertProjectCopyAsync;
         _shell.NewProjectRequested = NewProjectAsync;
         _shell.Animation.ConfirmOverwriteAsync = plan => EditorDialogs.ConfirmAsync(this, EditorLocalization.Text("覆盖关键帧"),
             EditorLocalization.Format("目标位置已有 {0} 个关键帧。覆盖后可以撤销。", plan.Conflicts.Count), "覆盖");

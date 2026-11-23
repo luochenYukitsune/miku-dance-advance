@@ -110,7 +110,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             ".pmx" => PmxReader.Read(input, new PmxReadOptions { MaxInputBytes = maxBytes }),
             // The existing bridge retains PMD display groups, animation and physics semantics.
             // Its reader still enforces the separate 512 MiB PMD parsing limit.
-            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input)),
+            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input), Path.GetDirectoryName(Path.GetFullPath(path))),
             _ => throw new NotSupportedException(EditorLocalization.Text("模型载入支持 PMX 或 PMD 文件。"))
         };
         return model;
@@ -468,28 +468,45 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
         var previous = session.RenderingStyles.DefaultStyle;
         if (previous == style) return false;
-        var catalog = PresetCatalog;
-        var styleCatalog = StyleCatalog;
-        var selected = catalog.Find(style.StableId);
+        ValidateStyleForModels(style, session.Objects.Where(item => !session.RenderingStyles.ModelOverrides.ContainsKey(item.Id)));
+        CommitStyleChange(session, () => session.SetDefaultRenderingStyle(style));
+        return true;
+    }
+
+    internal bool InheritModelStyle(Guid objectId)
+    {
+        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
+        if (!session.RenderingStyles.ModelOverrides.ContainsKey(objectId)) return false;
+        var model = session.Objects.Single(item => item.Id == objectId);
+        ValidateStyleForModels(session.RenderingStyles.DefaultStyle, [model]);
+        CommitStyleChange(session, () => session.SetModelRenderingStyle(objectId, null));
+        return true;
+    }
+
+    private void ValidateStyleForModels(RenderingPresetReference style, IEnumerable<EditableSceneObject> models)
+    {
+        var selected = PresetCatalog.Find(style.StableId);
         if (!selected.IsAvailable || selected.Definition is null)
             throw new NotSupportedException(EditorLocalization.Format("画风预设“{0}”不可用。{1}", style.StableId, selected.Diagnostic));
-        foreach (var item in session.Objects)
+        var styleCatalog = StyleCatalog;
+        foreach (var item in models)
         {
-            // Only models that inherit the new default change effective pipeline; explicit overrides are untouched.
-            if (session.RenderingStyles.ModelOverrides.ContainsKey(item.Id)) continue;
             if (!MaterialBindings.TryGetValue(item.Id, out var profile)) continue;
             try { _ = D3D12MaterialBindingProfileResolver.Resolve(profile, item.Source, item.Id, selected.Definition.PipelineId, styleCatalog); }
             catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or InvalidDataException)
             { throw new InvalidOperationException(EditorLocalization.Format("Mda.Text.Context.Inspector.Style.MappingConflict", item.Name, error.Message), error); }
         }
+    }
+
+    private void CommitStyleChange(SceneProjectSession session, Action apply)
+    {
         var mappings = SnapshotMappings();
-        session.SetDefaultRenderingStyle(style);
-        // The metadata-only session transaction shares the owner's ordered history; bridge it like an ordinary edit.
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
-            BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles)); redo.Clear();
+        apply();
+        undo.Push(new(session, session, true, mappings, mappings, ProjectMetadata, ProjectMetadata,
+            PreservePoseDrafts: true, BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles));
+        redo.Clear();
         StartShaderPrewarm();
-        MarkChanged();
-        return true;
+        MarkChanged(preservePoseDrafts: true);
     }
 
     /// <summary>Updates automatic name-based material role guessing for character models as one undoable workspace edit.</summary>
@@ -545,14 +562,18 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         if (!session.HasSupportedRenderingStyles)
             throw new NotSupportedException(string.Join(" ", session.RenderingStyleDiagnostics));
-        var before = SnapshotMappings();
-        plan.Confirm(session, cancellationToken);
-        undo.Push(new(session, session, true, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
-            PreservePoseDrafts: true, PreserveRenderBinding: false,
-            BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles));
-        redo.Clear();
-        StartShaderPrewarm();
-        MarkChanged(preservePoseDrafts: true);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (plan.Replacements.Count == 0)
+        {
+            plan.Confirm(session, cancellationToken);
+            return;
+        }
+        var styles = session.RenderingStyles;
+        var affected = session.Objects.ToLookup(item => styles.ModelOverrides.GetValueOrDefault(item.Id, styles.DefaultStyle).StableId,
+            StringComparer.Ordinal);
+        foreach (var (source, target) in plan.Replacements)
+            ValidateStyleForModels(new(target), affected[source]);
+        CommitStyleChange(session, () => plan.Confirm(session, cancellationToken));
     }
 
     public void RemoveModel(Guid id)
@@ -584,6 +605,25 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             throw;
         }
         ProjectPath = destination; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal EditorProjectFormat ConversionFormat =>
+        ProjectFormat == EditorProjectFormat.Modern ? EditorProjectFormat.Classic : EditorProjectFormat.Modern;
+
+    /// <summary>Export the active document, including unsaved edits and the engine's portable resources,
+    /// while the editor continues to own its original document and save destination.</summary>
+    internal async Task<PmaConversionReport> ExportConvertedCopyAsync(string path, CancellationToken token,
+        Func<CancellationToken, IReadOnlyList<EditorClassicToonResources.Resource>>? chooseClassicToons = null)
+    {
+        string destination = ConversionFormat.RequirePath(path);
+        token.ThrowIfCancellationRequested();
+        if (File.Exists(destination)) throw new IOException(EditorLocalization.Text("Mda.Text.Project.ConversionNewFile"));
+        var limits = PackageLimits;
+        string cache = PackageCacheDirectory;
+        using var snapshot = CaptureRecoverySnapshot(token);
+        var actors = ConversionFormat == EditorProjectFormat.Classic ? Motions : [];
+        return await Task.Run(() => PmaProjectStore.ConvertSnapshot(snapshot, destination, cache, token, limits,
+            cancellation => EditorClassicToonPackage.PrepareConversion(actors, chooseClassicToons, cancellation)), token);
     }
 
     public void SaveSnapshot(string path, CancellationToken token = default)

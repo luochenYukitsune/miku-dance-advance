@@ -225,9 +225,47 @@ internal sealed partial class EditorClassicToonPackage
         }
     }
 
+    /// <summary>Attach only the original images used by the converted PMX materials. The converter
+    /// calls this after restoring any previous Classic archive, so authored overrides take priority.</summary>
+    internal static PmaSaveOptions? PrepareConversion(IReadOnlyList<SceneActorMotion> actors,
+        Func<CancellationToken, IReadOnlyList<EditorClassicToonResources.Resource>>? chooseImages, CancellationToken token)
+    {
+        var models = new Dictionary<Guid, MaterialDto[]>();
+        var images = new Dictionary<string, Image>(StringComparer.Ordinal);
+        IReadOnlyList<EditorClassicToonResources.Resource>? originals = null;
+        foreach (var actor in actors)
+        {
+            token.ThrowIfCancellationRequested();
+            var materials = new List<MaterialDto>();
+            foreach (var (index, slot) in Required(actor.Model))
+            {
+                originals ??= chooseImages?.Invoke(token) ?? throw new InvalidOperationException(
+                    EditorLocalization.Text("Mda.Text.Project.ConversionToonSource"));
+                var original = originals[slot];
+                if (original.Slot != slot) throw Invalid("The original Toon source does not match its requested slot.");
+                if (!images.ContainsKey(original.Sha256))
+                    images.Add(original.Sha256, new(original.Sha256, original.AuthoredToken,
+                        original.EncodedBytes.ToArray(), original.Texture));
+                materials.Add(new(index, slot, original.Sha256));
+            }
+            models.Add(actor.ObjectId, materials.ToArray());
+        }
+        if (images.Count == 0) return null;
+        ValidateBudget(images.Values);
+        return new EditorClassicToonPackage(models, images).WithPackagedImages(new());
+    }
+
     internal PmaSaveOptions CreateSaveOptions(SceneProjectSession session, PmaSaveOptions options, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested(); Validate(session);
+        var result = WithPackagedImages(options);
+        PmaProjectStore.ValidateAdditionalResourceBudget(session, result.AdditionalResources.ToDictionary(pair => pair.Key,
+            pair => (long)pair.Value.Length), options.ValidationOptions);
+        return result;
+    }
+
+    private PmaSaveOptions WithPackagedImages(PmaSaveOptions options)
+    {
         var extensions = options.OptionalExtensions.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal);
         var resources = options.AdditionalResources.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         var manifest = new ManifestDto(2, models.OrderBy(pair => pair.Key).Select(pair => new ModelDto(pair.Key, pair.Value)).ToArray(),
@@ -246,7 +284,6 @@ internal sealed partial class EditorClassicToonPackage
             && !images.Values.Any(image => image.Path == value))) throw Invalid("A save supplied an unowned Classic toon image.");
         if (options.ContentSelection?.ExcludesExtension(ExtensionName) == true || images.Values.Any(value => options.ContentSelection?.ExcludesResource(value.Path) == true))
             throw Invalid("Required original Classic toon images cannot be excluded from a portable document.");
-        PmaProjectStore.ValidateAdditionalResourceBudget(session, resources.ToDictionary(pair => pair.Key, pair => (long)pair.Value.Length), options.ValidationOptions);
         return options with { OptionalExtensions = extensions, AdditionalResources = resources };
     }
 

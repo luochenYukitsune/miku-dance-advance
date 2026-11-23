@@ -110,7 +110,7 @@ public static class PmaPmmCompatibility
         var source = Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".pmx" => PmxReader.Read(input),
-            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input)),
+            ".pmd" => PmdPmxAdapter.Convert(PmdReader.Read(input), Path.GetDirectoryName(path)),
             _ => throw new NotSupportedException("Model reference must be PMX or PMD."),
         };
         // Canonical PMX serialization excludes inactive conditional fields and preserves every represented

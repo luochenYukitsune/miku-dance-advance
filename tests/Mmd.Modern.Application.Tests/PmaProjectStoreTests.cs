@@ -472,7 +472,7 @@ public sealed class PmaProjectStoreTests : IDisposable
         edit.Settings = new();
     }, Token);
 
-    private static void RewritePackagedFile(string path, string logicalPath, Func<byte[], byte[]> change)
+    internal static void RewritePackagedFile(string path, string logicalPath, Func<byte[], byte[]> change)
     {
         using var zip = ZipFile.Open(path, ZipArchiveMode.Update);
         var manifestEntry = zip.GetEntry("manifest.json")!; JsonNode manifest;

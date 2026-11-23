@@ -38,6 +38,9 @@ public sealed partial class EditorShellViewModel : IDisposable
     public Func<Task>? OpenProjectRequested { get; set; }
     public Func<Task>? SaveProjectRequested { get; set; }
     public Func<Task>? SaveAsRequested { get; set; }
+    public Func<Task>? ConvertProjectRequested { get; set; }
+    public string ConvertProjectLabel => EditorLocalization.Text(Workspace.ConversionFormat == EditorProjectFormat.Classic
+        ? "Mda.Text.Project.ConvertToClassic" : "Mda.Text.Project.ConvertToModern");
     public Func<Task>? NewProjectRequested { get; set; }
     public event EventHandler? ViewStateChanged;
     internal event EventHandler? PlayheadDiscontinuity;
@@ -46,6 +49,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     public ICommand OpenProjectCommand { get; private set; } = null!;
     public ICommand SaveProjectCommand { get; private set; } = null!;
     public ICommand SaveAsCommand { get; private set; } = null!;
+    public ICommand ConvertProjectCommand { get; private set; } = null!;
     public ICommand NewProjectCommand { get; private set; } = null!;
     public ICommand UndoCommand { get; private set; } = null!;
     public ICommand RedoCommand { get; private set; } = null!;
@@ -88,6 +92,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         NewProjectCommand = new WorkspaceCommand(() => Request(NewProjectRequested), () => !IsBusy);
         SaveProjectCommand = new WorkspaceCommand(() => Request(SaveProjectRequested), () => !IsBusy && HasProject);
         SaveAsCommand = new WorkspaceCommand(() => Request(SaveAsRequested), () => !IsBusy && HasProject);
+        ConvertProjectCommand = new WorkspaceCommand(() => Request(ConvertProjectRequested), () => !IsBusy && HasProject);
         scrubSeek = new(() => Workspace.Session, OnScrubPublished, error => ReportActivityFailure(error, previewUnavailable: true));
         UndoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Undo(); }, () => !IsBusy && Workspace.CanUndo);
         RedoCommand = new WorkspaceCommand(() => { StopPlayback(); SynchronizePendingScrub(); Workspace.Redo(); }, () => !IsBusy && Workspace.CanRedo);
@@ -373,7 +378,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     private void RefreshCommands()
     {
         foreach (var command in new[] { ImportModelCommand, ImportMotionCommand, OpenProjectCommand, SaveProjectCommand,
-            SaveAsCommand, NewProjectCommand, UndoCommand, RedoCommand, PlayCommand, GoToEndCommand, Browser.RemoveModelCommand, Browser.ReplaceModelCommand })
+            SaveAsCommand, ConvertProjectCommand, NewProjectCommand, UndoCommand, RedoCommand, PlayCommand, GoToEndCommand, Browser.RemoveModelCommand, Browser.ReplaceModelCommand })
             (command as WorkspaceCommand)?.RaiseCanExecuteChanged();
     }
     private sealed class WorkspaceCommand(Action execute, Func<bool>? canExecute = null) : ICommand

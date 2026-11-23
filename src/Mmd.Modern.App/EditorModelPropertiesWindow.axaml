@@ -414,7 +414,6 @@
                         ToolTip.Tip="{DynamicResource Mda.Text.Context.Room.IndoorEnvironmentHelp}">
                 <TextBlock Text="{DynamicResource Mda.Text.Context.Room.IndoorEnvironment}" TextWrapping="Wrap" />
               </CheckBox>
-              <Grid ColumnDefinitions="120,260,*"><TextBlock Text="{DynamicResource Mda.Text.304fd699a5e7}" Classes="label" /><ComboBox Grid.Column="1" ItemsSource="{Binding StyleChoices}" SelectedIndex="{Binding StyleIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.304fd699a5e7}" ><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorModelStyleChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
               <TextBlock Text="{DynamicResource Mda.Text.f36b2dcfe015}" Classes="caption" Margin="120,0,0,0" />
             </StackPanel>
             <Separator />
@@ -456,9 +455,16 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
-      <TabItem Header="{DynamicResource Mda.Text.e2102c085d2e}">
-        <Grid ColumnDefinitions="260,1,*" Margin="0,12,0,0">
-          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16,0,12,16">
+      <TabItem Name="MaterialStyleTab" Header="{DynamicResource Mda.Text.ModelProps.MaterialStyleTab}" IsVisible="{Binding SupportsModernStyles}">
+        <Grid RowDefinitions="Auto,*" ColumnDefinitions="260,1,*" Margin="0,12,0,0">
+          <Grid Grid.ColumnSpan="3" ColumnDefinitions="Auto,*" ColumnSpacing="14" Margin="24,0,24,12">
+            <TextBlock Text="{DynamicResource Mda.Text.304fd699a5e7}" Classes="label" />
+            <ComboBox Name="ModelStyleSelector" Grid.Column="1" ItemsSource="{Binding StyleChoices}" SelectedIndex="{Binding StyleIndex, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch" AutomationProperties.Name="{DynamicResource Mda.Text.304fd699a5e7}">
+              <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorModelStyleChoice"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+          <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*,Auto" Margin="16,0,12,16">
             <TextBlock Text="{DynamicResource Mda.Text.d9aed99189bf}" Classes="caption" Margin="8,0,0,6" />
             <TextBox Name="MaterialSearchBox" Grid.Row="1" Margin="0,0,0,8"
                      Text="{Binding MaterialSearchText, Mode=TwoWay}"
@@ -486,31 +492,82 @@
             <TextBlock Grid.Row="3" Text="{Binding MaterialFilterSummary}" Classes="caption" Margin="8,6,0,0"
                        IsVisible="{Binding IsMaterialSearchActive}" />
           </Grid>
-          <Border Grid.Column="1" Background="{DynamicResource OutputBorder}" />
-          <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <Border Grid.Row="1" Grid.Column="1" Background="{DynamicResource OutputBorder}" />
+          <ScrollViewer Grid.Row="1" Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <ContentControl Content="{Binding SelectedMaterial}" Margin="20,0,24,24">
               <ContentControl.ContentTemplate><DataTemplate x:DataType="local:EditorMaterialPropertiesItem">
                 <StackPanel Spacing="16">
-                  <TextBlock Text="{Binding Label}" Classes="section" TextWrapping="Wrap" />
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock Text="{Binding Label}" Classes="section" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Name="ClearMaterialMappingButton" Content="{DynamicResource Mda.Text.ModelProps.ClearSelectedMaterial}"
+                            ToolTip.Tip="{DynamicResource Mda.Text.ModelProps.ClearSelectedMaterialHint}" IsEnabled="{Binding HasCustomization}" Click="ClearSelectedMaterialMapping" />
+                  </Grid>
                   <TextBlock Text="{Binding ExistingMapping}" Classes="caption" />
+                  <StackPanel Spacing="6"><TextBlock Text="{DynamicResource Mda.Text.cef43d2017e8}" Classes="label" /><ComboBox Name="MaterialRoleSelector" ItemsSource="{Binding RoleChoices}" SelectedIndex="{Binding RoleIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.b23e968e4359}" /></StackPanel>
                   <StackPanel Spacing="8" IsVisible="{Binding SupportsOutlineScaling}">
                     <TextBlock Text="{DynamicResource Mda.Text.OutlineScale.Label}" Classes="label" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                       <validated:EditorNumericUpDown Name="MaterialOutlineScaleBox" Width="104" Value="{Binding OutlinePercent, Mode=TwoWay}" Minimum="0" Maximum="400" Increment="5" FormatString="0.##" AutomationProperties.Name="{DynamicResource Mda.Text.OutlineScale.Label}" />
-                      <TextBlock Text="%" Classes="label" VerticalAlignment="Center" /><validated:EditorValueSlider Name="MaterialOutlineScaleSlider" Width="140" VerticalAlignment="Center" Minimum="0" Maximum="200" SmallChange="1" LargeChange="10" Step="1" DefaultValue="100" Number="{Binding OutlinePercent, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.OutlineScale.Label}" />
+                      <TextBlock Text="%" Classes="label" VerticalAlignment="Center" /><validated:EditorValueSlider Name="MaterialOutlineScaleSlider" Width="140" VerticalAlignment="Center" Minimum="0" Maximum="400" SmallChange="1" LargeChange="10" Step="1" DefaultValue="100" Number="{Binding OutlinePercent, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.OutlineScale.Label}" />
                       <Button Name="MaterialOutlineQuarterButton" Content="25%" Click="QuarterOutline" Classes="action" ToolTip.Tip="{DynamicResource Mda.Text.OutlineScale.Quarter}" />
                       <Button Name="MaterialOutlineResetButton" Content="100%" Click="ResetOutline" ToolTip.Tip="{DynamicResource Mda.Text.OutlineScale.Reset}" />
                     </StackPanel>
                     <TextBlock Text="{DynamicResource Mda.Text.OutlineScale.Hint}" Classes="caption" TextWrapping="Wrap" />
                   </StackPanel>
                   <TextBlock Text="{DynamicResource Mda.Text.OutlineScale.ModernOnly}" Classes="caption" IsVisible="{Binding OutlineScalingUnavailable}" />
-                  <StackPanel Spacing="6"><TextBlock Text="{DynamicResource Mda.Text.cef43d2017e8}" Classes="label" /><ComboBox ItemsSource="{Binding RoleChoices}" SelectedIndex="{Binding RoleIndex, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.b23e968e4359}" /></StackPanel>
                   <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="6" Padding="10"
                           IsVisible="{Binding HasStyleValidationMessage}">
                     <TextBlock Text="{Binding StyleValidationMessage}" TextWrapping="Wrap" />
                   </Border>
                   <TextBlock Text="{DynamicResource Mda.Text.ModelProps.MapRoleToConfigureModes}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding ShowMapRoleHint}" />
-                  <StackPanel Spacing="16" IsEnabled="{Binding IsMapped}">
+                  <StackPanel Spacing="16" IsVisible="{Binding IsMapped}">
+                    <StackPanel Spacing="12" IsVisible="{Binding HasActiveStylePlugin}">
+                      <StackPanel IsVisible="{Binding IsBodyOrHair}">
+                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.DedicatedTreatmentHint}" Classes="caption" TextWrapping="Wrap"
+                                   IsVisible="{Binding !CanEditOrdinaryPmxTreatment}" />
+                      </StackPanel>
+                      <StackPanel Name="PmxTreatmentSection" Spacing="10" IsVisible="{Binding CanEditOrdinaryPmxTreatment}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                          <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHeader}" Classes="section" VerticalAlignment="Center" />
+                          <Button Name="ResetPmxTreatmentButton" Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetPmxTreatment}" Click="ResetPmxTreatment" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*,12,84" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="4">
+                          <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentSaturation}" Classes="label" />
+                          <validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="{Binding PmxDefaults.Saturation}" Number="{Binding PmxSaturation, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentSaturation}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxSaturation, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentSaturation}" />
+                          <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentTransition}" Classes="label" />
+                          <validated:EditorValueSlider Grid.Row="1" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="{Binding PmxDefaults.TransitionWidthScale}" Number="{Binding PmxTransitionWidthScale, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentTransition}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Row="1" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" Value="{Binding PmxTransitionWidthScale, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentTransition}" />
+                          <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentContrast}" Classes="label" />
+                          <validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="-0.5" Maximum="0.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="{Binding PmxDefaults.ValueContrast}" Number="{Binding PmxValueContrast, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentContrast}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Minimum="-0.5" Maximum="0.5" Increment="0.02" FormatString="0.##" Value="{Binding PmxValueContrast, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentContrast}" />
+                          <TextBlock Grid.Row="3" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentGamma}" Classes="label" />
+                          <validated:EditorValueSlider Grid.Row="3" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="{Binding PmxDefaults.ShadeGamma}" Number="{Binding PmxShadeGamma, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentGamma}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Row="3" Grid.Column="3" Minimum="0.5" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxShadeGamma, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentGamma}" />
+                          <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairStrength}" Classes="label" IsVisible="{Binding IsHairRole}" />
+                          <validated:EditorValueSlider Name="HairHighlightStrengthSlider" Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="{Binding PmxDefaults.HairHighlightStrength}" Number="{Binding PmxHairHighlightStrength, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairStrength}" IsVisible="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Minimum="0" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightStrength, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairStrength}" IsVisible="{Binding IsHairRole}" />
+                          <TextBlock Grid.Row="5" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairWidth}" Classes="label" IsVisible="{Binding IsHairRole}" />
+                          <validated:EditorValueSlider Name="HairHighlightWidthSlider" Grid.Row="5" Grid.Column="1" Margin="16,0,0,0" Minimum="0.02" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="{Binding PmxDefaults.HairHighlightWidth}" Number="{Binding PmxHairHighlightWidth, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairWidth}" IsVisible="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                          <validated:EditorNumericUpDown Grid.Row="5" Grid.Column="3" Minimum="0.02" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightWidth, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairWidth}" IsVisible="{Binding IsHairRole}" />
+                        </Grid>
+                      </StackPanel>
+                      <StackPanel Name="FaceShadingSection" Spacing="6" IsVisible="{Binding IsFaceRole}">
+                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.FaceShading}" Classes="section" />
+                        <Grid ColumnDefinitions="Auto,*,12,80">
+                          <TextBlock Text="{DynamicResource Mda.Text.f86b04271b8b}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceNormal, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.35" Number="{Binding FaceNormal, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*,12,80">
+                          <TextBlock Text="{DynamicResource Mda.Text.a561f39d9414}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding FaceShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" />
+                        </Grid>
+                      </StackPanel>
+                      <StackPanel Name="EyeShadingSection" Spacing="6" IsVisible="{Binding IsEyeRole}">
+                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.EyeShading}" Classes="section" />
+                        <Grid ColumnDefinitions="Auto,*,12,80">
+                          <TextBlock Text="{DynamicResource Mda.Text.4ffd43c901b5}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding EyeShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.2" Number="{Binding EyeShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" />
+                        </Grid>
+                      </StackPanel>
+                    </StackPanel>
                     <StackPanel Spacing="8">
                       <TextBlock Text="{DynamicResource Mda.Text.ModelProps.DynamicModesHeader}" Classes="section" />
                       <TextBlock Text="{Binding DynamicModesHeaderHint}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasDynamicModes}" />
@@ -523,51 +580,15 @@
                         <ItemsControl ItemsSource="{Binding IncompatibleDynamicModes}" />
                       </Expander>
                     </StackPanel>
-                    <Separator />
-                    <StackPanel Spacing="10">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHeader}" Classes="section" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Content="{DynamicResource Mda.Text.ModelProps.ResetPmxTreatment}" Click="ResetPmxTreatment" IsEnabled="{Binding IsBodyOrHair}" />
-                      </Grid>
-                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentBodyHairOnlyNote}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsNotBodyOrHair}" />
-                      <Grid ColumnDefinitions="Auto,*,12,84" RowDefinitions="Auto,8,Auto,8,Auto,8,Auto,8,Auto,8,Auto" IsEnabled="{Binding IsBodyOrHair}">
-                        <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentSaturation}" Classes="label" />
-                        <validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxSaturation, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxSaturation, Mode=TwoWay}" />
-                        <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentTransition}" Classes="label" />
-                        <validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxTransitionWidthScale, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" Value="{Binding PmxTransitionWidthScale, Mode=TwoWay}" />
-                        <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentContrast}" Classes="label" />
-                        <validated:EditorValueSlider Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="-0.5" Maximum="0.5" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0" Number="{Binding PmxValueContrast, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Minimum="-0.5" Maximum="0.5" Increment="0.02" FormatString="0.##" Value="{Binding PmxValueContrast, Mode=TwoWay}" />
-                        <TextBlock Grid.Row="6" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentGamma}" Classes="label" />
-                        <validated:EditorValueSlider Grid.Row="6" Grid.Column="1" Margin="16,0,0,0" Minimum="0.5" Maximum="2" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding PmxShadeGamma, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Row="6" Grid.Column="3" Minimum="0.5" Maximum="2" Increment="0.05" FormatString="0.##" Value="{Binding PmxShadeGamma, Mode=TwoWay}" />
-                        <TextBlock Grid.Row="8" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairStrength}" Classes="label" IsEnabled="{Binding IsHairRole}" />
-                        <validated:EditorValueSlider Grid.Row="8" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="0" Number="{Binding PmxHairHighlightStrength, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Row="8" Grid.Column="3" Minimum="0" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightStrength, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" />
-                        <TextBlock Grid.Row="10" Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairWidth}" Classes="label" IsEnabled="{Binding IsHairRole}" />
-                        <validated:EditorValueSlider Grid.Row="10" Grid.Column="1" Margin="16,0,0,0" Minimum="0.02" Maximum="0.4" SmallChange="0.01" LargeChange="0.05" Step="0.01" DefaultValue="0.12" Number="{Binding PmxHairHighlightWidth, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
-                        <validated:EditorNumericUpDown Grid.Row="10" Grid.Column="3" Minimum="0.02" Maximum="0.4" Increment="0.02" FormatString="0.##" Value="{Binding PmxHairHighlightWidth, Mode=TwoWay}" IsEnabled="{Binding IsHairRole}" />
-                      </Grid>
-                      <TextBlock Text="{DynamicResource Mda.Text.ModelProps.PmxTreatmentHairOnlyNote}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsMappedAndNotHair}" />
-                    </StackPanel>
-                    <Separator />
-                    <TextBlock Text="{DynamicResource Mda.Text.bc6ec863ba1f}" Classes="section" />
-                    <Grid ColumnDefinitions="Auto,*,12,80" RowDefinitions="Auto,8,Auto,8,Auto">
-                      <TextBlock Text="{DynamicResource Mda.Text.f86b04271b8b}" Classes="label" /><validated:EditorNumericUpDown Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceNormal, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" /><validated:EditorValueSlider Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.35" Number="{Binding FaceNormal, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.f86b04271b8b}" />
-                      <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.a561f39d9414}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="2" Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding FaceShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" /><validated:EditorValueSlider Grid.Row="2" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="1" Number="{Binding FaceShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a561f39d9414}" />
-                      <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.4ffd43c901b5}" Classes="label" /><validated:EditorNumericUpDown Grid.Row="4" Grid.Column="3" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" Value="{Binding EyeShadow, Mode=TwoWay}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" /><validated:EditorValueSlider Grid.Row="4" Grid.Column="1" Margin="16,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.2" Number="{Binding EyeShadow, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.4ffd43c901b5}" />
-                    </Grid>
                   </StackPanel>
-                  <TextBlock Text="{DynamicResource Mda.Text.0f2f1c84628a}" Classes="caption" />
+                  <TextBlock Text="{DynamicResource Mda.Text.0f2f1c84628a}" Classes="caption" IsVisible="{Binding HasActiveStylePlugin}" />
                 </StackPanel>
               </DataTemplate></ContentControl.ContentTemplate>
             </ContentControl>
           </ScrollViewer>
         </Grid>
       </TabItem>
-      <TabItem Header="{DynamicResource Mda.Text.6e814135ad1b}">
+      <TabItem Header="{DynamicResource Mda.Text.6e814135ad1b}" IsVisible="{Binding SupportsModernStyles}">
         <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="24,20,24,24">
           <StackPanel Spacing="6" Margin="0,0,0,12"><TextBlock Text="{DynamicResource Mda.Text.d142c7fa4f24}" Classes="section" /><TextBlock Text="{Binding ProfileSummary}" Classes="caption" /><TextBlock Text="{DynamicResource Mda.Text.a6136d33bb49}" Classes="caption" /></StackPanel>
           <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">

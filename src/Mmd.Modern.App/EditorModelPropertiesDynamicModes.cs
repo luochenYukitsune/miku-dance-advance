@@ -668,6 +668,9 @@ public sealed class EditorStyleModeItem : INotifyPropertyChanged
         }
     }
 
+    internal StyleBoneAxisBinding FixedWorldBasis => new(StyleBoneTrackingMode.FixedWorld,
+        FixedWorldForward: fixedForward, FixedWorldRight: fixedRight);
+
     public string FixedBasisSummary => Format(
         "固定世界方向  前 ({0:0.###}, {1:0.###}, {2:0.###})  右 ({3:0.###}, {4:0.###}, {5:0.###})",
         fixedForward.X, fixedForward.Y, fixedForward.Z, fixedRight.X, fixedRight.Y, fixedRight.Z);
@@ -791,10 +794,7 @@ public sealed class EditorStyleModeItem : INotifyPropertyChanged
             }
             else
             {
-                boneBinding = new StyleBoneAxisBinding(
-                    StyleBoneTrackingMode.FixedWorld,
-                    FixedWorldForward: fixedForward,
-                    FixedWorldRight: fixedRight);
+                boneBinding = FixedWorldBasis;
             }
         }
 

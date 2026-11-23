@@ -419,6 +419,8 @@ public sealed record D3D12PluginStyleRegistration(
     IReadOnlyDictionary<string, D3D12PluginShaderModule>? ShaderModules = null,
     string? Diagnostic = null)
 {
+    public bool RespectMaterialEdgeFlag { get; init; }
+
     public void Validate()
     {
         D3D12StylePresetDefinition.ValidateIdentifier(StyleId, nameof(StyleId));

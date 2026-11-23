@@ -372,6 +372,7 @@ internal static class GenshinShaders
                     | StyleShaderHookMask.RequiresOutlineColorScale
                     | StyleShaderHookMask.RequiresSkinShadeBlend,
                 GeometryRequirements: StyleGeometryRequirements.None,
+                Defines: new Dictionary<string, string> { ["MDA_TOON_PRESERVE_CHROMA"] = "1" }.AsReadOnly(),
                 DisableStylizedSphereMaps: true),
             new(
                 ModuleId: FaceSdfModuleId,

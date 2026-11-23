@@ -162,7 +162,8 @@ public static class D3D12StylePluginAdapter
             DefaultOutline: ToD3D12Outline(style.DefaultOutline),
             DefaultToonResponse: ToD3D12ToonResponse(style.DefaultToonResponse),
             DefaultStylizedShading: ToD3D12StylizedShading(style.DefaultStylizedShading),
-            ShaderModules: modules.Count == 0 ? null : new ReadOnlyDictionary<string, D3D12PluginShaderModule>(modules));
+            ShaderModules: modules.Count == 0 ? null : new ReadOnlyDictionary<string, D3D12PluginShaderModule>(modules))
+        { RespectMaterialEdgeFlag = style.DefaultOutline.RespectMaterialEdgeFlag };
         registration.Validate();
         return registration;
     }

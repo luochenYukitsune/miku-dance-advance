@@ -111,7 +111,7 @@ public sealed class EditorExportPaletteGpuIntegrationTests : IAsyncDisposable
         return pixels;
     }
 
-    private static PmxModel Model() => new()
+    internal static PmxModel Model() => new()
     {
         Header = new() { Version = 2, HeaderDataSize = 8, TextEncoding = PmxTextEncoding.Utf8, AdditionalUvCount = 0,
             VertexIndexSize = 1, TextureIndexSize = 1, MaterialIndexSize = 1, BoneIndexSize = 1, MorphIndexSize = 1, RigidBodyIndexSize = 1 },

@@ -183,11 +183,10 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     internal void Detach()
     {
         workspace = null;
-        session = null;
-        builtSession = null;
-        hasProject = false;
+        pluginService = null;
+        activeCatalog = D3D12ViewStyleCatalog.Empty;
         built = false;
-        Changed(nameof(CanManagePlugins));
+        Refresh(null, null, false, false);
     }
 
     internal void AttachPluginService(EditorPluginService? service)
@@ -213,7 +212,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
         get => selectedIndex;
         set
         {
-            if (refreshing || value == selectedIndex || value < 0 || value >= options.Count) return;
+            if (refreshing || !CanEdit || value == selectedIndex || value < 0 || value >= options.Count) return;
             selectedIndex = value;
             Changed();
             Changed(nameof(SelectedChoice));
@@ -248,6 +247,8 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     /// <summary>False for an empty project, Classic engine, a busy host, or a retained unsupported style schema.</summary>
     public bool CanEdit => allowEdit && hasProject && isModernEngine && !unsupported && options.Count > 0;
     public bool HasSelectedModel => modelSelected;
+    public bool CanEditSelectedModelStyle => CanEdit && modelSelected;
+    public bool CanInheritSelectedModelStyle => CanEditSelectedModelStyle && modelOverride;
     public bool IsModelInherited => modelSelected && !modelOverride;
     public string Status => status;
     public bool HasStatus => hasStatus;
@@ -264,7 +265,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     public bool HasSelectedStyleAuthor => !string.IsNullOrWhiteSpace(SelectedStyleAuthor);
     public bool HasSelectedStyleVersion => !string.IsNullOrWhiteSpace(SelectedStyleVersion);
     public bool HasSelectedStyleDescription => !string.IsNullOrWhiteSpace(SelectedStyleDescription);
-    public bool CanManagePlugins => pluginService is not null;
+    public bool CanManagePlugins => allowEdit && pluginService is not null;
     public string? MissingStyleId => missingStyleId;
     public string? MissingStylePluginId => missingStylePluginId;
     public string MissingStylePluginName => missingStylePluginName;
@@ -309,6 +310,8 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
                 status = "";
                 hasStatus = false;
                 Build(selectedModel);
+                foreach (var choice in options)
+                    UpdateChoiceMetadata(choice, activeCatalog, CurrentLanguage);
                 built = true;
                 builtSession = session;
                 builtModelId = selectedModel;
@@ -338,7 +341,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             || !ReferenceEquals(builtCatalog, activeCatalog)
             || !string.Equals(builtLanguage, CurrentLanguage, StringComparison.Ordinal))
             return true;
-        if (session is not { IsDisposed: false } || !hasProject) return false;
+        if (!isModernEngine || session is not { IsDisposed: false } || !hasProject) return false;
         bool supported = session.HasSupportedRenderingStyles;
         if (supported == builtUnsupported) return true;
         if (!supported) return false;
@@ -367,7 +370,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
         var list = new List<EditorStyleInspectorChoice>();
         defaultStyle = null; modelStyle = null; modelOverride = false;
         modelSelected = false; unsupported = false; diagnostics = "";
-        if (session is { IsDisposed: false } && hasProject)
+        if (isModernEngine && session is { IsDisposed: false } && hasProject)
         {
             if (!session.HasSupportedRenderingStyles)
             {
@@ -435,11 +438,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
         try
         {
             string lang = CurrentLanguage;
-            var liveCatalog = pluginService?.BuildActiveStyleCatalog(lang) ?? activeCatalog;
-            activeCatalog = liveCatalog;
-
-            foreach (var choice in options)
-                UpdateChoiceMetadata(choice, liveCatalog, lang);
+            var liveCatalog = activeCatalog;
 
             missingStyleId = null;
             missingStylePluginId = null;
@@ -481,13 +480,15 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
                 canEnableMissingStylePlugin = allowEdit && isModernEngine && missingPlugin.State == PluginState.Disabled;
             }
 
+            string modelName = modelSelected && session is not null
+                ? session.Objects.FirstOrDefault(item => item.Id == builtModelId)?.Name ?? "" : "";
             modelStatus = !modelSelected
                 ? Text("Mda.Text.Context.Inspector.Style.NoModel")
                 : modelOverride
-                    ? FormatModelStyleStatus(modelStyle, liveCatalog, lang,
+                    ? FormatModelStyleStatus(modelStyle, modelName, liveCatalog, lang,
                         "Mda.Text.Context.Inspector.Style.ModelOverride",
                         "Mda.Text.Ux.Inspector.Style.ModelOverrideMissing")
-                    : FormatModelStyleStatus(defaultStyle, liveCatalog, lang,
+                    : FormatModelStyleStatus(defaultStyle, modelName, liveCatalog, lang,
                         "Mda.Text.Context.Inspector.Style.ModelInherit",
                         "Mda.Text.Ux.Inspector.Style.ModelInheritMissing");
 
@@ -498,6 +499,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             Changed(nameof(SelectedReference)); Changed(nameof(CanEdit)); Changed(nameof(HasSelectedModel));
             Changed(nameof(IsModernEngine)); Changed(nameof(IsClassicEngine)); Changed(nameof(ClassicNotice));
             Changed(nameof(GuessMaterialRoles)); Changed(nameof(CanEditGuessMaterialRoles));
+            Changed(nameof(CanEditSelectedModelStyle)); Changed(nameof(CanInheritSelectedModelStyle));
             Changed(nameof(IsModelInherited)); Changed(nameof(Status)); Changed(nameof(HasStatus));
             Changed(nameof(ModelStatus)); Changed(nameof(Notice)); Changed(nameof(HasNotice));
             Changed(nameof(MissingStyleId)); Changed(nameof(MissingStylePluginId));
@@ -614,14 +616,15 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
 
     private static string FormatModelStyleStatus(
         RenderingPresetReference? reference,
+        string modelName,
         D3D12ViewStyleCatalog catalog,
         string language,
         string knownFormatKey,
         string missingFormatKey)
     {
         if (reference is { } value && !IsKnownActive(value, catalog))
-            return Format(missingFormatKey, value.StableId);
-        return Format(knownFormatKey, StyleLabel(reference, catalog, language));
+            return Format(missingFormatKey, value.StableId, modelName);
+        return Format(knownFormatKey, StyleLabel(reference, catalog, language), modelName);
     }
 
     /// <summary>Combo-box labels are resources; the stored selection and session reference stay untouched.</summary>
@@ -629,10 +632,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     {
         if (session is { IsDisposed: true })
         {
-            session = null;
-            builtSession = null;
-            hasProject = false;
-            built = false;
+            Refresh(null, null, false, false);
             return;
         }
         if (hasProject || session is not null)

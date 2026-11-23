@@ -145,7 +145,7 @@ public partial class EditorWindow
     private async void CommitProjectDefaultStyle(object? sender, SelectionChangedEventArgs args)
     {
         if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell || shell.StyleInspector.IsRefreshing) return;
-        if (sender is not ComboBox { SelectedItem: EditorStyleInspectorChoice choice }) return;
+        if (!shell.StyleInspector.CanEdit || sender is not ComboBox { SelectedItem: EditorStyleInspectorChoice { IsRetained: false } choice }) return;
         var session = shell.Workspace.Session;
         // Binding/refresh initialization and a failed/reverted candidate must not rewrite the project.
         if (session is null || !session.HasSupportedRenderingStyles
@@ -156,8 +156,7 @@ public partial class EditorWindow
             shell.StopPlayback();
             shell.SynchronizePendingScrub();
             if (!CommitPendingInlineLighting()) return;
-            if (!await CheckPoseDraftsAsync()) return;
-            if (!ReferenceEquals(session, shell.Workspace.Session) || !session.HasSupportedRenderingStyles) return;
+            if (!ReferenceEquals(session, shell.Workspace.Session) || !shell.StyleInspector.CanEdit) return;
             try
             {
                 bool changed = shell.Workspace.SetDefaultRenderingStyle(choice.Reference);
@@ -180,18 +179,39 @@ public partial class EditorWindow
         }
     }
 
-    private async void EnableMissingStylePlugin(object? sender, RoutedEventArgs args)
+    private async void InheritSelectedModelStyle(object? sender, RoutedEventArgs args)
     {
-        if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell) return;
-        if (shell.StyleInspector.MissingStyleId is not { } missingId) return;
+        if (_committingStyle || _shell is not { IsBusy: false } shell || !shell.StyleInspector.CanInheritSelectedModelStyle
+            || shell.Browser.SelectedModel is not { } model) return;
         _committingStyle = true;
         try
         {
             shell.StopPlayback();
             shell.SynchronizePendingScrub();
             if (!CommitPendingInlineLighting()) return;
-            if (!await CheckPoseDraftsAsync()) return;
-            var outcome = await shell.StyleInspector.EnableMissingStylePluginAsync();
+            shell.Workspace.InheritModelStyle(model.ObjectId);
+        }
+        catch (Exception error)
+        {
+            shell.StyleInspector.ReportStatus(error.Message);
+            await ShowErrorAsync(error);
+        }
+        finally { _committingStyle = false; }
+    }
+
+    private async void EnableMissingStylePlugin(object? sender, RoutedEventArgs args)
+    {
+        if (_committingStyle || _shell is not { IsBusy: false, HasProject: true } shell) return;
+        if (!shell.StyleInspector.CanEnableMissingStylePlugin || shell.StyleInspector.MissingStyleId is not { } missingId) return;
+        var owner = shell.Workspace.Session;
+        _committingStyle = true;
+        try
+        {
+            shell.StopPlayback();
+            shell.SynchronizePendingScrub();
+            if (!CommitPendingInlineLighting()) return;
+            var outcome = await shell.StyleInspector.EnablePluginForStyleAsync(missingId);
+            if (!ReferenceEquals(owner, shell.Workspace.Session)) return;
             if (!outcome.Succeeded)
             {
                 string diag = outcome.Diagnostic ?? Text("Mda.Text.Plugins.Failed");
@@ -201,7 +221,6 @@ public partial class EditorWindow
             }
 
             string applied = Format("Mda.Text.Context.Inspector.Style.PluginEnabledApplied", missingId);
-            shell.OnPluginsChanged();
             shell.StyleInspector.ReportStatus(applied);
             shell.OperationStatus = applied;
         }
@@ -227,7 +246,6 @@ public partial class EditorWindow
             if (!CommitPendingInlineLighting()) return;
             if (!await CheckPoseDraftsAsync()) return;
             bool applied = await EditorStyleReplacementDialog.ShowAsync(this, shell.Workspace, shell.PluginService);
-            shell.OnPluginsChanged();
             if (applied)
             {
                 string message = Text("Mda.Text.StyleReplacement.AppliedStatus");

@@ -771,7 +771,7 @@ internal static class D3D12StyleShaderAssembler
                     diffuseLit = diffuseLit * MorphSphere(SphereMap.Sample(SelectedSampler, MdaGetSphereUv(v)).rgb, false);
                 return diffuseLit;
             }
-            float4 MdaPSSurfaceCore(SurfaceOutput v) {
+            float4 MdaPSSurfaceCore(SurfaceOutput v, out float hairBand) {
                 float4 texel = DiffuseMap.Sample(SelectedSampler, v.Uv);
                 float4 sphere = Options.y > 0 ? SphereMap.Sample(SelectedSampler, MdaGetSphereUv(v)) : float4(1, 1, 1, 1);
                 float alpha = EgColor.a * texel.a * sphere.a;
@@ -795,7 +795,8 @@ internal static class D3D12StyleShaderAssembler
             #else
                 float3 highlight = saturate(pow(max(0, dot(n, h)), SpecularPower.w) * SpecularPower.rgb);
             #endif
-                if (PmxMaterialTreatmentParams.z > 0) highlight += PmxGenericHair(v, n, h, l, baseColor);
+                hairBand = 0;
+                if (PmxMaterialTreatmentParams.z > 0) highlight += PmxGenericHair(v, n, h, l, baseColor, hairBand);
                 float3 q = v.LightClip.xyz / v.LightClip.w;
                 float2 uv = float2(.5 + .5 * q.x, .5 - .5 * q.y);
                 bool inShadowMap = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
@@ -825,7 +826,12 @@ internal static class D3D12StyleShaderAssembler
             #endif
                 if (inShadowMap && Options.w > 0) alpha = .5;
                 clip(alpha - Options.x);
+                if (inShadowMap) hairBand *= originalC;
                 return float4(color, alpha);
+            }
+            float4 MdaPSSurfaceCore(SurfaceOutput v) {
+                float hairBand;
+                return MdaPSSurfaceCore(v, hairBand);
             }
             """);
 

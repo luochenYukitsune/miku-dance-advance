@@ -109,9 +109,8 @@ internal sealed class EditorStyleReplacementDialog : Window
 
     private (D3D12ViewStyleCatalog StyleCatalog, D3D12StylePresetCatalog PresetCatalog) GetLiveCatalogs()
     {
-        var styleCatalog = pluginService?.BuildActiveStyleCatalog(CurrentLanguage) ?? workspace.StyleCatalog;
-        var presetCatalog = D3D12ViewRenderingStyles.MergePresetCatalog(workspace.PresetCatalog, styleCatalog);
-        return (styleCatalog, presetCatalog);
+        return (pluginService?.CurrentStyleCatalog ?? workspace.StyleCatalog,
+            pluginService?.CurrentPresetCatalog ?? workspace.PresetCatalog);
     }
 
     private void RebuildState()
@@ -136,9 +135,10 @@ internal sealed class EditorStyleReplacementDialog : Window
         var availableChoices = BuildAvailableChoices(currentInspection.AvailableStyles, styleCatalog);
         var validTargets = availableChoices.Select(c => c.StableId).ToHashSet(StringComparer.Ordinal);
 
+        var missingIds = currentInspection.MissingStyles.Select(item => item.Preset.StableId).ToHashSet(StringComparer.Ordinal);
         foreach (string key in selectedReplacements.Keys.ToArray())
         {
-            if (!validTargets.Contains(selectedReplacements[key]))
+            if (!missingIds.Contains(key) || !validTargets.Contains(selectedReplacements[key]))
                 selectedReplacements.Remove(key);
         }
 
@@ -362,33 +362,35 @@ internal sealed class EditorStyleReplacementDialog : Window
     {
         if (busy || pluginService is null) return;
         busy = true;
+        rowsPanel.IsEnabled = false;
         cancelButton.IsEnabled = false;
         confirmButton.IsEnabled = false;
+        string? errorMessage = null;
         try
         {
             var outcome = await pluginService.EnablePluginForStyleAsync(styleId);
-            if (!outcome.Succeeded)
-                statusText.Text = outcome.Diagnostic ?? "";
-            RebuildState();
+            if (!outcome.Succeeded) errorMessage = outcome.Diagnostic ?? Text("Mda.Text.Plugins.Failed");
         }
         catch (Exception error)
         {
-            statusText.Text = error.Message;
+            errorMessage = error.Message;
         }
         finally
         {
             busy = false;
+            rowsPanel.IsEnabled = true;
             cancelButton.IsEnabled = true;
-            confirmButton.IsEnabled = currentInspection?.MissingStyles.Count == 0 || (currentPlan?.CanConfirm ?? false);
         }
+        RebuildState();
+        if (errorMessage is not null) statusText.Text = errorMessage;
     }
 
     private void OnConfirmClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (busy) return;
-        if (currentInspection is { MissingStyles.Count: 0 })
+        if (currentInspection is null or { MissingStyles.Count: 0 })
         {
-            Close(true);
+            Close(false);
             return;
         }
         if (currentPlan is not { CanConfirm: true } plan)

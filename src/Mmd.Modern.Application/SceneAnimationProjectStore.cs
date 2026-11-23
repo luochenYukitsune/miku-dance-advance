@@ -332,7 +332,13 @@ public static class SceneAnimationProjectStore
         catch { candidate?.Dispose(); throw; }
     }
 
-    private static void Validate(Document document, string path)
+    internal static int ValidatePackageDocument(JsonElement project, string path, PortableModelAssets.Limits? verifyPortableAssets = null,
+        CancellationToken cancellationToken = default) => Validate(
+            project.Deserialize<Document>(JsonOptions) ?? throw new JsonException("A project must be an object."), path,
+            verifyPortableAssets, cancellationToken);
+
+    private static int Validate(Document document, string path, PortableModelAssets.Limits? verifyPortableAssets = null,
+        CancellationToken cancellationToken = default)
     {
         if (document.Format != Format || document.Version is < Version or > ModelReplacementVersion) throw new JsonException("Unsupported animation project format or version.");
         if (!double.IsFinite(document.CurrentFrame) || document.CurrentFrame < 0 || document.CurrentFrame > uint.MaxValue)
@@ -345,14 +351,14 @@ public static class SceneAnimationProjectStore
             throw new JsonException("Version 7 requires explicit settings and media array.");
         try { document.Settings?.Validate(); ValidateMediaDocument(document.Media ?? []); }
         catch (ArgumentException exception) { throw new JsonException("Invalid project settings or media.", exception); }
-        var objectIds = SceneProjectStore.ValidateLayoutDocument(document.Layout.GetRawText(), path).ToHashSet();
+        var objectIds = SceneProjectStore.ValidateLayoutDocument(document.Layout.GetRawText(), path, verifyPortableAssets, cancellationToken).ToHashSet();
         if (document.Version < ModelReplacementVersion && (document.Motions.Any(item => item?.Detachment is not null)
             || document.PmmControls is { } metadata && (metadata.RestoredBindings is not null
                 || metadata.Actors?.Any(actor => actor?.NativeBindingNames is not null || actor?.DetachedBoneOrdinals is not null) == true)))
             throw new JsonException("Detached model data and explicit PMM replacement mappings require project version 9.");
         if (document.Version < PmmControlsVersion && document.PmmControls is not null || document.Version == PmmControlsVersion && document.PmmControls is null)
             throw new JsonException("PMM control provenance requires project version 8 and a non-null payload.");
-        if (document.PmmControls is { } controls) ScenePmmControlState.ValidatePayload(controls, objectIds);
+        int declaredAccessories = document.PmmControls is { } controls ? ScenePmmControlState.ValidateAndCountAccessories(controls, objectIds) : 0;
         var bound = new HashSet<Guid>();
         foreach (var item in document.Motions)
         {
@@ -369,6 +375,7 @@ public static class SceneAnimationProjectStore
             ValidateResource(scene, document.Version);
         }
         ValidateOutsideParentDocument(document, bound);
+        return declaredAccessories;
     }
 
     private static void ValidateResource(MotionResourceData item, int version)

@@ -1,6 +1,8 @@
 using System.Numerics;
+using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -73,6 +75,41 @@ public sealed class D3D12PmxGenericHairTests
     }
 
     [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
+    public void SelectedPresetHonorsHairBandWidthAndStrengthOnTheStyledPigment(string family)
+    {
+        using var session = new D3D12FrameSession();
+        var objectId = Guid.NewGuid();
+        RenderedFrame Draw(OriginalFrameScene frame, float strength, float width)
+        {
+            var styled = D3D12ViewRenderingStyles.Resolve(frame, TestStylePlugins.AllPresetCatalog,
+                [new SceneRenderingStyleBinding(objectId, new(family), ModelRole.Character, 0, frame.Materials.Count, true)],
+                [new D3D12ViewCharacterMaterial(objectId, 0, D3D12CharacterMaterialRole.Hair,
+                    PmxTreatment: new(HairHighlightStrength: strength, HairHighlightWidth: width))],
+                styleCatalog: TestStylePlugins.AllViewCatalog);
+            return session.Capture(styled.Scene, Width, Height, surfaceStyles: styled.SurfaceStyles);
+        }
+
+        // At the central texel the half-vector has a nonzero tangent component. Only the wide band reaches it.
+        var light = new Vector3(0, .6f, -.8f);
+        var frame = Surface(alpha: .6f, lightDirection: light);
+        var off = Draw(frame, 0, .4f);
+        var narrow = Draw(frame, .4f, .02f);
+        var wide = Draw(frame, .4f, .4f);
+        var before = Pixel(off);
+        var after = Pixel(wide);
+        Assert.Equal(before, Pixel(narrow));
+        Assert.True(after[0] >= before[0] + 10, $"{family}: {before[0]} -> {after[0]}");
+        Assert.InRange(after[1] / (float)after[0], before[1] / (float)before[0] - .015f,
+            before[1] / (float)before[0] + .015f);
+        Assert.InRange(after[2] / (float)after[0], before[2] / (float)before[0] - .015f,
+            before[2] / (float)before[0] + .015f);
+        AssertCoverage(off, wide);
+
+        var shadow = Surface(shadow: true, lightDirection: light);
+        Assert.Equal(Pixel(Draw(shadow, 0, .4f)), Pixel(Draw(shadow, .4f, .4f)));
+    }
+
+    [Theory, MemberData(nameof(Families)), Trait("Category", "Gpu")]
     public void DegenerateUvAndProjectedTangentPassThroughExactly(string family)
     {
         using var session = new D3D12FrameSession();
@@ -131,12 +168,12 @@ public sealed class D3D12PmxGenericHairTests
         Assert.Contains("float3 tint=max(baseColor,0)/max(1,max(baseColor.r,max(baseColor.g,baseColor.b)));", source);
         Assert.True(source.IndexOf("if(length2<1e-12) return 0;", StringComparison.Ordinal)
             < source.IndexOf("tangent*=rsqrt(length2);", StringComparison.Ordinal));
-        Assert.Contains("if (PmxMaterialTreatmentParams.z > 0) highlight += PmxGenericHair(v, n, h, l, baseColor);", source);
+        Assert.Contains("if (PmxMaterialTreatmentParams.z > 0) highlight += PmxGenericHair(v, n, h, l, baseColor, hairBand);", source);
         Assert.Contains("+ highlight * originalC;", source);
     }
 
     private static OriginalFrameScene Surface(float alpha = 1, bool degenerateUv = false,
-        bool projectedTangentDegenerate = false, bool shadow = false, float uvScale = 1)
+        bool projectedTangentDegenerate = false, bool shadow = false, float uvScale = 1, Vector3? lightDirection = null)
     {
         var normal = projectedTangentDegenerate ? Vector3.UnitY : -Vector3.UnitZ;
         SceneVertex[] quad = [new(new(-.8f, -.6f, 0), normal, new(0, 0)), new(new(.8f, -.6f, 0), normal, new(1, 0)),
@@ -147,7 +184,7 @@ public sealed class D3D12PmxGenericHairTests
         uint[] indices = shadow ? [0, 2, 1, 0, 3, 2, 4, 6, 5, 4, 7, 6] : [0, 2, 1, 0, 3, 2];
         var material = new SceneMaterial("explicit generic hair", 0, 6, new(Color, alpha), Vector3.Zero, Vector3.Zero, 1);
         var scene = new SceneSnapshot(vertices, indices, shadow ? [material, material with { StartIndex = 6 }] : [material],
-            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 3, .1f, 20), lightDirection: -Vector3.UnitZ);
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 3, .1f, 20), lightDirection: lightDirection ?? -Vector3.UnitZ);
         var bindings = Enumerable.Repeat(new OriginalStyleMaterialBinding(new(.2f), DoubleSided: true), shadow ? 2 : 1);
         var projection = Matrix4x4.CreateLookAt(new(0, 0, 5), Vector3.Zero, Vector3.UnitY)
             * Matrix4x4.CreateOrthographic(4, 4, .1f, 20);

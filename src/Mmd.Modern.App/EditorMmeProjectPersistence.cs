@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Rendering.D3D9.Compatibility;
 using Mmd.Modern.ViewOutput.D3D9.Compatibility;
 
 namespace Mmd.Modern.App;
@@ -66,6 +68,20 @@ internal sealed class EditorMmeProjectPersistence(IEditorRenderEngine engine,
             token.ThrowIfCancellationRequested();
             EditorSceneAudioInputs.Validate(package.Session.Media);
             var state = EditorClassicDocumentState.FromPrepared(prepared);
+            if (state.Emm is null && state.Tree is null && state.FrozenEffects is null
+                && package.OptionalExtensions.TryGetValue(PmaProjectStore.ConversionExtensionName, out var marker)
+                && marker.ValueKind == JsonValueKind.Object && marker.TryGetProperty("version", out var version)
+                && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out int schema) && schema == 1)
+            {
+                var models = package.Models.ToDictionary(model => model.ObjectId);
+                var session = package.Session;
+                var bindings = session.Objects.Select((item, index) =>
+                    new EmmObjectBinding(item.Id, true, models[item.Id].OriginalSourcePath, index))
+                    .Concat(session.Accessories.Select((item, index) => new EmmObjectBinding(item.ObjectId, false,
+                        item.Asset.RequirePortableSource().OriginalPath, session.Objects.Count + index)));
+                state = state.WithEffects(session, D3D9ClassicEffectsPreparation.CreateUnassigned(
+                    Path.ChangeExtension(Path.GetFullPath(path), ".emm"), bindings, token));
+            }
             state = toons is not null ? state.WithToons(package.Session, toons)
                 : localToonResources is not null ? state.WithToonResources(package.Session, localToonResources, token) : state;
             token.ThrowIfCancellationRequested();
