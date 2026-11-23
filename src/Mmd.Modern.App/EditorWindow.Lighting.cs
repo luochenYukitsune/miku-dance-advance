@@ -20,6 +20,7 @@ public partial class EditorWindow
     private bool _synchronizingLightBrowser, _trackLightActive;
     private (Guid? Document, int Frame, System.Numerics.Vector3 Color)? _mutedTrackColor;
     private EditorLightingViewModel? _lightBrowserModel;
+    private (Guid? Document, Guid Id, bool IsGroup)? _lastRevealedLightRow;
     private (SceneLightingSnapshot Snapshot, Guid? Document, IReadOnlyList<Guid>? Selection, Guid? Primary)? _outlineSource;
 
     private void InitializeLightingInspector(EditorShellViewModel shell)
@@ -222,8 +223,19 @@ public partial class EditorWindow
                 foreach (var item in selected.Cast<object>().Where(item => !wanted.Contains(item)).ToArray()) selected.Remove(item);
                 foreach (var item in wanted.Where(item => !selected.Contains(item))) selected.Add(item);
             }
-            if (model.SelectedRows.LastOrDefault(visible.Contains) is { } last)
-                using (InteractionDiagnostics.Measure("lighting.browser-scroll")) list.ScrollIntoView(last);
+            var last = wanted.LastOrDefault();
+            (Guid? Document, Guid Id, bool IsGroup)? target = last switch
+            {
+                EditorNativeLightItem light => (_shell?.Workspace.DocumentId, light.Id, false),
+                EditorLightGroupItem group => (_shell?.Workspace.DocumentId, group.Id, true),
+                _ => null
+            };
+            if (target != _lastRevealedLightRow)
+            {
+                _lastRevealedLightRow = target;
+                if (last is not null && list.IsEffectivelyVisible)
+                    using (InteractionDiagnostics.Measure("lighting.browser-scroll")) list.ScrollIntoView(last);
+            }
         }
         finally { _synchronizingLightBrowser = false; }
     }

@@ -1678,5 +1678,8 @@
   "Mda.Text.Layout.ThreePoint": "添加三点布光",
   "Mda.Text.Layout.ImportLights": "导入灯光预设…",
   "Mda.Text.Layout.Curve": "曲线",
-  "Mda.Text.Layout.Register": "注册"
+  "Mda.Text.Layout.Register": "注册",
+  "Mda.Text.Layout.ModelStyle": "模型画风",
+  "Mda.Text.Layout.FollowProjectStyle": "跟随工程画风",
+  "Mda.Text.Layout.MaterialSettings": "材质设置"
 }

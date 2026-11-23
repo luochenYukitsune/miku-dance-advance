@@ -97,7 +97,7 @@ public sealed partial class EditorLightingViewModel : INotifyPropertyChanged
     private void RefreshFilter()
     {
         IsRefreshingBrowser = true;
-        try { Changed(nameof(FilteredLights)); Changed(nameof(HasFilteredLights)); Changed(nameof(BrowserRows)); Changed(nameof(HasBrowserRows)); }
+        try { Changed(nameof(FilteredLights)); Changed(nameof(HasFilteredLights)); Changed(nameof(BrowserRows)); Changed(nameof(HasBrowserRows)); Changed(nameof(HasOutlineLights)); Changed(nameof(IsOutlineSearchEmpty)); }
         finally { IsRefreshingBrowser = false; }
     }
     private void LightLabelChanged(object? sender, PropertyChangedEventArgs args)

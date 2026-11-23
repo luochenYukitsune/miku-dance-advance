@@ -18,7 +18,7 @@ public sealed partial class EditorTimeline : TemplatedControl
     public const double RulerHeight = 28;
     public const double MinimumPixelsPerFrame = .5;
     public const double MaximumPixelsPerFrame = 64;
-    public const double DefaultPixelsPerFrame = 8;
+    public const double DefaultPixelsPerFrame = 3;
     public const int MaximumVisibleTickCount = 512;
     public const double TrackRowHeight = 26;
     public const int MaximumVisibleKeyCount = 8192;
@@ -76,6 +76,9 @@ public sealed partial class EditorTimeline : TemplatedControl
             new SolidColorBrush(Color.Parse("#A8BBC9")));
 
     private IPointer? _dragPointer;
+    private Point? _hoverPosition;
+    private string? _hoveredHeader;
+    private IDisposable? _headerTipOverride;
     private KeyframeAddress? _selectionAnchor;
     private TimelineGesture _gesture;
     private Point _gestureStart, _gesturePosition;
@@ -358,6 +361,7 @@ public sealed partial class EditorTimeline : TemplatedControl
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        UpdateHeaderTip(null);
         var point = e.GetCurrentPoint(this);
         if (!e.Handled && IsEffectivelyEnabled && point.Properties.IsLeftButtonPressed && _dragPointer is null
             && SceneTrack is { } sceneTrack && point.Position.Y >= RulerHeight && point.Position.Y < RulerHeight + TrackRowHeight)
@@ -394,7 +398,11 @@ public sealed partial class EditorTimeline : TemplatedControl
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (_dragPointer != e.Pointer) return;
+        if (_dragPointer != e.Pointer)
+        {
+            if (_dragPointer is null) UpdateHeaderTip(e.GetPosition(this));
+            return;
+        }
         if (!IsEffectivelyEnabled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             CancelGesture();
@@ -402,6 +410,30 @@ public sealed partial class EditorTimeline : TemplatedControl
         }
         UpdateGesture(e.GetPosition(this));
         e.Handled = true;
+    }
+
+    private void UpdateHeaderTip(Point? position)
+    {
+        _hoverPosition = position;
+        string? label = null;
+        if (position is { } point && point.X >= 0 && point.X < TrackHeaderWidth &&
+            point.Y >= RulerHeight && point.Y < Bounds.Height)
+        {
+            long row = FirstVisibleTrack + (long)((point.Y - RulerHeight) / TrackRowHeight);
+            if (SceneTrack is { } scene) label = point.Y < RulerHeight + TrackRowHeight ? scene.Label : null;
+            else if (row >= 0 && row < ActiveTracks.Count) label = ActiveTracks[(int)row].Label;
+        }
+        if (_hoveredHeader == label) return;
+        _headerTipOverride?.Dispose();
+        _hoveredHeader = label;
+        // A scoped override restores the host's current (possibly localized) tip when it ends.
+        _headerTipOverride = label is null ? null : SetValue(ToolTip.TipProperty, label, BindingPriority.Animation);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        UpdateHeaderTip(null);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -489,6 +521,7 @@ public sealed partial class EditorTimeline : TemplatedControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        UpdateHeaderTip(null);
         CancelGesture();
         if (_scalingSource is not null) _scalingSource.ScalingChanged -= OnScalingChanged;
         _scalingSource = null;
@@ -498,6 +531,9 @@ public sealed partial class EditorTimeline : TemplatedControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        if (_hoverPosition is { } point && (change.Property == FirstVisibleTrackProperty ||
+            change.Property == TrackHeaderWidthProperty || change.Property == SceneTrackProperty || change.Property == BoundsProperty))
+            UpdateHeaderTip(point);
         if (PlayheadLayerProperties.Contains(change.Property)) _playheadLayer?.InvalidateVisual();
         if (change.Property == SelectedKeyframesProperty) KeyframeSelectionChanged?.Invoke(this, EventArgs.Empty);
         if (change.Property == SceneTrackProperty) InvalidateLayers();
@@ -601,6 +637,7 @@ public sealed partial class EditorTimeline : TemplatedControl
     {
         SetCurrentValue(FirstVisibleTrackProperty, Math.Min(FirstVisibleTrack, Math.Max(0, _displayRows.Count - 1)));
         if (contentsChanged) BringTrackIntoView(FocusRow);
+        if (_hoverPosition is { } point) UpdateHeaderTip(point);
     }
 
     private void BringTrackIntoView(int row)
@@ -665,8 +702,9 @@ public sealed partial class EditorTimeline : TemplatedControl
         var zoom = CoerceZoom(pixelsPerFrame);
         var last = Math.Min(int.MaxValue, first + width / zoom);
         var span = last - first;
-        var minorStep = NiceStep(Math.Max(8 / zoom, span / (MaximumVisibleTickCount - 2)));
-        var majorStep = NiceStep(Math.Max(80 / zoom, minorStep * 5d));
+        double labelSpacing = Math.Clamp(width / 5, 36, 80);
+        var minorStep = NiceStep(Math.Max(labelSpacing / 10 / zoom, span / (MaximumVisibleTickCount - 2)));
+        var majorStep = minorStep * NiceStep(labelSpacing / (minorStep * zoom));
         var firstTick = (long)Math.Ceiling(first / minorStep) * minorStep;
         var ticks = new List<TimelineTick>();
         for (var frame = firstTick; frame <= last && ticks.Count < MaximumVisibleTickCount; frame += minorStep)
@@ -750,15 +788,33 @@ public sealed partial class EditorTimeline : TemplatedControl
             using (context.PushOpacity(.5)) context.DrawLine(gridPen, new Point(0, top + TrackRowHeight), new Point(width, top + TrackRowHeight));
             if (header > 0 && Foreground is { } textBrush)
             {
-                using (context.PushClip(new Rect(6, top, Math.Max(0, header - 12), TrackRowHeight)))
+                using (context.PushClip(new Rect(0, top, header, TrackRowHeight)))
                 {
                     if (IsRowFocused(track))
                     {
-                        using (context.PushOpacity(.28)) context.FillRectangle(activeBrush ?? textBrush, new Rect(6, top, Math.Max(0, header - 12), TrackRowHeight));
+                        using (context.PushOpacity(.18)) context.FillRectangle(activeBrush ?? textBrush, new Rect(0, top, header, TrackRowHeight));
+                        context.FillRectangle(activeBrush ?? textBrush, new Rect(0, top + 2, 2, TrackRowHeight - 4));
                     }
-                    var labelText = track.IsGroup ? (IsGroupExpanded(track.Group!.Key) ? "▾  " : "▸  ") + track.Label : track.Label;
-                    var label = new FormattedText(labelText, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, Math.Max(13, fontSize), textBrush);
-                    context.DrawText(label, new Point(track.IsChild ? 25 : 9, center - label.Height / 2));
+                    double left = track.IsChild ? 24 : track.IsGroup ? 20 : 8;
+                    if (track.IsGroup)
+                    {
+                        var caret = new Pen(textBrush, 1.3);
+                        if (IsGroupExpanded(track.Group!.Key))
+                        {
+                            context.DrawLine(caret, new Point(8, center - 2), new Point(11, center + 1));
+                            context.DrawLine(caret, new Point(11, center + 1), new Point(14, center - 2));
+                        }
+                        else
+                        {
+                            context.DrawLine(caret, new Point(9, center - 3), new Point(12, center));
+                            context.DrawLine(caret, new Point(12, center), new Point(9, center + 3));
+                        }
+                    }
+                    var label = new FormattedText(track.Label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, Math.Max(13, fontSize), textBrush)
+                    {
+                        MaxTextWidth = Math.Max(1, header - left - 5), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis
+                    };
+                    context.DrawText(label, new Point(left, center - label.Height / 2));
                 }
             }
             using (context.PushClip(new Rect(header, RulerHeight, Math.Max(0, width - header), Math.Max(0, height - RulerHeight))))

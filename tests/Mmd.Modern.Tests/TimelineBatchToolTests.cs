@@ -137,6 +137,19 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
     }, Token);
 
     [Theory]
+    [InlineData(.5)] [InlineData(3)] [InlineData(8)] [InlineData(12)] [InlineData(64)]
+    public void PannedNarrowRulerKeepsRegularNumberedTicksAtEachZoom(double zoom)
+    {
+        const double width = 160, startFrame = 731.25;
+        var ticks = EditorTimeline.BuildVisibleTicks(width, startFrame, zoom).Where(tick => tick.IsMajor).ToArray();
+        Assert.True(ticks.Length >= 2);
+        int interval = ticks[1].Frame - ticks[0].Frame;
+        Assert.True(interval > 0);
+        Assert.All(ticks, tick => Assert.InRange(tick.X, 0, width));
+        Assert.All(ticks.Zip(ticks.Skip(1)), pair => Assert.Equal(interval, pair.Second.Frame - pair.First.Frame));
+    }
+
+    [Theory]
     [InlineData("zh-CN", 1100, 720)] [InlineData("zh-CN", 1480, 960)]
     [InlineData("en", 1100, 720)] [InlineData("en", 1480, 960)]
     [InlineData("ja", 1100, 720)] [InlineData("ja", 1480, 960)]
@@ -148,7 +161,13 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
         {
             EditorLocalization.SetLanguage(language); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var tools = window.FindControl<Border>("TimelineBatchTools")!;
-            Assert.True(tools.Bounds.Width > 0); Assert.True(tools.Bounds.Height > 0);
+            Assert.True(tools.Bounds.Width > 0);
+            Assert.InRange(tools.Bounds.Height, 1, 80);
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            double rulerWidth = timeline.Bounds.Width - timeline.TrackHeaderWidth;
+            Assert.InRange(timeline.TrackHeaderWidth, 130, 168);
+            Assert.True(rulerWidth / timeline.PixelsPerFrame >= 50);
+            Assert.True(EditorTimeline.BuildVisibleTicks(rulerWidth, 0, timeline.PixelsPerFrame).Count(tick => tick.IsMajor) >= 3);
             foreach (string name in ToolNames)
             {
                 var control = window.FindControl<Control>(name)!;
@@ -156,6 +175,10 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
                 AssertInside(control, tools); AssertInside(control, window);
                 if (control is Button button) Assert.DoesNotContain("Mda.Text.", button.Content?.ToString() ?? "");
             }
+            shell.PixelsPerFrame = 12;
+            window.Width = width == 1100 ? 1480 : 1100;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal(12, timeline.PixelsPerFrame);
             Assert.Same(shell.Animation.SelectTimelineRangeCommand, window.FindControl<Button>("SelectTimelineRangeButton")!.Command);
             Assert.Same(shell.Animation.ClearTimelineSelectionCommand, window.FindControl<Button>("ClearTimelineSelectionButton")!.Command);
             Assert.False(viewport.HasChildWindow);

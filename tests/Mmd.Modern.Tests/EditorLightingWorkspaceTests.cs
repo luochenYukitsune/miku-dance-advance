@@ -40,6 +40,7 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.True(window.FindControl<TabControl>("InspectorPageTabs")!.IsEffectivelyVisible);
             var filter = window.FindControl<ComboBox>("OutlineFilter")!;
             Assert.Equal(0, filter.SelectedIndex);
+            Assert.False(window.FindControl<TextBox>("LightSearchInput")!.IsEffectivelyVisible);
             Assert.True(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
             filter.SelectedIndex = 1;
             Assert.Equal(EditorInspectorPage.Lighting, shell.InspectorPage);
@@ -178,7 +179,11 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             list.SelectedItem = inspector.ViewModel!.Lights.Single(light => light.Id == rim.Id);
             Assert.Equal(rim.Id, inspector.ViewModel.SelectedLight!.Id);
             var search = window.FindControl<TextBox>("LightSearchInput");
-            Assert.NotNull(search); search.Text = "RIM";
+            Assert.NotNull(search); Assert.True(search.IsEffectivelyVisible);
+            search.Text = "not a lamp";
+            Assert.True(inspector.ViewModel.IsOutlineSearchEmpty);
+            Assert.True(search.IsEffectivelyVisible);
+            search.Text = "RIM"; Assert.False(inspector.ViewModel.IsOutlineSearchEmpty);
             Assert.Equal(1, list.ItemCount);
             Assert.Equal(rim.Id, Assert.IsType<EditorNativeLightItem>(list.Items[0]).Id);
             Assert.Same(before, shell.Workspace.Session.Lighting);

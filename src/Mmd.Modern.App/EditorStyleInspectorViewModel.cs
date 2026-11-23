@@ -252,13 +252,14 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
     public EditorStyleInspectorChoice? ModelOverrideChoice => modelOverride ? options.FirstOrDefault(choice => choice.Reference == modelStyle) : null;
     public string ModelStylePlaceholder => modelOverride && modelStyle is { } retained
         ? Format("Mda.Text.Context.Inspector.Style.RetainedOption", retained.StableId)
-        : Text("Mda.Text.Context.Inspector.Style.InheritSelected");
+        : Text("Mda.Text.Layout.FollowProjectStyle");
     public bool IsModelInherited => modelSelected && !modelOverride;
     public string Status => status;
     public bool HasStatus => hasStatus;
     public string ModelStatus => modelStatus;
     public string Notice => notice;
     public bool HasNotice => hasNotice;
+    public bool HasInformationNotice => HasNotice && !HasMissingStyle;
     public string SelectedStyleSource => SelectedChoice?.SourceName ?? "";
     public string SelectedStyleSourceTag => SelectedChoice?.SourceTag ?? "";
     public string SelectedStyleAuthor => SelectedChoice?.Author ?? "";
@@ -508,7 +509,7 @@ public sealed class EditorStyleInspectorViewModel : INotifyPropertyChanged
             Changed(nameof(ModelStatus)); Changed(nameof(Notice)); Changed(nameof(HasNotice));
             Changed(nameof(MissingStyleId)); Changed(nameof(MissingStylePluginId));
             Changed(nameof(MissingStylePluginName)); Changed(nameof(MissingStyleCount));
-            Changed(nameof(HasMissingStyle)); Changed(nameof(HasMissingStylePlugin));
+            Changed(nameof(HasMissingStyle)); Changed(nameof(HasInformationNotice)); Changed(nameof(HasMissingStylePlugin));
             Changed(nameof(CanEnableMissingStylePlugin)); Changed(nameof(CanOpenStyleReplacementDialog));
             Changed(nameof(CanManagePlugins));
             NotifySelectedStyleMetadata();

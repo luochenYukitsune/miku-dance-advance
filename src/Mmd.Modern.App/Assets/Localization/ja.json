@@ -1678,5 +1678,8 @@
   "Mda.Text.Layout.ThreePoint": "三点照明を追加",
   "Mda.Text.Layout.ImportLights": "照明プリセットを読み込む…",
   "Mda.Text.Layout.Curve": "曲線",
-  "Mda.Text.Layout.Register": "登録"
+  "Mda.Text.Layout.Register": "登録",
+  "Mda.Text.Layout.ModelStyle": "モデルの画風",
+  "Mda.Text.Layout.FollowProjectStyle": "プロジェクトの画風を使用",
+  "Mda.Text.Layout.MaterialSettings": "材質設定"
 }

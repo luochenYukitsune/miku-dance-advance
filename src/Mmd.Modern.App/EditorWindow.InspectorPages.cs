@@ -256,7 +256,7 @@ public partial class EditorWindow
             shell.StopPlayback();
             shell.SynchronizePendingScrub();
             if (!CommitPendingInlineLighting()) return;
-            if (!await CheckPoseDraftsAsync()) return;
+            if (!await CheckPoseDraftsAsync(preserveModelDrafts: true)) return;
             bool applied = await EditorStyleReplacementDialog.ShowAsync(this, shell.Workspace, shell.PluginService);
             if (applied)
             {
@@ -287,7 +287,7 @@ public partial class EditorWindow
             shell.StopPlayback();
             shell.SynchronizePendingScrub();
             if (!CommitPendingInlineLighting()) return;
-            if (!await CheckPoseDraftsAsync()) return;
+            if (!await CheckPoseDraftsAsync(preserveModelDrafts: true)) return;
             if (shell.Workspace.SetGuessMaterialRoles(nextValue))
             {
                 string message = Text("Mda.Text.Context.Inspector.Style.GuessRolesUpdated");

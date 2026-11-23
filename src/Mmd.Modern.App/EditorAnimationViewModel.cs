@@ -238,7 +238,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             var next = (value ?? Array.Empty<KeyframeAddress>()).Where(address => IsVisibleAddress(authoredTrackMap, address)).Distinct().ToArray();
             if (selectedKeyframes.SequenceEqual(next)) return;
             selectedKeyframes = Array.AsReadOnly(next);
-            Changed(); Changed(nameof(TimelineSelectionSummary)); RefreshCommands(); NotifyHiddenSelection();
+            Changed(); Changed(nameof(TimelineSelectionSummary)); Changed(nameof(TimelineFooterSummary)); RefreshCommands(); NotifyHiddenSelection();
         }
     }
 
@@ -597,7 +597,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         RebuildTimelineGroups();
         // Publish the authored source before the projection so the timeline validates and cancels
         // gestures against real tracks, never against rows that are merely hidden.
-        Changed(nameof(Tracks)); Changed(nameof(HasTracks)); Changed(nameof(KeyframeSummary));
+        Changed(nameof(Tracks)); Changed(nameof(HasTracks)); Changed(nameof(KeyframeSummary)); Changed(nameof(TimelineFooterSummary));
         RebuildVisibleTracks();
     }
 
@@ -675,7 +675,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private void ClearBoneValues() { positionX = positionY = positionZ = rotationX = rotationY = rotationZ = null; sampledRotation = Quaternion.Identity; }
     private void NotifyContext()
     {
-        foreach (var name in new[] { nameof(ObjectId), nameof(HasActor), nameof(IsBoneSelected), nameof(IsMorphSelected), nameof(IsEmptySelection), nameof(HasEditableSelection), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(SelectedBoneIndex), nameof(SelectedMorphIndex), nameof(SelectedKeyframes), nameof(TimelineSelectionSummary) }) Changed(name);
+        foreach (var name in new[] { nameof(ObjectId), nameof(HasActor), nameof(IsBoneSelected), nameof(IsMorphSelected), nameof(IsEmptySelection), nameof(HasEditableSelection), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(SelectedBoneIndex), nameof(SelectedMorphIndex), nameof(SelectedKeyframes), nameof(TimelineSelectionSummary), nameof(TimelineFooterSummary) }) Changed(name);
         Changed(nameof(SelectedBoneIndices)); NotifyDraftAddresses(); RefreshCommands();
     }
     private void SetDraft(ref decimal? field, decimal? value, bool rotation = false, [CallerMemberName] string? property = null)
@@ -718,7 +718,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     private void RefreshLocalization()
     {
         RebuildTimelineGroups();
-        foreach (string name in new[] { nameof(Status), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(FrameSummary), nameof(KeyframeSummary), nameof(TimelineEmptyHint), nameof(HiddenSelectionSummary), nameof(TimelineSelectionSummary), nameof(TimelineRangeValidationMessage) }) Changed(name);
+        foreach (string name in new[] { nameof(Status), nameof(SelectionName), nameof(SelectionLabel), nameof(ModelContextLabel), nameof(FrameSummary), nameof(KeyframeSummary), nameof(TimelineEmptyHint), nameof(HiddenSelectionSummary), nameof(TimelineSelectionSummary), nameof(TimelineFooterSummary), nameof(TimelineRangeValidationMessage) }) Changed(name);
     }
     private readonly EditorDeferredPresentation presentation = new();
     /// <summary>Playback presentation: notifications raised while deferred wait for FlushPresentation.</summary>

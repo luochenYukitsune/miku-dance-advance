@@ -179,6 +179,11 @@ public sealed class TimelineModelGroupUiTests : IAsyncDisposable
             var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
             TimelineTrackHeaderEventArgs? invoked = null;
             timeline.TrackHeaderInvoked += (_, args) => invoked = args;
+            ToolTip.SetTip(timeline, "Help");
+            Move(window, timeline, pointer, new Point(30, At(0, 0).Y));
+            Assert.Equal(timeline.DisplayRows[0].Label, ToolTip.GetTip(timeline));
+            Move(window, timeline, pointer, At(5, 0));
+            Assert.Equal("Help", ToolTip.GetTip(timeline));
             Press(window, timeline, pointer, new Point(30, At(0, 0).Y));
             Press(window, timeline, pointer, new Point(30, At(0, 2).Y), KeyModifiers.Control);
             Assert.Same(source[1], invoked!.Track);
@@ -190,6 +195,35 @@ public sealed class TimelineModelGroupUiTests : IAsyncDisposable
             Assert.Equal(21, timeline.CurrentFrame);
             Assert.Empty(timeline.SelectedKeyframes);
             Assert.DoesNotContain(21u, timeline.DisplayRows[0].Frames);
+            return true;
+        }
+        finally { window.Close(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task ScrollingUnderAStationaryPointerShowsTheNewGroupName() => await session.Dispatch(() =>
+    {
+        var (window, timeline, _) = Editor();
+        try
+        {
+            timeline.Height = EditorTimeline.RulerHeight + EditorTimeline.TrackRowHeight;
+            window.UpdateLayout();
+            ToolTip.SetTip(timeline, "Help");
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            var point = new Point(30, At(0, 0).Y);
+            Move(window, timeline, pointer, point);
+            Assert.Equal(timeline.DisplayRows[0].Label, ToolTip.GetTip(timeline));
+
+            timeline.RaiseEvent(new PointerWheelEventArgs(timeline, pointer, window, timeline.TranslatePoint(point, window)!.Value, 3,
+                new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other), KeyModifiers.None, new Avalonia.Vector(0, -1)));
+            Assert.Equal(2, timeline.FirstVisibleTrack);
+            Assert.Equal(timeline.DisplayRows[2].Label, ToolTip.GetTip(timeline));
+            timeline.FirstVisibleTrack = 1;
+            Assert.Equal(timeline.DisplayRows[1].Label, ToolTip.GetTip(timeline));
+
+            Move(window, timeline, pointer, At(5, 0));
+            timeline.FirstVisibleTrack = 0;
+            Assert.Equal("Help", ToolTip.GetTip(timeline));
             return true;
         }
         finally { window.Close(); }

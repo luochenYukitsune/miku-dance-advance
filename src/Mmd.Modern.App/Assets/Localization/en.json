@@ -1126,7 +1126,7 @@
   "Mda.Text.TimelineBatch.End": "End Frame",
   "Mda.Text.TimelineBatch.SelectRange": "Select Range",
   "Mda.Text.TimelineBatch.ClearSelection": "Clear Selection",
-  "Mda.Text.TimelineBatch.Selected": "{0} keyframes selected",
+  "Mda.Text.TimelineBatch.Selected": "Selected keys: {0}",
   "Mda.Text.TimelineBatch.InvalidRange": "Enter a whole frame number between 0 and 2,147,483,647.",
   "Mda.Text.TimelineBatch.StartAfterEnd": "The start frame cannot be greater than the end frame.",
   "Mda.Text.TimelineBatch.RangeEmpty": "No keyframes found in this frame range.",
@@ -1678,5 +1678,8 @@
   "Mda.Text.Layout.ThreePoint": "Add three-point lighting",
   "Mda.Text.Layout.ImportLights": "Import lighting preset…",
   "Mda.Text.Layout.Curve": "Curve",
-  "Mda.Text.Layout.Register": "Register"
+  "Mda.Text.Layout.Register": "Register",
+  "Mda.Text.Layout.ModelStyle": "Model style",
+  "Mda.Text.Layout.FollowProjectStyle": "Use project style",
+  "Mda.Text.Layout.MaterialSettings": "Material settings"
 }

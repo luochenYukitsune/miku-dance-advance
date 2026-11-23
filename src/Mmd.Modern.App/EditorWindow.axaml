@@ -480,6 +480,7 @@
       <ResourceDictionary.MergedDictionaries><ResourceInclude Source="avares://Mmd.Modern.App/Assets/Icons/PhosphorRegular.axaml" /></ResourceDictionary.MergedDictionaries>
       <StreamGeometry x:Key="Mda.Icon.Undo">M 3,9 L 8.5,3.5 L 9.9,4.9 L 6.8,8 L 14.5,8 A 6,6 0 0 1 14.5,20 L 8,20 L 8,18 L 14.5,18 A 4,4 0 0 0 14.5,10 L 6.8,10 L 9.9,13.1 L 8.5,14.5 Z</StreamGeometry>
       <StreamGeometry x:Key="Mda.Icon.Redo">M 21,9 L 15.5,3.5 L 14.1,4.9 L 17.2,8 L 9.5,8 A 6,6 0 0 0 9.5,20 L 16,20 L 16,18 L 9.5,18 A 4,4 0 0 1 9.5,10 L 17.2,10 L 14.1,13.1 L 15.5,14.5 Z</StreamGeometry>
+      <StreamGeometry x:Key="Mda.Icon.ModelProperties">M 2,5 L 7,5 7,2 10,2 10,5 22,5 22,7 10,7 10,10 7,10 7,7 2,7 Z M 2,16 L 14,16 14,13 17,13 17,16 22,16 22,18 17,18 17,21 14,21 14,18 2,18 Z</StreamGeometry>
       <StreamGeometry x:Key="Mda.Icon.Minus">M 4,10.8 L 20,10.8 L 20,13.2 L 4,13.2 Z</StreamGeometry>
       <StreamGeometry x:Key="Mda.Icon.Plus">M 10.8,4 L 13.2,4 L 13.2,10.8 L 20,10.8 L 20,13.2 L 13.2,13.2 L 13.2,20 L 10.8,20 L 10.8,13.2 L 4,13.2 L 4,10.8 L 10.8,10.8 Z</StreamGeometry>
     </ResourceDictionary>
@@ -567,66 +568,94 @@
         <Border Name="LeftRailPanel" Classes="panel">
           <Border Name="TimelinePanel">
             <Grid RowDefinitions="Auto,Auto,*,32">
-              <Grid RowDefinitions="Auto,Auto" Margin="6,3">
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.1de9cb58bf0b}" Classes="section" VerticalAlignment="Center" />
-                  <Button Grid.Column="1" Name="LoadMotionButton" Classes="action" Content="{DynamicResource Mda.Text.f85f287978ca}" Command="{Binding ImportMotionCommand}" /></Grid>
-                <WrapPanel Grid.Row="1" IsVisible="{Binding IsAnimationInspector}">
-                  <ToggleButton Name="TimelineAllTracksToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.AllTracks}" IsChecked="{Binding Animation.IsTimelineAllTracks, Mode=OneWay}" Click="SelectTimelineAllTracks" />
-                  <ToggleButton Name="TimelineKeyedToggle" Classes="guide" Content="{DynamicResource Mda.Text.Timeline.KeyedOnly}" IsChecked="{Binding Animation.IsTimelineKeyedTracks, Mode=OneWay}" Click="SelectTimelineKeyedTracks" />
-                  <TextBlock Text="{Binding Animation.HiddenSelectionSummary}" IsVisible="{Binding Animation.HasHiddenSelectedKeyframes}" Classes="caption" VerticalAlignment="Center" />
-                </WrapPanel>
+              <Grid ColumnDefinitions="*,Auto" Margin="8,3,6,3">
+                <TextBlock Text="{DynamicResource Mda.Text.1de9cb58bf0b}" Classes="section" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Name="LoadMotionButton" Classes="action" Content="{DynamicResource Mda.Text.f85f287978ca}" Command="{Binding ImportMotionCommand}" />
               </Grid>
-          <WrapPanel Grid.Row="1" IsVisible="{Binding IsSceneInspector}" Margin="6,3">
-            <Button Name="TimelineRegisterCamera" Classes="action" Content="{DynamicResource Mda.Text.a619bd96a115}"
-                IsVisible="{Binding IsCameraInspector}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
-            <Button Name="TimelineRegisterMainLight" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}"
-                IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Command="{Binding SceneInspector.RegisterLightKeyframeCommand}" />
-          </WrapPanel>
-          <Border Grid.Row="1" Name="TimelineBatchTools" IsVisible="{Binding IsAnimationInspector}" Padding="6,0" BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
-            <StackPanel>
-              <WrapPanel>
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,3,12,3">
-                  <TextBlock Text="{DynamicResource Mda.Text.TimelineBatch.Start}" Classes="caption" VerticalAlignment="Center" />
-                  <TextBox Name="TimelineRangeStartInput" Classes="timelineRangeNumber" Width="56"
-                      Text="{Binding Animation.TimelineRangeStartText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
-                      AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.Start}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,3,12,3">
-                  <TextBlock Text="{DynamicResource Mda.Text.TimelineBatch.End}" Classes="caption" VerticalAlignment="Center" />
-                  <TextBox Name="TimelineRangeEndInput" Classes="timelineRangeNumber" Width="56"
-                      Text="{Binding Animation.TimelineRangeEndText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
-                      AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.End}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3,16,3">
-                  <Button Name="SelectTimelineRangeButton" Classes="action" Content="{DynamicResource Mda.Text.TimelineBatch.SelectRange}"
-                      Command="{Binding Animation.SelectTimelineRangeCommand}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
-                  <Button Name="ClearTimelineSelectionButton" Classes="action" Content="{DynamicResource Mda.Text.TimelineBatch.ClearSelection}"
-                      Command="{Binding Animation.ClearTimelineSelectionCommand}" />
-                </StackPanel>
-                <TextBlock Text="{Binding Animation.TimelineSelectionSummary}" Classes="caption" VerticalAlignment="Center"
-                    Margin="0,3,18,3" MaxWidth="240" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Animation.TimelineSelectionSummary}" />
-                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,3">
-                  <Button Name="CopyTimelineKeysButton" Classes="action" Content="{DynamicResource Mda.Text.63d90d977348}" Command="{Binding Animation.CopyKeyframesCommand}" />
-                  <Button Name="PasteTimelineKeysButton" Classes="action" Content="{DynamicResource Mda.Text.335179267471}" Command="{Binding Animation.PasteKeyframesCommand}" />
-                  <Button Name="DeleteTimelineKeysButton" Classes="action" Content="{DynamicResource Mda.Text.2f9daa828907}" Command="{Binding Animation.DeleteKeyframesCommand}" />
-                </StackPanel>
+              <WrapPanel Grid.Row="1" IsVisible="{Binding IsSceneInspector}" Margin="6,3">
+                <Button Name="TimelineRegisterCamera" Classes="action" Content="{DynamicResource Mda.Text.a619bd96a115}"
+                    IsVisible="{Binding IsCameraInspector}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
+                <Button Name="TimelineRegisterMainLight" Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}"
+                    IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Command="{Binding SceneInspector.RegisterLightKeyframeCommand}" />
               </WrapPanel>
-              <TextBlock Text="{Binding Animation.TimelineRangeValidationMessage}" Classes="caption" TextWrapping="Wrap"
-                  Foreground="{DynamicResource EditorErrorAccent}" Margin="0,0,0,5"
-                  IsVisible="{Binding Animation.TimelineRangeValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            </StackPanel>
-          </Border>
+              <Border Grid.Row="1" Name="TimelineBatchTools" IsVisible="{Binding IsAnimationInspector}" Padding="6,0,6,5"
+                      BorderBrush="{DynamicResource EditorBorder}" BorderThickness="0,0,0,1">
+                <Border.Styles>
+                  <Style Selector="Button.timelineAction">
+                    <Setter Property="Width" Value="26" /><Setter Property="Height" Value="26" />
+                    <Setter Property="MinWidth" Value="0" /><Setter Property="MinHeight" Value="0" />
+                    <Setter Property="Padding" Value="5" />
+                  </Style>
+                  <Style Selector="Button.timelineAction Path">
+                    <Setter Property="Width" Value="15" /><Setter Property="Height" Value="15" />
+                    <Setter Property="Stretch" Value="Uniform" /><Setter Property="StrokeThickness" Value="1.5" />
+                    <Setter Property="Stroke" Value="{DynamicResource EditorText}" />
+                  </Style>
+                  <Style Selector="Button.timelineAction:disabled Path">
+                    <Setter Property="Stroke" Value="{DynamicResource EditorDisabledText}" />
+                  </Style>
+                </Border.Styles>
+                <StackPanel Spacing="4">
+                  <WrapPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,8,0">
+                      <ToggleButton Name="TimelineAllTracksToggle" Classes="guide" Content="{DynamicResource Mda.Text.Context.Timeline.AllTracks}" IsChecked="{Binding Animation.IsTimelineAllTracks, Mode=OneWay}" Click="SelectTimelineAllTracks" />
+                      <ToggleButton Name="TimelineKeyedToggle" Classes="guide" Content="{DynamicResource Mda.Text.Timeline.KeyedOnly}" IsChecked="{Binding Animation.IsTimelineKeyedTracks, Mode=OneWay}" Click="SelectTimelineKeyedTracks" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button Name="CopyTimelineKeysButton" Classes="action timelineAction" Command="{Binding Animation.CopyKeyframesCommand}"
+                              ToolTip.Tip="{DynamicResource Mda.Text.63d90d977348}" AutomationProperties.Name="{DynamicResource Mda.Text.63d90d977348}">
+                        <Path Data="M6,3 L6,1 L15,1 L15,11 L13,11 M2,5 L11,5 L11,15 L2,15 Z" />
+                      </Button>
+                      <Button Name="PasteTimelineKeysButton" Classes="action timelineAction" Command="{Binding Animation.PasteKeyframesCommand}"
+                              ToolTip.Tip="{DynamicResource Mda.Text.335179267471}" AutomationProperties.Name="{DynamicResource Mda.Text.335179267471}">
+                        <Path Data="M5,3 L2,3 L2,15 L14,15 L14,3 L11,3 M5,1 L11,1 L11,5 L5,5 Z" />
+                      </Button>
+                      <Button Name="DeleteTimelineKeysButton" Classes="action timelineAction" Command="{Binding Animation.DeleteKeyframesCommand}"
+                              ToolTip.Tip="{DynamicResource Mda.Text.2f9daa828907}" AutomationProperties.Name="{DynamicResource Mda.Text.2f9daa828907}">
+                        <Path Data="M1,4 L15,4 M5,4 L5,2 L11,2 L11,4 M3,4 L4,15 L12,15 L13,4 M6,7 L6.5,12 M10,7 L9.5,12" />
+                      </Button>
+                    </StackPanel>
+                  </WrapPanel>
+                  <WrapPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,6,0">
+                      <TextBox Name="TimelineRangeStartInput" Classes="timelineRangeNumber" Width="49"
+                          Text="{Binding Animation.TimelineRangeStartText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
+                          AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.Start}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.Start}" />
+                      <TextBlock Text="–" Classes="caption" VerticalAlignment="Center" />
+                      <TextBox Name="TimelineRangeEndInput" Classes="timelineRangeNumber" Width="49"
+                          Text="{Binding Animation.TimelineRangeEndText, Mode=TwoWay}" IsEnabled="{Binding Animation.HasActor}"
+                          AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.End}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.End}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button Name="SelectTimelineRangeButton" Classes="action" Content="{DynamicResource Mda.Text.TimelineBatch.SelectRange}"
+                              Command="{Binding Animation.SelectTimelineRangeCommand}" ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.RangeTip}" />
+                      <Button Name="ClearTimelineSelectionButton" Classes="action timelineAction" Command="{Binding Animation.ClearTimelineSelectionCommand}"
+                              ToolTip.Tip="{DynamicResource Mda.Text.TimelineBatch.ClearSelection}" AutomationProperties.Name="{DynamicResource Mda.Text.TimelineBatch.ClearSelection}">
+                        <Path Data="M3,3 L13,13 M13,3 L3,13" />
+                      </Button>
+                    </StackPanel>
+                  </WrapPanel>
+                  <TextBlock Text="{Binding Animation.HiddenSelectionSummary}" IsVisible="{Binding Animation.HasHiddenSelectedKeyframes}" Classes="caption"
+                             TextWrapping="Wrap" ToolTip.Tip="{DynamicResource Mda.Text.Context.Timeline.HiddenSelectionTip}" />
+                  <TextBlock Text="{Binding Animation.TimelineRangeValidationMessage}" Classes="caption" TextWrapping="Wrap"
+                             Foreground="{DynamicResource EditorErrorAccent}" IsVisible="{Binding Animation.TimelineRangeValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+              </Border>
           <Grid Grid.Row="2">
-            <controls:EditorTimeline Name="SceneFrameTimeline" IsVisible="{Binding IsSceneInspector}" CurrentFrame="{Binding CurrentFrame}"
-                SceneTrack="{Binding SceneInspector.ActiveTimelineTrack}" TrackHeaderWidth="122"
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="0.49*" MaxWidth="168" /><ColumnDefinition Width="0.51*" />
+            </Grid.ColumnDefinitions>
+            <Border Name="TrackLabelMeasure" IsHitTestVisible="False" />
+            <controls:EditorTimeline Name="SceneFrameTimeline" Grid.ColumnSpan="2" IsVisible="{Binding IsSceneInspector}" CurrentFrame="{Binding CurrentFrame}"
+                SceneTrack="{Binding SceneInspector.ActiveTimelineTrack}" TrackHeaderWidth="{Binding #TrackLabelMeasure.Bounds.Width}"
                 PixelsPerFrame="{Binding PixelsPerFrame}" FirstVisibleFrame="{Binding FirstVisibleFrame}"
                 ScrubStarted="BeginTimelineScrub" ScrubEnded="EndTimelineScrub"
                 Background="{DynamicResource EditorPanelSurface}" Foreground="{DynamicResource EditorMuted}"
                 GridBrush="{DynamicResource EditorBorder}" PlayheadBrush="{DynamicResource EditorSelection}"
                 FontFamily="{DynamicResource EditorFont}" FontSize="12" />
-            <controls:EditorTimeline Name="FrameTimeline" IsVisible="{Binding IsAnimationInspector}" CurrentFrame="{Binding CurrentFrame}"
+            <controls:EditorTimeline Name="FrameTimeline" Grid.ColumnSpan="2" IsVisible="{Binding IsAnimationInspector}" CurrentFrame="{Binding CurrentFrame}"
                 PixelsPerFrame="{Binding PixelsPerFrame}" FirstVisibleFrame="{Binding FirstVisibleFrame}"
-                TrackHeaderWidth="122" Tracks="{Binding Animation.VisibleTracks}" FullTracks="{Binding Animation.Tracks}"
+                TrackHeaderWidth="{Binding #TrackLabelMeasure.Bounds.Width}" Tracks="{Binding Animation.VisibleTracks}" FullTracks="{Binding Animation.Tracks}"
                 Groups="{Binding Animation.TimelineGroups}" Drafts="{Binding Animation.TimelineDrafts}"
                 FocusedChannel="{Binding Animation.TimelineFocusedChannel}" TrackHeaderInvoked="SelectTimelineTrackHeader"
                 HasTracks="{Binding Animation.HasVisibleTracks}" FocusRow="{Binding Animation.TimelineFocusRow}"
@@ -636,13 +665,15 @@
                 GridBrush="{DynamicResource EditorBorder}" PlayheadBrush="{DynamicResource EditorSelection}"
                 FontFamily="{DynamicResource EditorFont}" FontSize="12"
                 ToolTip.Tip="{DynamicResource Mda.Text.401d419cc09d}" />
-            <Border IsHitTestVisible="False" IsVisible="{Binding IsAnimationInspector}"
-                VerticalAlignment="Top" HorizontalAlignment="Left" Margin="128,36,6,0">
+            <TextBlock Text="{DynamicResource Mda.Text.0c04098e48ab}" Classes="caption" Margin="8,3,4,0" VerticalAlignment="Top"
+                       IsHitTestVisible="False" TextTrimming="CharacterEllipsis" />
+            <Border Grid.Column="1" IsHitTestVisible="False" IsVisible="{Binding IsAnimationInspector}"
+                VerticalAlignment="Top" HorizontalAlignment="Left" Margin="6,36,6,0">
               <TextBlock Text="{Binding Animation.TimelineEmptyHint}" IsVisible="{Binding Animation.ShowTimelineEmptyHint}" Classes="caption" MaxWidth="520" TextWrapping="Wrap" />
             </Border>
           </Grid>
               <Grid Grid.Row="3" Margin="6,0" ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding Animation.KeyframeSummary}" IsVisible="{Binding IsAnimationInspector}" Classes="caption" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Animation.TimelineFooterSummary}" ToolTip.Tip="{Binding Animation.KeyframeSummary}" IsVisible="{Binding IsAnimationInspector}" Classes="caption" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                 <StackPanel IsVisible="{Binding IsSceneInspector}" VerticalAlignment="Center">
                   <TextBlock Text="{Binding SceneInspector.CameraKeyframeSummary}" IsVisible="{Binding IsCameraInspector}" Classes="caption" TextTrimming="CharacterEllipsis" />
                   <TextBlock Text="{Binding SceneInspector.LightKeyframeSummary}" IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Classes="caption" TextTrimming="CharacterEllipsis" />
@@ -744,11 +775,13 @@
                 <ToggleButton Grid.Column="1" Name="AnimationDockToggle" IsChecked="True" Classes="guide" Content="{DynamicResource Mda.Text.Layout.AnimationDock}" Click="ToggleDockFromTransport" />
               </Grid>
             </Border>
-            <Grid Grid.Row="4" Name="AnimationDock" Height="158" RowDefinitions="Auto,*" SizeChanged="ResizeAnimationDock">
+            <Grid Grid.Row="4" Name="AnimationDock" Height="164" RowDefinitions="Auto,*" SizeChanged="ResizeAnimationDock">
               <TabControl Name="AnimationDockTabs" Classes="inspectorPages" Height="28" MinHeight="0" SelectionChanged="SelectAnimationDockTab">
                 <TabItem Header="{DynamicResource Mda.Text.Layout.Curve}" /><TabItem Name="MorphDockTab" Header="{DynamicResource Mda.Text.Layout.Morphs}" /><TabItem Header="{DynamicResource Mda.Text.Layout.Values}" />
               </TabControl>
-              <Grid Name="AnimationDockColumns" Grid.Row="1" ColumnDefinitions="148,*,230">
+              <Grid Name="AnimationDockColumns" Grid.Row="1" ColumnDefinitions="145,*,270">
+                <Border Name="CurveDockDivider" Width="1" HorizontalAlignment="Right" Margin="0,6" Background="{DynamicResource EditorBorder}" IsHitTestVisible="False" />
+                <Border Name="MorphDockDivider" Grid.Column="1" Width="1" HorizontalAlignment="Right" Margin="0,6" Background="{DynamicResource EditorBorder}" IsHitTestVisible="False" />
                 <Grid Name="CurveDockPanel" Margin="4,2" RowDefinitions="Auto,*">
                   <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.Curve}" Classes="group" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Classes="action" Content="…" AutomationProperties.Name="{DynamicResource Mda.Text.d20383c88bb0}" ToolTip.Tip="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /></Grid>
@@ -764,15 +797,25 @@
                   </Grid>
                 </Grid>
                 <local:EditorMorphDock Name="MorphDockPanel" Grid.Column="1" />
-              <Grid Name="StandardSelectionInspector" Grid.Column="2" RowDefinitions="Auto,*">
-                <Border Classes="panelHeader"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="InspectorTitle" Text="{Binding InspectorTitle}" TextTrimming="CharacterEllipsis" Classes="group" VerticalAlignment="Center" /><Button Name="RegisterKeyframeButton" Grid.Column="1" Classes="action" Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" Command="{Binding Animation.RegisterPoseCommand}" IsVisible="{Binding IsAnimationInspector}" /><Button Grid.Column="1" Content="{DynamicResource Mda.Text.c6550984b1e3}" Command="{Binding SelectAnimationContextCommand}" IsVisible="{Binding IsSceneInspector}" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" /></Grid></Border>
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                  <Grid Margin="5,2">
-                    <Border IsVisible="{Binding IsAnimationInspector}"><local:EditorAnimationInspector Name="AnimationInspector" DataContext="{Binding Animation}" /></Border>
-                    <Border IsVisible="{Binding IsSceneInspector}"><local:EditorSceneInspector DataContext="{Binding SceneInspector}" /></Border>
+                <Grid Name="StandardSelectionInspector" Grid.Column="2" RowDefinitions="Auto,*" Margin="5,0,5,0">
+                  <Grid IsVisible="{Binding IsSceneInspector}" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" Margin="0,2">
+                    <TextBlock Name="InspectorTitle" Text="{Binding InspectorTitle}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1" Classes="action icon" Command="{Binding SceneInspector.RevertDraftCommand}" IsVisible="{Binding IsCameraInspector}"
+                            ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" AutomationProperties.Name="{DynamicResource Mda.Text.e0534b8a4e46}">
+                      <PathIcon Data="{StaticResource Phosphor.arrows-clockwise}" Width="14" Height="14" />
+                    </Button>
+                    <Button Name="RegisterCameraKeyframeButton" Grid.Column="2" Classes="action" IsVisible="{Binding IsCameraInspector}"
+                            Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.a619bd96a115}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
+                    <Button Grid.Column="3" Classes="action" Content="{DynamicResource Mda.Text.c6550984b1e3}"
+                            Command="{Binding SelectAnimationContextCommand}" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" />
                   </Grid>
-                </ScrollViewer>
-              </Grid>
+                  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                      <Border IsVisible="{Binding IsAnimationInspector}"><local:EditorAnimationInspector Name="AnimationInspector" DataContext="{Binding Animation}" /></Border>
+                      <Border IsVisible="{Binding IsSceneInspector}"><local:EditorSceneInspector DataContext="{Binding SceneInspector}" /></Border>
+                    </Grid>
+                  </ScrollViewer>
+                </Grid>
               </Grid>
             </Grid>
           </Grid>
@@ -805,63 +848,48 @@
                   <ListBoxItem Name="OutlineTrackLight"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.TrackLight}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.f23a01a41c32}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
                 </ListBox>
                 <Border Name="OutlineAdditionalLights">
-            <Grid Name="LightBrowserPanel" RowDefinitions="Auto,Auto,Auto" x:DataType="local:EditorLightingViewModel" Margin="8,0,8,8">
-              <TextBox Name="LightSearchInput" Classes="editorSearch" Text="{Binding SearchText, Mode=TwoWay}"
+            <Grid Name="LightBrowserPanel" RowDefinitions="Auto,Auto,Auto" x:DataType="local:EditorLightingViewModel" Margin="8,2,8,4">
+              <TextBox Name="LightSearchInput" Classes="editorSearch" IsVisible="{Binding HasOutlineLights}" Text="{Binding SearchText, Mode=TwoWay}"
                        Watermark="{DynamicResource Mda.Text.Context.Lighting.Search}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Search}" />
-              <Grid Grid.Row="1" Margin="0,8,0,0">
-                <ListBox Name="WorkspaceLightList" ItemsSource="{Binding BrowserRows}" SelectionMode="Multiple" SelectionChanged="SelectBrowserLights"
+              <Grid Grid.Row="1" Margin="0,3,0,0">
+                <ListBox ToolTip.Tip="{Binding SelectionHint}" Name="WorkspaceLightList" ItemsSource="{Binding BrowserRows}" SelectionMode="Multiple" SelectionChanged="SelectBrowserLights"
                          Background="Transparent" BorderThickness="0" AutomationProperties.Name="{DynamicResource Mda.Text.3b579010a041}">
                   <ListBox.DataTemplates>
-                  <DataTemplate DataType="{x:Type local:EditorNativeLightItem}" x:DataType="local:EditorNativeLightItem">
-                    <Grid ColumnDefinitions="Auto,Auto,*" MinHeight="36">
-                      <Border Width="14" IsVisible="{Binding IsGrouped}" />
-                      <CheckBox Grid.Column="1" Tag="enabled" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitBrowserLight" Margin="0,0,6,0"
-                                AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{DynamicResource Mda.Text.0d6601d54d15}" />
-                      <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
-                        <TextBlock Text="{Binding TypeLabel}" Classes="caption" />
-                      </StackPanel>
-                    </Grid>
-                  </DataTemplate>
-                  <DataTemplate DataType="{x:Type local:EditorLightGroupItem}" x:DataType="local:EditorLightGroupItem">
-                    <Grid ColumnDefinitions="Auto,*" MinHeight="36">
-                      <CheckBox Tag="enabled" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitBrowserLight" Margin="0,0,6,0"
-                                AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{DynamicResource Mda.Text.0d6601d54d15}" />
-                      <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
-                        <TextBlock Text="{Binding TypeLabel}" Classes="caption" />
-                      </StackPanel>
-                    </Grid>
-                  </DataTemplate>
+                    <DataTemplate DataType="{x:Type local:EditorNativeLightItem}" x:DataType="local:EditorNativeLightItem">
+                      <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="5" MinHeight="26">
+                        <Border Width="9" IsVisible="{Binding IsGrouped}" />
+                        <CheckBox Grid.Column="1" Tag="enabled" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitBrowserLight"
+                                  AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{DynamicResource Mda.Text.0d6601d54d15}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip.Tip="{Binding Name}" />
+                        <TextBlock Grid.Column="3" Text="{Binding TypeLabel}" Classes="caption" VerticalAlignment="Center" />
+                      </Grid>
+                    </DataTemplate>
+                    <DataTemplate DataType="{x:Type local:EditorLightGroupItem}" x:DataType="local:EditorLightGroupItem">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="5" MinHeight="26">
+                        <CheckBox Tag="enabled" IsChecked="{Binding Enabled, Mode=TwoWay}" Click="CommitBrowserLight"
+                                  AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{DynamicResource Mda.Text.0d6601d54d15}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip.Tip="{Binding Name}" />
+                        <TextBlock Grid.Column="2" Text="{Binding TypeLabel}" Classes="caption" VerticalAlignment="Center" />
+                      </Grid>
+                    </DataTemplate>
                   </ListBox.DataTemplates>
                 </ListBox>
-                <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.EmptySearch}" IsVisible="{Binding !HasBrowserRows}"
+                <TextBlock Text="{DynamicResource Mda.Text.Context.Lighting.EmptySearch}" IsVisible="{Binding IsOutlineSearchEmpty}"
                            Classes="caption" Margin="6,12" TextWrapping="Wrap" />
               </Grid>
               <StackPanel Grid.Row="2" Margin="4,8,0,0" Spacing="6">
                 <TextBlock Name="LightBrowserValidation" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}"
                            Classes="caption" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                <TextBlock Text="{Binding LightCountSummary}" Classes="caption" />
-                <TextBlock Text="{Binding SelectionHint}" Classes="caption" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding LightCountSummary}" IsVisible="{Binding HasOutlineLights}" Classes="caption" />
               </StackPanel>
             </Grid>
                 </Border>
               </StackPanel></ScrollViewer>
               <GridSplitter Name="OutlineSplitter" Grid.Row="1" ResizeDirection="Rows" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" />
               <Grid Grid.Row="2" RowDefinitions="Auto,Auto,*">
-            <Border Name="ModelSelectionHeader" IsVisible="{Binding !IsModernLightingPage}" Classes="panelHeader secondaryBar" Padding="10,8" MinHeight="64">
-              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="6" ColumnSpacing="8">
-                <TextBlock Text="{DynamicResource Mda.Text.Context.ReplaceModel.Current}" Classes="caption"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <Button Name="InspectorModelPropertiesButton" Classes="action" Content="{DynamicResource Mda.Text.Ux.Inspector.ModelPropertiesShort}"
-                          Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}" Height="22" MinHeight="20" FontSize="12" Padding="7,0"
-                          ToolTip.Tip="{DynamicResource Mda.Text.814c34f6f2d1}" AutomationProperties.Name="{DynamicResource Mda.Text.814c34f6f2d1}" />
-                  <Button Name="InspectorReplaceModelButton" Classes="action" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
-                          Command="{Binding Browser.ReplaceModelCommand}" IsEnabled="{Binding Browser.CanReplaceModel}" Height="22" MinHeight="20" FontSize="12" Padding="7,0"
-                          ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
-                </StackPanel>
-                <ComboBox Name="CurrentModelSelector" Grid.Row="1" Grid.ColumnSpan="2" ItemsSource="{Binding Browser.Models}"
+            <Border Name="ModelSelectionHeader" IsVisible="{Binding !IsLightingPage}" Classes="panelHeader secondaryBar" Padding="8,4">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                <ComboBox Name="CurrentModelSelector" Grid.Column="0" PlaceholderText="{DynamicResource Mda.Text.Context.ReplaceModel.Current}" ItemsSource="{Binding Browser.Models}"
                           SelectedItem="{Binding Browser.SelectedModel, Mode=TwoWay}" IsEnabled="{Binding Browser.HasModels}"
                           HorizontalAlignment="Stretch" MinWidth="0" ToolTip.Tip="{Binding Browser.SelectedModel.SourcePath}"
                           AutomationProperties.Name="{DynamicResource Mda.Text.Context.ReplaceModel.Current}">
@@ -869,12 +897,22 @@
                     <TextBlock Text="{Binding SelectionLabel}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourcePath}" />
                   </DataTemplate></ComboBox.ItemTemplate>
                 </ComboBox>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                  <Button Name="InspectorModelPropertiesButton" Classes="action icon" Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}"
+                          ToolTip.Tip="{DynamicResource Mda.Text.814c34f6f2d1}" AutomationProperties.Name="{DynamicResource Mda.Text.814c34f6f2d1}">
+                    <PathIcon Data="{StaticResource Mda.Icon.ModelProperties}" Width="14" Height="14" />
+                  </Button>
+                  <Button Name="InspectorReplaceModelButton" Classes="action" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
+                          Command="{Binding Browser.ReplaceModelCommand}" IsEnabled="{Binding Browser.CanReplaceModel}" Height="22" MinHeight="20" FontSize="12" Padding="7,0"
+                          ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
+                </StackPanel>
               </Grid>
             </Border>
             <!-- Index zero remains reserved for previously saved inspector state. -->
             <TabControl Name="InspectorPageTabs" Grid.Row="1" Classes="inspectorPages" Height="32" MinHeight="0" SelectedIndex="{Binding RightInspectorPageIndex, Mode=OneWay}"
                         SelectionChanged="SelectInspectorPage"
                         AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.TabGroup}">
+              <TabControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate></TabControl.ItemsPanel>
               <TabControl.Styles>
                 <Style Selector="TabItem#StyleOrMmeTab"><Setter Property="Header" Value="{DynamicResource Mda.Text.Context.Inspector.Tab.Style}" /></Style>
                 <Style Selector="TabItem#StyleOrMmeTab.classic"><Setter Property="Header" Value="MME / Toon" /></Style>
@@ -897,20 +935,19 @@
                     </StackPanel>
                   </Border>
                   <StackPanel Spacing="8" IsVisible="{Binding StyleInspector.IsModernEngine}">
-                    <Border Classes="parameterHeader">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                        <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Title}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <Button Name="StyleManagePluginsButton" Grid.Column="1" Classes="action"
-                                Content="{DynamicResource Mda.Text.Ux.Inspector.Style.ManagePlugins}"
-                                Click="OpenPlugins" IsEnabled="{Binding StyleInspector.CanManagePlugins}"
-                                Height="22" MinHeight="20" FontSize="12" Padding="7,0" VerticalAlignment="Center"
-                                ToolTip.Tip="{DynamicResource Mda.Text.Plugins.Title}" />
-                      </Grid>
-                    </Border>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Title}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                      <Button Name="StyleManagePluginsButton" Grid.Column="1" Classes="action"
+                              Content="{DynamicResource Mda.Text.Ux.Inspector.Style.ManagePlugins}"
+                              Click="OpenPlugins" IsEnabled="{Binding StyleInspector.CanManagePlugins}"
+                              Height="22" MinHeight="20" FontSize="12" Padding="7,0" VerticalAlignment="Center"
+                              ToolTip.Tip="{DynamicResource Mda.Text.Plugins.Title}" />
+                    </Grid>
                     <ComboBox Name="ProjectDefaultStyleBox" ItemsSource="{Binding StyleInspector.Options}"
-                              SelectedItem="{Binding StyleInspector.SelectedChoice, Mode=TwoWay}"
-                              SelectionChanged="CommitProjectDefaultStyle" IsEnabled="{Binding StyleInspector.CanEdit}"
-                              AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Style.Title}">
+                            SelectedItem="{Binding StyleInspector.SelectedChoice, Mode=TwoWay}"
+                            SelectionChanged="CommitProjectDefaultStyle" IsEnabled="{Binding StyleInspector.CanEdit}"
+                            ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Style.Hint}"
+                            AutomationProperties.Name="{DynamicResource Mda.Text.Context.Inspector.Style.Title}">
                       <ComboBox.ItemTemplate>
                         <DataTemplate x:DataType="local:EditorStyleInspectorChoice">
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -923,7 +960,6 @@
                         </DataTemplate>
                       </ComboBox.ItemTemplate>
                     </ComboBox>
-                    <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.Hint}" Classes="caption" TextWrapping="Wrap" />
                     <Border Background="{DynamicResource EditorInputSurface}" BorderBrush="{DynamicResource MdaDanger}" BorderThickness="1" CornerRadius="4" Padding="10"
                             IsVisible="{Binding StyleInspector.HasMissingStyle}">
                       <StackPanel Spacing="8">
@@ -938,19 +974,8 @@
                                 HorizontalAlignment="Stretch" />
                       </StackPanel>
                     </Border>
-                    <StackPanel IsVisible="{Binding !StyleInspector.HasMissingStyle}">
-                      <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasNotice}" />
-                    </StackPanel>
-                    <StackPanel Spacing="2">
-                      <CheckBox Name="GuessMaterialRolesCheckBox" IsChecked="{Binding StyleInspector.GuessMaterialRoles, Mode=OneWay}"
-                                Click="ToggleGuessMaterialRoles" IsEnabled="{Binding StyleInspector.CanEditGuessMaterialRoles}"
-                                ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}">
-                        <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesLabel}" TextWrapping="Wrap" />
-                      </CheckBox>
-                      <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}" Classes="caption" TextWrapping="Wrap" />
-                    </StackPanel>
-                    <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.ModelScope}" Classes="group" /></Border>
-                    <TextBlock Text="{Binding StyleInspector.ModelStatus}" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StyleInspector.Notice}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasInformationNotice}" />
+                    <TextBlock Margin="0,4,0,0" Text="{DynamicResource Mda.Text.Layout.ModelStyle}" Classes="group" />
                     <StackPanel Spacing="6" IsVisible="{Binding StyleInspector.HasSelectedModel}">
                       <ComboBox Name="ModelStyleOverrideBox" ItemsSource="{Binding StyleInspector.Options}"
                               SelectedItem="{Binding StyleInspector.ModelOverrideChoice, Mode=OneWay}"
@@ -961,15 +986,27 @@
                           <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
                         </DataTemplate></ComboBox.ItemTemplate>
                       </ComboBox>
-                      <Button Name="StyleModelPropertiesButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenModelProperties}"
-                              Click="OpenModelMaterialProperties" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" HorizontalAlignment="Stretch" />
                       <Button Name="InheritSelectedModelStyleButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.InheritSelected}"
                               Click="InheritSelectedModelStyle" IsEnabled="{Binding StyleInspector.CanInheritSelectedModelStyle}" IsVisible="{Binding !StyleInspector.IsModelInherited}" HorizontalAlignment="Stretch" />
                     </StackPanel>
+                    <TextBlock Text="{Binding StyleInspector.ModelStatus}" Classes="caption" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding StyleInspector.Status}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding StyleInspector.HasStatus}" />
+                    <Expander Name="StyleMaterialSettings" Classes="editorAdvanced" IsExpanded="False"
+                              Header="{DynamicResource Mda.Text.Layout.MaterialSettings}" HorizontalContentAlignment="Stretch">
+                      <StackPanel Spacing="8" Margin="0,6,0,2">
+                        <StackPanel Spacing="2">
+                          <CheckBox Name="GuessMaterialRolesCheckBox" IsChecked="{Binding StyleInspector.GuessMaterialRoles, Mode=OneWay}"
+                                    Click="ToggleGuessMaterialRoles" IsEnabled="{Binding StyleInspector.CanEditGuessMaterialRoles}"
+                                    ToolTip.Tip="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}">
+                            <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesLabel}" TextWrapping="Wrap" />
+                          </CheckBox>
+                          <TextBlock Text="{DynamicResource Mda.Text.Context.Inspector.Style.GuessRolesHint}" Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Name="StyleModelPropertiesButton" Classes="action" Content="{DynamicResource Mda.Text.Context.Inspector.Style.OpenModelProperties}"
+                                Click="OpenModelMaterialProperties" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" HorizontalAlignment="Stretch" />
+                      </StackPanel>
+                    </Expander>
                     <StackPanel Spacing="2" IsVisible="{Binding StyleInspector.HasSelectedStyleMetadata}">
-                      <TextBlock Name="SelectedStyleMetaSummaryText" Text="{Binding StyleInspector.SelectedStyleMetaSummary}"
-                                 Classes="caption" TextTrimming="CharacterEllipsis" />
                       <Expander Name="StyleMetadataExpander" Classes="editorAdvanced" IsExpanded="False"
                                 Header="{DynamicResource Mda.Text.Context.Inspector.Style.InfoHeader}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

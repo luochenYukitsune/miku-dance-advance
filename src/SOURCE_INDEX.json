@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-23T19:26:24.2180952Z",
+    "generatedAtUtc":  "2026-11-23T19:54:41.9753258Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -1620,8 +1620,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  57633,
-                      "sha256":  "a3f0c5c9154db08c12048c6e652bb99bd98862f1a2e59981d964102cd64f817c",
+                      "bytes":  60339,
+                      "sha256":  "668cc6d889c5e7c5d41902a11328f2c8891754c52509f67461c788b3fd0f44dc",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1737,8 +1737,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  46845,
-                      "sha256":  "cd1c6bd2a6432b40a88cae1952a509c74b50ed1359613b65835bb7da2ba84a2f",
+                      "bytes":  46987,
+                      "sha256":  "18143b20023324614b422d66ee9225993b05a74d12095374f2ece0982d71fb0d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1789,8 +1789,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4414,
-                      "sha256":  "6c9491e1105950b372099c8a54dbf0e7f92aa5ba6ddfc34d743d128f434b291b",
+                      "bytes":  4532,
+                      "sha256":  "a939c8bf0aee0f7aaab41a7157a72088eb07a5a3c80c680b89bdbe3ddeb4229a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2322,8 +2322,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  39013,
-                      "sha256":  "c6623bc0c4bb03446b20e6841d43ea875dec461a12aca46bec6877d8142f4f45",
+                      "bytes":  39087,
+                      "sha256":  "566a4163f07e1f00f735120a76616205f70523f81267e2d465a7f110523f6b58",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2348,8 +2348,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  22705,
-                      "sha256":  "461e7f4896e6b6710c3c6d7441b363f88e649c31c4a6401bb63f53445a18f3db",
+                      "bytes":  22900,
+                      "sha256":  "ccc77666e50c45ea3d57760cbc7cca2990271bb91e574636e5f6e70b93ed19e2",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3245,8 +3245,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  216,
-                      "sha256":  "8d329f41d5f6d95770278c8eb8b3fda1d8d521439e70bab162ef0d7057e448cd",
+                      "bytes":  608,
+                      "sha256":  "9a89272d2ff074b671159b91f5bc5d458ccd7278b0ba3aab0321b381a804c2d0",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3336,8 +3336,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11336,
-                      "sha256":  "3e5d7e673bf4107e62291a58631172c7f10aa8b5bccf946f5fcd73c4fad814e5",
+                      "bytes":  11380,
+                      "sha256":  "29ce983ae8377ba20ad1a03c8178cea37d44328dc8dd9a56479eb07ea4f6fa38",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3453,8 +3453,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  31420,
-                      "sha256":  "aafcf6bdf61ad48b9979b3cfabc2c5bd14751eac6c927a152691d7598e56eabc",
+                      "bytes":  31516,
+                      "sha256":  "e9d0ebd9ab825ea9a522ee577b7670aca2a3cd3bb18a6061225084e7a7aab1eb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3596,8 +3596,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  8511,
-                      "sha256":  "4d79ef585cf94fba1b70159f688c452c703e1f1c327e049b5870652417495117",
+                      "bytes":  8709,
+                      "sha256":  "6af2f1a6facb33320521f73ce6044c45ca70e8c1f0072060b7ad82ca9809cc6f",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3739,8 +3739,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15314,
-                      "sha256":  "6ef6e374554a5de187f33f22afed1a66ea59857f672ece27916c68521ea6d84c",
+                      "bytes":  15364,
+                      "sha256":  "635863a178651a01f7200ae798d3a4ed3a2c4c2a6e604ea780153d3cb34257c5",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3778,8 +3778,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  22702,
-                      "sha256":  "69b607429cbeace04f1c4510b5f9555e5a574dcf0143e378e10c03d5d6e80686",
+                      "bytes":  23260,
+                      "sha256":  "3eead311cc862395eac0db938ff5da6404517096953fba0c57b538b56999fcb0",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17902,8 +17902,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  21248,
-                      "sha256":  "387f2b4e26200c3ce890452b293a373ee5522fcca8545734202fbd824a63fc9b",
+                      "bytes":  21616,
+                      "sha256":  "0a312ea7aa786b92939ec92c0d9fd23e4485ab4c7ec9b11001325c74964f2240",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -18094,8 +18094,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  63101,
-                      "sha256":  "38ebd607683e946c8d4f5d8f0e159604c5b2c33baf14d625724497b1bc732edb",
+                      "bytes":  67099,
+                      "sha256":  "93c1988f8e25fc4a62d973f04a597ab20dd2722ca8ff362f12f8ae85e0196937",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21710,8 +21710,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14476,
-                      "sha256":  "17ee89772728397a37d03a7210750f77868538baf0844111068cc77fcd0cb171",
+                      "bytes":  15823,
+                      "sha256":  "b351f749062f48bfadc047ef00962a486356f0c4565462e69867162f5ec3eb31",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21726,8 +21726,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  16878,
-                      "sha256":  "8737266e608fa5134957b20a06bacbd39991924fd97f3f619c0916a529cf260c",
+                      "bytes":  18658,
+                      "sha256":  "b3b663c456066449ed6df001ac29303c862583cd7607ee885d236cace71e39b1",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -22078,8 +22078,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  16277,
-                      "sha256":  "5ff6d4853b655633dec8fe6a971dc2d0eadb48caaa3f05ada7e7a84a5db88813",
+                      "bytes":  20312,
+                      "sha256":  "b552f7598467906052a635c311700e14447570149e9fb0eaf5cffd108a4738cb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -22094,8 +22094,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11139,
-                      "sha256":  "8fd71e074036a68e1e44ad9ef3bcf632a948c00f66750d137e76efc7af8ce273",
+                      "bytes":  12513,
+                      "sha256":  "2a2b90d1ab330943e76c5a3047c3d13d46f46647b0f29eefd654ed1102bc22ab",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -23880,16 +23880,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  134402,
-                                "sha256":  "ee782272003a4e35b1ef7c31c21b7de5bd42a0e7d230adf1665217f921207c9f"
+                                "bytes":  134568,
+                                "sha256":  "6efe7b2356fec74495e5193cd2fd1e825f8b985316674f45e6ef5f087e9878bf"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  169506,
-                                "sha256":  "2ad95aa5cd4b3d605aed86bf1cd5710fe7bf7bf792ba8990b1bbdabee62d147e"
+                                "bytes":  169697,
+                                "sha256":  "d8bc606530fc6ea2b54aeb71a63dee0f32467612c9672cf4cc8a0c9de01c5750"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
@@ -23912,8 +23912,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  129637,
-                                "sha256":  "a6ede0d6d07d02d4daf089f39daa03efff77c1f93aebe1535aa329272143a34b"
+                                "bytes":  129804,
+                                "sha256":  "94f6cf1fb66c8f273a50b5c8d35ef8f5e1efe390467e1996ee5446a04bd14a57"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -23928,8 +23928,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  6916,
-                                "sha256":  "0f6a1a714f25bda0fae96fad7de4e802fc8a388ff6c16882c1c884e98b141709"
+                                "bytes":  8130,
+                                "sha256":  "1aa4bd499c2c0f6540017173b3faad63c14e5b7b418dba0f278bfc293930a672"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorDialogStyles.axaml",
@@ -24048,8 +24048,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  7989,
-                                "sha256":  "b2ce03c5254e619a3e1d3151901e0ca668ceb4aa285184c52d7ea0fb96d17d43"
+                                "bytes":  7107,
+                                "sha256":  "ccb0847e181f73e7b23361c302bca24b2cc0519912cf2da2fadbac2f610fa702"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorStartupWindow.axaml",
@@ -24064,8 +24064,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  122518,
-                                "sha256":  "ce79aac3655606e2df314e31480bf29e6cded5cb2ae5e266968f0460d0f50b4e"
+                                "bytes":  125813,
+                                "sha256":  "3a63c93433a893fa9060c9cd9550f0e02b8414d7e789b3e58ad75d2fd62503e5"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",

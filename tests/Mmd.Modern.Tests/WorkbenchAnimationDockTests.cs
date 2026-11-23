@@ -128,6 +128,69 @@ public sealed class WorkbenchAnimationDockTests : IAsyncDisposable
         return true;
     }, Token);
 
+    [Theory]
+    [InlineData("zh-CN")] [InlineData("en")] [InlineData("ja")]
+    public async Task BoneAndCameraFieldsFitTheValuesDockWithoutScrolling(string language) => await session.Dispatch(() =>
+    {
+        var (window, shell, _) = Editor();
+        string previous = EditorLocalization.CurrentLanguage;
+        try
+        {
+            EditorLocalization.SetLanguage(language);
+            var dock = window.FindControl<Grid>("StandardSelectionInspector")!;
+            foreach (int width in new[] { 1480, 1100 })
+            {
+                shell.SceneSelectionIndex = -1;
+                shell.Animation.SelectTimelineKeys([KeyframeAddress.Bone("root", 3)]);
+                window.Width = width; window.Height = width == 1480 ? 940 : 720; Flush(window);
+                if (width == 1100) window.FindControl<TabControl>("AnimationDockTabs")!.SelectedIndex = 2;
+                Flush(window);
+                CheckControls("BonePositionX", "BonePositionZ", "BoneRotationZ", "CopyPoseButton", "MirrorPoseButton",
+                    "RegisterKeyframeButton", "ResetAnimationPoseButton");
+                var keyTools = dock.GetVisualDescendants().OfType<ToggleButton>().Single(control => control.Name == "SelectedKeyToolsToggle");
+                Click(window, keyTools);
+                CheckControls("MoveAnimationKeysFrame", "MoveAnimationKeysButton");
+                Click(window, keyTools);
+                Capture("pose");
+
+                shell.SceneSelectionIndex = 1; Flush(window);
+                CheckControls("CameraCenterX", "CameraCenterZ", "CameraRotationZ", "CameraDistance", "CameraFov",
+                    "CameraProjection", "CameraFovSlider", "RegisterCameraKeyframeButton");
+                var projection = dock.GetVisualDescendants().OfType<ComboBox>().Single(control => control.Name == "CameraProjection");
+                Assert.Equal(shell.SceneInspector.CameraProjectionIndex, projection.SelectedIndex);
+                Assert.Equal(EditorLocalization.Text("Mda.Text.17e14283a497"), Assert.IsType<ComboBoxItem>(projection.SelectedItem).Content);
+                projection.SelectedIndex = 1; Flush(window);
+                Assert.Equal(1, shell.SceneInspector.CameraProjectionIndex);
+                Assert.True(shell.SceneInspector.HasCameraDraft);
+                Assert.Equal(EditorLocalization.Text("Mda.Text.3759f1efa160"), Assert.IsType<ComboBoxItem>(projection.SelectedItem).Content);
+                Capture("camera");
+                shell.SceneInspector.RevertDraftCommand.Execute(null);
+
+                void CheckControls(params string[] names)
+                {
+                    foreach (string name in names)
+                    {
+                        var control = dock.GetVisualDescendants().OfType<Control>().Single(child => child.Name == name);
+                        Assert.True(control.IsEffectivelyVisible, name);
+                        var first = control.TranslatePoint(default, dock)!.Value;
+                        var last = control.TranslatePoint(new(control.Bounds.Width, control.Bounds.Height), dock)!.Value;
+                        Assert.True(first.X >= -1 && first.Y >= -1 && last.X <= dock.Bounds.Width + 1 && last.Y <= dock.Bounds.Height + 1,
+                            $"{name}, {language} at {width}: {first} to {last} within {dock.Bounds.Size}");
+                    }
+                }
+                void Capture(string context)
+                {
+                    if (Environment.GetEnvironmentVariable("MDA_WORKBENCH_LAYOUT_EVIDENCE") is not { Length: > 0 } directory) return;
+                    Directory.CreateDirectory(directory);
+                    using var bitmap = HeadlessTestHost.CaptureLayoutFrame(window);
+                    bitmap.Save(Path.Combine(directory, $"{context}-{language}-{width}.png"));
+                }
+            }
+        }
+        finally { EditorLocalization.SetLanguage(previous); Close(window, shell); }
+        return true;
+    }, Token);
+
     [Fact]
     public async Task OutlineFilterFollowsLanguageAndOnlyTheTrackedLightHasAnimationControls() => await session.Dispatch(() =>
     {
