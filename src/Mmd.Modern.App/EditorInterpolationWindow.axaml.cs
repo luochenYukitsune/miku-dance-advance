@@ -169,9 +169,13 @@ public sealed class EditorInterpolationCurve : TemplatedControl
         if (e.Handled || !IsFocused || !IsEffectivelyEnabled) return;
         if (e.Key == Key.Escape && dragPointer is not null) { EndDrag(cancel: true); e.Handled = true; return; }
         if ((e.KeyModifiers & ~KeyModifiers.Shift) != 0 || Channel is not { IsCurveValid: true } channel) return;
+        if (dragPointer is not null)
+        {
+            if (e.Key is Key.Space or Key.Left or Key.Right or Key.Up or Key.Down) e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Space) { SelectedHandle = SelectedHandle == 1 ? 2 : 1; InvalidateVisual(); e.Handled = true; return; }
         if (e.Key is not (Key.Left or Key.Right or Key.Up or Key.Down)) return;
-        if (dragPointer is not null) return;
         int step = (e.KeyModifiers & KeyModifiers.Shift) != 0 ? 10 : 1;
         var curve = channel.GetCurve();
         int x = SelectedHandle == 1 ? curve.X1 : curve.X2, y = SelectedHandle == 1 ? curve.Y1 : curve.Y2;

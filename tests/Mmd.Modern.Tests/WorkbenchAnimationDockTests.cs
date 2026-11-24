@@ -376,6 +376,62 @@ public sealed class WorkbenchAnimationDockTests : IAsyncDisposable
         return true;
     }, Token);
 
+    [Fact]
+    public async Task InlineCurveDragIgnoresSpaceAndArrowKeysWithoutBubblingAndRestoresOnEscape() => await session.Dispatch(() =>
+    {
+        var (window, shell, actor) = Editor();
+        try
+        {
+            shell.CurrentFrame = 3;
+            shell.Animation.SelectTimelineKeys([KeyframeAddress.Bone("root", 3)]);
+            Flush(window);
+            var graph = window.FindControl<EditorInterpolationCurve>("InlineCurveGraph")!;
+            Assert.NotNull(graph.Channel);
+            var originalCurve = graph.Channel!.GetCurve();
+            var authoredBefore = new EditorInterpolationViewModel(
+                shell.Workspace.Motions.Single(m => m.ObjectId == actor).Motion,
+                [KeyframeAddress.Bone("root", 3)]).SelectedChannel.GetCurve();
+
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            var startPoint = graph.TranslatePoint(graph.PointOnGraph(originalCurve.X1, originalCurve.Y1), window)!.Value;
+            var movePoint = graph.TranslatePoint(graph.PointOnGraph(90, 90), window)!.Value;
+            graph.RaiseEvent(new PointerPressedEventArgs(graph, pointer, window, startPoint, 1,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+            graph.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, graph, pointer, window, movePoint, 2,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+            Flush(window);
+            Assert.Equal(1, graph.SelectedHandle);
+            Assert.NotEqual(originalCurve, graph.Channel.GetCurve());
+
+            window.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Space, RawInputModifiers.None, PhysicalKey.None, null);
+            Flush(window);
+            Assert.Equal(1, graph.SelectedHandle);
+            Assert.False(shell.IsPlaying);
+
+            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Right, RawInputModifiers.None, PhysicalKey.None, null);
+            Flush(window);
+            Assert.Equal(3, shell.CurrentFrame);
+            var authoredDuringDrag = new EditorInterpolationViewModel(
+                shell.Workspace.Motions.Single(m => m.ObjectId == actor).Motion,
+                [KeyframeAddress.Bone("root", 3)]).SelectedChannel.GetCurve();
+            Assert.Equal(authoredBefore, authoredDuringDrag);
+
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            Flush(window);
+            Assert.Equal(originalCurve, graph.Channel.GetCurve());
+
+            window.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Space, RawInputModifiers.None, PhysicalKey.None, null);
+            Flush(window);
+            Assert.Equal(2, graph.SelectedHandle);
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
     private static (EditorWindow, EditorShellViewModel, Guid) Editor()
     {
         var model = MorphApplicationTests.Model(new[] { "brow", "eyes", "mouth", "other", "base", "blink" }.Select((name, index) =>

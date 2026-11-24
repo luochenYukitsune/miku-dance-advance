@@ -167,4 +167,29 @@ public sealed class SceneLightingPresetTests
         Assert.Equal(target.Name, updated.Lights[0].Name);
         Assert.Equal(other, updated.Lights[1]);
     }
+
+    [Fact]
+    public void ApplySingleLightPresetPreservesDestinationGroupModulation()
+    {
+        var sourceGroup = new SceneLightGroup(Guid.NewGuid(), "SourceGroup", Intensity: 2f);
+        var sourceLight = Light(sourceGroup.Id) with { Intensity = 3f };
+        var preset = SceneLightingPreset.Capture("SingleGrouped", new([sourceLight], [sourceGroup]), [sourceLight.Id]);
+        var captured = Assert.Single(preset.Lighting.Lights);
+        Assert.Null(captured.GroupId);
+        Assert.Equal(6f, captured.Intensity);
+
+        var boostGroup = new SceneLightGroup(Guid.NewGuid(), "Boost", Intensity: 3f);
+        var boostTarget = Light(boostGroup.Id) with { Intensity = 1f };
+        var boosted = preset.ApplyToLight(new([boostTarget], [boostGroup]), boostTarget.Id);
+        Assert.Equal(boostGroup.Id, boosted.Lights[0].GroupId);
+        Assert.Equal(6f, boosted.Lights[0].Intensity);
+        Assert.Equal(18f, boosted.EffectiveLights[0].Intensity);
+
+        var zeroGroup = new SceneLightGroup(Guid.NewGuid(), "Muted", Intensity: 0f);
+        var zeroTarget = Light(zeroGroup.Id) with { Intensity = 1f };
+        var muted = preset.ApplyToLight(new([zeroTarget], [zeroGroup]), zeroTarget.Id);
+        Assert.Equal(zeroGroup.Id, muted.Lights[0].GroupId);
+        Assert.Equal(6f, muted.Lights[0].Intensity);
+        Assert.Equal(0f, muted.EffectiveLights[0].Intensity);
+    }
 }

@@ -81,7 +81,8 @@ public sealed class SceneLightingPreset
     }
 
     /// <summary>Apply a portable lamp's photometric and shape settings to an existing scene object.
-    /// Placement, aim, identity, links and group membership belong to the destination object.</summary>
+    /// Placement, aim, identity, links and group membership belong to the destination object;
+    /// any destination group switch and intensity multiplier continue to modulate EffectiveLights.</summary>
     public SceneLightingSnapshot ApplyToLight(SceneLightingSnapshot scene, Guid id)
     {
         ArgumentNullException.ThrowIfNull(scene);
