@@ -117,8 +117,9 @@ public static class PmxReader
             reader, header, textures.Count, (long)faces.Count * 3);
         IReadOnlyList<PmxBone> bones = ReadBones(reader, header, out _);
         ValidateVertexBones(reader, header, vertices, vertexBoneOffsets, bones.Count);
+        var impulseReferences = new List<ImpulseReference>();
         IReadOnlyList<PmxMorph> morphs = ReadMorphs(
-            reader, header, vertices.Count, materials.Count, bones.Count, out var impulseReferences);
+            reader, header, vertices.Count, materials.Count, bones.Count, impulseReferences);
         IReadOnlyList<PmxDisplayFrame> displayFrames = ReadDisplayFrames(
             reader, header, bones.Count, morphs.Count);
         IReadOnlyList<PmxRigidBody> rigidBodies = ReadRigidBodies(reader, header, bones.Count);
@@ -749,9 +750,8 @@ public static class PmxReader
         int vertexCount,
         int materialCount,
         int boneCount,
-        out List<ImpulseReference> impulseReferences)
+        List<ImpulseReference> impulseReferences)
     {
-        impulseReferences = [];
         int morphCount = reader.ReadCount("morphs", minimumElementBytes: 14);
         var morphs = new PmxMorph[morphCount];
 
@@ -763,225 +763,70 @@ public static class PmxReader
             byte controlPanel = reader.ReadByte(field + ".controlPanel");
 
             long typeOffset = reader.Position;
-            byte typeValue = reader.ReadByte(field + ".type");
-            if (typeValue > (byte)PmxMorphType.Impulse)
+            var type = (PmxMorphType)reader.ReadByte(field + ".type");
+            IReadOnlyList<PmxMorph.GroupOffset> groupOffsets = [];
+            IReadOnlyList<PmxMorph.PositionOffset> positionOffsets = [];
+            IReadOnlyList<PmxMorph.BoneOffset> boneOffsets = [];
+            IReadOnlyList<PmxMorph.UvOffset> uvOffsets = [];
+            IReadOnlyList<PmxMorph.MaterialOffset> materialOffsets = [];
+            IReadOnlyList<PmxMorph.GroupOffset> flipOffsets = [];
+            IReadOnlyList<PmxMorph.ImpulseOffset> impulseOffsets = [];
+
+            // Each kind has a fixed wire size once the header's index widths are known.
+            // Validate that many bytes remain before allocating the typed offset array.
+            T[] ReadOffsets<T>(string collection, int recordBytes, Func<string, int, T> read)
             {
-                throw reader.Error(
-                    field + ".type",
-                    typeOffset,
-                    $"unsupported morph type {typeValue}; expected 0-10");
+                int count = reader.ReadCount(field, recordBytes);
+                var offsets = new T[count];
+                for (int element = 0; element < count; element++)
+                    offsets[element] = read($"{field}.{collection}[{element}]", element);
+                return offsets;
             }
 
-            var type = (PmxMorphType)typeValue;
-            int count = reader.ReadCount(field, minimumElementBytes: 2);
-
-            IReadOnlyList<PmxMorph.GroupOffset> groupOffsets = Array.Empty<PmxMorph.GroupOffset>();
-            IReadOnlyList<PmxMorph.PositionOffset> positionOffsets =
-                Array.Empty<PmxMorph.PositionOffset>();
-            IReadOnlyList<PmxMorph.BoneOffset> boneOffsets =
-                Array.Empty<PmxMorph.BoneOffset>();
-            IReadOnlyList<PmxMorph.UvOffset> uvOffsets =
-                Array.Empty<PmxMorph.UvOffset>();
-            IReadOnlyList<PmxMorph.MaterialOffset> materialOffsets =
-                Array.Empty<PmxMorph.MaterialOffset>();
-            IReadOnlyList<PmxMorph.GroupOffset> flipOffsets =
-                Array.Empty<PmxMorph.GroupOffset>();
-            IReadOnlyList<PmxMorph.ImpulseOffset> impulseOffsets =
-                Array.Empty<PmxMorph.ImpulseOffset>();
+            PmxMorph.GroupOffset[] ReadGroupOffsets(string collection) =>
+                ReadOffsets(collection, header.MorphIndexSize + sizeof(float), (path, _) =>
+                    new PmxMorph.GroupOffset(ReadMorphIndex(reader, header, morphCount, path + ".morphIndex"),
+                        reader.ReadSingle(path + ".weight")));
 
             switch (type)
             {
                 case PmxMorphType.Group:
-                {
-                    var offsets = new PmxMorph.GroupOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.groupOffsets[{element}]";
-                        int morphIndex = ReadMorphIndex(
-                            reader, header, morphCount, elementField + ".morphIndex");
-                        float weight = reader.ReadSingle(elementField + ".weight");
-                        offsets[element] = new PmxMorph.GroupOffset(morphIndex, weight);
-                    }
-
-                    groupOffsets = offsets;
+                    groupOffsets = ReadGroupOffsets("groupOffsets");
                     break;
-                }
-
+                case PmxMorphType.Flip:
+                    flipOffsets = ReadGroupOffsets("flipOffsets");
+                    break;
                 case PmxMorphType.Position:
-                {
-                    var offsets = new PmxMorph.PositionOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.positionOffsets[{element}]";
-                        int vertexIndex = ReadVertexIndex(
-                            reader, header, vertexCount, elementField + ".vertexIndex");
-                        Vector3 position = reader.ReadVector3(elementField + ".position");
-                        offsets[element] = new PmxMorph.PositionOffset(vertexIndex, position);
-                    }
-
-                    positionOffsets = offsets;
+                    positionOffsets = ReadOffsets("positionOffsets", header.VertexIndexSize + 3 * sizeof(float),
+                        (path, _) => new PmxMorph.PositionOffset(
+                            ReadVertexIndex(reader, header, vertexCount, path + ".vertexIndex"),
+                            reader.ReadVector3(path + ".position")));
                     break;
-                }
-
                 case PmxMorphType.Bone:
-                {
-                    var offsets = new PmxMorph.BoneOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.boneOffsets[{element}]";
-                        long boneOffset = reader.Position;
-                        int boneIndex = reader.ReadSignedIndex(
-                            header.BoneIndexSize, elementField + ".boneIndex");
-                        CheckIndex(reader, boneIndex, boneCount, elementField + ".boneIndex", boneOffset);
-                        Vector3 position = reader.ReadVector3(elementField + ".position");
-                        Vector4 rotation = reader.ReadVector4(elementField + ".rotation");
-                        offsets[element] = new PmxMorph.BoneOffset(
-                            boneIndex, position, new Quaternion(rotation.X, rotation.Y, rotation.Z, rotation.W));
-                    }
-
-                    boneOffsets = offsets;
+                    boneOffsets = ReadOffsets("boneOffsets", header.BoneIndexSize + 7 * sizeof(float),
+                        (path, _) => ReadMorphBoneOffset(reader, header, boneCount, path));
                     break;
-                }
-
                 case PmxMorphType.Uv:
                 case PmxMorphType.AdditionalUv1:
                 case PmxMorphType.AdditionalUv2:
                 case PmxMorphType.AdditionalUv3:
                 case PmxMorphType.AdditionalUv4:
-                {
-                    var offsets = new PmxMorph.UvOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.uvOffsets[{element}]";
-                        int vertexIndex = ReadVertexIndex(
-                            reader, header, vertexCount, elementField + ".vertexIndex");
-                        Vector4 uv = reader.ReadVector4(elementField + ".uv");
-                        offsets[element] = new PmxMorph.UvOffset(vertexIndex, uv);
-                    }
-
-                    uvOffsets = offsets;
+                    uvOffsets = ReadOffsets("uvOffsets", header.VertexIndexSize + 4 * sizeof(float),
+                        (path, _) => new PmxMorph.UvOffset(
+                            ReadVertexIndex(reader, header, vertexCount, path + ".vertexIndex"),
+                            reader.ReadVector4(path + ".uv")));
                     break;
-                }
-
                 case PmxMorphType.Material:
-                {
-                    var offsets = new PmxMorph.MaterialOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.materialOffsets[{element}]";
-                        long materialOffset = reader.Position;
-                        int materialIndex = reader.ReadSignedIndex(
-                            header.MaterialIndexSize, elementField + ".materialIndex");
-                        CheckIndex(
-                            reader, materialIndex, materialCount,
-                            elementField + ".materialIndex", materialOffset);
-
-                        long operationOffset = reader.Position;
-                        byte operationValue = reader.ReadByte(elementField + ".operation");
-                        if (operationValue > (byte)PmxMaterialMorphOperation.Add)
-                        {
-                            throw reader.Error(
-                                elementField + ".operation",
-                                operationOffset,
-                                $"unknown material morph operation {operationValue}; expected 0 or 1");
-                        }
-
-                        var operation = (PmxMaterialMorphOperation)operationValue;
-                        Vector4 diffuse = reader.ReadVector4(elementField + ".diffuse");
-                        Vector3 specular = reader.ReadVector3(elementField + ".specular");
-                        float specularPower = reader.ReadSingle(elementField + ".specularPower");
-                        Vector3 ambient = reader.ReadVector3(elementField + ".ambient");
-                        Vector4 edgeColor = reader.ReadVector4(elementField + ".edgeColor");
-                        float edgeSize = reader.ReadSingle(elementField + ".edgeSize");
-                        Vector4 textureFactor = reader.ReadVector4(elementField + ".textureFactor");
-                        Vector4 sphereTextureFactor = reader.ReadVector4(
-                            elementField + ".sphereTextureFactor");
-                        Vector4 toonTextureFactor = reader.ReadVector4(
-                            elementField + ".toonTextureFactor");
-
-                        offsets[element] = new PmxMorph.MaterialOffset(
-                            materialIndex,
-                            operation,
-                            diffuse,
-                            specular,
-                            specularPower,
-                            ambient,
-                            edgeColor,
-                            edgeSize,
-                            textureFactor,
-                            sphereTextureFactor,
-                            toonTextureFactor);
-                    }
-
-                    materialOffsets = offsets;
+                    materialOffsets = ReadOffsets("materialOffsets", header.MaterialIndexSize + 1 + 28 * sizeof(float),
+                        (path, _) => ReadMorphMaterialOffset(reader, header, materialCount, path));
                     break;
-                }
-
-                case PmxMorphType.Flip:
-                {
-                    var offsets = new PmxMorph.GroupOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.flipOffsets[{element}]";
-                        int morphIndex = ReadMorphIndex(
-                            reader, header, morphCount, elementField + ".morphIndex");
-                        float weight = reader.ReadSingle(elementField + ".weight");
-                        offsets[element] = new PmxMorph.GroupOffset(morphIndex, weight);
-                    }
-
-                    flipOffsets = offsets;
-                    break;
-                }
-
                 case PmxMorphType.Impulse:
-                {
-                    var offsets = new PmxMorph.ImpulseOffset[count];
-                    for (int element = 0; element < count; element++)
-                    {
-                        string elementField = $"{field}.impulseOffsets[{element}]";
-                        long rigidBodyOffset = reader.Position;
-                        int rigidBodyIndex = reader.ReadSignedIndex(
-                            header.RigidBodyIndexSize, elementField + ".rigidBodyIndex");
-                        if (rigidBodyIndex < 0)
-                        {
-                            throw reader.Error(
-                                elementField + ".rigidBodyIndex",
-                                rigidBodyOffset,
-                                $"invalid rigid body index {rigidBodyIndex}");
-                        }
-
-                        impulseReferences.Add(new(i, element, rigidBodyIndex, rigidBodyOffset));
-
-                        long localOffset = reader.Position;
-                        byte localValue = reader.ReadByte(elementField + ".local");
-                        if (localValue > 1)
-                        {
-                            throw reader.Error(
-                                elementField + ".local",
-                                localOffset,
-                                $"invalid impulse local flag {localValue}; expected 0 or 1");
-                        }
-
-                        Vector3 translationVelocity = reader.ReadVector3(
-                            elementField + ".translationVelocity");
-                        Vector3 rotationTorque = reader.ReadVector3(
-                            elementField + ".rotationTorque");
-                        offsets[element] = new PmxMorph.ImpulseOffset(
-                            rigidBodyIndex,
-                            localValue != 0,
-                            translationVelocity,
-                            rotationTorque);
-                    }
-
-                    impulseOffsets = offsets;
+                    impulseOffsets = ReadOffsets("impulseOffsets", header.RigidBodyIndexSize + 1 + 6 * sizeof(float),
+                        (path, element) => ReadMorphImpulseOffset(reader, header, i, element, path, impulseReferences));
                     break;
-                }
-
                 default:
-                    throw reader.Error(
-                        field + ".type",
-                        typeOffset,
-                        $"unhandled morph type {type}");
+                    throw reader.Error(field + ".type", typeOffset,
+                        $"unsupported morph type {(byte)type}; expected 0-10");
             }
 
             morphs[i] = new PmxMorph
@@ -1001,6 +846,104 @@ public static class PmxReader
         }
 
         return morphs;
+    }
+
+    private static PmxMorph.BoneOffset ReadMorphBoneOffset(
+        PmxBinaryReader reader, PmxHeader header, int boneCount, string field)
+    {
+        long boneOffset = reader.Position;
+        int boneIndex = reader.ReadSignedIndex(
+            header.BoneIndexSize, field + ".boneIndex");
+        CheckIndex(reader, boneIndex, boneCount, field + ".boneIndex", boneOffset);
+        Vector3 position = reader.ReadVector3(field + ".position");
+        Vector4 rotation = reader.ReadVector4(field + ".rotation");
+        return new(
+            boneIndex, position, new Quaternion(rotation.X, rotation.Y, rotation.Z, rotation.W));
+    }
+
+    private static PmxMorph.MaterialOffset ReadMorphMaterialOffset(
+        PmxBinaryReader reader, PmxHeader header, int materialCount, string field)
+    {
+        long materialOffset = reader.Position;
+        int materialIndex = reader.ReadSignedIndex(
+            header.MaterialIndexSize, field + ".materialIndex");
+        CheckIndex(
+            reader, materialIndex, materialCount,
+            field + ".materialIndex", materialOffset);
+
+        long operationOffset = reader.Position;
+        byte operationValue = reader.ReadByte(field + ".operation");
+        if (operationValue > (byte)PmxMaterialMorphOperation.Add)
+        {
+            throw reader.Error(
+                field + ".operation",
+                operationOffset,
+                $"unknown material morph operation {operationValue}; expected 0 or 1");
+        }
+
+        var operation = (PmxMaterialMorphOperation)operationValue;
+        Vector4 diffuse = reader.ReadVector4(field + ".diffuse");
+        Vector3 specular = reader.ReadVector3(field + ".specular");
+        float specularPower = reader.ReadSingle(field + ".specularPower");
+        Vector3 ambient = reader.ReadVector3(field + ".ambient");
+        Vector4 edgeColor = reader.ReadVector4(field + ".edgeColor");
+        float edgeSize = reader.ReadSingle(field + ".edgeSize");
+        Vector4 textureFactor = reader.ReadVector4(field + ".textureFactor");
+        Vector4 sphereTextureFactor = reader.ReadVector4(
+            field + ".sphereTextureFactor");
+        Vector4 toonTextureFactor = reader.ReadVector4(
+            field + ".toonTextureFactor");
+
+        return new(
+            materialIndex,
+            operation,
+            diffuse,
+            specular,
+            specularPower,
+            ambient,
+            edgeColor,
+            edgeSize,
+            textureFactor,
+            sphereTextureFactor,
+            toonTextureFactor);
+    }
+
+    private static PmxMorph.ImpulseOffset ReadMorphImpulseOffset(
+        PmxBinaryReader reader, PmxHeader header, int morphIndex, int element,
+        string field, List<ImpulseReference> impulseReferences)
+    {
+        long rigidBodyOffset = reader.Position;
+        int rigidBodyIndex = reader.ReadSignedIndex(
+            header.RigidBodyIndexSize, field + ".rigidBodyIndex");
+        if (rigidBodyIndex < 0)
+        {
+            throw reader.Error(
+                field + ".rigidBodyIndex",
+                rigidBodyOffset,
+                $"invalid rigid body index {rigidBodyIndex}");
+        }
+
+        impulseReferences.Add(new(morphIndex, element, rigidBodyIndex, rigidBodyOffset));
+
+        long localOffset = reader.Position;
+        byte localValue = reader.ReadByte(field + ".local");
+        if (localValue > 1)
+        {
+            throw reader.Error(
+                field + ".local",
+                localOffset,
+                $"invalid impulse local flag {localValue}; expected 0 or 1");
+        }
+
+        Vector3 translationVelocity = reader.ReadVector3(
+            field + ".translationVelocity");
+        Vector3 rotationTorque = reader.ReadVector3(
+            field + ".rotationTorque");
+        return new(
+            rigidBodyIndex,
+            localValue != 0,
+            translationVelocity,
+            rotationTorque);
     }
 
     private static int ReadMorphIndex(

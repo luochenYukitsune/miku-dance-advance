@@ -1556,14 +1556,6 @@ public sealed partial class SceneAnimationSession
 
     private void BindSharedMotion(int index, SceneActorMotion motion, CancellationToken token)
     {
-        // Soft candidate resets can fail. Rebuild a complete candidate graph before publishing,
-        // rather than replacing live rigid membership and then attempting a fallible soft reset.
-        if (coupledSoftBodies || outsideBindings.Length != 0 || entries.Any(entry => entry.Controller?.SoftBodiesEnabled == true)
-            || motion.PhysicsEnabled && motion.Model.SoftBodies.Count != 0)
-        {
-            var motions = entries.Where(entry => entry.Motion is not null && entry.Object.Id != motion.ObjectId).Select(entry => entry.Motion!).Append(motion).ToArray();
-            ReplaceGraph(outsideBindings, motions, token); return;
-        }
         var previous = entries[index]; var candidate = PrepareEntry(previous.Object, motion, CurrentFrame, token);
         CharacterAnimationController.SharedPreparedPhysicsSample? initial = null;
         try
@@ -1585,7 +1577,6 @@ public sealed partial class SceneAnimationSession
             }
             else if (has) sharedWorld.RemoveActor(motion.ObjectId);
             entries = next; published = prospective; states = CaptureStates(next, CurrentFrame); DurationFrames = Duration(next);
-            if (!ReferenceEquals(previous.Motion?.Model, motion.Model)) { outsideUndo.Clear(); outsideRedo.Clear(); }
         }
         catch (Exception error)
         {

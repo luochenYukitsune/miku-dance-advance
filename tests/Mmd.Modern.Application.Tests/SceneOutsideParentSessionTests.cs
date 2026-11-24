@@ -12,7 +12,7 @@ public sealed class SceneOutsideParentSessionTests
     private static ICharacterPhysicsBackend NoPhysics(EditableSceneObject _) => throw new InvalidOperationException("No rigid bodies.");
     private static VmdMotion Motion(uint duration, Vector3 translation) => new()
     { BoneKeyframes = [new() { BoneName = "root" }, new() { BoneName = "root", Frame = duration, Translation = translation }] };
-    private static (SceneCompositionEditor Layout, SceneAnimationSession Session, Guid Child, Guid Parent) Make(bool placed = false)
+    private static (SceneCompositionEditor Layout, SceneAnimationSession Session, Guid Child, Guid Parent) Make(bool placed = false, bool shared = false)
     {
         var model = EditedMotionProjectTests.Model(); var rest = EditedMotionProjectTests.Rest(model);
         var layout = new SceneCompositionEditor();
@@ -25,7 +25,8 @@ public sealed class SceneOutsideParentSessionTests
         }
         var session = new SceneAnimationSession(layout.Objects,
             [new(child.Id, model, Motion(10, new(2, 0, 0)), PhysicsEnabled: false),
-             new(parent.Id, model, Motion(30, new(0, 6, 0)), PhysicsEnabled: false)], NoPhysics, cancellationToken: Token);
+             new(parent.Id, model, Motion(30, new(0, 6, 0)), PhysicsEnabled: false)], NoPhysics, cancellationToken: Token,
+            sharedPhysicsFactory: shared ? () => new TrackingSharedBackend() : null);
         return (layout, session, child.Id, parent.Id);
     }
     private static void Near(Matrix4x4 a, Matrix4x4 b)
@@ -224,6 +225,32 @@ public sealed class SceneOutsideParentSessionTests
             Near(descendant * Matrix4x4.CreateTranslation(0, .1f*i, 0), session.GetBoneWorldMatrices(child.Id)[2]);
             Assert.Equal(steps, backend.Steps);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReplacingModelWithAnActiveBindingInvalidatesHistoryOnlyAfterSuccess(bool shared)
+    {
+        var (_, session, child, parent) = Make(shared: shared);
+        using var owned = session;
+        Assert.Equal(shared, session.UsesSharedPhysicsWorld);
+        session.SetOutsideParent(child, 0, parent, 0, false, token: Token);
+        session.RemoveOutsideParent(child, 0, Token);
+        Assert.True(session.UndoOutsideParent(Token));
+        Assert.True(session.CanUndoOutsideParent);
+        Assert.True(session.CanRedoOutsideParent);
+        var binding = Assert.Single(session.OutsideParents);
+
+        var replacementMotion = Motion(30, Vector3.Zero);
+        Assert.Throws<SceneActorAnimationException>(() =>
+            session.BindMotion(new(parent, EditedMotionProjectTests.Model("other"), replacementMotion, PhysicsEnabled: false), Token));
+        Assert.True(session.CanUndoOutsideParent);
+        Assert.True(session.CanRedoOutsideParent);
+        session.BindMotion(new(parent, EditedMotionProjectTests.Model(), replacementMotion, PhysicsEnabled: false), Token);
+        Assert.Equal(binding, Assert.Single(session.OutsideParents));
+        Assert.False(session.CanUndoOutsideParent);
+        Assert.False(session.CanRedoOutsideParent);
     }
 
     [Fact]

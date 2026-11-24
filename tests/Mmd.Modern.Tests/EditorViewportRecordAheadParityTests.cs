@@ -267,8 +267,10 @@ public sealed class EditorViewportRecordAheadParityTests : IAsyncDisposable
         Assert.Throws<NotSupportedException>(() => cache.Resolve(noOptionsFrame, customCatalog, bindings, charMats, outlineWidths: outlines));
     }
 
-    [Fact]
-    public void PluginBindingsGlobalParametersAndSceneInputsMatchDirectResolveAndReuseWhenUnchanged()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PluginBindingsGlobalParametersAndSceneInputsMatchDirectResolveAndReuseWhenUnchanged(bool reuseInputDictionary)
     {
         var charId = Guid.NewGuid();
         var propId = Guid.NewGuid();
@@ -379,19 +381,26 @@ public sealed class EditorViewportRecordAheadParityTests : IAsyncDisposable
         Assert.NotSame(cached1.SurfaceStyles, cachedUpdated1.SurfaceStyles);
 
         // Rotating the evaluated head bone invalidates the cached plugin draw data and matches direct Resolve.
-        var inputs4RotatedBone = new Dictionary<Guid, SceneObjectRenderInputs>
+        var inputs4RotatedBone = reuseInputDictionary ? inputs3MovedBone : new Dictionary<Guid, SceneObjectRenderInputs>();
+        inputs4RotatedBone[charId] = TestStylePlugins.CreateSceneInputs(charId, 2, new Dictionary<int, Matrix4x4>
         {
-            [charId] = TestStylePlugins.CreateSceneInputs(charId, 2, new Dictionary<int, Matrix4x4>
-            {
-                [0] = Matrix4x4.CreateRotationY(1.25f),
-            }),
-        };
+            [0] = Matrix4x4.CreateRotationY(1.25f),
+        });
         var directRotated = D3D12ViewRenderingStyles.Resolve(
             movedCameraFrame, presetCatalog, bindings, charMats, pluginBindings, inputs4RotatedBone, outlines, viewCatalog, globals, boneIndicesByObject: boneMap);
         var cachedRotated = cache.Resolve(
             movedCameraFrame, presetCatalog, bindings, charMats, pluginBindings, inputs4RotatedBone, outlines, viewCatalog, globals, boneIndicesByObject: boneMap);
         AssertResultEquivalent(directRotated, cachedRotated);
         Assert.False(D3D12SurfaceStyleMap.Equivalent(cachedUpdated1.SurfaceStyles, cachedRotated.SurfaceStyles));
+        Assert.Same(cachedRotated, cache.Resolve(
+            movedCameraFrame, presetCatalog, bindings, charMats, pluginBindings, inputs4RotatedBone, outlines, viewCatalog, globals, boneIndicesByObject: boneMap));
+
+        inputs4RotatedBone.Remove(charId);
+        var missing = Assert.Throws<ArgumentException>(() => D3D12ViewRenderingStyles.Resolve(
+            movedCameraFrame, presetCatalog, bindings, charMats, pluginBindings, inputs4RotatedBone, outlines, viewCatalog, globals, boneIndicesByObject: boneMap));
+        var cachedMissing = Assert.Throws<ArgumentException>(() => cache.Resolve(
+            movedCameraFrame, presetCatalog, bindings, charMats, pluginBindings, inputs4RotatedBone, outlines, viewCatalog, globals, boneIndicesByObject: boneMap));
+        Assert.Equal(missing.ParamName, cachedMissing.ParamName);
     }
 
     [Fact]

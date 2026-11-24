@@ -20,17 +20,12 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
         private object? layout, rtvView, dsvView;
         internal Set(ID3D12Device device, int capacity)
         {
-            Rtv = device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1));
-            try
-            {
-                Dsv = device.CreateDescriptorHeap(new(DescriptorHeapType.DepthStencilView, 1));
-                try
-                {
-                    Srv = CreateSrv(device, capacity); SrvCapacity = capacity;
-                }
-                catch { Dsv.Dispose(); throw; }
-            }
-            catch { Rtv.Dispose(); throw; }
+            using var construction = new D3D12ConstructionScope();
+            Rtv = construction.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.RenderTargetView, 1)));
+            Dsv = construction.Own(device.CreateDescriptorHeap(new(DescriptorHeapType.DepthStencilView, 1)));
+            Srv = construction.Own(CreateSrv(device, capacity));
+            SrvCapacity = capacity;
+            construction.Complete();
         }
         internal bool EnsureCapacity(ID3D12Device device, int capacity)
         {
@@ -87,7 +82,7 @@ internal sealed class D3D12FrameDescriptorHeaps : IDisposable
     }
 
     private readonly D3D12GpuRuntime runtime;
-    private readonly Set?[] slots = new Set?[3];
+    private readonly Set?[] slots = new Set?[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];
     private long lastFrameId = -1;
     private bool disposed;
     internal long HeapCreations { get; private set; }

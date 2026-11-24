@@ -903,7 +903,6 @@ internal sealed class D3D12ViewRenderingStylesCache
     private PreparedBindings? bindingsState;
     private PluginFrameCache? pluginFrame;
     private OriginalFrameScene? lastExactScene;
-    private IReadOnlyDictionary<Guid, SceneObjectRenderInputs>? lastExactSceneInputs;
     private D3D12ViewRenderingStylesResult? lastExactResult;
 
     public D3D12ViewRenderingStylesCache()
@@ -1008,7 +1007,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             bindingsState = nextState;
             pluginFrame = null;
             lastExactScene = null;
-            lastExactSceneInputs = null;
             lastExactResult = null;
             return ResolveWithBindingsStateLocked(nextConfig, nextState, scene, sceneInputs);
         }
@@ -1024,7 +1022,7 @@ internal sealed class D3D12ViewRenderingStylesCache
             && lastExactResult is { } exact
             && ReferenceEquals(scene, lastExactScene)
             && SameBindings(bindings, existing.Selected)
-            && (!existing.UsesPluginStyle || SameSceneInputs(sceneInputs, lastExactSceneInputs, existing.PluginObjectIds)))
+            && (!existing.UsesPluginStyle || pluginFrame?.MatchesSceneInputs(sceneInputs) == true))
         {
             return exact;
         }
@@ -1042,7 +1040,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             bindingsState = bs;
             pluginFrame = null;
             lastExactScene = null;
-            lastExactSceneInputs = null;
             lastExactResult = null;
         }
 
@@ -1072,7 +1069,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             var resultScene = bs.ResolveSceneMaterials(cfg, scene, surfaceStyles, out _);
             var result = new D3D12ViewRenderingStylesResult(resultScene, surfaceStyles, bs.StaticDiagnostics);
             lastExactScene = scene;
-            lastExactSceneInputs = null;
             lastExactResult = result;
             return result;
         }
@@ -1103,7 +1099,6 @@ internal sealed class D3D12ViewRenderingStylesCache
 
             var cachedResult = new D3D12ViewRenderingStylesResult(resultScene, pf.SurfaceStyles, bs.StaticDiagnostics);
             lastExactScene = scene;
-            lastExactSceneInputs = sceneInputs;
             lastExactResult = cachedResult;
             return cachedResult;
         }
@@ -1187,7 +1182,6 @@ internal sealed class D3D12ViewRenderingStylesCache
 
         var result = new D3D12ViewRenderingStylesResult(resultScene, surfaceStyles, bs.StaticDiagnostics);
         lastExactScene = scene;
-        lastExactSceneInputs = sceneInputs;
         lastExactResult = result;
         return result;
     }
@@ -1645,48 +1639,6 @@ internal sealed class D3D12ViewRenderingStylesCache
         return input is ICollection<SceneRenderingStyleBinding> col && col.Count == 0 && cached.Length == 0;
     }
 
-    private static bool SameSceneInputs(
-        IReadOnlyDictionary<Guid, SceneObjectRenderInputs>? a,
-        IReadOnlyDictionary<Guid, SceneObjectRenderInputs>? b,
-        Guid[] pluginObjectIds)
-    {
-        if (ReferenceEquals(a, b)) return true;
-        if (pluginObjectIds.Length == 0) return true;
-        int countA = a?.Count ?? 0, countB = b?.Count ?? 0;
-        if (countA == 0 && countB == 0) return true;
-        if (a is null || b is null) return false;
-        for (int i = 0; i < pluginObjectIds.Length; i++)
-        {
-            Guid objectId = pluginObjectIds[i];
-            bool hasA = a.TryGetValue(objectId, out var valA);
-            bool hasB = b.TryGetValue(objectId, out var valB);
-            if (hasA != hasB) return false;
-            if (!hasA || ReferenceEquals(valA, valB)) continue;
-            if (valA is null || valB is null) return false;
-            if (valA.ObjectId != valB.ObjectId || valA.Visible != valB.Visible) return false;
-            if (valA.TextureIndices.Count != valB.TextureIndices.Count
-                || valA.BoneWorldMatrices.Count != valB.BoneWorldMatrices.Count)
-                return false;
-            if (valA.TextureIndices.Count > 0)
-            {
-                foreach (var (k, vA) in valA.TextureIndices)
-                {
-                    if (!valB.TextureIndices.TryGetValue(k, out int vB) || vA != vB)
-                        return false;
-                }
-            }
-            if (valA.BoneWorldMatrices.Count > 0)
-            {
-                foreach (var (k, mA) in valA.BoneWorldMatrices)
-                {
-                    if (!valB.BoneWorldMatrices.TryGetValue(k, out var mB) || !SameMatrixBits(mA, mB))
-                        return false;
-                }
-            }
-        }
-        return true;
-    }
-
     private static bool SameMaterials(
         IReadOnlyList<OriginalFrameMaterialFlags> a,
         ReadOnlyCollection<OriginalFrameMaterialFlags> b)
@@ -2064,6 +2016,12 @@ internal sealed class D3D12ViewRenderingStylesCache
                     return false;
             }
 
+            return MatchesSceneInputs(sceneInputs);
+        }
+
+        public bool MatchesSceneInputs(IReadOnlyDictionary<Guid, SceneObjectRenderInputs>? sceneInputs)
+        {
+            // The caller may reuse the dictionary while replacing an object's immutable input sample.
             var inputsMap = sceneInputs ?? SceneObjectRenderInputs.Empty;
             for (int i = 0; i < sceneInputSnapshots.Length; i++)
             {

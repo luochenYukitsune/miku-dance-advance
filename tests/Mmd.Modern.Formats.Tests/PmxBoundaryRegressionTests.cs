@@ -47,6 +47,20 @@ public sealed class PmxBoundaryRegressionTests
     }
 
     [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(4)]
+    [InlineData(5)] [InlineData(6)] [InlineData(7)] [InlineData(8)] [InlineData(9)] [InlineData(10)]
+    public void MorphCountUsesExactRecordWidth(byte type)
+    {
+        foreach (var (vertexWidth, signedWidth) in new[] { (1, 4), (2, 2), (4, 1) })
+        {
+            Probe probe = Make(new(VertexWidth: vertexWidth, SignedWidth: signedWidth, MorphTypes: [type]));
+            int end = checked((int)probe.Offsets["displayFrames.count"]);
+            Reject(probe with { Bytes = probe.Bytes[..(end - 1)] }, "morphs[0].count");
+            Reject(probe with { Bytes = probe.Bytes[..end] }, "displayFrames.count");
+        }
+    }
+
+    [Theory]
     [InlineData(1)] [InlineData(2)] [InlineData(4)]
     public void DeferredImpulseReferencesHaveOriginalFieldAndOffset(int width)
     {
@@ -275,7 +289,8 @@ public sealed class PmxBoundaryRegressionTests
         {
             string field = $"morphs[{i}]";
             byte type = morphTypes[i];
-            Text(); Text(); writer.Write((byte)4); writer.Write(type); writer.Write(1);
+            Text(); Text(); writer.Write((byte)4); writer.Write(type);
+            Mark(field + ".count"); writer.Write(1);
             switch (type)
             {
                 case 0: case 9:
@@ -283,12 +298,14 @@ public sealed class PmxBoundaryRegressionTests
                     writer.Write(1f); break;
                 case 1: Index(field + ".positionOffsets[0].vertexIndex", 0, o.VertexWidth); Floats(3); break;
                 case 2: Index(field + ".boneOffsets[0].boneIndex", 0); Floats(7); break;
+                case >= 3 and <= 7:
+                    Index(field + ".uvOffsets[0].vertexIndex", 0, o.VertexWidth); Floats(4); break;
                 case 8: Index(field + ".materialOffsets[0].materialIndex", -1); writer.Write((byte)1); Floats(28); break;
                 case 10: Index(field + ".impulseOffsets[0].rigidBodyIndex", 0); writer.Write((byte)0); Floats(6); break;
                 default: throw new InvalidOperationException("Unsupported test morph");
             }
         }
-        writer.Write(o.Frames);
+        Mark("displayFrames.count"); writer.Write(o.Frames);
         for (int i = 0; i < o.Frames; i++)
         {
             Text(); Text(); writer.Write((byte)(i < 2 ? 1 : 0));

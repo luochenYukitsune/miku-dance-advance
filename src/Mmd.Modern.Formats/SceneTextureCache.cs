@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using Mmd.Modern.Core;
 
 namespace Mmd.Modern.Formats;
@@ -38,7 +37,7 @@ public sealed class SceneTextureCache : IDisposable
     public Task<T> Schedule<T>(Func<CancellationToken, T> work, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(work);
-        lock (background)
+        lock (entries)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             var linked = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, cancellationToken);
@@ -61,15 +60,11 @@ public sealed class SceneTextureCache : IDisposable
         ArgumentNullException.ThrowIfNull(decode);
         if (Volatile.Read(ref disposed) != 0 || cancellationToken.IsCancellationRequested) return;
         if (Identify(path) is not { } key) return;
-        try
+        lock (entries)
         {
-            lock (entries)
-            {
-                if (Volatile.Read(ref disposed) != 0 || cancellationToken.IsCancellationRequested || entries.ContainsKey(key)) return;
-                entries.Add(key, new(name, Schedule(token => { Interlocked.Increment(ref decodes); return decode(token); }, cancellationToken)));
-            }
+            if (disposed != 0 || cancellationToken.IsCancellationRequested || entries.ContainsKey(key)) return;
+            entries.Add(key, new(name, Schedule(token => Inline(decode, token), cancellationToken)));
         }
-        catch (ObjectDisposedException) when (Volatile.Read(ref disposed) != 0) { }
     }
 
     /// <summary>Returns the image for <paramref name="path"/>, joining a background decode of the same file.
@@ -81,35 +76,70 @@ public sealed class SceneTextureCache : IDisposable
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         cancellationToken.ThrowIfCancellationRequested();
         if (Identify(path) is not { } key) return Inline(decode, cancellationToken);
-        Entry? entry; TaskCompletionSource<SceneTexture?>? created = null;
+        while (true)
+        {
+            TaskCompletionSource<SceneTexture?>? created = null;
+            Entry entry;
+            lock (entries)
+            {
+                ObjectDisposedException.ThrowIf(disposed != 0, this);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!entries.TryGetValue(key, out var existing))
+                {
+                    created = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    entries.Add(key, entry = new(name, created.Task));
+                }
+                else entry = existing;
+            }
+
+            if (created is not null)
+            {
+                try
+                {
+                    var texture = Inline(decode, cancellationToken);
+                    created.SetResult(texture);
+                    return texture;
+                }
+                catch (Exception error)
+                {
+                    RemoveIfCurrent(key, entry);
+                    created.SetException(error);
+                    _ = created.Task.Exception;
+                    throw;
+                }
+            }
+
+            SceneTexture? cached;
+            try
+            {
+                cached = entry.Decode.WaitAsync(cancellationToken).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                // Another caller cancelled its decode. Let one waiter publish a replacement.
+                RemoveIfCurrent(key, entry);
+                continue;
+            }
+            catch (Exception)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.Equals(entry.Name, name, StringComparison.Ordinal)) throw;
+                return Inline(decode, cancellationToken);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (cached is null || string.Equals(cached.Name, name, StringComparison.Ordinal)) return cached;
+            return new SceneTexture(name, cached.Width, cached.Height, cached.Rgba, cached.Kind);
+        }
+    }
+
+    private void RemoveIfCurrent(Key key, Entry entry)
+    {
         lock (entries)
         {
-            if (!entries.TryGetValue(key, out entry))
-            {
-                created = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                entries.Add(key, entry = new(name, created.Task));
-            }
+            if (entries.TryGetValue(key, out var current) && ReferenceEquals(current, entry))
+                entries.Remove(key);
         }
-        if (created is not null)
-        {
-            // Concurrent requests for the same file join this inline decode; a failure is not retained.
-            try { var value = Inline(decode, cancellationToken); created.SetResult(value); return value; }
-            catch (Exception error) { lock (entries) { if (entries.TryGetValue(key, out var cur) && ReferenceEquals(cur, entry)) entries.Remove(key); } created.SetException(error); _ = created.Task.Exception; throw; }
-        }
-        try { entry.Decode.Wait(cancellationToken); }
-        catch (AggregateException) { }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
-        cancellationToken.ThrowIfCancellationRequested();
-        if (entry.Decode.IsCanceled || entry.Decode.IsFaulted && entry.Decode.Exception!.InnerException is OperationCanceledException)
-            return Inline(decode, cancellationToken);
-        if (entry.Decode.IsFaulted)
-        {
-            if (!string.Equals(entry.Name, name, StringComparison.Ordinal)) return Inline(decode, cancellationToken);
-            ExceptionDispatchInfo.Capture(entry.Decode.Exception!.InnerException!).Throw();
-        }
-        var texture = entry.Decode.Result;
-        if (texture is null || string.Equals(texture.Name, name, StringComparison.Ordinal)) return texture;
-        return new SceneTexture(name, texture.Width, texture.Height, texture.Rgba, texture.Kind);
     }
 
     private SceneTexture? Inline(Func<CancellationToken, SceneTexture?> decode, CancellationToken token)
@@ -128,16 +158,22 @@ public sealed class SceneTextureCache : IDisposable
     public void Dispose()
     {
         Task[] pending;
-        lock (background)
+        lock (entries)
         {
-            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            if (disposed != 0) return;
+            Volatile.Write(ref disposed, 1);
+            entries.Clear();
             pending = [.. background];
+            background.Clear();
         }
-        lifetime.Cancel();
-        try { Task.WaitAll(pending); } catch (AggregateException) { }
-        lock (entries) entries.Clear();
-        lifetime.Dispose();
-        budget.Dispose();
+        try { lifetime.Cancel(); }
+        finally
+        {
+            // These continuations observe every task outcome and dispose its linked token.
+            Task.WaitAll(pending);
+            lifetime.Dispose();
+            budget.Dispose();
+        }
     }
 
     private sealed class KeyComparer : IEqualityComparer<Key>

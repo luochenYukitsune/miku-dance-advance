@@ -21,7 +21,8 @@ public abstract class PngOutputSink : IFrameSink
     private FileStream? manifestStream;
     private Utf8JsonWriter? manifest;
     private long written;
-    private bool begun, faulted, completed, disposed, aborted;
+    private enum SinkState { Ready, Writing, Faulted, Completed, Aborted, Disposed }
+    private SinkState state;
     protected PngOutputSink(string outputPath, bool sequence)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
@@ -33,9 +34,9 @@ public abstract class PngOutputSink : IFrameSink
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            if (begun || aborted) throw new InvalidOperationException("A PNG sink can begin only once.");
-            begun = true; request.Validate(); cancellationToken.ThrowIfCancellationRequested();
+            ObjectDisposedException.ThrowIf(state == SinkState.Disposed, this);
+            if (state != SinkState.Ready) throw new InvalidOperationException("A PNG sink can begin only once.");
+            request.Validate(); cancellationToken.ThrowIfCancellationRequested();
             if (!sequence && request.Plan.FrameCount != 1) throw new ArgumentException("A single PNG requires exactly one planned frame.", nameof(request));
             this.request = request;
             string parent = Path.GetDirectoryName(destination) ?? throw new ArgumentException("Output must name a file or job directory.");
@@ -54,8 +55,9 @@ public abstract class PngOutputSink : IFrameSink
                 manifest.WriteNumber("startFrame", request.Plan.StartFrame); manifest.WriteNumber("endFrame", request.Plan.EndFrame);
                 manifest.WriteNumber("frameCount", request.Plan.FrameCount); manifest.WriteStartArray("frames");
             }
+            state = SinkState.Writing;
         }
-        catch { faulted = true; throw; }
+        catch { MarkFaulted(); throw; }
         finally { gate.Release(); }
     }
 
@@ -77,7 +79,7 @@ public abstract class PngOutputSink : IFrameSink
             }
             written++;
         }
-        catch { faulted = true; throw; }
+        catch { MarkFaulted(); throw; }
         finally { gate.Release(); }
     }
 
@@ -95,28 +97,52 @@ public abstract class PngOutputSink : IFrameSink
             }
             cancellationToken.ThrowIfCancellationRequested();
             if (sequence) Directory.Move(temporary!, destination); else File.Move(temporary!, destination, overwrite: true);
-            temporary = null; completed = true;
+            temporary = null; state = SinkState.Completed;
         }
-        catch { faulted = true; throw; }
+        catch { MarkFaulted(); throw; }
         finally { gate.Release(); }
     }
 
-    public async ValueTask AbortAsync(Exception? error, CancellationToken cancellationToken = default)
+    public ValueTask AbortAsync(Exception? error, CancellationToken cancellationToken = default) =>
+        CleanupAsync(SinkState.Aborted);
+
+    public ValueTask DisposeAsync() => CleanupAsync(SinkState.Disposed);
+
+    private async ValueTask CleanupAsync(SinkState finalState)
     {
         await gate.WaitAsync().ConfigureAwait(false);
-        try { aborted = true; CloseManifest(); DeleteTemporary(); } finally { gate.Release(); }
+        try
+        {
+            if (state != SinkState.Disposed) state = finalState;
+            // A sharing violation can leave an unpublished output behind. A later call retries deletion.
+            CloseManifest();
+            DeleteTemporary();
+        }
+        finally { gate.Release(); }
     }
-    public async ValueTask DisposeAsync()
+
+    private void MarkFaulted()
     {
-        await gate.WaitAsync().ConfigureAwait(false);
-        try { if (disposed) return; disposed = true; CloseManifest(); DeleteTemporary(); } finally { gate.Release(); }
+        if (state is SinkState.Ready or SinkState.Writing) state = SinkState.Faulted;
     }
+
     private void RequireWriting()
     {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (!begun || faulted || completed || aborted || request is null || temporary is null) throw new InvalidOperationException("The PNG sink is not writable.");
+        ObjectDisposedException.ThrowIf(state == SinkState.Disposed, this);
+        if (state != SinkState.Writing) throw new InvalidOperationException("The PNG sink is not writable.");
     }
-    private void CloseManifest() { manifest?.Dispose(); manifest = null; manifestStream?.Dispose(); manifestStream = null; }
+
+    private void CloseManifest()
+    {
+        try { manifest?.Dispose(); }
+        finally
+        {
+            manifest = null;
+            manifestStream?.Dispose();
+            manifestStream = null;
+        }
+    }
+
     private void DeleteTemporary()
     {
         if (temporary is null) return;

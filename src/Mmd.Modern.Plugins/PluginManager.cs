@@ -65,51 +65,38 @@ public sealed class PluginManager : IAsyncDisposable
     /// Preserving discovery never starts, stops or reloads a plugin. A missing, changed,
     /// invalid or ambiguous active plugin rejects the entire refresh without publishing it.
     /// </remarks>
-    public async Task<PluginOperationResult> RefreshAsync(IEnumerable<string> roots, bool preserveActive,
-        CancellationToken cancellationToken = default)
-    {
-        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
-            return Failure("Plugin refresh was canceled.");
-        (PluginOperationResult Result, bool Changed) outcome;
-        try
-        {
-            outcome = await RefreshCoreAsync(roots, preserveActive, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-        if (outcome.Changed)
-            OnPluginsChanged();
-        return outcome.Result;
-    }
+    public Task<PluginOperationResult> RefreshAsync(IEnumerable<string> roots, bool preserveActive,
+        CancellationToken cancellationToken = default) =>
+        RunOperationAsync(() => RefreshCoreAsync(roots, preserveActive, cancellationToken),
+            "Plugin refresh was canceled.", cancellationToken);
 
-    public async Task<PluginOperationResult> EnableAsync(string id, CancellationToken cancellationToken = default)
-    {
-        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
-            return Failure("Plugin activation was canceled.");
-        (PluginOperationResult Result, bool Changed) outcome;
-        try
-        {
-            outcome = await EnableCoreAsync(id, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-        if (outcome.Changed)
-            OnPluginsChanged();
-        return outcome.Result;
-    }
+    public Task<PluginOperationResult> EnableAsync(string id, CancellationToken cancellationToken = default) =>
+        RunOperationAsync(() => EnableCoreAsync(id, cancellationToken),
+            "Plugin activation was canceled.", cancellationToken);
 
-    public async Task<PluginOperationResult> DisableAsync(string id, CancellationToken cancellationToken = default)
+    public Task<PluginOperationResult> DisableAsync(string id, CancellationToken cancellationToken = default) =>
+        RunOperationAsync(() => DisableCoreAsync(id, cancellationToken),
+            "Plugin deactivation was canceled.", cancellationToken);
+
+    private async Task<PluginOperationResult> RunOperationAsync(
+        Func<Task<(PluginOperationResult Result, bool Changed)>> operation, string canceledMessage,
+        CancellationToken cancellationToken)
     {
-        if (!await EnterAsync(cancellationToken).ConfigureAwait(false))
-            return Failure("Plugin deactivation was canceled.");
+        try
+        {
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Failure(canceledMessage);
+        }
+
         (PluginOperationResult Result, bool Changed) outcome;
         try
         {
-            outcome = await DisableCoreAsync(id, cancellationToken).ConfigureAwait(false);
+            if (_disposed)
+                return Failure("The plugin manager is disposed.");
+            outcome = await operation().ConfigureAwait(false);
         }
         finally
         {
@@ -145,8 +132,6 @@ public sealed class PluginManager : IAsyncDisposable
     {
         try
         {
-            if (_disposed)
-                return (Failure("The plugin manager is disposed."), false);
             if (!preserveActive && _activationOrder.Count != 0)
                 return (Failure("Disable all active plugins before refreshing the plugin list."), false);
             ArgumentNullException.ThrowIfNull(roots);
@@ -228,15 +213,16 @@ public sealed class PluginManager : IAsyncDisposable
             }
             // Active entries are frozen and may not be marked incompatible during staging.
             // Validate their full dependency closure before mutating any new entry's state.
+            var validated = new HashSet<string>(StringComparer.Ordinal);
             foreach (var active in _activationOrder)
             {
-                var diagnostic = ValidateGraph(active, byId, new HashSet<string>(StringComparer.Ordinal), null);
+                var diagnostic = ValidateGraph(active, byId, new HashSet<string>(StringComparer.Ordinal), null, validated);
                 if (diagnostic is not null)
                     return (Failure(diagnostic), false);
             }
             foreach (var entry in discovered.Where(e => e.Manifest is not null && e.Runtime is null && e.State != PluginState.Incompatible))
             {
-                var diagnostic = ValidateGraph(entry, byId, new HashSet<string>(StringComparer.Ordinal), null);
+                var diagnostic = ValidateGraph(entry, byId, new HashSet<string>(StringComparer.Ordinal), null, validated);
                 if (diagnostic is not null)
                     entry.Reject(diagnostic);
             }
@@ -263,8 +249,6 @@ public sealed class PluginManager : IAsyncDisposable
         Entry? target = null;
         try
         {
-            if (_disposed)
-                return (Failure("The plugin manager is disposed."), false);
             if (id is null || !_byId.TryGetValue(id, out target))
                 return (Failure($"Plugin '{id}' was not found or its identifier is ambiguous."), false);
             var plan = new List<Entry>();
@@ -320,8 +304,6 @@ public sealed class PluginManager : IAsyncDisposable
     {
         try
         {
-            if (_disposed)
-                return (Failure("The plugin manager is disposed."), false);
             if (id is null || !_byId.TryGetValue(id, out var entry))
                 return (Failure($"Plugin '{id}' was not found or its identifier is ambiguous."), false);
             if (entry.Runtime is null)
@@ -464,19 +446,6 @@ public sealed class PluginManager : IAsyncDisposable
         try { loadContext?.Unload(); }
         catch (Exception exception) { diagnostic = Combine(diagnostic, $"Unload request failed: {Describe(exception)}"); }
         return diagnostic;
-    }
-
-    private async Task<bool> EnterAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return false;
-        }
     }
 
     private void Publish() => Volatile.Write(ref _snapshot,

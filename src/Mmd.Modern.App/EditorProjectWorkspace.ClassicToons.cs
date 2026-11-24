@@ -71,8 +71,8 @@ public sealed partial class EditorProjectWorkspace
             candidate = before.PrepareToonEdit(sessionEdit, replacement.Package, token);
         }, token);
         ProjectMetadata = candidate;
-        undo.Push(new(session, session, true, mappings, SnapshotMappings(), before, candidate, true));
-        redo.Clear(); MarkChanged(true);
+        RecordHistory(new(session, session, true, mappings, SnapshotMappings(), before, candidate, true));
+        MarkChanged(true);
     }
 }
 

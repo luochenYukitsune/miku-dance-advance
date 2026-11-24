@@ -92,6 +92,27 @@ public sealed class ImagesTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await sink.CompleteAsync(Token));
     }
 
+    [Fact]
+    public async Task DisposeRetriesRemovalOfLockedUnpublishedSequence()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "This test requires Windows file sharing semantics.");
+        using var directory = new ImageTestDirectory();
+        string target = Path.Combine(directory.Path, "sequence");
+        await using var sink = new PngSequenceSink(target);
+        var request = new ExportRequest(new(1, 1, new(30), 0, 0));
+        await sink.BeginAsync(request, Token);
+        using var frame = new FrameBufferLease(1, 1, 4, new byte[4]);
+        await sink.WriteAsync(request.Plan.GetSample(0), frame, Token);
+
+        string partial = Assert.Single(Directory.GetDirectories(directory.Path));
+        using (File.OpenRead(Assert.Single(Directory.GetFiles(partial, "*.png"))))
+            await Assert.ThrowsAnyAsync<IOException>(async () => await sink.DisposeAsync());
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await sink.CompleteAsync(Token));
+        await sink.DisposeAsync();
+        Assert.Empty(Directory.GetFileSystemEntries(directory.Path));
+    }
+
     // Independent PNG chunk reader, CRC verifier and zlib decoder for the emitted noninterlaced filter-0 subset.
     private static (int Width, int Height, bool Srgb, byte[] Pixels) Decode(byte[] png)
     {
