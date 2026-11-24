@@ -46,6 +46,64 @@ public sealed class PreviewLifecycleTests
     }
 
     [Fact]
+    public async Task CancellationBeforeResizeAndBackendFailureKeepThePriorDimensions()
+    {
+        var fixture = new OutputFixture();
+        var failure = new IOException("resize failed");
+        int attempts = 0;
+        var renderer = new PreviewRenderer { Resizing = () => { attempts++; throw failure; } };
+        await using var preview = await PreviewSession.CreateAsync(new(20, 10), fixture.CreateSession,
+            (_, _) => ValueTask.FromResult<IRealtimeViewRenderer>(renderer), Token);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => preview.ResizeAsync(40, 30, cancellation.Token).AsTask());
+        Assert.Equal(0, attempts);
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => preview.ResizeAsync(40, 30, Token).AsTask()));
+        Assert.Equal(1, attempts);
+        await preview.PresentAsync(0, Token);
+        var frame = Assert.Single(renderer.Frames);
+        Assert.Equal((20, 10), (frame.Width, frame.Height));
+    }
+
+    [Fact]
+    public async Task CancellationDuringAdmittedResizeKeepsTheNextFrameAtTheNewSize()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var fixture = new OutputFixture();
+        var renderer = new PreviewRenderer { Resizing = cancellation.Cancel };
+        await using var preview = await PreviewSession.CreateAsync(new(20, 10), fixture.CreateSession,
+            (_, _) => ValueTask.FromResult<IRealtimeViewRenderer>(renderer), Token);
+
+        var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => preview.ResizeAsync(40, 30, cancellation.Token).AsTask());
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+        Assert.Equal((40, 30), renderer.Size);
+        await preview.PresentAsync(0, Token);
+        var frame = Assert.Single(renderer.Frames);
+        Assert.Equal(renderer.Size, (frame.Width, frame.Height));
+    }
+
+    [Fact]
+    public async Task FailedRendererDisposalKeepsPreviewClosedAndCanBeRetried()
+    {
+        var fixture = new OutputFixture();
+        var failure = new IOException("native destroy failed");
+        var renderer = new PreviewRenderer { FirstDisposalFailure = failure };
+        await using var preview = await PreviewSession.CreateAsync(new(20, 10), fixture.CreateSession,
+            (_, _) => ValueTask.FromResult<IRealtimeViewRenderer>(renderer), Token);
+
+        Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => preview.DisposeAsync().AsTask()));
+        Assert.Throws<ObjectDisposedException>(() => fixture.Session!.Frame);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => preview.PresentAsync(0, Token).AsTask());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => preview.ResizeAsync(40, 30, Token).AsTask());
+
+        await preview.DisposeAsync();
+        await preview.DisposeAsync();
+        Assert.Equal(2, renderer.Disposals);
+    }
+
+    [Fact]
     public async Task RendererFactoryFailureDisposesTheNewPreviewSession()
     {
         var fixture = new OutputFixture();
@@ -90,10 +148,21 @@ public sealed class PreviewLifecycleTests
         public List<PreviewFrame> Frames { get; } = [];
         public (int, int) Size;
         public Func<CancellationToken, ValueTask>? Presenting;
+        public Action? Resizing;
+        public Exception? FirstDisposalFailure;
         public async ValueTask PresentAsync(PreviewFrame frame, CancellationToken cancellationToken = default)
         { Presented++; Frames.Add(frame); if (Presenting is not null) await Presenting(cancellationToken); }
         public ValueTask ResizeAsync(int width, int height, CancellationToken cancellationToken = default)
-        { Size = (width, height); return ValueTask.CompletedTask; }
-        public ValueTask DisposeAsync() { Disposals++; return ValueTask.CompletedTask; }
+        {
+            Resizing?.Invoke();
+            Size = (width, height);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.CompletedTask;
+        }
+        public ValueTask DisposeAsync()
+        {
+            if (++Disposals == 1 && FirstDisposalFailure is { } failure) throw failure;
+            return ValueTask.CompletedTask;
+        }
     }
 }

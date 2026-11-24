@@ -1097,6 +1097,7 @@
   "Mda.Text.ExportStatus.Completed": "レンダリング完了",
   "Mda.Text.ExportStatus.Cancelled": "レンダリングをキャンセルしました",
   "Mda.Text.ExportStatus.Failed": "レンダリングに失敗しました",
+  "Mda.Text.ExportStatus.FailedAfterPublication": "出力は保存されましたが、後処理に失敗しました",
   "Mda.Text.ExportStatus.Frames": "{0} / {1} フレーム",
   "Mda.Text.ExportStatus.FramesUnknown": "{0} フレーム完了",
   "Mda.Text.ExportStatus.Elapsed": "経過時間",

@@ -125,13 +125,14 @@ public static class SceneAnimationProjectStore
         using var portable = options.CopyModelAssets ? PortableModelAssets.Prepare(composition.Objects, cancellationToken, limits: options.PortableLimits) : null;
         if (portable is not null) layoutJson = SceneProjectStore.Serialize(destination, composition, lighting, portable);
         using var layout = JsonDocument.Parse(layoutJson);
+        int version = SelectDocumentVersion(state, settings);
+        if (version >= SettingsVersion)
+            settings ??= new ProjectSettings();
         var document = new Document
         {
-            Format = Format, Version = state.Motions.Any(m => m.Detachment is not null) || state.PmmControls?.HasReplacementMetadata == true ? ModelReplacementVersion : state.PmmControls is not null ? PmmControlsVersion : settings is not null ? SettingsVersion : state.SceneMotion is not null ? SceneMotionVersion : state.OutsideParents.Count != 0 ? OutsideParentVersion
-                : state.Motions.Any(binding => binding.Asset!.NameOverrides.Count != 0) ? MixedNameVersion
-                : state.Motions.Any(binding => binding.Asset!.AnsiCodePage != 932) ? EncodedMotionVersion : Version,
+            Format = Format, Version = version,
             Layout = layout.RootElement.Clone(), CurrentFrame = state.CurrentFrame,
-            Settings = state.PmmControls is not null ? settings ?? new() : settings, Media = settings is null && state.PmmControls is null ? null : media.Select(track => new MediaData
+            Settings = settings, Media = settings is null ? null : media.Select(track => new MediaData
             { Id = track.Id, Kind = track.Kind, AssetPath = MediaPath(track.Asset.Sha256), Sha256 = track.Asset.Sha256,
                 Name = track.Asset.Name, OffsetTicks = track.OffsetTicks, Enabled = track.Enabled }).ToArray(),
             SceneMotion = state.SceneMotion is { } scene ? Resource(scene) : null,
@@ -161,6 +162,19 @@ public static class SceneAnimationProjectStore
         { cancellationToken.ThrowIfCancellationRequested(); StoreAsset(parent, asset, cancellationToken); }
         foreach (var asset in media.Select(track => track.Asset).DistinctBy(asset => asset.Sha256)) StoreMedia(parent, asset, cancellationToken);
         WriteDocument(destination, Utf8.GetBytes(json), cancellationToken);
+    }
+
+    private static int SelectDocumentVersion(SceneAnimationSession.SaveSnapshot state, ProjectSettings? settings)
+    {
+        if (state.Motions.Any(motion => motion.Detachment is not null) || state.PmmControls?.HasReplacementMetadata == true)
+            return ModelReplacementVersion;
+        if (state.PmmControls is not null) return PmmControlsVersion;
+        if (settings is not null) return SettingsVersion;
+        if (state.SceneMotion is not null) return SceneMotionVersion;
+        if (state.OutsideParents.Count != 0) return OutsideParentVersion;
+        if (state.Motions.Any(binding => binding.Asset!.NameOverrides.Count != 0)) return MixedNameVersion;
+        if (state.Motions.Any(binding => binding.Asset!.AnsiCodePage != 932)) return EncodedMotionVersion;
+        return Version;
     }
 
     public static PreparedSceneAnimationProject Load(string path,

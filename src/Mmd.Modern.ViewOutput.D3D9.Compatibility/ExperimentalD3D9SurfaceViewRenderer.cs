@@ -169,15 +169,8 @@ public sealed class ExperimentalD3D9SurfaceViewRenderer : IViewRenderer, IViewSc
         token.ThrowIfCancellationRequested();
         if (mediaInputs is not null && (emm is null || classicPassInputs is null))
             throw new NotSupportedException("Background decoding requires the Classic EMM original-pass path.");
-        var frozen = emm is not null ? D3D9SurfacePreflight.FreezeEmmRequest(request, background)
-            : sceneFx is not null ? D3D9SurfacePreflight.FreezeSceneFxRequest(request, background)
-            : objectFx is not null ? D3D9SurfacePreflight.FreezeObjectFxRequest(request, background)
-            : D3D9SurfacePreflight.FreezeRequest(request, background, isolation);
-        // Enumerate and validate identities before loading a native library or allocating a device.
-        var encoder = emm is not null ? new D3D9SurfaceFrameEncoder(bindings, emm, screenCaptureMode)
-            : sceneFx is not null ? new D3D9SurfaceFrameEncoder(bindings, sceneFx)
-            : objectFx is not null ? new D3D9SurfaceFrameEncoder(bindings, objectFx) : new D3D9SurfaceFrameEncoder(bindings);
-        encoder.UseClassicPassInputs(classicPassInputs);
+        var (frozen, encoder) = D3D9SurfacePreflight.PrepareRenderer(request, background, isolation,
+            bindings, objectFx, sceneFx, emm, classicPassInputs, screenCaptureMode);
         var session = await factory(new(frozen.Width, frozen.Height), encoder.NativeObjectIds, token).ConfigureAwait(false)
             ?? throw new InvalidOperationException("The surface capture factory returned null.");
         return new(frozen, background, encoder, session, mediaInputs);

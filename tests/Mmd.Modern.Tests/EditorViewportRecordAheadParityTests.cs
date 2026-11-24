@@ -404,6 +404,35 @@ public sealed class EditorViewportRecordAheadParityTests : IAsyncDisposable
     }
 
     [Fact]
+    public void MixedPluginAndFallbackStylesRefreshGuessedRolesWhenOnlyTheFallbackNameChanges()
+    {
+        var styles = new D3D12ViewStyleCatalog([TestStylePlugins.Genshin]);
+        var presets = D3D12ViewRenderingStyles.MergePresetCatalog(TestStylePlugins.AllPresetCatalog, styles);
+        SceneRenderingStyleBinding[] bindings =
+        [
+            new(Guid.NewGuid(), new("genshin"), ModelRole.Character, 0, 1, true),
+            new(Guid.NewGuid(), new("star-rail"), ModelRole.Character, 1, 1, true),
+        ];
+        var cache = new D3D12ViewRenderingStylesCache(presets, [], [], [], styles, null);
+        var options = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false);
+        OriginalFrameScene Frame(string fallbackName) =>
+            CreateTwoObjectFrame(Vector3.UnitZ, new Vector3(0, 1, -3), options, ["body", fallbackName]);
+
+        var initial = Frame("hair");
+        var first = cache.Resolve(initial, bindings);
+        Assert.Equal(D3D12CharacterMaterialRole.Hair, first.SurfaceStyles.CharacterMaterials[1].Role);
+        Assert.Same(first.SurfaceStyles, cache.Resolve(Frame("hair"), bindings).SurfaceStyles);
+
+        var renamed = Frame("eye");
+        var direct = D3D12ViewRenderingStyles.Resolve(renamed, presets, bindings, styleCatalog: styles);
+        var updated = cache.Resolve(renamed, bindings);
+        AssertResultEquivalent(direct, updated);
+        Assert.Equal(D3D12CharacterMaterialRole.Eye, updated.SurfaceStyles.CharacterMaterials[1].Role);
+        Assert.Equal(D3D12CharacterMaterialRole.Hair, first.SurfaceStyles.CharacterMaterials[1].Role);
+        Assert.Same(updated, cache.Resolve(renamed, bindings));
+    }
+
+    [Fact]
     public void MultiPropOutOfOrderAndHiddenInstancesMatchDirectResolveAndReuseResult()
     {
         const int visibleObjects = 24;

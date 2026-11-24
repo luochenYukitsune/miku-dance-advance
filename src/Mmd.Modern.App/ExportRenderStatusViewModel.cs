@@ -181,7 +181,8 @@ public sealed class ExportRenderStatusViewModel : INotifyPropertyChanged
 
     public void MarkCompleted() => Finish(ExportTaskState.Completed, "Mda.Text.ExportStatus.Completed");
     public void MarkCancelled() => Finish(ExportTaskState.Cancelled, "Mda.Text.ExportStatus.Cancelled");
-    public void MarkFailed(Exception error)
+    public void MarkFailed(Exception error) => MarkFailed(error, outputPublished: false);
+    internal void MarkFailed(Exception error, bool outputPublished)
     {
         ArgumentNullException.ThrowIfNull(error);
         if (!IsRunning) return;
@@ -191,7 +192,8 @@ public sealed class ExportRenderStatusViewModel : INotifyPropertyChanged
             DiagnosticsText = ExportDiagnosticException.Readable(error);
             DiagnosticLogPath = Text("Mda.Text.ExportStatus.LogUnavailable");
         }
-        Finish(ExportTaskState.Failed, "Mda.Text.ExportStatus.Failed");
+        if (outputPublished && totalFrames > 0) completedFrames = totalFrames;
+        Finish(ExportTaskState.Failed, outputPublished ? "Mda.Text.ExportStatus.FailedAfterPublication" : "Mda.Text.ExportStatus.Failed");
     }
 
     internal void SetDiagnostics(ExportDiagnosticSession diagnostics)

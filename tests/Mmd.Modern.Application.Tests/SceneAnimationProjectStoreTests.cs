@@ -53,6 +53,30 @@ public sealed class SceneAnimationProjectStoreTests : IDisposable
     }
 
     [Fact]
+    public void SaveWithoutExplicitSettingsRoundTripsDetachedMotionAndDefaults()
+    {
+        var model = Model(morph: true);
+        var (scene, lighting, first, _) = Scene(model);
+        var asset = SceneMotionAsset.FromBytes(MotionBytes(30, new(3, 0, 0), morph: true));
+        var motion = new SceneActorMotion(first.Id, model, asset.Motion, Asset: asset)
+        {
+            Detachment = new([], ["smile"], [], []),
+        };
+        using var session = new SceneAnimationSession(scene.Objects, [motion], NoPhysics, lighting.Snapshot, Token);
+
+        SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, ExternalAssets, Token);
+
+        var document = Document();
+        Assert.Equal(SceneAnimationProjectStore.ModelReplacementVersion, document["version"]!.GetValue<int>());
+        Assert.Equal("smile", document["motions"]![0]!["detachment"]!["morphNames"]![0]!.GetValue<string>());
+        using var reopened = SceneAnimationProjectStore.Load(ProjectPath, (_, _) => new(model, Rest(model)), NoPhysics, Token);
+        Assert.Equal(new ProjectSettings(), reopened.Settings);
+        Assert.Empty(reopened.Media);
+        reopened.Animation.Seek(30, Token);
+        Near(new(3, 0, 0), reopened.Animation.Frame.Surface.Snapshot.Vertices[0].Position);
+    }
+
+    [Fact]
     public void CapturedBytesAreCopiedOnceByHashAndSharedMotionAssetsAreDeduplicated()
     {
         var model = Model(); var (scene, lighting, first, second) = Scene(model);

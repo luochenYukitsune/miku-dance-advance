@@ -22,6 +22,7 @@ public sealed class ExportCoordinatorTests
         Assert.Equal(1, fixture.Renderer.Disposals);
         Assert.True(sink.Completed); Assert.False(sink.Aborted); Assert.True(sink.Disposed);
         Assert.Equal(ExportTaskState.Completed, coordinator.State);
+        Assert.True(coordinator.OutputPublished);
         Assert.Throws<ObjectDisposedException>(() => fixture.Session!.Frame);
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.RunAsync(new(new(2, 2, new(30), 0, 0)), new TestSink(), cancellationToken: Token));
     }
@@ -52,6 +53,8 @@ public sealed class ExportCoordinatorTests
         var coordinator = fixture.Coordinator();
         var actual = await Assert.ThrowsAsync<IOException>(() => coordinator.RunAsync(new(new(2, 2, new(30), 0, 0)), sink, cancellationToken: Token));
         Assert.Same(expected, actual); Assert.True(sink.Aborted); Assert.True(sink.Disposed);
+        Assert.False(coordinator.OutputPublished);
+        Assert.Equal(false, actual.Data[ExportCoordinator.OutputPublishedDataKey]);
         Assert.Equal(1, fixture.Renderer.Disposals); Assert.Equal(0, fixture.Renderer.Outstanding);
         Assert.Throws<ObjectDisposedException>(() => fixture.Session!.Frame);
         Assert.Equal(ExportTaskState.Failed, coordinator.State);
@@ -117,6 +120,32 @@ public sealed class ExportCoordinatorTests
         Assert.Equal(ExportTaskState.Completed, progress.Values[^1].State);
         Assert.Equal(120, progress.Values[^1].SimulationTicks);
         Assert.Equal(new OfflineFrameTime(1, 2), progress.Values[^1].PresentationTime);
+    }
+
+    [Fact]
+    public async Task FinalProgressFailurePreservesThePublishedOutputAndOriginalError()
+    {
+        var fixture = new OutputFixture();
+        var coordinator = fixture.Coordinator();
+        var sink = new TestSink();
+        var original = new IOException("final notification failed");
+        var progress = new ProgressSink(value =>
+        {
+            if (value.State == ExportTaskState.Completed) throw original;
+        });
+
+        var error = await Assert.ThrowsAsync<IOException>(() =>
+            coordinator.RunAsync(new(new(2, 2, new(30), 0, 0)), sink, progress, Token));
+
+        Assert.Same(original, error);
+        Assert.True(coordinator.OutputPublished);
+        Assert.Equal(true, error.Data[ExportCoordinator.OutputPublishedDataKey]);
+        Assert.Equal("progress.final", error.Data["MDA.ViewOutput.Phase"]);
+        Assert.Equal(ExportTaskState.Failed, coordinator.State);
+        Assert.True(sink.Completed);
+        Assert.False(sink.Aborted);
+        Assert.True(sink.Disposed);
+        Assert.Equal(1, fixture.Renderer.Disposals);
     }
 
     [Fact]
@@ -214,9 +243,13 @@ public sealed class ExportCoordinatorTests
         Assert.Equal(ExportTaskState.Failed, coordinator.State);
     }
 
-    private sealed class ProgressSink : IProgress<ExportTaskProgress>
+    private sealed class ProgressSink(Action<ExportTaskProgress>? report = null) : IProgress<ExportTaskProgress>
     {
         public List<ExportTaskProgress> Values { get; } = [];
-        public void Report(ExportTaskProgress value) => Values.Add(value);
+        public void Report(ExportTaskProgress value)
+        {
+            Values.Add(value);
+            report?.Invoke(value);
+        }
     }
 }

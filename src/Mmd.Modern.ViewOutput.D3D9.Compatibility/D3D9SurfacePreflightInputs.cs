@@ -71,19 +71,19 @@ public sealed class D3D9SurfacePreflightInputs
     public ViewRenderRequest ValidateObjectFxRequest(ViewRenderRequest request, Vector4 background)
     {
         RequireScope(D3D9SurfaceScope.ConfiguredObjectFx);
-        return D3D9SurfacePreflight.FreezeObjectFxRequest(request, background);
+        return D3D9SurfacePreflight.FreezeSurfaceRequest(request, background);
     }
 
     public ViewRenderRequest ValidateSceneFxRequest(ViewRenderRequest request, Vector4 background)
     {
         RequireScope(D3D9SurfaceScope.ConfiguredSceneFx);
-        return D3D9SurfacePreflight.FreezeSceneFxRequest(request, background);
+        return D3D9SurfacePreflight.FreezeSurfaceRequest(request, background);
     }
 
     public ViewRenderRequest ValidateEmmRequest(ViewRenderRequest request, Vector4 background)
     {
         RequireScope(D3D9SurfaceScope.ConfiguredEmm);
-        return D3D9SurfacePreflight.FreezeEmmRequest(request, background);
+        return D3D9SurfacePreflight.FreezeSurfaceRequest(request, background);
     }
 
     public void ValidateSceneStyles(OriginalFrameScene scene, IReadOnlyList<SceneRenderingStyleBinding> styles,
