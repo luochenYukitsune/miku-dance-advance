@@ -118,7 +118,9 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
             shell.ShowInspectorPage(EditorInspectorPage.Lighting); Pump(window);
             var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
             inspector.FindControl<Expander>("LightPresetExpander")!.IsExpanded = true; Pump(window);
-            Click("AddLightPresetButton"); Assert.Equal(4, shell.Workspace.Session!.Lighting.Lights.Count);
+            var menu = (MenuFlyout)window.FindControl<Button>("AddBrowserLightButton")!.Flyout!;
+            menu.Items.OfType<MenuItem>().Single(item => item.Name == "AddThreePointLightGroup").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Pump(window); Assert.Equal(4, shell.Workspace.Session!.Lighting.Lights.Count);
             Assert.Single(inspector.ViewModel!.SelectedGroupIds); Assert.Equal(3, inspector.ViewModel.SelectedLightIds.Count);
             Assert.Equal(3, inspector.ViewModel.SelectedRows.OfType<EditorLightGroupItem>().SelectMany(group => inspector.ViewModel.Lights.Where(light => light.GroupId == group.Id)).Count());
             Assert.Equal(inspector.ViewModel.SelectionSummary, window.FindControl<TextBlock>("SelectedLightName")!.Text);
@@ -131,7 +133,7 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
                 Assert.Single(inspector.ViewModel!.SelectedGroupIds); Assert.Equal(3, inspector.ViewModel.SelectedLightIds.Count);
                 var expander = inspector.FindControl<Expander>("LightPresetExpander")!;
                 Assert.True(expander.IsEffectivelyVisible); Assert.True(expander.Bounds.Width > 0);
-                foreach (string name in new[] { "AddLightPresetButton", "ReplaceLightPresetButton", "LoadLightPresetButton", "SaveLightPresetButton" })
+                foreach (string name in new[] { "ReplaceLightPresetButton", "LoadLightPresetButton", "SaveLightPresetButton" })
                 {
                     var button = inspector.FindControl<Button>(name)!;
                     Assert.True(button.Bounds.Width > 0); Assert.True(button.Bounds.Width <= expander.Bounds.Width);
@@ -139,10 +141,10 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
                 }
                 if (Environment.GetEnvironmentVariable("MDA_LIGHTING_PRESET_EVIDENCE") is { Length: > 0 } evidence)
                 {
-                    Directory.CreateDirectory(evidence); using var image = window.CaptureRenderedFrame(); Assert.NotNull(image);
+                    Directory.CreateDirectory(evidence); using var image = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(image);
                     image.Save(Path.Combine(evidence, "presets-" + language + "-minimum.png"));
                     window.Width = 1480; window.Height = 940; Pump(window);
-                    using var normal = window.CaptureRenderedFrame(); Assert.NotNull(normal);
+                    using var normal = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(normal);
                     normal.Save(Path.Combine(evidence, "presets-" + language + "-normal.png"));
                 }
             }
@@ -151,13 +153,51 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
             Assert.True(shell.Workspace.Undo()); Assert.Equal(original, Assert.Single(shell.Workspace.Session.Lighting.Lights));
             Assert.True(shell.Workspace.Redo()); Assert.Equal(4, shell.Workspace.Session.Lighting.Lights.Count); Pump(window);
             return true;
-            void Click(string name) { inspector.FindControl<Button>(name)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(window); }
         }
         finally
         {
             EditorLocalization.SetLanguage("zh-CN");
             typeof(EditorWindow).GetField("_closingConfirmed", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(window, true);
             window.Close(); Dispatcher.UIThread.RunJobs();
+        }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task ApplySingleLightPresetReplacesTargetWithoutStaleHexOrIntensityRestoringOverPreset() => await session.Dispatch(() =>
+    {
+        var light = Light() with { Intensity = 1f, Color = new(1, 1, 1) };
+        var other = Light() with { Name = "Other", Color = new(1, 1, 1) };
+        var initial = new SceneLightingSnapshot([light, other]);
+        var presetLight = Light() with { Intensity = 5f, Color = new(0, 1, 0) };
+        var singlePreset = SceneLightingPreset.Capture("Single", new([presetLight]), [presetLight.Id]);
+        var document = Guid.NewGuid();
+        SceneLightingSnapshot? committed = null;
+        var inspector = new EditorLightInspector();
+        var window = Host(inspector);
+        try
+        {
+            inspector.CommitRequested = draft => { committed = draft.Snapshot; return true; };
+            inspector.SetLighting(initial, light.Id, document);
+            Pump(window);
+            var number = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(c => c.Name == "InlineLightIntensity");
+            var hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(c => c.Name == "LightHexColor");
+            number.Value = 2m;
+            number.Text = "2";
+            hex.Text = "#112233";
+            Assert.True(inspector.ApplySingleLightPreset(singlePreset));
+            Pump(window);
+            Assert.NotNull(committed);
+            var updated = committed!.Lights.First(value => value.Id == light.Id);
+            Assert.Equal(5f, updated.Intensity);
+            Assert.Equal(new(0, 1, 0), updated.Color);
+            Assert.Equal(5m, inspector.ViewModel!.SelectedLight!.Intensity);
+            Assert.Equal(5m, inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(c => c.Name == "InlineLightIntensity").Value);
+            Assert.Equal("#00FF00", inspector.GetVisualDescendants().OfType<TextBox>().Single(c => c.Name == "LightHexColor").Text);
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
         }
     }, TestContext.Current.CancellationToken);
 

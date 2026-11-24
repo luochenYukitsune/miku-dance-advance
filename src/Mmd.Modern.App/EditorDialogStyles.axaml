@@ -15,7 +15,7 @@
   <Style Selector="Button">
     <Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="14,0" />
     <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="HorizontalContentAlignment" Value="Center" />
-    <Setter Property="CornerRadius" Value="4" /><Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="5" /><Setter Property="BorderThickness" Value="1" />
     <Setter Property="Background" Value="{DynamicResource MdaButton}" />
     <Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" />
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />
@@ -75,7 +75,7 @@
   <Style Selector="ListBox">
     <Setter Property="Background" Value="{DynamicResource EditorPanelSurface}" />
     <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" /><Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="CornerRadius" Value="5" />
   </Style>
   <Style Selector="ListBoxItem"><Setter Property="Foreground" Value="{DynamicResource EditorText}" /></Style>
   <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource EditorHover}" /></Style>
@@ -112,6 +112,6 @@
   <Style Selector="Expander:expanded /template/ Path#Chevron"><Setter Property="RenderTransform" Value="rotate(90deg)" /></Style>
   <Style Selector="ComboBox">
     <Setter Property="Background" Value="{DynamicResource EditorInputSurface}" /><Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
-    <Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Foreground" Value="{DynamicResource EditorText}" /><Setter Property="CornerRadius" Value="5" />
   </Style>
 </Styles>

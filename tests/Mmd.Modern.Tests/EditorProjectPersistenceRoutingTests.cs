@@ -1,12 +1,16 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Numerics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Threading;
 using Mmd.Modern.App;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
@@ -519,6 +523,210 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
             Assert.Throws<InvalidDataException>(() => modern.OpenRecovery(rediscovered, Token));
             Assert.Same(active, modern.Session); Assert.Equal(document, modern.DocumentId);
             return true;
+        }, Token);
+
+    [Fact]
+    public async Task ConvertedCopyCarriesUnregisteredDraftsAndUsesLatestClassicEditOnReturn()
+        => await dispatcher.Dispatch(async () =>
+        {
+            using var files = new Fixture();
+            var camera = new PmmCameraPose(new(0, 10, 0), default, -45, 30, true);
+            using var modern = new EditorShellViewModel(camera, EditorModernRenderEngine.Instance);
+            using var classic = new EditorShellViewModel(camera, files.ProductionEngine());
+            modern.Workspace.PackageCacheDirectory = files.Path("source-cache");
+            classic.Workspace.PackageCacheDirectory = files.Path("converted-cache");
+            var actor = files.AddModel(modern.Workspace);
+            modern.Browser.SelectedBoneIndex = 0;
+            modern.CurrentFrame = 8; modern.Animation.PositionX = 3m;
+            modern.CurrentFrame = 19; modern.Animation.PositionX = 5m;
+            string converted = files.Path("drafts.pmc");
+            var bitmap = EditorClassicToonPackageTests.Bitmap();
+            await modern.Workspace.ExportConvertedCopyAsync(converted, Token, cancellation =>
+                [new(0, "fixture", "default.bmp", bitmap, EditorTextureLoader.Decode(bitmap, "default.bmp", cancellation))]);
+            Assert.True(modern.Workspace.IsDirty);
+            Assert.Null(modern.Workspace.ProjectPath);
+            classic.Workspace.Open(converted, Token);
+            classic.CurrentFrame = 8; classic.Browser.SelectedBoneIndex = 0;
+            Assert.Equal(actor, classic.Animation.ObjectId);
+            Assert.Equal(new[] { 8, 19 }, classic.Animation.DraftFrames);
+            Assert.Equal(3m, classic.Animation.PositionX);
+            Assert.Empty(Assert.Single(classic.Workspace.Motions).Motion.BoneKeyframes);
+            await classic.Animation.RegisterKeyframeAsync();
+            classic.CurrentFrame = 19;
+            Assert.Equal(5m, classic.Animation.PositionX);
+            classic.Animation.PositionX = 7m;
+            string restored = files.Path("edited-back.pma");
+            await classic.Workspace.ExportConvertedCopyAsync(restored, Token);
+            Assert.Equal(converted, classic.Workspace.ProjectPath);
+            Assert.True(classic.Workspace.IsDirty);
+            modern.Workspace.Open(restored, Token);
+            modern.CurrentFrame = 19; modern.Browser.SelectedBoneIndex = 0;
+            Assert.Equal(actor, modern.Animation.ObjectId);
+            Assert.Equal(new[] { 19 }, modern.Animation.DraftFrames);
+            Assert.Equal(7m, modern.Animation.PositionX);
+            var registered = Assert.Single(Assert.Single(modern.Workspace.Motions).Motion.BoneKeyframes);
+            Assert.Equal(8u, registered.Frame);
+            Assert.Equal(3f, registered.Translation.X);
+            return true;
+        }, Token);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeSaveKeepsMultiFramePoseDraftsSeparateFromKeysAndSupportsRegisterUndo(bool classic)
+        => await dispatcher.Dispatch(async () =>
+        {
+            using var files = new Fixture();
+            using var compatible = files.Workspace();
+            var engine = classic ? compatible.RenderEngine : EditorModernRenderEngine.Instance;
+            using var shell = new EditorShellViewModel(new PmmCameraPose(new(0, 10, 0), default, -45, 30, true), engine);
+            shell.Workspace.PackageCacheDirectory = files.Path("pose-cache");
+            var actor = files.AddModel(shell.Workspace);
+            shell.CurrentFrame = 10;
+            shell.Animation.SelectBone(0); shell.Animation.PositionX = 3;
+            shell.CurrentFrame = 20; shell.Animation.PositionX = 5;
+            string path = files.Path(classic ? "poses.pmc" : "poses.pma");
+            shell.Workspace.Save(path, Token);
+            Assert.False(shell.Workspace.IsDirty);
+            shell.Workspace.New();
+            Assert.False(shell.Animation.HasAnyDraft);
+            shell.Workspace.Open(path, Token);
+            shell.CurrentFrame = 10; shell.Animation.SelectBone(0);
+            Assert.Equal(actor, shell.Animation.ObjectId);
+            Assert.Equal(3m, shell.Animation.PositionX); Assert.Equal(new[] { 10, 20 }, shell.Animation.DraftFrames);
+            Assert.Empty(Assert.Single(shell.Workspace.Motions).Motion.BoneKeyframes);
+            await shell.Animation.RegisterKeyframeAsync();
+            Assert.Equal(10u, Assert.Single(Assert.Single(shell.Workspace.Motions).Motion.BoneKeyframes).Frame);
+            Assert.Equal(new[] { 20 }, shell.Animation.DraftFrames);
+            Assert.True(shell.Workspace.Undo());
+            Assert.Empty(Assert.Single(shell.Workspace.Motions).Motion.BoneKeyframes);
+            Assert.Equal(new[] { 10, 20 }, shell.Animation.DraftFrames);
+            Assert.True(shell.Workspace.Redo());
+            Assert.Equal(new[] { 20 }, shell.Animation.DraftFrames);
+            shell.Workspace.Save(path, Token);
+            shell.Workspace.Open(path, Token);
+            Assert.Equal(new[] { 20 }, shell.Animation.DraftFrames);
+            Assert.Single(Assert.Single(shell.Workspace.Motions).Motion.BoneKeyframes);
+            return true;
+        }, Token);
+
+    [Fact]
+    public void SaveCapturedKeepsWorkspaceDirtyWhenEditedAfterCapture()
+    {
+        using var files = new Fixture();
+        using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("dirty-race-cache") };
+        files.AddModel(workspace);
+        string path = files.Path("dirty-race.pma");
+        workspace.Save(path, Token);
+        Assert.False(workspace.IsDirty);
+
+        workspace.MarkPoseDraftEdited();
+        Assert.True(workspace.IsDirty);
+        using var staleSnapshot = workspace.CaptureRecoverySnapshot(Token);
+        workspace.MarkPoseDraftEdited();
+        workspace.SaveCaptured(path, staleSnapshot, Token);
+        Assert.True(workspace.IsDirty);
+
+        using var freshSnapshot = workspace.CaptureRecoverySnapshot(Token);
+        workspace.SaveCaptured(path, freshSnapshot, Token);
+        Assert.False(workspace.IsDirty);
+    }
+
+    [Fact]
+    public async Task HostBusyBlocksAnimationDraftMutationsAndBoneSelectNarrowsAndMorphShortcutRegisters()
+        => await dispatcher.Dispatch(async () =>
+        {
+            using var files = new Fixture();
+            var basis = EditorRecoveryPmaIntegrationTests.Model();
+            var rigModel = new PmxModel
+            {
+                Header = basis.Header, Name = "rig", EnglishName = "", Comment = "", EnglishComment = "",
+                Vertices = basis.Vertices, Faces = basis.Faces, Textures = [], Materials = basis.Materials,
+                Bones =
+                [
+                    new() { Name = "b0", EnglishName = "", Position = Vector3.Zero, ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate },
+                    new() { Name = "b1", EnglishName = "", Position = new(0, 1, 0), ParentIndex = 0, DeformDepth = 1, Flags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate }
+                ],
+                Morphs = [new() { Name = "blink", EnglishName = "", Type = PmxMorphType.Position, ControlPanel = 0 }],
+                DisplayFrames = [], RigidBodies = [], Joints = [], SoftBodies = []
+            };
+            using var shell = new EditorShellViewModel();
+            shell.Workspace.PackageCacheDirectory = files.Path("host-busy-cache");
+            var actor = files.AddModel(shell.Workspace, rigModel);
+
+            bool hostBusy = true;
+            var guarded = new EditorAnimationViewModel { IsHostBusy = () => hostBusy };
+            guarded.SetActor(actor, rigModel, new(), "rig");
+            guarded.SelectBone(0);
+            Assert.False(guarded.CanTranslate);
+            Assert.False(guarded.CanRotate);
+            guarded.PositionX = 4m;
+            Assert.Equal(0m, guarded.PositionX);
+            guarded.SelectMorph(0);
+            Assert.False(guarded.CanEditMorph);
+            guarded.MorphWeight = 0.5m;
+            Assert.Equal(0m, guarded.MorphWeight);
+
+            hostBusy = false;
+            guarded.RefreshInputValidation();
+            Assert.True(guarded.CanEditMorph);
+            guarded.MorphWeight = 0.5m;
+            Assert.Equal(0.5m, guarded.MorphWeight);
+            guarded.SelectBone(0);
+            Assert.True(guarded.CanTranslate);
+            Assert.True(guarded.CanRotate);
+            guarded.PositionX = 4m;
+            Assert.Equal(4m, guarded.PositionX);
+
+            shell.RefreshWorkspace(actor);
+            shell.Animation.SelectBones([0, 1]);
+            Assert.Equal(new[] { 0, 1 }, shell.Animation.SelectedBoneIndices);
+            shell.Animation.SelectBone(1);
+            Assert.Equal(new[] { 1 }, shell.Animation.SelectedBoneIndices);
+
+            var window = new EditorWindow(false) { DataContext = shell };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                shell.SceneSelectionIndex = -1;
+                shell.CurrentFrame = 12;
+                shell.Animation.SelectMorph(0);
+                shell.Animation.MorphWeight = 0.6m;
+                var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+                timeline.Focus();
+                Dispatcher.UIThread.RunJobs();
+                var shortcut = typeof(EditorWindow).GetMethod("ExecuteEditorKey", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                Assert.True((bool)shortcut.Invoke(window, [Key.K, KeyModifiers.None, true])!);
+                Dispatcher.UIThread.RunJobs();
+                await Task.Yield();
+                Dispatcher.UIThread.RunJobs();
+
+                var motion = Assert.Single(shell.Workspace.Motions).Motion;
+                Assert.Empty(motion.BoneKeyframes);
+                var firstMorph = Assert.Single(motion.MorphKeyframes);
+                Assert.Equal(12u, firstMorph.Frame);
+                Assert.Equal(0.6f, firstMorph.Weight, 3);
+
+                shell.CurrentFrame = 15;
+                shell.Animation.MorphWeight = 0.8m;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True((bool)shortcut.Invoke(window, [Key.Enter, KeyModifiers.None, true])!);
+                Dispatcher.UIThread.RunJobs();
+                await Task.Yield();
+                Dispatcher.UIThread.RunJobs();
+
+                motion = Assert.Single(shell.Workspace.Motions).Motion;
+                Assert.Empty(motion.BoneKeyframes);
+                Assert.Equal(new uint[] { 12u, 15u }, motion.MorphKeyframes.Select(k => k.Frame).Order().ToArray());
+                return true;
+            }
+            finally
+            {
+                window.DataContext = null;
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+            }
         }, Token);
 
     private sealed class Fixture : IDisposable

@@ -27,6 +27,7 @@ public sealed partial class EditorShellViewModel : IDisposable
     public EditorProjectWorkspace Workspace { get; }
     public EditorModelBrowserViewModel Browser { get; } = new();
     public EditorAnimationViewModel Animation { get; } = new();
+    private Guid draftDocument;
     public EditorSceneInspectorViewModel SceneInspector { get; } = new();
     public EditorPosePreview PosePreview { get; } = new();
     public long ContentRevision { get; private set; }
@@ -102,14 +103,16 @@ public sealed partial class EditorShellViewModel : IDisposable
         GoToEndCommand = new WorkspaceCommand(() => CurrentFrame = (int)Math.Min(int.MaxValue, Workspace.Session?.DurationFrames ?? 0), () => !IsBusy && HasProject);
         Browser.ImportModelCommand = ImportModelCommand;
         Browser.SelectionChanged += (_, _) => RefreshSelection();
-        Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion); };
-        Animation.CanMutateProject = () => !IsBusy;
+        Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion, Animation.RegistrationHistory); };
+        Animation.CanMutateProject = () => !IsBusy && !IsPlaying;
+        Animation.IsHostBusy = () => IsBusy;
+        Workspace.CapturePoseDrafts = Animation.CaptureNativeDrafts;
+        Animation.DraftContentEdited += (_, _) => { if (IsPlaying) StopPlayback(); Workspace.MarkPoseDraftEdited(); OnPropertyChanged(nameof(ProjectTitle)); };
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };
         Animation.PoseDraftChanged += (_, _) =>
         {
-            if (Animation.HasAnyDraft)
+            if (!IsPlaying && !refreshingFrame && Animation.HasAnyDraft)
             {
-                StopPlayback();
                 // Even if SeekWithoutPhysicsPreRoll already updated session.CurrentFrame, finalize physics warmup.
                 bool hadPending = scrubSeek.Cancel();
                 if (Workspace.Session is { } session && (hadPending || session.CurrentFrame != CurrentFrame)) session.Seek(CurrentFrame);
@@ -170,13 +173,19 @@ public sealed partial class EditorShellViewModel : IDisposable
         scrubSeek.Cancel();
         RefreshAudioWorkspace();
         using var measure = InteractionDiagnostics.Measure("shell.refresh-workspace");
-        if (!preservePoseDrafts) Animation.InvalidateDrafts();
+        bool sameDocument = draftDocument == Workspace.DocumentId;
+        if (!sameDocument)
+        {
+            draftDocument = Workspace.DocumentId;
+            Animation.RestoreNativeDrafts(Workspace.OpenedPoseDrafts.Actors, Workspace.Motions);
+        }
+        else Animation.SynchronizeDraftActors(Workspace.Motions);
         ContentRevision++;
         if (!preserveRenderBinding) RenderBindingRevision++;
         refreshing = true;
         try { Browser.Refresh(Workspace.Motions, Workspace.Session?.Objects ?? [], preferredId ?? Browser.SelectedModel?.ObjectId); }
         finally { refreshing = false; }
-        RefreshSelection();
+        RefreshSelection(preserveSceneContext: sameDocument && preferredId is null && SceneSelectionIndex >= 0);
         SceneInspector.SetPmmCameraContext(Workspace.Session);
         SceneInspector.SetSceneMotion(Workspace.Session?.CaptureAuthoredContent().SceneMotion);
         SceneInspector.CurrentFrame = CurrentFrame;
@@ -184,7 +193,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         RefreshCommands(); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void RefreshSelection()
+    private void RefreshSelection(bool preserveSceneContext = false)
     {
         if (refreshing) return;
         var actor = Workspace.Motions.FirstOrDefault(value => value.ObjectId == Browser.SelectedModel?.ObjectId);
@@ -205,7 +214,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         {
             if (SceneSelectionIndex != 2) SceneSelectionIndex = 2;
         }
-        else if (Browser.SelectedModel is not null) SceneSelectionIndex = -1;
+        else if (!preserveSceneContext && Browser.SelectedModel is not null) SceneSelectionIndex = -1;
         RefreshInspectorPages();
         RefreshCommands(); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -323,12 +332,19 @@ public sealed partial class EditorShellViewModel : IDisposable
         if (Workspace.Session is not { } session) return;
         if (CurrentFrame >= session.DurationFrames) CurrentFrame = 0;
         audioBlocked = false; reportedAudioFailure = null;
-        lastPlaybackTimestamp = PlaybackClock(); playbackPacedSinceTick = false; IsPlaying = true; playbackTimer.Start();
+        lastPlaybackTimestamp = PlaybackClock(); playbackPacedSinceTick = false; IsPlaying = true; Animation.SetPlayback(true); playbackTimer.Start();
+        ViewStateChanged?.Invoke(this, EventArgs.Empty);
         SynchronizeAudioPlayback();
     }
     public void StopPlayback()
     {
-        playbackTimer.Stop(); if (IsPlaying) IsPlaying = false;
+        playbackTimer.Stop();
+        if (IsPlaying)
+        {
+            IsPlaying = false;
+            Animation.SetPlayback(false);
+            ViewStateChanged?.Invoke(this, EventArgs.Empty);
+        }
         SynchronizeAudioPlayback();
     }
     /// <summary>Called by the viewport at each playback frame permit, right before it captures the

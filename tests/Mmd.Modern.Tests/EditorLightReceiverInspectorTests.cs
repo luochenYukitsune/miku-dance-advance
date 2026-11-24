@@ -91,7 +91,7 @@ public sealed class EditorLightReceiverInspectorTests : IAsyncDisposable
             var light = Light(); shell.Workspace.EditLighting(new(new([light]), light.Id));
             shell.ShowInspectorPage(EditorInspectorPage.Lighting); Pump();
             var inspector = window.FindControl<EditorLightInspector>("NativeLightInspector")!;
-            inspector.FindControl<Expander>("LightReceiverExpander")!.IsExpanded = true; Pump();
+            inspector.FindControl<Expander>("LightLinkExpander")!.IsExpanded = true; Pump();
             var mode = inspector.FindControl<ComboBox>("LightReceiverMode")!;
             mode.SelectedItem = mode.Items.Cast<EditorLightReceiverModeChoice>().Single(choice => choice.Mode == SceneLightReceiverMode.Include); Pump();
             var target = shell.Workspace.Session!.Objects[1].Id;
@@ -108,9 +108,9 @@ public sealed class EditorLightReceiverInspectorTests : IAsyncDisposable
             if (Environment.GetEnvironmentVariable("MDA_LIGHTING_LAYOUT_EVIDENCE") is { Length: > 0 } evidence)
             {
                 Directory.CreateDirectory(evidence);
-                using var normal = window.CaptureRenderedFrame(); Assert.NotNull(normal); normal.Save(Path.Combine(evidence, "lighting-receivers.png"));
+                using var normal = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(normal); normal.Save(Path.Combine(evidence, "lighting-receivers.png"));
                 window.Width = 1100; window.Height = 720; Pump();
-                using var minimum = window.CaptureRenderedFrame(); Assert.NotNull(minimum); minimum.Save(Path.Combine(evidence, "lighting-receivers-minimum.png"));
+                using var minimum = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(minimum); minimum.Save(Path.Combine(evidence, "lighting-receivers-minimum.png"));
             }
             return true;
             void Pump() { window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); }
@@ -148,7 +148,7 @@ public sealed class EditorLightReceiverInspectorTests : IAsyncDisposable
     private static Window Host(EditorLightInspector inspector)
     {
         var window = new Window { Width = 500, Height = 1100, Content = inspector };
-        inspector.FindControl<Expander>("LightReceiverExpander")!.IsExpanded = true;
+        inspector.FindControl<Expander>("LightLinkExpander")!.IsExpanded = true;
         window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); return window;
     }
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);

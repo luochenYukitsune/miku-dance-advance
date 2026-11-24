@@ -21,26 +21,26 @@ public sealed class TimelineModelGroupTests
         var groups = EditorTimelineGrouping.Build(Model(
             Display("First", new(PmxDisplayTargetType.Morph, 0), new(PmxDisplayTargetType.Bone, 1)),
             Display("Second", new PmxDisplayTarget(PmxDisplayTargetType.Bone, 0))), tracks, "actorA");
-        Assert.Equal(new[] { "First", "Second", "未分类", "IK / 显示" }, groups.Select(group => group.Label));
+        Assert.Equal(new[] { "First", "Second", "IK / 显示", "未分组・已有帧" }, groups.Select(group => group.Label));
         Assert.Equal(new[] { KeyframeTrackKind.Morph, KeyframeTrackKind.Bone }, groups[0].Tracks.Select(track => track.Kind));
         Assert.Equal("actorA:display:0", groups[0].Key);
         Assert.Same(tracks[2], groups[0].Tracks[0]);
         Assert.Same(tracks[1], groups[0].Tracks[1]);
-        Assert.Equal("Removed channel", Assert.Single(groups[2].Tracks).Name);
+        Assert.Equal("Removed channel", Assert.Single(groups[3].Tracks).Name);
         Assert.Equal(tracks.Sum(track => track.Frames.Count), groups.SelectMany(group => group.Tracks).Sum(track => track.Frames.Count));
     }
 
     [Fact]
-    public void DuplicateAndInvalidDisplayTargetsNeverDuplicateOrLoseAuthoredChannels()
+    public void RepeatedMembersAppearInEachAuthoredGroupAndInvalidIndicesAreIgnored()
     {
         var tracks = Tracks();
         var groups = EditorTimelineGrouping.Build(Model(
             Display("One", new(PmxDisplayTargetType.Bone, 0), new(PmxDisplayTargetType.Bone, 0), new(PmxDisplayTargetType.Bone, 99)),
             Display("Duplicate", new PmxDisplayTarget(PmxDisplayTargetType.Bone, 0)),
             Display("Empty", new PmxDisplayTarget(PmxDisplayTargetType.Morph, -1))), tracks);
-        Assert.Equal(new[] { "One", "未分类", "IK / 显示" }, groups.Select(group => group.Label));
+        Assert.Equal(new[] { "One", "Duplicate", "IK / 显示", "未分组・已有帧" }, groups.Select(group => group.Label));
         Assert.Single(groups[0].Tracks);
-        Assert.Equal(tracks.Count, groups.SelectMany(group => group.Tracks).Count());
+        Assert.Same(Assert.Single(groups[0].Tracks), Assert.Single(groups[1].Tracks));
         Assert.Equal(tracks.Count, groups.SelectMany(group => group.Tracks).Select(track => (track.Kind, track.Name)).Distinct().Count());
     }
 
@@ -48,10 +48,13 @@ public sealed class TimelineModelGroupTests
     public void MissingDisplayMetadataRetainsAllChannelsWithoutNameHeuristics()
     {
         var groups = EditorTimelineGrouping.Build(null, Tracks(), "A", "Other", "Visibility");
-        Assert.Equal(new[] { "Other", "Visibility" }, groups.Select(group => group.Label));
-        Assert.Equal(4, groups[0].Tracks.Count);
-        Assert.Equal("A:unclassified", groups[0].Key);
-        Assert.NotEqual(groups[0].Key, EditorTimelineGrouping.Build(null, Tracks(), "B")[0].Key);
+        Assert.Equal(new[] { "Visibility", "Other" }, groups.Select(group => group.Label));
+        Assert.Equal(4, groups[1].Tracks.Count);
+        Assert.Equal("A:unclassified", groups[1].Key);
+        Assert.NotEqual(groups[1].Key, EditorTimelineGrouping.Build(null, Tracks(), "B")[1].Key);
+        var unkeyedHelper = new EditorTimelineTrack(KeyframeTrackKind.Bone, "Hidden helper", []);
+        var withHelper = EditorTimelineGrouping.Build(null, Tracks().Append(unkeyedHelper).ToArray());
+        Assert.DoesNotContain(withHelper.SelectMany(group => group.Tracks), track => track.Name == unkeyedHelper.Name);
     }
 
     [Fact]
@@ -155,6 +158,72 @@ public sealed class TimelineModelGroupUiTests : IAsyncDisposable
             Press(window, timeline, pointer, At(10, 0), KeyModifiers.Control);
             Release(window, timeline, pointer, At(10, 0), KeyModifiers.Control);
             Assert.Equal(new[] { KeyframeAddress.Morph("Shared", 20) }, timeline.SelectedKeyframes);
+            return true;
+        }
+        finally { window.Close(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task PickingHighlightsCollapsedGroupWithoutScrollingAndHeaderClickSelectsItsChannel() => await session.Dispatch(() =>
+    {
+        var (window, timeline, source) = Editor();
+        try
+        {
+            timeline.FirstVisibleTrack = 1;
+            timeline.FocusedChannel = KeyframeAddress.Bone("Second", 0);
+            timeline.FocusRow = 1;
+            Assert.Equal(1, timeline.FirstVisibleTrack);
+            Assert.True(timeline.IsRowFocused(timeline.DisplayRows[0]));
+            Assert.False(timeline.IsGroupExpanded(timeline.Groups[0].Key));
+            timeline.FirstVisibleTrack = 0;
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            TimelineTrackHeaderEventArgs? invoked = null;
+            timeline.TrackHeaderInvoked += (_, args) => invoked = args;
+            ToolTip.SetTip(timeline, "Help");
+            Move(window, timeline, pointer, new Point(30, At(0, 0).Y));
+            Assert.Equal(timeline.DisplayRows[0].Label, ToolTip.GetTip(timeline));
+            Move(window, timeline, pointer, At(5, 0));
+            Assert.Equal("Help", ToolTip.GetTip(timeline));
+            Press(window, timeline, pointer, new Point(30, At(0, 0).Y));
+            Press(window, timeline, pointer, new Point(30, At(0, 2).Y), KeyModifiers.Control);
+            Assert.Same(source[1], invoked!.Track);
+            Assert.Equal(KeyModifiers.Control, invoked.Modifiers);
+            Assert.Empty(timeline.SelectedKeyframes);
+            timeline.Drafts = [KeyframeAddress.Bone("Second", 21)];
+            var marker = new Point(At(21, 2).X, At(21, 2).Y + 7);
+            Press(window, timeline, pointer, marker);
+            Assert.Equal(21, timeline.CurrentFrame);
+            Assert.Empty(timeline.SelectedKeyframes);
+            Assert.DoesNotContain(21u, timeline.DisplayRows[0].Frames);
+            return true;
+        }
+        finally { window.Close(); }
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task ScrollingUnderAStationaryPointerShowsTheNewGroupName() => await session.Dispatch(() =>
+    {
+        var (window, timeline, _) = Editor();
+        try
+        {
+            timeline.Height = EditorTimeline.RulerHeight + EditorTimeline.TrackRowHeight;
+            window.UpdateLayout();
+            ToolTip.SetTip(timeline, "Help");
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            var point = new Point(30, At(0, 0).Y);
+            Move(window, timeline, pointer, point);
+            Assert.Equal(timeline.DisplayRows[0].Label, ToolTip.GetTip(timeline));
+
+            timeline.RaiseEvent(new PointerWheelEventArgs(timeline, pointer, window, timeline.TranslatePoint(point, window)!.Value, 3,
+                new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.Other), KeyModifiers.None, new Avalonia.Vector(0, -1)));
+            Assert.Equal(2, timeline.FirstVisibleTrack);
+            Assert.Equal(timeline.DisplayRows[2].Label, ToolTip.GetTip(timeline));
+            timeline.FirstVisibleTrack = 1;
+            Assert.Equal(timeline.DisplayRows[1].Label, ToolTip.GetTip(timeline));
+
+            Move(window, timeline, pointer, At(5, 0));
+            timeline.FirstVisibleTrack = 0;
+            Assert.Equal("Help", ToolTip.GetTip(timeline));
             return true;
         }
         finally { window.Close(); }

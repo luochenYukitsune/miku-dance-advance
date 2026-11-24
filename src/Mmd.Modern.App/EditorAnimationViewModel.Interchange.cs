@@ -48,7 +48,7 @@ public sealed partial class EditorAnimationViewModel
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(poses);
         ArgumentOutOfRangeException.ThrowIfNegative(frame);
-        var restored = new Dictionary<Guid, ActorDrafts>();
+        var restored = new Dictionary<(Guid Actor, int Frame), ActorDrafts>();
         foreach (var actor in actors)
         {
             if (!poses.TryGetValue(actor.ObjectId, out var pose)) continue;
@@ -66,7 +66,7 @@ public sealed partial class EditorAnimationViewModel
             foreach (var key in pose.MorphKeyframes)
                 if (morphs.TryGetValue(key.MorphName, out int index) && float.IsFinite(key.Weight))
                     pending.Morphs[index] = ToDecimal(key.Weight);
-            if (!pending.IsEmpty) restored.Add(actor.ObjectId, pending);
+            if (!pending.IsEmpty) restored.Add((actor.ObjectId, frame), pending);
         }
         // Build the entire replacement first, so invalid enumeration cannot partially restore a document.
         actorDrafts.Clear();
@@ -75,7 +75,7 @@ public sealed partial class EditorAnimationViewModel
         contextRevision++;
         Changed(nameof(CurrentFrame));
         Changed(nameof(HasInvalidDrafts));
-        LoadPose();
+        NotifyDraftAddresses(); LoadPose();
         PoseDraftChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -87,28 +87,33 @@ public sealed partial class EditorAnimationViewModel
         if (HasInvalidDrafts) throw new InvalidOperationException("请先完成所有未登记姿势的数字输入，再保存工程。");
         var available = actors.ToDictionary(actor => actor.ObjectId);
         var result = new List<EditorAnimationDraftMotionPlan>();
-        uint frame = checked((uint)CurrentFrame);
-        foreach (var (id, pending) in actorDrafts.OrderBy(pair => pair.Key))
+        foreach (var group in actorDrafts.GroupBy(pair => pair.Key.Actor).OrderBy(group => group.Key))
         {
-            if (pending.IsEmpty) continue;
-            if (!available.TryGetValue(id, out var actor) || !ReferenceEquals(actor.Model, pending.Model)
-                || !ReferenceEquals(actor.Motion, pending.Source))
-                throw new InvalidOperationException("未登记姿势对应的模型或动作已变化，请重新检查编辑对象。");
+            var id = group.Key;
             var bones = new List<VmdBoneKeyframe>();
-            foreach (var (index, draft) in pending.Bones.OrderBy(pair => pair.Key))
-            {
-                if ((uint)index >= (uint)actor.Model.Bones.Count)
-                    throw new InvalidOperationException("未登记姿势的骨骼已不在当前模型中。");
-                var bone = actor.Model.Bones[index];
-                var template = actor.Motion.BoneKeyframes.LastOrDefault(key => key.BoneName == bone.Name && key.Frame == frame);
-                bones.Add(CreateDraftKey(bone, frame, draft.Translation, draft.Rotation, template));
-            }
             var morphs = new List<VmdMorphKeyframe>();
-            foreach (var (index, weight) in pending.Morphs.OrderBy(pair => pair.Key))
+            if (!available.TryGetValue(id, out var actor)) throw new InvalidOperationException("未登记姿势对应的模型已被移除。");
+            foreach (var ((_, frameNumber), pending) in group.OrderBy(pair => pair.Key.Frame))
             {
-                if ((uint)index >= (uint)actor.Model.Morphs.Count)
-                    throw new InvalidOperationException("未登记姿势的表情已不在当前模型中。");
-                morphs.Add(new() { MorphName = actor.Model.Morphs[index].Name, Frame = frame, Weight = (float)weight!.Value });
+                uint frame = (uint)frameNumber;
+                if (pending.IsEmpty) continue;
+                if (!ReferenceEquals(actor.Model, pending.Model)
+                    || !ReferenceEquals(actor.Motion, pending.Source))
+                    throw new InvalidOperationException("未登记姿势对应的模型或动作已变化，请重新检查编辑对象。");
+                foreach (var (index, draft) in pending.Bones.OrderBy(pair => pair.Key))
+                {
+                    if ((uint)index >= (uint)actor.Model.Bones.Count)
+                        throw new InvalidOperationException("未登记姿势的骨骼已不在当前模型中。");
+                    var bone = actor.Model.Bones[index];
+                    var template = actor.Motion.BoneKeyframes.LastOrDefault(key => key.BoneName == bone.Name && key.Frame == frame);
+                    bones.Add(CreateDraftKey(bone, frame, draft.Translation, draft.Rotation, template));
+                }
+                foreach (var (index, weight) in pending.Morphs.OrderBy(pair => pair.Key))
+                {
+                    if ((uint)index >= (uint)actor.Model.Morphs.Count)
+                        throw new InvalidOperationException("未登记姿势的表情已不在当前模型中。");
+                    morphs.Add(new() { MorphName = actor.Model.Morphs[index].Name, Frame = frame, Weight = (float)weight!.Value });
+                }
             }
             result.Add(new(id, actor.Motion, new() { BoneKeyframes = bones.AsReadOnly(), MorphKeyframes = morphs.AsReadOnly() }));
         }
@@ -143,7 +148,7 @@ public sealed partial class EditorAnimationViewModel
         }
         var morphIndices = FirstNamedIndices(actor.Model.Morphs.Select(morph => morph.Name));
         var morphWeights = new Dictionary<int, float>(new MmdMorphMotionAdapter(morphIndices, actor.Motion).Evaluate(frame));
-        if (frame == CurrentFrame && actorDrafts.TryGetValue(actor.ObjectId, out var pending)
+        if (actorDrafts.TryGetValue((actor.ObjectId, frame), out var pending)
             && ReferenceEquals(pending.Model, actor.Model) && ReferenceEquals(pending.Source, actor.Motion))
         {
             foreach (var (index, draft) in pending.Bones)

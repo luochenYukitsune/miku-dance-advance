@@ -95,8 +95,11 @@ public sealed class EditorLightParentInspectorTests : IAsyncDisposable
         var window = Host(inspector);
         try
         {
-            void Click(string name) => inspector.GetVisualDescendants().OfType<Button>().Single(b => b.Name == name)
-                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            inspector.GetVisualDescendants().OfType<Expander>().Single(control => control.Name == "LightTransformExpander").IsExpanded = true;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var aim = inspector.GetVisualDescendants().OfType<Button>().Single(button => button.Name == "LightAimMenu");
+            void Click(string name) => ((MenuFlyout)aim.Flyout!).Items.OfType<MenuItem>().Single(item => item.Name == name)
+                .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
             Click("InlineLightAimCenterButton");
             var aimed = Assert.Single(commits);
             Assert.Equal(light.Position, aimed.Position);
@@ -228,10 +231,10 @@ public sealed class EditorLightParentInspectorTests : IAsyncDisposable
             {
                 Directory.CreateDirectory(evidence);
                 window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-                using var normal = window.CaptureRenderedFrame(); Assert.NotNull(normal);
+                using var normal = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(normal);
                 normal.Save(Path.Combine(evidence, "lighting-parent.png"));
                 window.Width = 1100; window.Height = 720; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-                using var minimum = window.CaptureRenderedFrame(); Assert.NotNull(minimum);
+                using var minimum = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(minimum);
                 minimum.Save(Path.Combine(evidence, "lighting-parent-minimum.png"));
             }
             return true;

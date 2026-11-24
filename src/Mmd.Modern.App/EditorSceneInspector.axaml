@@ -16,11 +16,38 @@
       <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.870fef717617}" Classes="group" /></Border>
       <TextBlock Text="{DynamicResource Mda.Text.2f22e2a7b204}" />
     </StackPanel>
-    <StackPanel Name="CameraInspector" Spacing="16" IsVisible="{Binding IsCameraInspector}">
-      <StackPanel Spacing="4">
-        <TextBlock Text="{Binding FrameSummary}" Classes="caption" />
-        <TextBlock Text="{Binding CameraKeyframeSummary}" Classes="caption" />
-      </StackPanel>
+    <StackPanel Name="CameraInspector" Spacing="4" IsVisible="{Binding IsCameraInspector}">
+      <Grid Name="CameraPoseGrid" ColumnDefinitions="5*,4*" RowDefinitions="Auto,Auto" ColumnSpacing="10" SizeChanged="ResizeCameraFields" IsEnabled="{Binding CanEdit}">
+        <Grid Name="CameraTransformFields" ColumnDefinitions="Auto,*,*,*" RowDefinitions="16,28,28" ColumnSpacing="3" RowSpacing="2">
+          <TextBlock Grid.Column="1" Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="3" Text="Z" Classes="axis" />
+          <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.707452e9a54a}" Classes="caption" VerticalAlignment="Center" />
+          <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.68eb90fa809e}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Mda.Text.e24a9725df82}" />
+          <validated:EditorNumericUpDown Name="CameraCenterX" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.1eee91616d15}" />
+          <validated:EditorNumericUpDown Name="CameraRotationX" Grid.Row="2" Grid.Column="1" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.033d4b5dfa48}" />
+          <validated:EditorNumericUpDown Name="CameraCenterY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.c70e68a78889}" />
+          <validated:EditorNumericUpDown Name="CameraRotationY" Grid.Row="2" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.e5379ae54152}" />
+          <validated:EditorNumericUpDown Name="CameraCenterZ" Grid.Row="1" Grid.Column="3" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.205d464f0bfc}" />
+          <validated:EditorNumericUpDown Name="CameraRotationZ" Grid.Row="2" Grid.Column="3" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.1de96f3103eb}" />
+        </Grid>
+        <Grid Name="CameraLensFields" Grid.Column="1" RowDefinitions="16,28,28" ColumnSpacing="6" RowSpacing="2">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="130" /><ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="{DynamicResource Mda.Text.3865483de52d}" Classes="caption" />
+          <TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.de32bdb05238}" Classes="caption" />
+          <validated:EditorNumericUpDown Name="CameraDistance" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.00" Increment="1" Value="{Binding CameraDistance, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.24a2c139c050}" />
+          <validated:EditorNumericUpDown Name="CameraFov" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" Minimum="1" Maximum="179" Increment="1" FormatString="0.0" Value="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.28b9f9301519}" />
+          <ComboBox Name="CameraProjection" Grid.Row="2" SelectedIndex="{Binding CameraProjectionIndex, Mode=TwoWay}"
+                    HorizontalAlignment="Stretch" MinWidth="0" ToolTip.Tip="{DynamicResource Mda.Text.caabf3ff858f}" AutomationProperties.Name="{DynamicResource Mda.Text.caabf3ff858f}">
+            <ComboBoxItem Content="{DynamicResource Mda.Text.17e14283a497}" />
+            <ComboBoxItem Content="{DynamicResource Mda.Text.3759f1efa160}" />
+          </ComboBox>
+          <validated:EditorValueSlider Name="CameraFovSlider" Grid.Row="2" Grid.Column="1" Minimum="1" Maximum="125" SmallChange="1" LargeChange="10" Step="0.5" DefaultValue="30"
+                    Number="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.de32bdb05238}" />
+        </Grid>
+      </Grid>
+      <TextBlock Text="{Binding CameraValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasCameraValidation}" />
+      <TextBlock Text="{Binding FrameSummary}" Classes="caption" IsVisible="{Binding HasCameraDraft}" />
       <StackPanel Name="CameraParentSummary" Spacing="6" IsVisible="{Binding HasCameraParent}">
         <Grid ColumnDefinitions="Auto,8,*" RowDefinitions="Auto,Auto">
           <TextBlock Text="{DynamicResource Mda.Text.CameraParentObjectLabel}" Classes="caption" />
@@ -30,44 +57,10 @@
         </Grid>
         <TextBlock Text="{Binding CameraParentHint}" Classes="caption" TextWrapping="Wrap" />
       </StackPanel>
-      <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
-        <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.707452e9a54a}" Classes="group" /></Border>
-        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
-          <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
-          <validated:EditorNumericUpDown Name="CameraCenterX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.1eee91616d15}" />
-          <validated:EditorNumericUpDown Name="CameraCenterY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.c70e68a78889}" />
-          <validated:EditorNumericUpDown Name="CameraCenterZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1" Value="{Binding CameraCenterZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.205d464f0bfc}" />
-        </Grid>
-      </StackPanel>
-      <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
-        <Border Classes="parameterHeader"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.68eb90fa809e}" Classes="group" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.e24a9725df82}" Classes="caption" VerticalAlignment="Center" /></Grid></Border>
-        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
-          <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
-          <validated:EditorNumericUpDown Name="CameraRotationX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationX, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.033d4b5dfa48}" />
-          <validated:EditorNumericUpDown Name="CameraRotationY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationY, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.e5379ae54152}" />
-          <validated:EditorNumericUpDown Name="CameraRotationZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1" Value="{Binding CameraRotationZ, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.1de96f3103eb}" />
-        </Grid>
-      </StackPanel>
-      <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
-        <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.bec5dd6e9068}" Classes="group" /></Border>
-        <Grid ColumnDefinitions="*,10,*" RowDefinitions="20,28,28,12,20,28">
-          <TextBlock Text="{DynamicResource Mda.Text.3865483de52d}" Classes="caption" /><TextBlock Grid.Column="2" Text="{DynamicResource Mda.Text.de32bdb05238}" Classes="caption" />
-          <validated:EditorNumericUpDown Name="CameraDistance" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.00" Increment="1" Value="{Binding CameraDistance, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.24a2c139c050}" />
-          <validated:EditorNumericUpDown Name="CameraFov" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="1" Maximum="179" Increment="1" FormatString="0.0" Value="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.28b9f9301519}" />
-          <validated:EditorValueSlider Name="CameraFovSlider" Grid.Row="2" Grid.Column="2" Minimum="1" Maximum="125" SmallChange="1" LargeChange="10" Step="0.5" DefaultValue="30"
-                       Number="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.de32bdb05238}" />
-          <TextBlock Grid.Row="4" Text="{DynamicResource Mda.Text.caabf3ff858f}" Classes="caption" />
-          <ComboBox Name="CameraProjection" Grid.Row="5" Grid.ColumnSpan="3" ItemsSource="{Binding Projections}" SelectedIndex="{Binding CameraProjectionIndex, Mode=TwoWay}" HorizontalAlignment="Stretch" />
-        </Grid>
-      </StackPanel>
-      <TextBlock Text="{Binding CameraValidation}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding HasCameraValidation}" />
-      <Grid ColumnDefinitions="*,8,Auto">
-        <Button Name="RegisterCameraKeyframeButton" Classes="action" Content="{DynamicResource Mda.Text.a619bd96a115}" Command="{Binding RegisterCameraKeyframeCommand}" HorizontalAlignment="Stretch" />
-        <Button Grid.Column="2" Content="{DynamicResource Mda.Text.e0534b8a4e46}" Command="{Binding RevertDraftCommand}" ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" />
-      </Grid>
     </StackPanel>
-    <!-- Main-light editing lives on the right-rail Lighting page (EditorMainLightInspector).
-         World and camera remain here so the Animation page keeps the existing scene contract. -->
-    <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
+    <StackPanel IsVisible="{Binding ShowsPrimaryLightTrack}" Spacing="5">
+      <TextBlock Text="{Binding LightKeyframeSummary}" Classes="caption" />
+      <Button Classes="action" Content="{DynamicResource Mda.Text.e4b84a93325e}" Command="{Binding RegisterLightKeyframeCommand}" HorizontalAlignment="Left" />
+    </StackPanel>
   </StackPanel>
 </UserControl>

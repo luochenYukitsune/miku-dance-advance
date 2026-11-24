@@ -80,10 +80,27 @@ public partial class EditorLightInspector : UserControl
     public Func<EditorLightingDraft?, bool>? PreviewRequested { get; set; }
     public Func<Mmd.Modern.Application.PmmCameraPose>? CreationCameraProvider { get; set; }
     public EditorLightingViewModel? ViewModel => DataContext as EditorLightingViewModel;
-    private bool modernParameters;
+    public static readonly StyledProperty<bool> TransformExpandedProperty =
+        AvaloniaProperty.Register<EditorLightInspector, bool>(nameof(TransformExpanded));
+    public bool TransformExpanded
+    {
+        get => GetValue(TransformExpandedProperty);
+        set => SetValue(TransformExpandedProperty, value);
+    }
+    public static readonly StyledProperty<bool> AdvancedExpandedProperty =
+        AvaloniaProperty.Register<EditorLightInspector, bool>(nameof(AdvancedExpanded));
+    public bool AdvancedExpanded
+    {
+        get => GetValue(AdvancedExpandedProperty);
+        set => SetValue(AdvancedExpandedProperty, value);
+    }
+
+    private bool modernParameters, browserModeInitialized;
     internal void UseWorkspaceBrowser(bool value)
     {
+        if (browserModeInitialized && modernParameters == value) return;
         modernParameters = value;
+        browserModeInitialized = true;
         this.FindControl<ComboBox>("LightChoice")!.IsVisible = !value;
         if (ViewModel is { } model)
         {

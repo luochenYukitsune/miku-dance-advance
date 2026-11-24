@@ -170,17 +170,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     // Read only for realtime preview work. Capture/export factories never read this slot,
     // and the public Quality remains the user's complete per-view preference throughout a gesture.
     internal ViewQualityOptions EffectivePreviewQuality =>
-        (mainLightPadEditing || MainLightViewport?.IsDragging == true) && quality.EffectiveGi.Enabled && EditorRenderEngineOptions.UsesModernQualityPreferences(renderEngine)
+        MainLightViewport?.IsDragging == true && quality.EffectiveGi.Enabled && EditorRenderEngineOptions.UsesModernQualityPreferences(renderEngine)
             ? quality with { Gi = RayGiOptions.Off }
             : LightController?.InteractionQuality(quality) ?? quality;
-
-    private bool mainLightPadEditing;
-    internal void SetMainLightPadEditing(bool editing)
-    {
-        if (mainLightPadEditing == editing) return;
-        mainLightPadEditing = editing;
-        RequestRender();
-    }
 
     public SceneCamera CurrentCamera => currentCamera;
     /// <summary>Machine-local camera controls; object/bone/light gestures keep screen-space direction.</summary>
@@ -216,7 +208,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         if (BoneController is not { } bones) return;
         // Finish a live gesture just like pointer release. Switching tools must retain
         // the user's unregistered pose, including the last movement before navigation.
-        if (!enabled && bones.IsDragging && bones.EndDrag() && childWindow != nint.Zero && GetCapture() == childWindow)
+        if (!enabled && bones.HasPointerGesture && bones.EndDrag(finishClick: false) && childWindow != nint.Zero && GetCapture() == childWindow)
             ReleaseCapture();
         bones.IsEnabled = enabled;
     }
@@ -1102,7 +1094,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 return CallWindowProcW(previous, window, message, wParam, lParam);
             if (message is 0x201 or 0x204 or 0x207)
             {
-                if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.IsDragging == true) return nint.Zero;
+                if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.HasPointerGesture == true) return nint.Zero;
                 if (message == 0x201 && MainLightViewport is { } main && GetClientRect(window, out var mainBounds) &&
                     main.TryBegin(new(x, y), currentCamera, mainBounds.Right, mainBounds.Bottom))
                 {
@@ -1115,14 +1107,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     && LightController?.TryBeginDrag(x, y, lightBounds.Right, lightBounds.Bottom, currentCamera, RotateLightHandle) == true)
                 { SetFocus(window); if (LightController.IsDragging) SetCapture(window); return nint.Zero; }
                 if (message == 0x201 && GetClientRect(window, out var boneBounds)
-                    && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera) == true)
-                { SetFocus(window); if (BoneController.IsDragging) SetCapture(window); return nint.Zero; }
+                    && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera,
+                        extendSelection: (wParam.ToInt64() & (0x4 | 0x8)) != 0) == true)
+                { SetFocus(window); if (BoneController.HasPointerGesture) SetCapture(window); return nint.Zero; }
                 SetFocus(window); cameraBeforeDrag = manualCameraPose; dragCamera = EditableLocalCamera();
                 dragButton = message; pointerX = x; pointerY = y; SetCapture(window); return nint.Zero;
             }
             if (message == 0x200 && LightController?.IsDragging == true)
             { LightController.MoveDrag(x, y); return nint.Zero; }
-            if (message == 0x200 && BoneController?.IsDragging == true)
+            if (message == 0x200 && BoneController?.HasPointerGesture == true)
             {
                 long input = InteractionDiagnostics.IsEnabled
                     ? EditorInteractionTrace.BeginInput("pointer.move", unchecked((long)(uint)GetMessageTime())) : 0;
@@ -1131,15 +1124,15 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             if (message == 0x202 && LightController?.IsDragging == true)
             { LightController.MoveDrag(x, y); LightController.EndDrag(); ReleaseCapture(); return nint.Zero; }
-            if (message == 0x202 && BoneController?.IsDragging == true)
-            { EditorInteractionTrace.BeginInput("pointer.release"); BoneController.EndDrag(); ReleaseCapture(); return nint.Zero; }
+            if (message == 0x202 && BoneController?.HasPointerGesture == true)
+            { EditorInteractionTrace.BeginInput("pointer.release"); BoneController.EndPointerGesture(x, y); ReleaseCapture(); return nint.Zero; }
             if ((message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27) && LightController?.IsDragging == true)
             {
                 LightController.CancelDrag();
                 if (GetCapture() == window) ReleaseCapture();
                 return nint.Zero;
             }
-            if ((message == 0x215 || message == 0x100 && wParam.ToInt64() == 27) && BoneController?.IsDragging == true)
+            if ((message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27) && BoneController?.HasPointerGesture == true)
             { BoneController.CancelDrag(); ReleaseCapture(); return nint.Zero; }
             if (message == 0x200 && dragButton != 0)
             {

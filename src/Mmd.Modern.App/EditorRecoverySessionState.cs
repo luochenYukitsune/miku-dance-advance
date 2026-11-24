@@ -260,7 +260,7 @@ public sealed record EditorRecoveryAnimationState
         {
             if (actor is null || !identities.TryAdd(actor.ObjectId, actor))
                 throw EditorRecoverySessionState.Invalid("Recovery actors contain duplicate or missing entries.");
-            actor.Validate();
+            actor.Validate(CurrentFrame);
         }
         if (ObjectId is { } id)
         {
@@ -292,18 +292,18 @@ public sealed record EditorRecoveryActorState
     public required ImmutableArray<EditorRecoveryBoneDraft> Bones { get; init; }
     public required ImmutableArray<EditorRecoveryMorphDraft> Morphs { get; init; }
 
-    internal void Validate()
+    internal void Validate(int defaultFrame = 0)
     {
         if (ObjectId == Guid.Empty || StructureSignature is null || StructureSignature.Length != 64
             || StructureSignature.Any(character => !char.IsAsciiHexDigit(character))
             || BoneCount is < 0 or > EditorRecoverySessionState.MaximumChannels
             || MorphCount is < 0 or > EditorRecoverySessionState.MaximumChannels
-            || Bones.IsDefault || Morphs.IsDefault || Bones.Length > BoneCount || Morphs.Length > MorphCount)
+            || Bones.IsDefault || Morphs.IsDefault || Bones.Length > EditorRecoverySessionState.MaximumChannels || Morphs.Length > EditorRecoverySessionState.MaximumChannels)
             throw EditorRecoverySessionState.Invalid("Recovery actor structure is invalid.");
-        var indices = new HashSet<int>();
+        var indices = new HashSet<(int Frame, int Index)>();
         foreach (var bone in Bones)
         {
-            if (bone is null || bone.Index < 0 || bone.Index >= BoneCount || !indices.Add(bone.Index))
+            if (bone is null || bone.Index < 0 || bone.Index >= BoneCount || bone.Frame is < 0 || !indices.Add((bone.Frame ?? defaultFrame, bone.Index)))
                 throw EditorRecoverySessionState.Invalid("Recovery bone draft index is invalid or duplicated.");
             var rotation = bone.SampledRotation;
             double length = (double)rotation.X * rotation.X + (double)rotation.Y * rotation.Y
@@ -314,14 +314,20 @@ public sealed record EditorRecoveryActorState
         }
         indices.Clear();
         foreach (var morph in Morphs)
-            if (morph is null || morph.Index < 0 || morph.Index >= MorphCount || !indices.Add(morph.Index))
+            if (morph is null || morph.Index < 0 || morph.Index >= MorphCount || morph.Frame is < 0 || !indices.Add((morph.Frame ?? defaultFrame, morph.Index)))
                 throw EditorRecoverySessionState.Invalid("Recovery morph draft index is invalid or duplicated.");
     }
 }
 
 public sealed record EditorRecoveryBoneDraft(int Index, decimal? X, decimal? Y, decimal? Z,
-    decimal? Pitch, decimal? Yaw, decimal? Roll, Quaternion SampledRotation, bool RotationEdited);
-public sealed record EditorRecoveryMorphDraft(int Index, decimal? Weight);
+    decimal? Pitch, decimal? Yaw, decimal? Roll, Quaternion SampledRotation, bool RotationEdited)
+{
+    public int? Frame { get; init; }
+}
+public sealed record EditorRecoveryMorphDraft(int Index, decimal? Weight)
+{
+    public int? Frame { get; init; }
+}
 
 public sealed record EditorRecoverySceneState
 {

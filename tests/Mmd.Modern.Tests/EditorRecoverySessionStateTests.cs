@@ -266,6 +266,59 @@ public sealed class EditorRecoverySessionStateTests : IAsyncDisposable
         return true;
     }, TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task FrameDraftsRegisterOnlyTheActiveActorAndFallbackToSelectedBones() => await session.Dispatch(async () =>
+    {
+        var first = new SceneActorMotion(Guid.NewGuid(), Model(), new());
+        var second = new SceneActorMotion(Guid.NewGuid(), Model(), new());
+        var animation = new EditorAnimationViewModel { CurrentFrame = 20 };
+        var committed = new Dictionary<Guid, VmdMotion>();
+        animation.CommitMotion = (id, value) => committed[id] = value;
+        animation.SetActor(first.ObjectId, first.Model, first.Motion);
+        animation.SelectBone(1); animation.PositionY = 6;
+        animation.SetActor(second.ObjectId, second.Model, second.Motion);
+        animation.SelectBone(0); animation.PositionX = 2;
+        animation.SelectBone(1);
+        var gesture = Assert.IsType<EditorAnimationViewModel.ViewportBoneDraftState>(animation.CaptureViewportBoneDraft());
+        animation.ApplyViewportBoneDraft(gesture, new(new(0, 3, 0), Quaternion.Identity));
+        animation.CurrentFrame = 24; animation.PositionY = 4;
+        animation.CurrentFrame = 20;
+        Assert.Equal(3, animation.PositionY);
+        animation.SetPlayback(true);
+        Assert.Empty(animation.SnapshotDrafts()); Assert.Equal(0, animation.PositionY);
+        animation.SetPlayback(false);
+        Assert.Equal(3, animation.PositionY);
+        await animation.RegisterKeyframeAsync();
+        Assert.False(committed.ContainsKey(first.ObjectId));
+        Assert.Equal(new[] { "hand", "root" }, committed[second.ObjectId].BoneKeyframes.Select(key => key.BoneName).Order(StringComparer.Ordinal));
+        Assert.All(committed[second.ObjectId].BoneKeyframes, key => Assert.Equal(20u, key.Frame));
+        Assert.Equal(new[] { 24 }, animation.DraftFrames);
+        animation.CurrentFrame = 25;
+        animation.SelectBones([0, 1]);
+        await animation.RegisterKeyframeAsync();
+        Assert.Equal(2, committed[second.ObjectId].BoneKeyframes.Count(key => key.Frame == 25));
+        animation.SetActor(first.ObjectId, first.Model, first.Motion);
+        animation.CurrentFrame = 20; animation.SelectBone(1); Assert.Equal(6, animation.PositionY);
+        return true;
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task MirroredPasteReflectsCopiedLocalPoseAndLeavesItUnregistered() => await session.Dispatch(() =>
+    {
+        var actor = new SceneActorMotion(Guid.NewGuid(), Model("右手首", "左手首"), new());
+        var animation = new EditorAnimationViewModel { CurrentFrame = 5 };
+        animation.SetActor(actor.ObjectId, actor.Model, actor.Motion);
+        animation.SelectBone(0); animation.PositionX = 3; animation.RotationY = 40;
+        animation.CopyPose();
+        animation.CurrentFrame = 6; animation.PasteMirroredPose();
+        animation.SelectBone(1);
+        Assert.Equal(-3, animation.PositionX);
+        Assert.Equal(-40d, (double)animation.RotationY!.Value, 3);
+        Assert.Empty(animation.Tracks.SelectMany(track => track.Frames));
+        Assert.Equal(new[] { 5, 6 }, animation.DraftFrames);
+        return true;
+    }, TestContext.Current.CancellationToken);
+
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 
     [Fact]
@@ -298,13 +351,13 @@ public sealed class EditorRecoverySessionStateTests : IAsyncDisposable
         MorphKeyframes = [new() { MorphName = "smile", Frame = 20, Weight = .5f }]
     };
 
-    private static PmxModel Model(string root = "root") => new()
+    private static PmxModel Model(string root = "root", string hand = "hand") => new()
     {
         Header = new() { Version = 2, HeaderDataSize = 8, TextEncoding = PmxTextEncoding.Utf8, AdditionalUvCount = 0,
             VertexIndexSize = 1, TextureIndexSize = 1, MaterialIndexSize = 1, BoneIndexSize = 1, MorphIndexSize = 1, RigidBodyIndexSize = 1 },
         Name = "recovery-fixture", EnglishName = "", Comment = "", EnglishComment = "", Vertices = [], Faces = [], Textures = [], Materials = [],
         RigidBodies = [], Joints = [], SoftBodies = [], DisplayFrames = [],
-        Bones = [Bone(root), Bone("hand")],
+        Bones = [Bone(root), Bone(hand)],
         Morphs = [new() { Name = "smile", EnglishName = "", Type = PmxMorphType.Position, ControlPanel = 0 }]
     };
     private static PmxBone Bone(string name) => new()

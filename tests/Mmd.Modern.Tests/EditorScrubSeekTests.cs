@@ -577,21 +577,22 @@ public sealed class EditorScrubSeekTests : IAsyncDisposable
         ]
     };
 
-    private static Point RulerPoint(int frame) => new(220 + frame * 8, 10);
+    private static Point RulerPoint(EditorTimeline timeline, int frame) =>
+        new(timeline.TrackHeaderWidth + (frame - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame, 10);
 
     private static void PressRuler(Window window, EditorTimeline timeline, int frame) =>
         timeline.RaiseEvent(new PointerPressedEventArgs(timeline, Mouse, window,
-            timeline.TranslatePoint(RulerPoint(frame), window)!.Value, 1,
+            timeline.TranslatePoint(RulerPoint(timeline, frame), window)!.Value, 1,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
 
     private static void MoveRuler(Window window, EditorTimeline timeline, int frame) =>
         timeline.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, timeline, Mouse, window,
-            timeline.TranslatePoint(RulerPoint(frame), window)!.Value, 2,
+            timeline.TranslatePoint(RulerPoint(timeline, frame), window)!.Value, 2,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
 
     private static void ReleaseRuler(Window window, EditorTimeline timeline, int frame) =>
         timeline.RaiseEvent(new PointerReleasedEventArgs(timeline, Mouse, window,
-            timeline.TranslatePoint(RulerPoint(frame), window)!.Value, 3,
+            timeline.TranslatePoint(RulerPoint(timeline, frame), window)!.Value, 3,
             new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
 
     private sealed class ScrubWindowHarness(

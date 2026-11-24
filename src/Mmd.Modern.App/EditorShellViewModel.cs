@@ -20,7 +20,7 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
     private int _selectedThemeIndex;
     private bool _showWorldGuides = true;
     private int _currentFrame;
-    private double _pixelsPerFrame = 8;
+    private double _pixelsPerFrame = Controls.EditorTimeline.DefaultPixelsPerFrame;
     private double _firstVisibleFrame;
     private bool refreshingLocalization;
     private readonly SceneProjectSession? _projectSession;

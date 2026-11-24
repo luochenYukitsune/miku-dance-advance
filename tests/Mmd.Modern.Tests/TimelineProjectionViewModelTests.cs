@@ -22,10 +22,10 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         viewModel.SetActor(Guid.NewGuid(), Model("A"), Motion("A"));
         Assert.Equal(EditorTimelineTrackMode.AllTracks, viewModel.TimelineTrackMode);
         Assert.True(viewModel.IsTimelineAllTracks); Assert.False(viewModel.IsTimelineFollowSelection);
-        Assert.Equal(4, viewModel.Tracks.Count); Assert.Equal(4, viewModel.VisibleTracks.Count);
+        Assert.Equal(4, viewModel.Tracks.Count); Assert.Equal(5, viewModel.VisibleTracks.Count);
         Assert.Equal(5, viewModel.VisibleTracks.Sum(track => track.Frames.Count));
         Assert.Equal(new[] { "Body", "Expressions", EditorLocalization.Text("Mda.Text.Timeline.IkDisplay") }, viewModel.TimelineGroups.Select(group => group.Label));
-        Assert.Equal(new[] { "A.Root", "A.Hand" }, viewModel.TimelineGroups[0].Tracks.Select(track => track.Name));
+        Assert.Equal(new[] { "A.Root", "A.Hand", "A.Empty" }, viewModel.TimelineGroups[0].Tracks.Select(track => track.Name));
         Assert.Equal(KeyframeTrackKind.Morph, Assert.Single(viewModel.TimelineGroups[1].Tracks).Kind);
         Assert.Equal(KeyframeTrackKind.Ik, Assert.Single(viewModel.TimelineGroups[2].Tracks).Kind);
         Assert.DoesNotContain(viewModel.Tracks, track => track.Name == "A.Empty");
@@ -45,7 +45,7 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         {
             viewModel.SelectBone(index);
             Assert.Same(tracks, viewModel.Tracks); Assert.Same(groups, viewModel.TimelineGroups);
-            Assert.Equal(4, viewModel.VisibleTracks.Count);
+            Assert.Equal(5, viewModel.VisibleTracks.Count);
         }
         viewModel.SelectMorph(0); viewModel.CurrentFrame = 10;
         viewModel.SelectTimelineKeys([KeyframeAddress.Bone("A.Root", 10)]);
@@ -75,7 +75,7 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         Assert.Same(authored, viewModel.Tracks); Assert.DoesNotContain(viewModel.Tracks, track => track.Name == "A.Empty");
         viewModel.SetAnimationContextActive(false); Assert.Empty(viewModel.VisibleTracks);
         viewModel.SetTimelineTrackMode(EditorTimelineTrackMode.AllTracks);
-        Assert.Same(groups, viewModel.TimelineGroups); Assert.Equal(4, viewModel.VisibleTracks.Count);
+        Assert.Same(groups, viewModel.TimelineGroups); Assert.Equal(5, viewModel.VisibleTracks.Count);
         return true;
     }, TestContext.Current.CancellationToken);
 
@@ -143,6 +143,25 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         Assert.Equal(0, viewModel.HiddenSelectedKeyframeCount); Assert.True(viewModel.CanModifySelection);
         Assert.Equal(selected, viewModel.SelectedKeyframes); Assert.Equal(0, commits);
         Assert.Equal(3, motion.BoneKeyframes.Count); Assert.Single(motion.MorphKeyframes); Assert.Single(motion.IkKeyframes);
+        return true;
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task KeyedFilterKeepsAuthorOrderAndFocusMembershipOfAnUnkeyedBone() => await session.Dispatch(() =>
+    {
+        var animation = new EditorAnimationViewModel();
+        animation.SetActor(Guid.NewGuid(), Model("A"), Motion("A"));
+        animation.SelectBone(2);
+        var groups = animation.TimelineGroups;
+        Assert.Empty(groups[0].Tracks.Single(track => track.Name == "A.Empty").Frames);
+        animation.SetTimelineTrackMode(EditorTimelineTrackMode.KeyedTracks);
+        Assert.Equal(new[] { "A.Root", "A.Hand" }, animation.TimelineGroups[0].Tracks.Select(track => track.Name));
+        Assert.Equal(groups[0].Key, animation.TimelineGroups[0].Key);
+        Assert.True(animation.TimelineGroups[0].ContainsMember(animation.TimelineFocusedChannel!.Value));
+        Assert.DoesNotContain(animation.VisibleTracks, track => track.Name == "A.Empty");
+        animation.SetTimelineTrackMode(EditorTimelineTrackMode.AllTracks);
+        Assert.Same(groups, animation.TimelineGroups);
+        Assert.Equal(2, animation.SelectedBoneIndex);
         return true;
     }, TestContext.Current.CancellationToken);
 

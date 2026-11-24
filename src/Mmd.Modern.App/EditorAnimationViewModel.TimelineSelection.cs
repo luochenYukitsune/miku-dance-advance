@@ -37,6 +37,7 @@ public sealed partial class EditorAnimationViewModel
     }
 
     public string TimelineSelectionSummary => Format("Mda.Text.TimelineBatch.Selected", SelectedKeyframes.Count);
+    public string TimelineFooterSummary => SelectedKeyframes.Count == 0 ? KeyframeSummary : TimelineSelectionSummary;
     public string TimelineRangeValidationMessage => timelineRangeValidationKey is { } key ? Text(key) : string.Empty;
 
     /// <summary>The timeline's two-way selection echo must not turn a view-only range operation into navigation.</summary>

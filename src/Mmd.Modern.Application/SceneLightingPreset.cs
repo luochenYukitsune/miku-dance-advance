@@ -80,6 +80,20 @@ public sealed class SceneLightingPreset
             Array.AsReadOnly(newGroups.Select(group => group.Id).ToArray()));
     }
 
+    /// <summary>Apply a portable lamp's photometric and shape settings to an existing scene object.
+    /// Placement, aim, identity, links and group membership belong to the destination object;
+    /// any destination group switch and intensity multiplier continue to modulate EffectiveLights.</summary>
+    public SceneLightingSnapshot ApplyToLight(SceneLightingSnapshot scene, Guid id)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        if (Lighting.Lights.Count != 1) throw new ArgumentException("Choose a single-light preset.");
+        var value = Lighting.EffectiveLights[0];
+        var target = scene.Lights.Single(light => light.Id == id);
+        var updated = value with { Id = id, Name = target.Name, Position = target.Position,
+            Rotation = target.Rotation, AimDistance = target.AimDistance, Parent = target.Parent, Receivers = target.Receivers, GroupId = target.GroupId };
+        return scene.WithLights(scene.Lights.Select(light => light.Id == id ? updated : light));
+    }
+
     private static void ValidateSelection(SceneLightingSnapshot source, HashSet<Guid> lights, HashSet<Guid> groups)
     {
         if (lights.Any(id => !source.Lights.Any(light => light.Id == id)) || groups.Any(id => !source.Groups.Any(group => group.Id == id)))

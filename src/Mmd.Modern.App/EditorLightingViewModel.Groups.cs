@@ -86,6 +86,8 @@ public sealed partial class EditorLightingViewModel
         }
     }
     public bool HasBrowserRows => BrowserRows.Count != 0;
+    public bool HasOutlineLights => Lights.Count != 0 || Groups.Count != 0;
+    public bool IsOutlineSearchEmpty => HasOutlineLights && !string.IsNullOrWhiteSpace(SearchText) && !HasBrowserRows;
 
     private void InitializeGroups(SceneLightingSnapshot snapshot)
     {

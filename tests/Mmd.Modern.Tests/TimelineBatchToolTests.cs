@@ -121,6 +121,8 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
             Assert.Contains(pasted.BoneKeyframes, key => key.BoneName == "hand" && key.Frame == 55);
             Assert.Contains(pasted.MorphKeyframes, key => key.MorphName == "smile" && key.Frame == 60);
             Enter(window, "TimelineRangeStartInput", "50"); Enter(window, "TimelineRangeEndInput", "60"); Click(window, "SelectTimelineRangeButton");
+            Assert.Equal(3, shell.Animation.SelectedKeyframes.Count);
+            Assert.Equal(0, shell.Animation.HiddenSelectedKeyframeCount);
             Click(window, "DeleteTimelineKeysButton");
             var deleted = shell.Workspace.Motions.Single(value => value.ObjectId == actor).Motion;
             Assert.DoesNotContain(deleted.BoneKeyframes, key => key.Frame >= 50);
@@ -135,6 +137,19 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
     }, Token);
 
     [Theory]
+    [InlineData(.5)] [InlineData(3)] [InlineData(8)] [InlineData(12)] [InlineData(64)]
+    public void PannedNarrowRulerKeepsRegularNumberedTicksAtEachZoom(double zoom)
+    {
+        const double width = 160, startFrame = 731.25;
+        var ticks = EditorTimeline.BuildVisibleTicks(width, startFrame, zoom).Where(tick => tick.IsMajor).ToArray();
+        Assert.True(ticks.Length >= 2);
+        int interval = ticks[1].Frame - ticks[0].Frame;
+        Assert.True(interval > 0);
+        Assert.All(ticks, tick => Assert.InRange(tick.X, 0, width));
+        Assert.All(ticks.Zip(ticks.Skip(1)), pair => Assert.Equal(interval, pair.Second.Frame - pair.First.Frame));
+    }
+
+    [Theory]
     [InlineData("zh-CN", 1100, 720)] [InlineData("zh-CN", 1480, 960)]
     [InlineData("en", 1100, 720)] [InlineData("en", 1480, 960)]
     [InlineData("ja", 1100, 720)] [InlineData("ja", 1480, 960)]
@@ -146,7 +161,13 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
         {
             EditorLocalization.SetLanguage(language); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             var tools = window.FindControl<Border>("TimelineBatchTools")!;
-            Assert.True(tools.Bounds.Width > 0); Assert.True(tools.Bounds.Height > 0);
+            Assert.True(tools.Bounds.Width > 0);
+            Assert.InRange(tools.Bounds.Height, 1, 80);
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            double rulerWidth = timeline.Bounds.Width - timeline.TrackHeaderWidth;
+            Assert.InRange(timeline.TrackHeaderWidth, 130, 168);
+            Assert.True(rulerWidth / timeline.PixelsPerFrame >= 50);
+            Assert.True(EditorTimeline.BuildVisibleTicks(rulerWidth, 0, timeline.PixelsPerFrame).Count(tick => tick.IsMajor) >= 3);
             foreach (string name in ToolNames)
             {
                 var control = window.FindControl<Control>(name)!;
@@ -154,6 +175,10 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
                 AssertInside(control, tools); AssertInside(control, window);
                 if (control is Button button) Assert.DoesNotContain("Mda.Text.", button.Content?.ToString() ?? "");
             }
+            shell.PixelsPerFrame = 12;
+            window.Width = width == 1100 ? 1480 : 1100;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal(12, timeline.PixelsPerFrame);
             Assert.Same(shell.Animation.SelectTimelineRangeCommand, window.FindControl<Button>("SelectTimelineRangeButton")!.Command);
             Assert.Same(shell.Animation.ClearTimelineSelectionCommand, window.FindControl<Button>("ClearTimelineSelectionButton")!.Command);
             Assert.False(viewport.HasChildWindow);
@@ -161,6 +186,93 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
         finally { EditorLocalization.SetLanguage(previous); Close(window, shell); }
         return true;
     }, Token);
+
+    [Fact]
+    public async Task ClickingDraftMarkerUsesPixelToleranceAcrossZoomLevels() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, _) = CreateEditor();
+        try
+        {
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            shell.CurrentFrame = 25;
+            shell.Animation.SelectBone(0);
+            shell.Animation.PositionX = 2m;
+            Assert.Equal([25], shell.Animation.DraftFrames);
+
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            int row = timeline.DisplayRows
+                .Select((item, index) => (item, index))
+                .First(pair => pair.item.ContainsChannel(KeyframeAddress.Bone("root", 0))).index;
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            double y = EditorTimeline.RulerHeight + (row - timeline.FirstVisibleTrack + .5) * EditorTimeline.TrackRowHeight + 7;
+
+            shell.CurrentFrame = 0;
+            shell.PixelsPerFrame = 64;
+            timeline.FirstVisibleFrame = 20;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(64, timeline.PixelsPerFrame);
+
+            double highZoomX = timeline.TrackHeaderWidth + (25 - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame;
+            PressTimeline(window, timeline, pointer, new(highZoomX + 16, y));
+            Assert.Equal(0, shell.CurrentFrame);
+            MoveTimeline(window, timeline, pointer, new(highZoomX + 32, y));
+            ReleaseTimeline(window, timeline, pointer, new(highZoomX + 32, y));
+            Assert.Equal(0, shell.CurrentFrame);
+
+            PressTimeline(window, timeline, pointer, new(highZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(highZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+
+            shell.CurrentFrame = 0;
+            shell.PixelsPerFrame = 0.5;
+            timeline.FirstVisibleFrame = 0;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0.5, timeline.PixelsPerFrame);
+
+            double lowZoomX = timeline.TrackHeaderWidth + (25 - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame;
+            PressTimeline(window, timeline, pointer, new(lowZoomX + 6, y));
+            Assert.Equal(0, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(lowZoomX + 6, y));
+            Assert.NotEqual(25, shell.CurrentFrame);
+
+            shell.CurrentFrame = 0;
+            Dispatcher.UIThread.RunJobs();
+            PressTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            return true;
+        }
+        finally { Close(window, shell); }
+    }, Token);
+
+    private static void PressTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerPressedEventArgs(timeline, pointer, window, windowPoint, 1,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void MoveTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, timeline, pointer, window, windowPoint, 2,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void ReleaseTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerReleasedEventArgs(timeline, pointer, window, windowPoint, 3,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+        Dispatcher.UIThread.RunJobs();
+    }
 
     private static (EditorWindow Window, EditorShellViewModel Shell, EditorViewportHost Viewport, Guid Actor) CreateEditor(int width = 1480, int height = 960)
     {
@@ -208,9 +320,13 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
 
     private static void Click(EditorWindow window, string name)
     {
-        window.UpdateLayout(); var button = window.FindControl<Button>(name)!;
+        // Hit-test the geometry displayed by the headless compositor after the range controls reflow.
+        window.UpdateLayout(); AvaloniaHeadlessPlatform.ForceRenderTimerTick(); Dispatcher.UIThread.RunJobs();
+        var button = window.FindControl<Button>(name)!;
         Assert.True(button.IsEnabled, name + " must be enabled");
         Point point = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(point);
+        Dispatcher.UIThread.RunJobs();
         window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); Dispatcher.UIThread.RunJobs();
     }
 

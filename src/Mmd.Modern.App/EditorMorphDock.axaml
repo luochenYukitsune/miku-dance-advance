@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Mmd.Modern.App" xmlns:controls="using:Mmd.Modern.App.Controls"
+             x:Class="Mmd.Modern.App.EditorMorphDock">
+  <Grid RowDefinitions="Auto,*" Margin="8,4" RowSpacing="4">
+    <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.Morphs}" Classes="group" VerticalAlignment="Center" />
+      <CheckBox Grid.Column="1" Name="NonzeroMorphs" MinHeight="22" Content="{DynamicResource Mda.Text.Layout.Nonzero}" Click="FilterMorphs" />
+    </Grid>
+    <ItemsControl Name="MorphGroups" Grid.Row="1">
+      <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="4" Rows="1" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EditorMorphDockGroup">
+        <StackPanel Margin="3,0" Spacing="3">
+          <TextBlock Text="{Binding Label}" Classes="caption" />
+          <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected, Mode=TwoWay}" MinWidth="0" HorizontalAlignment="Stretch" AutomationProperties.Name="{Binding Label}">
+            <ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorMorphDockChoice">
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+            </DataTemplate></ComboBox.ItemTemplate>
+          </ComboBox>
+          <controls:EditorValueSlider Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" DefaultValue="0" Step="0.01"
+                                      Number="{Binding Weight, Mode=TwoWay}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="{Binding Label}" />
+          <Button Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" Click="RegisterMorph" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" />
+        </StackPanel>
+      </DataTemplate></ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </Grid>
+</UserControl>

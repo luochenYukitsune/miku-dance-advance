@@ -3,55 +3,64 @@
              xmlns:local="using:Mmd.Modern.App"
              x:Class="Mmd.Modern.App.EditorAnimationInspector"
              x:DataType="local:EditorAnimationViewModel">
-  <StackPanel Spacing="8">
-    <StackPanel Spacing="2">
-      <TextBlock Text="{Binding SelectionName}" Classes="section" TextWrapping="Wrap" ToolTip.Tip="{Binding SelectionLabel}" />
-      <TextBlock Text="{Binding ModelContextLabel}" Classes="caption" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ModelContextLabel}" />
-    </StackPanel>
-    <TextBlock Text="{DynamicResource Mda.Text.93278e57bd0f}" Classes="caption"
-               TextWrapping="Wrap" IsVisible="{Binding IsEmptySelection}" />
-    <StackPanel Spacing="8" IsVisible="{Binding IsBoneSelected}">
-      <StackPanel Spacing="4">
-        <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.1fb4d574da92}" Classes="group" /></Border>
-        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
-          <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
-          <validated:EditorNumericUpDown Name="BonePositionX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
-                         Value="{Binding PositionX, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.2d1b586abd51}" />
-          <validated:EditorNumericUpDown Name="BonePositionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
-                         Value="{Binding PositionY, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.ea51018cc086}" />
-          <validated:EditorNumericUpDown Name="BonePositionZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
-                         Value="{Binding PositionZ, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.7bda901994ce}" />
-        </Grid>
-      </StackPanel>
-      <StackPanel Spacing="4">
-        <Border Classes="parameterHeader"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.68eb90fa809e}" Classes="group" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.e24a9725df82}" Classes="caption" VerticalAlignment="Center" /></Grid></Border>
-        <Grid ColumnDefinitions="*,6,*,6,*" RowDefinitions="20,28">
-          <TextBlock Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="4" Text="Z" Classes="axis" />
-          <validated:EditorNumericUpDown Name="BoneRotationX" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
-                         Value="{Binding RotationX, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.4ab340b9674d}" />
-          <validated:EditorNumericUpDown Name="BoneRotationY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
-                         Value="{Binding RotationY, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.93903b4856f9}" />
-          <validated:EditorNumericUpDown Name="BoneRotationZ" Grid.Row="1" Grid.Column="4" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
-                         Value="{Binding RotationZ, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.13f19fc7a051}" />
-        </Grid>
-      </StackPanel>
-    </StackPanel>
-    <StackPanel Spacing="6" IsVisible="{Binding IsMorphSelected}">
-      <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.0621524b3718}" Classes="group" /></Border>
-      <Grid ColumnDefinitions="*,10,72">
-        <validated:EditorValueSlider Name="MorphWeightSlider" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0"
-                     Number="{Binding MorphWeight, Mode=TwoWay}" IsEnabled="{Binding CanEditMorph}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}"
-                     AutomationProperties.Name="{DynamicResource Mda.Text.0621524b3718}" />
-        <validated:EditorNumericUpDown Name="MorphWeight" Grid.Column="2" Classes="editorNumber" Watermark="—" Increment="0.01" FormatString="0.00"
-                     Value="{Binding MorphWeight, Mode=TwoWay}" IsEnabled="{Binding CanEditMorph}" ToolTip.Tip="{DynamicResource Mda.Text.e085c868f733}" />
+  <Grid RowDefinitions="Auto,Auto" RowSpacing="2" Margin="2,2">
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="3">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="5" VerticalAlignment="Center">
+        <PathIcon Data="{StaticResource Phosphor.bone}" Width="14" Height="14" IsVisible="{Binding IsBoneSelected}" />
+        <TextBlock Grid.Column="1" Text="{Binding SelectionName}" Classes="group" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SelectionLabel}" />
       </Grid>
-    </StackPanel>
-    <!-- Registration takes its intrinsic caption width (en "Register keyframe" / ja "キーフレーム登録" clip when the inspector is ~250 px wide at 1100x720); Reset keeps the flexible remainder. -->
-    <Grid ColumnDefinitions="Auto,8,*" IsVisible="{Binding HasEditableSelection}">
-      <Button Name="RegisterAnimationKeyframeButton" Classes="action" Content="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding RegisterKeyframeCommand}" HorizontalAlignment="Stretch" />
-      <Button Name="ResetAnimationPoseButton" Grid.Column="2" Content="{DynamicResource Mda.Text.cb5d682bac3d}" Command="{Binding ResetPoseCommand}" HorizontalAlignment="Stretch" />
+      <Button Grid.Column="1" Name="ResetAnimationPoseButton" Classes="action icon" Command="{Binding ResetPoseCommand}"
+              ToolTip.Tip="{DynamicResource Mda.Text.cb5d682bac3d}" AutomationProperties.Name="{DynamicResource Mda.Text.cb5d682bac3d}">
+        <PathIcon Data="{StaticResource Phosphor.arrows-clockwise}" Width="14" Height="14" />
+      </Button>
+      <Button Grid.Column="2" Name="RegisterKeyframeButton" Classes="action accentAction" IsVisible="{Binding !IsMorphSelected}" Command="{Binding RegisterPoseCommand}"
+              Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" />
+      <Button Grid.Column="2" Name="RegisterAnimationKeyframeButton" Classes="action accentAction" IsVisible="{Binding IsMorphSelected}" Command="{Binding RegisterKeyframeCommand}"
+              Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" />
+      <ToggleButton Grid.Column="3" Name="SelectedKeyToolsToggle" Classes="guide" Content="…" IsVisible="{Binding HasActor}"
+                    ToolTip.Tip="{DynamicResource Mda.Text.618770d3d2c8}" AutomationProperties.Name="{DynamicResource Mda.Text.618770d3d2c8}" />
     </Grid>
-    <StackPanel Spacing="6" IsVisible="{Binding HasActor}">
+    <StackPanel Grid.Row="1" Spacing="4" IsVisible="{Binding !#SelectedKeyToolsPanel.IsVisible}">
+      <TextBlock Text="{DynamicResource Mda.Text.93278e57bd0f}" Classes="caption"
+                 TextWrapping="Wrap" IsVisible="{Binding IsEmptySelection}" />
+      <Grid IsVisible="{Binding IsBoneSelected}" ColumnDefinitions="Auto,*,*,*" RowDefinitions="16,28,28" ColumnSpacing="4" RowSpacing="3">
+        <TextBlock Grid.Column="1" Text="X" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisX}" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisY}" /><TextBlock Grid.Column="3" Text="Z" Classes="axis" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource EditorAxisZ}" />
+        <TextBlock Grid.Row="1" Text="{DynamicResource Mda.Text.1fb4d574da92}" Classes="caption" VerticalAlignment="Center" />
+        <TextBlock Grid.Row="2" Text="{DynamicResource Mda.Text.68eb90fa809e}" Classes="caption" VerticalAlignment="Center" />
+        <validated:EditorNumericUpDown Name="BonePositionX" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
+                           Value="{Binding PositionX, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.2d1b586abd51}" />
+        <validated:EditorNumericUpDown Name="BonePositionY" Grid.Row="1" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
+                           Value="{Binding PositionY, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.ea51018cc086}" />
+        <validated:EditorNumericUpDown Name="BonePositionZ" Grid.Row="1" Grid.Column="3" Classes="editorNumber" Watermark="—" FormatString="0.000" Increment="0.1"
+                           Value="{Binding PositionZ, Mode=TwoWay}" IsEnabled="{Binding CanTranslate}" ToolTip.Tip="{DynamicResource Mda.Text.7bda901994ce}" />
+        <validated:EditorNumericUpDown Name="BoneRotationX" Grid.Row="2" Grid.Column="1" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
+                           Value="{Binding RotationX, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.4ab340b9674d}" />
+        <validated:EditorNumericUpDown Name="BoneRotationY" Grid.Row="2" Grid.Column="2" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
+                           Value="{Binding RotationY, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.93903b4856f9}" />
+        <validated:EditorNumericUpDown Name="BoneRotationZ" Grid.Row="2" Grid.Column="3" Classes="editorNumber" Watermark="—" FormatString="0.0" Increment="1"
+                           Value="{Binding RotationZ, Mode=TwoWay}" IsEnabled="{Binding CanRotate}" ToolTip.Tip="{DynamicResource Mda.Text.13f19fc7a051}" />
+      </Grid>
+      <StackPanel Spacing="6" IsVisible="{Binding IsMorphSelected}">
+        <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.0621524b3718}" Classes="group" /></Border>
+        <Grid ColumnDefinitions="*,10,72">
+          <validated:EditorValueSlider Name="MorphWeightSlider" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0"
+                       Number="{Binding MorphWeight, Mode=TwoWay}" IsEnabled="{Binding CanEditMorph}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}"
+                       AutomationProperties.Name="{DynamicResource Mda.Text.0621524b3718}" />
+          <validated:EditorNumericUpDown Name="MorphWeight" Grid.Column="2" Classes="editorNumber" Watermark="—" Increment="0.01" FormatString="0.00"
+                       Value="{Binding MorphWeight, Mode=TwoWay}" IsEnabled="{Binding CanEditMorph}" ToolTip.Tip="{DynamicResource Mda.Text.e085c868f733}" />
+        </Grid>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,0,0" IsVisible="{Binding IsBoneSelected}">
+        <Button Name="CopyPoseButton" Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.CopyPose}" Command="{Binding CopyPoseCommand}" />
+        <Button Name="MirrorPoseButton" Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.MirrorPose}" Command="{Binding PasteMirroredPoseCommand}" />
+      </StackPanel>
+    </StackPanel>
+    <StackPanel Grid.Row="1" Name="SelectedKeyToolsPanel" Spacing="4">
+      <StackPanel.IsVisible>
+        <MultiBinding Converter="{x:Static BoolConverters.And}">
+          <Binding Path="HasActor" /><Binding ElementName="SelectedKeyToolsToggle" Path="IsChecked" />
+        </MultiBinding>
+      </StackPanel.IsVisible>
       <Border Classes="parameterHeader"><TextBlock Text="{DynamicResource Mda.Text.618770d3d2c8}" Classes="group" /></Border>
       <Grid ColumnDefinitions="*,6,*,6,*">
         <Button Name="CopyAnimationKeysButton" Content="{DynamicResource Mda.Text.63d90d977348}" Command="{Binding CopyKeyframesCommand}" HorizontalAlignment="Stretch" />
@@ -64,8 +73,7 @@
                        Increment="1" FormatString="0" ParsingNumberStyle="Integer" Value="{Binding MoveTargetFrame, Mode=TwoWay}" />
         <Button Name="MoveAnimationKeysButton" Grid.Column="4" Content="{DynamicResource Mda.Text.fc6bb436b8ca}" Command="{Binding MoveKeyframesCommand}" />
       </Grid>
-      <TextBlock Text="{DynamicResource Mda.Text.d2fd43de787f}" Classes="caption" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding TimelineSelectionSummary}" Classes="caption" TextTrimming="CharacterEllipsis" />
     </StackPanel>
-    <TextBlock Text="{Binding Status}" Classes="caption" TextWrapping="Wrap" />
-  </StackPanel>
+  </Grid>
 </UserControl>

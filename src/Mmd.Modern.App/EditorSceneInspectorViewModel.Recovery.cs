@@ -47,7 +47,7 @@ public sealed partial class EditorSceneInspectorViewModel
         directionX = saved.DirectionX; directionY = saved.DirectionY; directionZ = saved.DirectionZ;
         contextRevision++;
         foreach (string name in new[] { nameof(CurrentFrame), nameof(SceneSelectionIndex), nameof(IsWorldInspector),
-            nameof(IsCameraInspector), nameof(IsLightInspector), nameof(CameraCenterX), nameof(CameraCenterY),
+            nameof(IsCameraInspector), nameof(IsLightInspector), nameof(ShowsPrimaryLightTrack), nameof(ActiveTimelineTrack), nameof(CameraCenterX), nameof(CameraCenterY),
             nameof(CameraCenterZ), nameof(CameraRotationX), nameof(CameraRotationY), nameof(CameraRotationZ),
             nameof(CameraDistance), nameof(CameraFov), nameof(CameraProjectionIndex), nameof(LightColorR),
             nameof(LightColorG), nameof(LightColorB), nameof(LightIntensity), nameof(LightDirectionX),

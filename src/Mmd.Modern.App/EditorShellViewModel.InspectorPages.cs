@@ -13,7 +13,7 @@ public enum EditorInspectorPage
 /// update page content so they never steal a page the user chose; only an explicit edit entry navigates.</summary>
 public sealed partial class EditorShellViewModel
 {
-    private EditorInspectorPage inspectorPage;
+    private EditorInspectorPage inspectorPage = EditorInspectorPage.Style;
 
     public EditorStyleInspectorViewModel StyleInspector { get; } = new();
     public EditorMaterialInspectorViewModel MaterialInspector { get; } = new();
@@ -42,6 +42,10 @@ public sealed partial class EditorShellViewModel
         get => (int)inspectorPage;
         set
         {
+            // Older recovery files and shortcuts use index zero for the former animation page.
+            if (value == (int)EditorInspectorPage.Animation ||
+                value == (int)EditorInspectorPage.Material && !SupportsModernLightingWorkspace)
+                value = (int)EditorInspectorPage.Style;
             if (value < (int)EditorInspectorPage.Animation || value > (int)EditorInspectorPage.Lighting
                 || (int)inspectorPage == value) return;
             inspectorPage = (EditorInspectorPage)value;

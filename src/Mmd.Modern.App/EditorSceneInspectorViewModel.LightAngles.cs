@@ -12,6 +12,7 @@ public sealed partial class EditorSceneInspectorViewModel
     private bool mainLightBacklit;
 
     /// <summary>The MMD default main-light direction (−0.5, −1, 0.5).</summary>
+    internal static Vector3 DefaultLightColor => DefaultLight.Color;
     internal static Vector3 DefaultLightDirection => DefaultLight.Direction;
 
     public decimal? LightAzimuth

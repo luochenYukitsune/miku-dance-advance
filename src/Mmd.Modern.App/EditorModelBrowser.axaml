@@ -90,13 +90,13 @@
       <Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter>
     </Style>
   </UserControl.Styles>
-  <Grid RowDefinitions="36,Auto,*">
-    <Border Classes="panelHeader" Padding="10,0">
-      <Grid ColumnDefinitions="*,Auto,Auto">
-        <TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" Classes="section" VerticalAlignment="Center" />
-        <Button Name="LoadModelButton" Grid.Column="1" Content="{DynamicResource Mda.Text.f716b5f91e72}" Command="{Binding ImportModelCommand}"
+  <Grid RowDefinitions="32,Auto,*">
+    <Border Classes="secondaryBar" BorderBrush="{DynamicResource EditorSectionRule}" BorderThickness="0,0,0,1" Padding="10,0">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+        <TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" Classes="group" VerticalAlignment="Center" />
+        <Button Name="LoadModelButton" Grid.Column="1" Height="22" MinHeight="20" Padding="7,0" FontSize="12" Content="{DynamicResource Mda.Text.f716b5f91e72}" Command="{Binding ImportModelCommand}"
                 IsEnabled="{Binding CanImportModel}" ToolTip.Tip="{DynamicResource Mda.Text.983b233844c2}" />
-        <Button Name="ReplaceModelButton" Grid.Column="2" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
+        <Button Name="ReplaceModelButton" Grid.Column="2" Height="22" MinHeight="20" Padding="7,0" FontSize="12" Content="{DynamicResource Mda.Text.Context.ReplaceModel.Short}"
                 Command="{Binding ReplaceModelCommand}" IsEnabled="{Binding CanReplaceModel}"
                 ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
       </Grid>

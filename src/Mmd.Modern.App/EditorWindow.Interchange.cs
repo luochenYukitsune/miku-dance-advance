@@ -183,7 +183,7 @@ public partial class EditorWindow
             if (!await EditorDialogs.ConfirmAsync(this, shell.ConvertProjectLabel, Text("Mda.Text.Project.ConversionNewFile"),
                 Text("Mda.Text.Project.ChooseAnotherName"))) return;
         }
-        if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync() || !await EnsureMotionHeadersAsync()) return;
+        if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync(preserveModelDrafts: true) || !await EnsureMotionHeadersAsync()) return;
         shell.SynchronizePendingScrub();
         await ExecuteAsync(Text("Mda.Text.Project.Converting"), async token =>
         {

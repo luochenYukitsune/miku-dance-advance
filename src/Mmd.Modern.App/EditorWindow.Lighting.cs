@@ -17,17 +17,20 @@ public partial class EditorWindow
     // Parent choices depend only on committed content; frame changes never rebuild the bone names.
     private (EditorShellViewModel? Shell, SceneProjectSession? Session, long Revision, bool Modern)? _lightParentContextKey;
     private EditorMainLightViewport? _mainLightViewport;
-    private bool _synchronizingLightBrowser;
+    private bool _synchronizingLightBrowser, _trackLightActive;
+    private (Guid? Document, int Frame, System.Numerics.Vector3 Color)? _mutedTrackColor;
     private EditorLightingViewModel? _lightBrowserModel;
+    private (Guid? Document, Guid Id, bool IsGroup)? _lastRevealedLightRow;
+    private (SceneLightingSnapshot Snapshot, Guid? Document, IReadOnlyList<Guid>? Selection, Guid? Primary)? _outlineSource;
 
     private void InitializeLightingInspector(EditorShellViewModel shell)
     {
         var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
-        var mainInspector = this.FindControl<EditorMainLightInspector>("MainLightInspector")!;
-        mainInspector.DirectionEditStarting = CanBeginLightGesture;
-        mainInspector.DirectionEditingChanged = viewport.SetMainLightPadEditing;
+        _trackLightActive = false;
+        _outlineSource = null;
         _mainLightViewport = new(shell.SceneInspector, CanBeginLightGesture, viewport.RequestRender);
+        inspector.TrackLightProvider = () => lightController?.SelectedLightId is null && inspector.ViewModel?.SelectedGroupIds.Count is not > 0 ? shell.SceneInspector : null;
         inspector.CommitRequested = CommitInlineLighting;
         inspector.SelectionRequested = id => lightController?.Select(id);
         inspector.SelectionSetRequested = (ids, primary) =>
@@ -47,7 +50,7 @@ public partial class EditorWindow
         {
             lightController.Changed += LightToolsChanged;
             lightController.CanBeginEdit = CanBeginLightGesture;
-            lightController.IsEnabled = true;
+            lightController.IsEnabled = shell.SupportsModernLightingWorkspace;
         }
         InitializeInspectorPages(shell);
         RefreshLightingInspector();
@@ -85,10 +88,9 @@ public partial class EditorWindow
             RefreshLightingInspector();
             return;
         }
-        // Selecting a light (viewport click, added light, explicit select) is the explicit entry into
-        // light editing. Undo/frame/theme/language refreshes keep the null selection and never navigate.
-        if (lightController?.SelectedLightId is { } && shell.InspectorPage != EditorInspectorPage.Lighting)
-            _ = NavigateInspectorPage(EditorInspectorPage.Lighting);
+        // An outline click navigates explicitly. A viewport drag keeps the current properties page.
+        this.FindControl<EditorViewportHost>("SceneViewport")!.SetBoneToolsEnabled(
+            !shell.IsLightingPage && lightController?.IsDragging != true);
         RefreshLightingInspector();
     }
 
@@ -103,10 +105,7 @@ public partial class EditorWindow
         bool lighting = shell.InspectorPage == EditorInspectorPage.Lighting;
         if (this.FindControl<Control>("BoneToolsContainer") is { } boneTools) boneTools.IsVisible = !lighting;
         if (this.FindControl<Control>("LightToolsBar") is { } lightTools) lightTools.IsVisible = lighting;
-        this.FindControl<EditorViewportHost>("SceneViewport")!.MainLightViewport =
-            lighting && shell.HasProject && !shell.IsBusy && lightController?.HelpersVisible == true &&
-            this.FindControl<Expander>("MainLightSection")?.IsExpanded == true ? _mainLightViewport : null;
-        if (!lighting) return;
+        var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
         _refreshingLightingInspector = true;
         using var measure = InteractionDiagnostics.Measure("lighting.inspector-refresh", relatedId: snapshot.Lights.Count);
         try
@@ -117,9 +116,13 @@ public partial class EditorWindow
                 lightController?.SelectMany(lightController.SelectedLightIds.Where(id => snapshot.Lights.Any(light => light.Id == id)));
                 selected = lightController?.SelectedLightId;
             }
-            var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
-            using (InteractionDiagnostics.Measure("lighting.inspector-set"))
-                inspector.SetLighting(snapshot, selected, _shell.Workspace.DocumentId, lightController?.SelectedLightIds);
+            var outlineSource = (snapshot, shell.Workspace.DocumentId, lightController?.SelectedLightIds, selected);
+            if (lighting || _outlineSource != outlineSource)
+            {
+                using (InteractionDiagnostics.Measure("lighting.inspector-set"))
+                    inspector.SetLighting(snapshot, selected, shell.Workspace.DocumentId, lightController?.SelectedLightIds);
+                _outlineSource = outlineSource;
+            }
             if (lightController is { } active && inspector.ViewModel is { } selection
                 && (!active.SelectedLightIds.SequenceEqual(selection.SelectedLightIds) || active.SelectedLightId != selection.SelectedLight?.Id))
             {
@@ -127,6 +130,19 @@ public partial class EditorWindow
                 selected = active.SelectedLightId;
             }
             inspector.UseWorkspaceBrowser(shell.SupportsModernLightingWorkspace);
+            bool trackLight = !shell.SupportsModernLightingWorkspace || selected is null && inspector.ViewModel?.SelectedGroupIds.Count is not > 0;
+            shell.SceneInspector.SetPrimaryLightTrackActive(trackLight);
+            if (lighting || lightController?.SelectedLightId is not null) _trackLightActive = trackLight;
+            var mainSection = this.FindControl<Expander>("MainLightSection")!;
+            mainSection.IsVisible = trackLight;
+            this.FindControl<ListBoxItem>("OutlineTrackLight")!.Classes.Set("passiveSceneTrack", !trackLight);
+            this.FindControl<Control>("NativeLightProperties")!.IsVisible = shell.SupportsModernLightingWorkspace;
+            this.FindControl<Control>("NativeLightHeader")!.IsVisible = !trackLight;
+            this.FindControl<EditorViewportHost>("SceneViewport")!.MainLightViewport =
+                _trackLightActive && trackLight && shell.HasProject && !shell.IsBusy && lightController?.HelpersVisible == true
+                    ? _mainLightViewport : null;
+            inspector.FindControl<TextBlock>("EmptyLightPrompt")!.IsVisible = false;
+            inspector.FindControl<Control>("TrackLightPresetTools")!.IsVisible = trackLight && shell.HasProject;
             var session = shell.Workspace.Session;
             var parentKey = (shell, session, shell.ContentRevision, shell.SupportsModernLightingWorkspace);
             if (_lightParentContextKey != parentKey)
@@ -141,13 +157,16 @@ public partial class EditorWindow
             using (InteractionDiagnostics.Measure("lighting.browser-bind")) BindLightingBrowser(inspector.ViewModel);
             var light = selected is { } id ? snapshot.Lights.FirstOrDefault(item => item.Id == id) : null;
             bool multiple = lightController?.SelectedLightIds.Count > 1;
+            var lightSwitch = this.FindControl<ToggleButton>("ViewportLightEnabled")!;
+            lightSwitch.IsEnabled = shell.HasProject && !shell.IsBusy && !multiple && (trackLight || light is not null);
+            lightSwitch.IsChecked = trackLight ? shell.SceneInspector.LightPose.Color != System.Numerics.Vector3.Zero : light?.Enabled == true;
             if (!multiple && light is { Kind: SceneLightKind.Point } && lightController is { RotateHandle: true } pointController)
             {
                 pointController.RotateHandle = false;
                 this.FindControl<EditorViewportHost>("SceneViewport")!.RotateLightHandle = false;
             }
             if (this.FindControl<TextBlock>("SelectedLightName") is { } selectedName)
-                selectedName.Text = inspector.ViewModel is { ShowBatchControls: true } batch ? batch.SelectionSummary : light?.Name ?? Text("未选择灯光");
+                selectedName.Text = inspector.ViewModel is { ShowBatchControls: true } batch ? batch.SelectionSummary : light?.Name ?? (trackLight ? Text("Mda.Text.Layout.TrackLight") : Text("未选择灯光"));
             if (this.FindControl<ToggleButton>("LightMoveMode") is { } moveMode)
                 moveMode.IsChecked = lightController?.RotateHandle != true;
             if (this.FindControl<ToggleButton>("LightRotateMode") is { } rotateMode)
@@ -156,7 +175,6 @@ public partial class EditorWindow
             if (this.FindControl<Control>("LightRotateMode") is { } rotateControl)
                 rotateControl.IsEnabled = multiple || light is { Kind: not SceneLightKind.Point };
             if (this.FindControl<Control>("DeleteLightButton") is { } deleteLight) deleteLight.IsEnabled = inspector.ViewModel?.HasSelection == true;
-            if (this.FindControl<Control>("LegacyDeleteLightButton") is { } legacyDeleteLight) legacyDeleteLight.IsEnabled = light is not null;
         }
         finally { _refreshingLightingInspector = false; }
     }
@@ -205,8 +223,19 @@ public partial class EditorWindow
                 foreach (var item in selected.Cast<object>().Where(item => !wanted.Contains(item)).ToArray()) selected.Remove(item);
                 foreach (var item in wanted.Where(item => !selected.Contains(item))) selected.Add(item);
             }
-            if (model.SelectedRows.LastOrDefault(visible.Contains) is { } last)
-                using (InteractionDiagnostics.Measure("lighting.browser-scroll")) list.ScrollIntoView(last);
+            var last = wanted.LastOrDefault();
+            (Guid? Document, Guid Id, bool IsGroup)? target = last switch
+            {
+                EditorNativeLightItem light => (_shell?.Workspace.DocumentId, light.Id, false),
+                EditorLightGroupItem group => (_shell?.Workspace.DocumentId, group.Id, true),
+                _ => null
+            };
+            if (target != _lastRevealedLightRow)
+            {
+                _lastRevealedLightRow = target;
+                if (last is not null && list.IsEffectivelyVisible)
+                    using (InteractionDiagnostics.Measure("lighting.browser-scroll")) list.ScrollIntoView(last);
+            }
         }
         finally { _synchronizingLightBrowser = false; }
     }
@@ -214,7 +243,49 @@ public partial class EditorWindow
     {
         if (_synchronizingLightBrowser || _refreshingLightingInspector || _lightBrowserModel is not { IsRefreshingBrowser: false } model
             || sender is not ListBox { SelectedItems: { } items } list) return;
-        model.SelectRows(items.Cast<object>().ToArray(), args.AddedItems.Cast<object>().LastOrDefault() ?? list.SelectedItem);
+        var requestedRows = items.Cast<object>().ToArray();
+        var primary = args.AddedItems.Cast<object>().LastOrDefault() ?? list.SelectedItem;
+        if (requestedRows.Length > 0 && !NavigateInspectorPage(EditorInspectorPage.Lighting))
+        {
+            SynchronizeLightingBrowser();
+            return;
+        }
+        model.SelectRows(requestedRows, primary);
+        RefreshLightingInspector();
+    }
+
+    private void SelectTrackLight(object? sender, Avalonia.Input.PointerPressedEventArgs args)
+    {
+        if (args.GetCurrentPoint(this).Properties.IsLeftButtonPressed) ActivateTrackLight();
+    }
+
+    private void ActivateTrackLight()
+    {
+        if (_shell is not { HasProject: true } shell || !CommitPendingInlineLighting()
+            || !NavigateInspectorPage(EditorInspectorPage.Lighting)) return;
+        _lightBrowserModel?.RestoreSelection([], null, []);
+        lightController?.Select(null);
+        shell.SceneSelectionIndex = 2;
+        RefreshLightingInspector();
+    }
+
+    private void AddThreePointLighting(object? sender, RoutedEventArgs args) => AddLightGroup(SceneLightingBuiltinPreset.PortraitSoft);
+    private void AddWindowLighting(object? sender, RoutedEventArgs args) => AddLightGroup(SceneLightingBuiltinPreset.IndoorWindow);
+
+    private void AddLightGroup(SceneLightingBuiltinPreset kind)
+    {
+        if (_shell is not { IsBusy: false, HasProject: true, SupportsModernLightingWorkspace: true }
+            || !CommitPendingInlineLighting()) return;
+        var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
+        if (inspector.AddBuiltinLighting(kind)) NavigateInspectorPage(EditorInspectorPage.Lighting);
+    }
+
+    private async void ImportOutlineLightingPreset(object? sender, RoutedEventArgs args)
+    {
+        if (_shell is not { IsBusy: false, HasProject: true, SupportsModernLightingWorkspace: true }
+            || !CommitPendingInlineLighting()) return;
+        var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
+        if (await inspector.ImportLightGroupAsync()) NavigateInspectorPage(EditorInspectorPage.Lighting);
     }
 
     private bool CommitInlineLighting(EditorLightingDraft draft)
@@ -248,7 +319,7 @@ public partial class EditorWindow
     private void AddAreaLight(object? sender, RoutedEventArgs args) => AddViewportLight(SceneLightKind.Area);
     private void AddViewportLight(SceneLightKind kind)
     {
-        if (_shell is not { IsBusy: false, HasProject: true } shell || !CommitPendingInlineLighting()) return;
+        if (_shell is not { IsBusy: false, HasProject: true, SupportsModernLightingWorkspace: true } shell || !CommitPendingInlineLighting()) return;
         shell.StopPlayback();
         var model = new EditorLightingViewModel(shell.Workspace.Session!.Lighting, lightController?.SelectedLightId);
         model.SetCreationCamera(this.FindControl<EditorViewportHost>("SceneViewport")!.LightCreationCamera);
@@ -273,16 +344,41 @@ public partial class EditorWindow
         }
     }
 
+    private void ToggleViewportLight(object? sender, RoutedEventArgs args)
+    {
+        if (_shell is not { IsBusy: false, HasProject: true } shell || sender is not ToggleButton button) return;
+        try
+        {
+            bool enable = button.IsChecked == true;
+            if (!CanBeginLightGesture()) return;
+            if (lightController?.SelectedLightId is { } id)
+            {
+                var scene = shell.Workspace.Session!.Lighting;
+                if (lightController.SelectedLightIds.Count != 1) return;
+                var updated = scene.WithLights(scene.Lights.Select(light => light.Id == id ? light with { Enabled = enable } : light));
+                CommitInlineLighting(new(updated, id));
+            }
+            else
+            {
+                var model = shell.SceneInspector;
+                if (!model.CanEdit || model.HasLightValidation) return;
+                var pose = model.LightPose;
+                if (!enable) _mutedTrackColor = (shell.Workspace.DocumentId, shell.CurrentFrame, pose.Color);
+                var onColor = _mutedTrackColor is { } stored && stored.Document == shell.Workspace.DocumentId && stored.Frame == shell.CurrentFrame
+                    ? stored.Color : EditorSceneInspectorViewModel.DefaultLightColor;
+                model.SetLightDraft(pose with { Color = enable ? onColor : System.Numerics.Vector3.Zero });
+            }
+        }
+        catch (ArgumentException error) { shell.ReportActivityFailure(error); }
+        finally { RefreshLightingInspector(); }
+    }
+
     private void DeleteViewportLight(object? sender, RoutedEventArgs args)
     {
         if (_shell is not { IsBusy: false, HasProject: true } shell
             || !CommitPendingInlineLighting()) return;
-        var inspector = this.FindControl<EditorLightInspector>("NativeLightInspector")!;
-        if (shell.SupportsModernLightingWorkspace) { inspector.RemoveSelectedLights(); return; }
-        if (lightController?.SelectedLightId is not { } id) return;
-        var model = new EditorLightingViewModel(shell.Workspace.Session!.Lighting, id);
-        model.RemoveSelectedLight();
-        if (model.TryCreate(out var draft) && draft is not null && CommitInlineLighting(draft)) RefreshLightingInspector();
+        if (shell.SupportsModernLightingWorkspace)
+            this.FindControl<EditorLightInspector>("NativeLightInspector")!.RemoveSelectedLights();
     }
 
     private void SelectLightMove(object? sender, RoutedEventArgs args) => SetLightTransformMode(false);

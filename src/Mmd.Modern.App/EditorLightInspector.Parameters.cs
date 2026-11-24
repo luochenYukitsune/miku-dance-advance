@@ -66,17 +66,6 @@ public partial class EditorLightInspector
         }
         finally { updatingParameter = false; }
     }
-    private void PreviewPadEdit(object? sender, Vector3 direction)
-    {
-        if (parameterEdit is not { } edit || !ReferenceEquals(edit.Control, sender)) return;
-        if (!ReferenceEquals(edit.Source, source) || edit.Document != sourceDocumentId || ViewModel?.SelectedLight != edit.Light)
-        { CancelActiveParameterEdit(); return; }
-        // The pad and the hemisphere switch author in the same space as the light's rotation.
-        edit.Light.ApplyAimDirection(direction);
-        if (ViewModel.TryCreate(out var draft) && draft is not null && PreviewRequested?.Invoke(draft) == false)
-            CancelActiveParameterEdit();
-    }
-
     private void CompleteParameterEdit(object? sender, EventArgs args)
     {
         if (parameterEdit is not { } edit || !ReferenceEquals(edit.Control, sender)) return;
@@ -264,7 +253,6 @@ public partial class EditorLightInspector
         if (parameterEdit is not { } edit) return;
         parameterEdit = null;
         if (edit.Control is EditorLightParameterSlider slider) slider.CancelEdit();
-        else if (edit.Control is EditorLightDirectionPad pad) pad.CancelEdit();
         edit.Light.RestoreInput(edit.Before);
         PreviewRequested?.Invoke(null);
     }

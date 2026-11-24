@@ -1,3 +1,4 @@
+using System.Numerics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -15,6 +16,7 @@ public sealed record EditorLightPresetChoice(SceneLightingBuiltinPreset? Builtin
 public partial class EditorLightInspector
 {
     private bool presetBrowsing;
+    internal Func<EditorSceneInspectorViewModel?>? TrackLightProvider { get; set; }
     private void InitializePresets()
     {
         RefreshPresetLanguage();
@@ -49,19 +51,24 @@ public partial class EditorLightInspector
         if (this.FindControl<ComboBox>("LightPresetChoice")?.SelectedItem is EditorLightPresetChoice choice)
             this.FindControl<TextBox>("LightPresetName")!.Text = choice.Label;
     }
-    private void AddLightPreset(object? sender, RoutedEventArgs args) => ApplyLightingPreset(SceneLightingPresetApplyMode.Add);
+    internal bool AddBuiltinLighting(SceneLightingBuiltinPreset kind)
+    {
+        var choices = this.FindControl<ComboBox>("LightPresetChoice")!;
+        var choice = choices.Items.OfType<EditorLightPresetChoice>().Single(option => option.Builtin == kind);
+        return ApplyLightingPreset(SceneLightingPresetApplyMode.Add, choice.Preset);
+    }
     private void ReplaceLightPreset(object? sender, RoutedEventArgs args) => ApplyLightingPreset(SceneLightingPresetApplyMode.ReplaceSelected);
 
-    internal bool ApplyLightingPreset(SceneLightingPresetApplyMode mode)
+    internal bool ApplyLightingPreset(SceneLightingPresetApplyMode mode, SceneLightingPreset? supplied = null)
     {
         if (!modernParameters || presetBrowsing || refreshing || committing || recoveryRestoreDepth != 0
             || ViewModel is not { } model || EditStartingRequested?.Invoke() == false) return false;
         try
         {
             CancelActiveParameterEdit();
-            if (!TryReadLightingDraft(out var draft) || draft is null
-                || this.FindControl<ComboBox>("LightPresetChoice")?.SelectedItem is not EditorLightPresetChoice choice) return false;
-            var result = choice.Preset.Apply(draft.Snapshot, mode, draft.SelectedLightIds, draft.SelectedGroupIds);
+            var preset = supplied ?? (this.FindControl<ComboBox>("LightPresetChoice")?.SelectedItem as EditorLightPresetChoice)?.Preset;
+            if (!TryReadLightingDraft(out var draft) || draft is null || preset is null) return false;
+            var result = preset.Apply(draft.Snapshot, mode, draft.SelectedLightIds, draft.SelectedGroupIds);
             var candidate = new EditorLightingDraft(result.Snapshot, result.AddedLightIds[0], result.AddedLightIds, result.AddedGroupIds);
             committing = true;
             bool accepted;
@@ -103,37 +110,144 @@ public partial class EditorLightInspector
     internal void LoadLightingPresetFile(string path)
     {
         var preset = SceneLightingPreset.Load(path); // Validate before changing the selected reusable preset.
+        SelectLoadedPreset(preset);
+    }
+
+    private void SelectLoadedPreset(SceneLightingPreset preset)
+    {
         var choice = new EditorLightPresetChoice(null, preset);
         var control = this.FindControl<ComboBox>("LightPresetChoice")!;
         control.ItemsSource = control.Items.Cast<EditorLightPresetChoice>().Where(item => item.Builtin is not null).Append(choice).ToArray();
         control.SelectedItem = choice;
     }
 
-    private async void LoadLightPreset(object? sender, RoutedEventArgs args)
+    private async Task<SceneLightingPreset?> PickPresetAsync()
     {
-        if (!modernParameters || presetBrowsing || TopLevel.GetTopLevel(this) is not { StorageProvider: { CanOpen: true } storage }) return;
+        if (!modernParameters || presetBrowsing || TopLevel.GetTopLevel(this) is not { StorageProvider: { CanOpen: true } storage }) return null;
         SetPresetBrowsing(true);
         try
         {
             var files = await storage.OpenFilePickerAsync(new()
             {
-                Title = Text("Mda.Text.Context.Lighting.Presets.Load"), AllowMultiple = false,
-                FileTypeFilter = [PresetFileType()],
+                Title = Text("Mda.Text.Context.Lighting.Presets.Load"), AllowMultiple = false, FileTypeFilter = [PresetFileType()]
             });
-            if (files.FirstOrDefault() is not { } file) return;
-            var path = file.TryGetLocalPath() ?? throw new ArgumentException("A local preset file is required.");
-            LoadLightingPresetFile(path);
-            ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.Presets.Loaded");
+            return files.FirstOrDefault()?.TryGetLocalPath() is { } path ? SceneLightingPreset.Load(path) : null;
         }
         catch (Exception error) when (IsPresetFileError(error))
-        { ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.Presets.LoadFailed"); }
+        { ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.Presets.LoadFailed"); return null; }
         finally { SetPresetBrowsing(false); }
+    }
+
+    internal async Task<bool> ImportLightGroupAsync()
+    {
+        var document = sourceDocumentId;
+        return await PickPresetAsync() is { } preset && sourceDocumentId == document
+            && ApplyLightingPreset(SceneLightingPresetApplyMode.Add, preset);
+    }
+
+    private async void ApplyTrackPreset(object? sender, RoutedEventArgs args)
+    {
+        if (TrackLightProvider?.Invoke() is not { CanEdit: true } model) return;
+        var document = sourceDocumentId;
+        long revision = model.PoseRevision;
+        if (await PickPresetAsync() is not { } preset || document != sourceDocumentId || model.PoseRevision != revision
+            || !ReferenceEquals(model, TrackLightProvider?.Invoke()) || EditStartingRequested?.Invoke() == false) return;
+        if (preset.Lighting.EffectiveLights is not [{ Kind: SceneLightKind.Directional } value])
+        { ViewModel?.SetValidationMessage("Mda.Text.Layout.DirectionalRequired"); return; }
+        model.SetLightDraft(new(value.Color * (value.Enabled ? value.Intensity : 0), value.Direction));
+    }
+
+    private async void SaveTrackPreset(object? sender, RoutedEventArgs args)
+    {
+        if (TrackLightProvider?.Invoke() is not { CanEdit: true, HasLightValidation: false } model
+            || EditStartingRequested?.Invoke() == false) return;
+        var pose = model.LightPose;
+        var direction = Vector3.Normalize(pose.Direction);
+        var up = Math.Abs(direction.Y) > .99f ? Vector3.UnitZ : Vector3.UnitY;
+        var rotation = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(
+            Matrix4x4.CreateWorld(Vector3.Zero, direction, up)));
+        var value = new NativeSceneLight(Guid.NewGuid(), Text("Mda.Text.Layout.TrackLight"), SceneLightKind.Directional,
+            Vector3.Zero, rotation, pose.Color);
+        await SavePresetAsync(SceneLightingPreset.Capture(value.Name, new([value]), [value.Id]));
+    }
+
+    private async void ApplySingleLightPreset(object? sender, RoutedEventArgs args)
+    {
+        var document = sourceDocumentId;
+        if (ViewModel is not { ShowSingleLight: true, SelectedLight.Id: var id }
+            || await PickPresetAsync() is not { } preset || sourceDocumentId != document
+            || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } || light.Id != id) return;
+        ApplySingleLightPreset(preset);
+    }
+
+    internal bool ApplySingleLightPreset(SceneLightingPreset preset)
+    {
+        var document = sourceDocumentId;
+        if (ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } model
+            || EditStartingRequested?.Invoke() == false) return false;
+        var id = light.Id;
+        pendingNumericBinding = null;
+        bool hadNumeric = numericEdit is not null;
+        numericEdit = null;
+        focusedNumericDraft = null;
+        CancelActiveParameterEdit();
+        try
+        {
+            if (!TryReadLightingDraft(out var draft) || draft is null) return false;
+            if (preset.Lighting.Lights.Count != 1) { model.SetValidationMessage("Mda.Text.Layout.SingleLightRequired"); return false; }
+            var snapshot = preset.ApplyToLight(draft.Snapshot, id);
+            committing = true;
+            bool accepted;
+            try { accepted = CommitRequested?.Invoke(new(snapshot, id)) == true; }
+            finally { committing = false; }
+            if (accepted)
+            {
+                rawHexText.Remove(id);
+                rawNumericText.Remove(id);
+                if (renderedColorSource?.Id == id) { renderedColorSource = null; renderedHexText = ""; }
+                source = draft.Snapshot;
+                SetLighting(snapshot, id, document);
+                return true;
+            }
+            model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed");
+            return false;
+        }
+        catch (Exception error) when (IsPresetFileError(error))
+        { model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed"); return false; }
+        finally
+        {
+            if (hadNumeric) PreviewRequested?.Invoke(null);
+        }
+    }
+
+    private async void SaveSingleLightPreset(object? sender, RoutedEventArgs args)
+    {
+        if (ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } || EditStartingRequested?.Invoke() == false
+            || !TryReadLightingDraft(out var draft) || draft is null) return;
+        try
+        {
+            await SavePresetAsync(SceneLightingPreset.Capture(light.Name, draft.Snapshot, [light.Id], resolveParent: resolveParentTransform));
+        }
+        catch (Exception error) when (IsPresetFileError(error))
+        { ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.Presets.CaptureFailed"); }
+    }
+
+    private async void LoadLightPreset(object? sender, RoutedEventArgs args)
+    {
+        var document = sourceDocumentId;
+        if (await PickPresetAsync() is not { } preset || document != sourceDocumentId) return;
+        SelectLoadedPreset(preset);
+        ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.Presets.Loaded");
     }
 
     private async void SaveLightPreset(object? sender, RoutedEventArgs args)
     {
-        if (presetBrowsing || TopLevel.GetTopLevel(this) is not { StorageProvider: { CanSave: true } storage }
-            || !TryCaptureLightingPreset(out var preset) || preset is null) return;
+        if (TryCaptureLightingPreset(out var preset) && preset is not null) await SavePresetAsync(preset);
+    }
+
+    private async Task SavePresetAsync(SceneLightingPreset preset)
+    {
+        if (presetBrowsing || TopLevel.GetTopLevel(this) is not { StorageProvider: { CanSave: true } storage }) return;
         // Capture once before the picker. Saving never exports another document's later selection.
         SetPresetBrowsing(true);
         try

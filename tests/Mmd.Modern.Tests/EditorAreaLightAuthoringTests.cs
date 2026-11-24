@@ -134,9 +134,9 @@ public sealed class EditorAreaLightAuthoringTests : IAsyncDisposable
             {
                 Directory.CreateDirectory(evidence);
                 window.Width = 1480; window.Height = 940; Pump(window);
-                using var normal = window.CaptureRenderedFrame(); Assert.NotNull(normal); normal.Save(Path.Combine(evidence, "lighting-area.png"));
+                using var normal = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(normal); normal.Save(Path.Combine(evidence, "lighting-area.png"));
                 window.Width = 1100; window.Height = 720; Pump(window);
-                using var minimum = window.CaptureRenderedFrame(); Assert.NotNull(minimum); minimum.Save(Path.Combine(evidence, "lighting-area-minimum.png"));
+                using var minimum = HeadlessTestHost.CaptureLayoutFrame(window); Assert.NotNull(minimum); minimum.Save(Path.Combine(evidence, "lighting-area-minimum.png"));
             }
             return true;
         }

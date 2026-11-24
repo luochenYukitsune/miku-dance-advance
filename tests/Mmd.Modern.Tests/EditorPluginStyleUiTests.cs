@@ -199,6 +199,24 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 Assert.False(inspector.CanEdit);
                 Assert.False(inspector.CanEditGuessMaterialRoles);
                 Assert.False(string.IsNullOrWhiteSpace(inspector.ClassicNotice));
+                using var classicShell = new EditorShellViewModel(EditorLightPlacement.DefaultCamera, classicWorkspace.RenderEngine);
+                var window = new EditorWindow(false);
+                var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+                viewport.IsSuspended = true; viewport.IsVisible = false;
+                window.DataContext = classicShell;
+                try
+                {
+                    window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                    var tabs = window.FindControl<TabControl>("InspectorPageTabs")!;
+                    Assert.Equal("MME / Toon", ((TabItem)tabs.Items[1]!).Header);
+                    Assert.False(((TabItem)tabs.Items[2]!).IsVisible);
+                    Assert.False(window.FindControl<Button>("AddViewportLightButton")!.IsEffectivelyVisible);
+                    Assert.False(viewport.LightController!.IsEnabled);
+                    classicShell.ShowInspectorPage(EditorInspectorPage.Material);
+                    Assert.True(classicShell.IsStylePage);
+                }
+                finally { window.DataContext = null; window.Close(); }
+
             }
             finally
             {
@@ -306,6 +324,73 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
         }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
 
     [Fact]
+    public async Task ReplacingMissingProjectStyleFromInspectorRetainsUnregisteredBoneDraft()
+        => await session.Dispatch(() =>
+        {
+            using var shell = new EditorShellViewModel();
+            var workspace = shell.Workspace;
+            workspace.PackageCacheDirectory = Path.Combine(directory, "draft-style-cache");
+            Guid actor = AddModelWithTextures(workspace);
+            var project = workspace.Session!;
+            project.EditRenderingStyles(edit => edit.DefaultStyle = new RenderingPresetReference("missing-custom-style"), Token);
+            shell.RefreshWorkspace(actor);
+            var window = new EditorWindow(false);
+            var viewport = window.FindControl<EditorViewportHost>("SceneViewport")!;
+            viewport.IsSuspended = true; viewport.IsVisible = false;
+            window.DataContext = shell;
+            try
+            {
+                window.Show(); shell.ShowInspectorPage(EditorInspectorPage.Style);
+                shell.CurrentFrame = 20;
+                shell.Browser.SelectedBoneIndex = 0;
+                shell.Animation.PositionX = 1.25m;
+
+                var dialog = OpenReplacement();
+                FindNamed<Button>(dialog, "CancelStyleReplacementButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal("missing-custom-style", project.RenderingStyles.DefaultStyle.StableId);
+                AssertDraft();
+
+                dialog = OpenReplacement();
+                var target = Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>());
+                target.SelectedIndex = 0;
+                var confirm = FindNamed<Button>(dialog, "ConfirmStyleReplacementButton");
+                Assert.True(confirm.IsEnabled);
+                confirm.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal("mmd", project.RenderingStyles.DefaultStyle.StableId);
+                AssertDraft();
+
+                Window OpenReplacement()
+                {
+                    var button = window.FindControl<Button>("OpenStyleReplacementDialogButton")!;
+                    Assert.True(button.IsEffectivelyVisible && button.IsEffectivelyEnabled);
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Dispatcher.UIThread.RunJobs();
+                    var opened = Assert.Single(window.OwnedWindows);
+                    Assert.Equal("StyleReplacementDialog", opened.Name);
+                    AssertDraft();
+                    return opened;
+                }
+
+                void AssertDraft()
+                {
+                    Assert.Equal(actor, shell.Animation.ObjectId);
+                    Assert.Equal(20, shell.CurrentFrame);
+                    Assert.True(shell.Animation.SelectedHasDraft);
+                    Assert.Equal(1.25m, shell.Animation.PositionX);
+                    Assert.Empty(workspace.Motions.Single(item => item.ObjectId == actor).Motion.BoneKeyframes);
+                }
+            }
+            finally
+            {
+                foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close();
+                window.DataContext = null; window.Close(); Dispatcher.UIThread.RunJobs();
+            }
+            return true;
+        }, Token).WaitAsync(TimeSpan.FromSeconds(30), Token);
+
+    [Fact]
     public async Task ModelStyleInheritanceValidatesTheSelectedModelAndCreatesOneUndoStep()
         => await session.Dispatch(async () =>
         {
@@ -340,6 +425,21 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                 shell.ShowInspectorPage(EditorInspectorPage.Style);
                 shell.Animation.SelectBone(0);
                 shell.Animation.PositionX = 1.25m;
+                Assert.True(shell.Animation.HasAnyDraft);
+                var modelStyle = window.FindControl<ComboBox>("ModelStyleOverrideBox")!;
+                modelStyle.SelectedItem = inspector.Options.Single(choice => choice.StableId == "star-rail");
+                Assert.Equal("star-rail", project.GetRenderingStyle(first).StableId);
+                Assert.Equal("endfield", project.GetRenderingStyle(second).StableId);
+                Assert.True(workspace.Undo());
+                Assert.Equal("genshin", project.GetRenderingStyle(first).StableId);
+                window.FindControl<Expander>("StyleMaterialSettings")!.IsExpanded = true;
+                var roles = window.FindControl<CheckBox>("GuessMaterialRolesCheckBox")!;
+                roles.IsChecked = false;
+                roles.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.False(workspace.GuessMaterialRoles);
+                Assert.True(shell.Animation.HasAnyDraft);
+                Assert.True(workspace.Undo());
+                Assert.True(workspace.GuessMaterialRoles);
                 Assert.True(shell.Animation.HasAnyDraft);
                 var inherit = window.FindControl<Button>("InheritSelectedModelStyleButton")!;
                 Assert.True(inherit.IsEffectivelyEnabled);

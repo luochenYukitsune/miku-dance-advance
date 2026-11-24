@@ -12,6 +12,21 @@ public sealed class SceneLightingPresetTests
         new(3, 4, 5), Quaternion.Identity, new(.9f, .8f, .7f), 2, 30, GroupId: group);
 
     [Fact]
+    public void ApplySinglePresetChangesAppearanceAndPreservesTheDestinationAndItsLinks()
+    {
+        var group = new SceneLightGroup(Guid.NewGuid(), "Portrait");
+        var target = Light(group.Id) with { Parent = new(Guid.NewGuid(), 2) };
+        var value = Light() with { Kind = SceneLightKind.Area, AreaSize = new(3, 5), Color = Vector3.UnitY,
+            Position = Vector3.Zero, Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, 1), Intensity = 7 };
+        var original = new SceneLightingSnapshot([target], [group]);
+        var preset = SceneLightingPreset.Capture("Softbox", new([value]), [value.Id]);
+        var updated = Assert.Single(preset.ApplyToLight(original, target.Id).Lights);
+        Assert.Equal(target with { Kind = value.Kind, AreaSize = value.AreaSize, Color = value.Color, Intensity = 7 }, updated);
+        Assert.Equal(target, Assert.Single(original.Lights));
+        Assert.Throws<ArgumentException>(() => SceneLightingPreset.CreateBuiltin(SceneLightingBuiltinPreset.PortraitSoft).ApplyToLight(original, target.Id));
+    }
+
+    [Fact]
     public void PortableCaptureResolvesParentsAndExplicitlyDropsProjectReceiverReferences()
     {
         var group = new SceneLightGroup(Guid.NewGuid(), "Portrait", false, 3);
@@ -133,5 +148,48 @@ public sealed class SceneLightingPresetTests
             Assert.Throws<ArgumentException>(() => SceneLightingPreset.Load(path));
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void ApplySingleLightPresetPreservesTargetAimDistance()
+    {
+        var target = Light() with { AimDistance = 37.5f };
+        var other = Light() with { AimDistance = 14f };
+        var source = new SceneLightingSnapshot([target, other]);
+        var presetLight = Light() with { AimDistance = 6f, Intensity = 4.2f, Name = "PresetSpot" };
+        var preset = SceneLightingPreset.Capture("Single", new([presetLight]), [presetLight.Id]);
+
+        var updated = preset.ApplyToLight(source, target.Id);
+
+        Assert.Equal(target.Id, updated.Lights[0].Id);
+        Assert.Equal(37.5f, updated.Lights[0].AimDistance);
+        Assert.Equal(4.2f, updated.Lights[0].Intensity);
+        Assert.Equal(target.Name, updated.Lights[0].Name);
+        Assert.Equal(other, updated.Lights[1]);
+    }
+
+    [Fact]
+    public void ApplySingleLightPresetPreservesDestinationGroupModulation()
+    {
+        var sourceGroup = new SceneLightGroup(Guid.NewGuid(), "SourceGroup", Intensity: 2f);
+        var sourceLight = Light(sourceGroup.Id) with { Intensity = 3f };
+        var preset = SceneLightingPreset.Capture("SingleGrouped", new([sourceLight], [sourceGroup]), [sourceLight.Id]);
+        var captured = Assert.Single(preset.Lighting.Lights);
+        Assert.Null(captured.GroupId);
+        Assert.Equal(6f, captured.Intensity);
+
+        var boostGroup = new SceneLightGroup(Guid.NewGuid(), "Boost", Intensity: 3f);
+        var boostTarget = Light(boostGroup.Id) with { Intensity = 1f };
+        var boosted = preset.ApplyToLight(new([boostTarget], [boostGroup]), boostTarget.Id);
+        Assert.Equal(boostGroup.Id, boosted.Lights[0].GroupId);
+        Assert.Equal(6f, boosted.Lights[0].Intensity);
+        Assert.Equal(18f, boosted.EffectiveLights[0].Intensity);
+
+        var zeroGroup = new SceneLightGroup(Guid.NewGuid(), "Muted", Intensity: 0f);
+        var zeroTarget = Light(zeroGroup.Id) with { Intensity = 1f };
+        var muted = preset.ApplyToLight(new([zeroTarget], [zeroGroup]), zeroTarget.Id);
+        Assert.Equal(zeroGroup.Id, muted.Lights[0].GroupId);
+        Assert.Equal(6f, muted.Lights[0].Intensity);
+        Assert.Equal(0f, muted.EffectiveLights[0].Intensity);
     }
 }

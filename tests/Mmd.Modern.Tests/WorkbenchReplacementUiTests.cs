@@ -1,4 +1,5 @@
 using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Automation;
 using Avalonia.Headless;
@@ -72,6 +73,21 @@ public sealed class WorkbenchReplacementUiTests : IAsyncDisposable
                 Assert.True(window.FindControl<Button>("InspectorReplaceModelButton")!.IsEnabled);
                 Assert.True(window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!.FindControl<Button>("ReplaceModelButton")!.IsEnabled);
                 Assert.Equal(EditorLocalization.Text("Mda.Text.Context.ReplaceModel.Current"), AutomationProperties.GetName(selector));
+                window.Width = 1100; window.Height = 720;
+                window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                Assert.True(selector.Bounds.Width >= 140, $"The current model selector only has {selector.Bounds.Width} px in {language}.");
+                Assert.Equal(EditorLocalization.Text("Mda.Text.814c34f6f2d1"), AutomationProperties.GetName(window.FindControl<Button>("InspectorModelPropertiesButton")!));
+                var stylePage = window.FindControl<ScrollViewer>("StyleInspectorPage")!;
+                var modelPreset = window.FindControl<ComboBox>("ModelStyleOverrideBox")!;
+                Assert.Equal(EditorLocalization.Text("Mda.Text.Layout.FollowProjectStyle"), modelPreset.PlaceholderText);
+                var presetBottom = modelPreset.TranslatePoint(new Avalonia.Point(0, modelPreset.Bounds.Height), stylePage);
+                Assert.NotNull(presetBottom);
+                Assert.InRange(presetBottom.Value.Y, modelPreset.Bounds.Height, stylePage.Bounds.Height);
+                var materialSettings = window.FindControl<Expander>("StyleMaterialSettings")!;
+                Assert.False(materialSettings.IsExpanded);
+                materialSettings.IsExpanded = true; window.UpdateLayout();
+                Assert.True(window.FindControl<Button>("StyleModelPropertiesButton")!.IsEffectivelyVisible);
+
                 return true;
             }
             finally { EditorLocalization.SetLanguage(previous); Close(window); }

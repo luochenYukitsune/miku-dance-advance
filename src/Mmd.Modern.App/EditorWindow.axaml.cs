@@ -25,16 +25,14 @@ public partial class EditorWindow : Window
     private long _mappedRevision = -1;
     private long _mappedBindingRevision = -1;
     private SceneProjectSession? _mappedSession;
-    private const double DefaultLeftRailWidth = 220;
-    private const double DefaultRightRailWidth = 292;
-    private const double DefaultTimelineHeight = 220;
+    private const double DefaultLeftRailWidth = 296;
+    private const double DefaultRightRailWidth = 294;
     private const double DefaultSplitterSize = 4;
     private bool _isLeftRailVisible = true;
     private bool _isRightRailVisible = true;
-    private bool _isTimelineVisible = true;
     private double _savedLeftRailWidth = DefaultLeftRailWidth;
     private double _savedRightRailWidth = DefaultRightRailWidth;
-    private double _savedTimelineHeight = DefaultTimelineHeight;
+    private double _outlineHeight = 220;
 
     public EditorWindow() : this(true) { }
     public EditorWindow(bool persistPreferences) : this(persistPreferences, null) { }
@@ -46,6 +44,13 @@ public partial class EditorWindow : Window
         else if (persistPreferences) _preferences = EditorPreferences.Load();
         EditorLocalization.SetLanguage(_preferences.Language);
         InitializeComponent();
+        var trackLightRow = this.FindControl<ListBoxItem>("OutlineTrackLight")!;
+        trackLightRow.AddHandler(PointerPressedEvent, SelectTrackLight, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        trackLightRow.KeyDown += (_, args) =>
+        {
+            if (args.Key is Key.Enter or Key.Space) { ActivateTrackLight(); args.Handled = true; }
+        };
+        InitializeAnimationDock();
         this.FindControl<Expander>("MainLightSection")!.PropertyChanged += (_, args) =>
         {
             if (args.Property == Expander.IsExpandedProperty) RefreshLightingInspector();
@@ -90,6 +95,9 @@ public partial class EditorWindow : Window
     {
         if (_shell is not null)
         {
+            _shell.SceneInspector.PropertyChanged -= OnDockSceneTrackChanged;
+            _shell.Animation.PropertyChanged -= OnCurveSelectionChanged;
+            _shell.Workspace.Changed -= OnDockWorkspaceChanged;
             _shell.Workspace.Changed -= OnRecoveryWorkspaceChanged;
             _shell.Workspace.Changed -= OnClassicMappingChanged;
             _shell.PropertyChanged -= OnShellPropertyChanged;
@@ -108,6 +116,10 @@ public partial class EditorWindow : Window
         viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null; viewport.PlaybackAdvance = null;
         viewport.MainLightViewport = null; viewport.LightController = null; viewport.BoneController = null;
         if (shell is null || _shell is null) { _lightParentContextKey = null; return; }
+        shell.SceneInspector.PropertyChanged += OnDockSceneTrackChanged;
+        shell.Animation.PropertyChanged += OnCurveSelectionChanged;
+        shell.Workspace.Changed += OnDockWorkspaceChanged;
+        RefreshDockContext();
         shell.Workspace.Changed += OnRecoveryWorkspaceChanged;
         shell.Workspace.Changed += OnClassicMappingChanged;
         viewport.SetRenderEngine(shell.Workspace.RenderEngine);
@@ -164,6 +176,9 @@ public partial class EditorWindow : Window
         if (args.PropertyName == nameof(EditorShellViewModel.RightInspectorPageIndex)
             && sender is EditorShellViewModel pageShell) OnInspectorPageChanged(pageShell);
         if (args.PropertyName == nameof(EditorShellViewModel.SceneSelectionIndex)) OnSceneSelectionIndexChanged();
+        if (args.PropertyName is nameof(EditorShellViewModel.SceneSelectionIndex) or nameof(EditorShellViewModel.IsPlaying) or nameof(EditorShellViewModel.IsBusy)
+            || (args.PropertyName == nameof(EditorShellViewModel.CurrentFrame) && _shell is { IsCameraInspector: true, IsPlaying: false }))
+            ScheduleDockRefresh();
         if (args.PropertyName == nameof(EditorShellViewModel.IsPlaying))
             this.FindControl<EditorViewportHost>("SceneViewport")!.SetPlaybackActive(_shell?.IsPlaying == true);
         if (args.PropertyName is nameof(EditorShellViewModel.IsPlaying) or nameof(EditorShellViewModel.IsBusy)
@@ -191,54 +206,51 @@ public partial class EditorWindow : Window
     }
 
     private void ToggleLeftRail(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
-        => SetLeftRailVisible(!_isLeftRailVisible);
+        => SetAnimationDockVisible(!animationDockExpanded);
 
     private void ToggleRightRail(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
         => SetRightRailVisible(!_isRightRailVisible);
 
     private void ToggleTimeline(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
-        => SetTimelineVisible(!_isTimelineVisible);
+        => SetLeftRailVisible(!_isLeftRailVisible);
 
     private void ResetPanelLayout(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
     {
         _savedLeftRailWidth = DefaultLeftRailWidth;
         _savedRightRailWidth = DefaultRightRailWidth;
-        _savedTimelineHeight = DefaultTimelineHeight;
+        _outlineHeight = 220;
         SetLeftRailVisible(true);
         SetRightRailVisible(true);
-        SetTimelineVisible(true);
-        GetColumn("LeftRailColumn", 0).Width = new GridLength(DefaultLeftRailWidth);
-        GetColumn("RightRailColumn", 4).Width = new GridLength(DefaultRightRailWidth);
-        GetRow("TimelineRow", 2).Height = new GridLength(DefaultTimelineHeight);
+        SetAnimationDockVisible(true);
+        SetOutlineVisible(true);
+        OutlineFilter.SelectedIndex = 0;
+        GetColumn("UpperStageColumnsGrid", 0).Width = new GridLength(DefaultLeftRailWidth);
+        GetColumn("WorkspaceColumnsGrid", 2).Width = new GridLength(DefaultRightRailWidth);
     }
 
-    private ColumnDefinition GetColumn(string name, int index)
-        => NameScope.GetNameScope(this)?.Find(name) as ColumnDefinition
-            ?? this.FindControl<Grid>("WorkspaceColumnsGrid")!.ColumnDefinitions[index];
-
-    private RowDefinition GetRow(string name, int index)
-        => NameScope.GetNameScope(this)?.Find(name) as RowDefinition
-            ?? this.FindControl<Grid>("WorkbenchGrid")!.RowDefinitions[index];
+    private ColumnDefinition GetColumn(string gridName, int index)
+        => this.FindControl<Grid>(gridName)!.ColumnDefinitions[index];
 
     private void SetLeftRailVisible(bool visible)
     {
         var panel = this.FindControl<Border>("LeftRailPanel")!;
         var line = this.FindControl<Border>("LeftSplitterLine")!;
         var splitter = this.FindControl<GridSplitter>("LeftRailSplitter")!;
-        var column = GetColumn("LeftRailColumn", 0);
-        var splitterColumn = GetColumn("LeftSplitterColumn", 1);
+        var column = GetColumn("UpperStageColumnsGrid", 0);
+        var splitterColumn = GetColumn("UpperStageColumnsGrid", 1);
         if (!visible && _isLeftRailVisible)
         {
             double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;
             if (width > 0) _savedLeftRailWidth = width;
         }
+        column.MinWidth = visible ? 168 : 0;
         _isLeftRailVisible = visible;
         panel.IsVisible = visible;
         line.IsVisible = visible;
         splitter.IsVisible = visible;
         column.Width = visible ? new GridLength(_savedLeftRailWidth > 0 ? _savedLeftRailWidth : DefaultLeftRailWidth) : new GridLength(0);
         splitterColumn.Width = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
-        if (this.FindControl<MenuItem>("ShowLeftRailMenuItem") is { } menuItem)
+        if (this.FindControl<MenuItem>("ShowTimelineMenuItem") is { } menuItem)
             menuItem.IsChecked = visible;
     }
 
@@ -247,13 +259,14 @@ public partial class EditorWindow : Window
         var panel = this.FindControl<Border>("RightRailPanel")!;
         var line = this.FindControl<Border>("RightSplitterLine")!;
         var splitter = this.FindControl<GridSplitter>("RightRailSplitter")!;
-        var column = GetColumn("RightRailColumn", 4);
-        var splitterColumn = GetColumn("RightSplitterColumn", 3);
+        var column = GetColumn("WorkspaceColumnsGrid", 2);
+        var splitterColumn = GetColumn("WorkspaceColumnsGrid", 1);
         if (!visible && _isRightRailVisible)
         {
             double width = column.Width.IsAbsolute && column.Width.Value > 0 ? column.Width.Value : panel.Bounds.Width;
             if (width > 0) _savedRightRailWidth = width;
         }
+        column.MinWidth = visible ? 232 : 0;
         _isRightRailVisible = visible;
         panel.IsVisible = visible;
         line.IsVisible = visible;
@@ -261,28 +274,6 @@ public partial class EditorWindow : Window
         column.Width = visible ? new GridLength(_savedRightRailWidth > 0 ? _savedRightRailWidth : DefaultRightRailWidth) : new GridLength(0);
         splitterColumn.Width = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
         if (this.FindControl<MenuItem>("ShowRightRailMenuItem") is { } menuItem)
-            menuItem.IsChecked = visible;
-    }
-
-    private void SetTimelineVisible(bool visible)
-    {
-        var panel = this.FindControl<Border>("TimelinePanel")!;
-        var line = this.FindControl<Border>("TimelineSplitterLine")!;
-        var splitter = this.FindControl<GridSplitter>("TimelineSplitter")!;
-        var row = GetRow("TimelineRow", 2);
-        var splitterRow = GetRow("TimelineSplitterRow", 1);
-        if (!visible && _isTimelineVisible)
-        {
-            double height = row.Height.IsAbsolute && row.Height.Value > 0 ? row.Height.Value : panel.Bounds.Height;
-            if (height > 0) _savedTimelineHeight = height;
-        }
-        _isTimelineVisible = visible;
-        panel.IsVisible = visible;
-        line.IsVisible = visible;
-        splitter.IsVisible = visible;
-        row.Height = visible ? new GridLength(_savedTimelineHeight > 0 ? _savedTimelineHeight : DefaultTimelineHeight) : new GridLength(0);
-        splitterRow.Height = visible ? new GridLength(DefaultSplitterSize) : new GridLength(0);
-        if (this.FindControl<MenuItem>("ShowTimelineMenuItem") is { } menuItem)
             menuItem.IsChecked = visible;
     }
 
@@ -298,7 +289,7 @@ public partial class EditorWindow : Window
         double currentZoom = Math.Clamp(shell.PixelsPerFrame, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
         double nextZoom = Math.Clamp(currentZoom * factor, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
         if (Math.Abs(nextZoom - currentZoom) < 1e-6) return;
-        var timeline = this.FindControl<EditorTimeline>("FrameTimeline");
+        var timeline = this.FindControl<EditorTimeline>(shell.IsSceneInspector ? "SceneFrameTimeline" : "FrameTimeline");
         if (timeline is not null && timeline.Bounds.Width > timeline.TrackHeaderWidth + 16)
         {
             double rulerWidth = timeline.Bounds.Width - timeline.TrackHeaderWidth;
@@ -312,7 +303,7 @@ public partial class EditorWindow : Window
     private void ZoomTimelineFit(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
     {
         if (_shell is not { } shell) return;
-        var timeline = this.FindControl<EditorTimeline>("FrameTimeline");
+        var timeline = this.FindControl<EditorTimeline>(shell.IsSceneInspector ? "SceneFrameTimeline" : "FrameTimeline");
         double rulerWidth = timeline is not null ? timeline.Bounds.Width - timeline.TrackHeaderWidth : 0;
         uint duration = shell.Workspace.Session?.DurationFrames ?? 0;
         if (rulerWidth <= 16 || duration == 0)
@@ -388,7 +379,12 @@ public partial class EditorWindow : Window
 
     private void PreviewCamera(PmmCameraPose pose) => this.FindControl<EditorViewportHost>("SceneViewport")!
         .SetCameraPose(_shell?.SceneInspector.HasCameraDraft == true ? pose : null);
-    private void PreviewLight(PmmLightPose pose) => this.FindControl<EditorViewportHost>("SceneViewport")!.SetLightPose(pose);
+    private void PreviewLight(PmmLightPose pose)
+    {
+        this.FindControl<EditorViewportHost>("SceneViewport")!.SetLightPose(pose);
+        if (lightController?.SelectedLightId is null)
+            this.FindControl<ToggleButton>("ViewportLightEnabled")!.IsChecked = pose.Color != System.Numerics.Vector3.Zero;
+    }
 
     private void ApplyPreferences(EditorPreferences preferences)
     {
@@ -597,7 +593,7 @@ public partial class EditorWindow : Window
 
     private async Task SaveProjectAsync(bool saveAs)
     {
-        if (_shell is not { HasProject: true } shell || !CommitPendingInlineLighting() || !await CheckPoseDraftsAsync() || !await EnsureMotionHeadersAsync()) return;
+        if (_shell is not { HasProject: true } shell || !CommitPendingInlineLighting() || !await CheckPoseDraftsAsync(preserveModelDrafts: true) || !await EnsureMotionHeadersAsync()) return;
         shell.SynchronizePendingScrub();
         string? path = saveAs ? null : shell.Workspace.ProjectPath;
         if (path is null)
@@ -613,7 +609,8 @@ public partial class EditorWindow : Window
         {
             try
             {
-                await Task.Run(() => shell.Workspace.Save(path, token), token);
+                using var snapshot = shell.Workspace.CaptureRecoverySnapshot(token);
+                await Task.Run(() => shell.Workspace.SaveCaptured(path, snapshot, token), token);
                 shell.OperationStatus = EditorLocalization.Text("工程已保存。");
             }
             catch (PmaSaveCommittedException error)
@@ -632,7 +629,7 @@ public partial class EditorWindow : Window
 
     private async Task<bool> CheckUnsavedAsync()
     {
-        if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync()) return false;
+        if (!CommitPendingInlineLighting() || !await CheckPoseDraftsAsync(preserveModelDrafts: true)) return false;
         if (_shell?.Workspace.IsDirty != true) return true;
         int answer = await EditorDialogs.ChooseAsync(this, EditorLocalization.Text("保存更改"), EditorLocalization.Text("当前工程有尚未保存的更改。"), [EditorLocalization.Text("取消"), EditorLocalization.Text("不保存"), EditorLocalization.Text("保存")], primary: 2);
         if (answer == 0) return false;
@@ -646,7 +643,7 @@ public partial class EditorWindow : Window
         if (_closingConfirmed || _shell is null) return;
         if (_shell.IsBusy || IsFileDropInProgress) { args.Cancel = true; _shell.OperationStatus = EditorLocalization.Text("操作进行中，请先取消或等待完成。"); return; }
         if (!CommitPendingInlineLighting()) { args.Cancel = true; return; }
-        if (!_shell.Workspace.IsDirty && !_shell.Animation.HasAnyDraft && !_shell.SceneInspector.HasCameraDraft && !_shell.SceneInspector.HasLightDraft && !EditorNumericUpDown.HasInvalidInputs(this)
+        if (!_shell.Workspace.IsDirty && !_shell.SceneInspector.HasCameraDraft && !_shell.SceneInspector.HasLightDraft && !EditorNumericUpDown.HasInvalidInputs(this)
             && recoveryOwners.Count == 0 && reviewedRecoverySessions.Count == 0 && !_shell.HasAudioPlaybackOwner && Plugins is null) return;
         args.Cancel = true;
         if (_closingPrompt) return;
@@ -701,7 +698,7 @@ public partial class EditorWindow : Window
     }
     private void OnEditorPreviewKeyDown(object? sender, KeyEventArgs args)
     {
-        if (args.Handled || args.Key != Key.Space || args.KeyModifiers != KeyModifiers.None) return;
+        if (args.Handled || args.Key != Key.Space || args.KeyModifiers != KeyModifiers.None || FocusManager?.GetFocusedElement() is EditorInterpolationCurve) return;
         if (!IsEditableTextFocused() && !IsButtonActionFocused() && ExecuteEditorKey(Key.Space, KeyModifiers.None, false))
             args.Handled = true;
     }
@@ -788,7 +785,12 @@ public partial class EditorWindow : Window
             (Key.S, true, true) => shell.SaveAsCommand, (Key.S, true, false) => shell.SaveProjectCommand,
             (Key.Z, true, true) => shell.RedoCommand, (Key.Z, true, false) => shell.UndoCommand,
             (Key.Y, true, _) => shell.RedoCommand,
-            (Key.Enter or Key.K, false, false) when fromViewport => shell.Animation.RegisterKeyframeCommand,
+            (Key.Enter or Key.K, false, false) when shell.IsCameraInspector && (fromViewport || FocusManager?.GetFocusedElement() == SceneFrameTimeline)
+                => shell.SceneInspector.RegisterCameraKeyframeCommand,
+            (Key.Enter or Key.K, false, false) when shell.IsLightInspector && shell.SceneInspector.ShowsPrimaryLightTrack
+                && (fromViewport || FocusManager?.GetFocusedElement() == SceneFrameTimeline) => shell.SceneInspector.RegisterLightKeyframeCommand,
+            (Key.Enter or Key.K, false, false) when shell.IsAnimationInspector && (fromViewport || FocusManager?.GetFocusedElement() == FrameTimeline)
+                => shell.Animation.IsMorphSelected ? shell.Animation.RegisterKeyframeCommand : shell.Animation.RegisterPoseCommand,
             (Key.Space, false, false) when modifiers == KeyModifiers.None && !IsEditableTextFocused() && !IsButtonActionFocused() => shell.PlayCommand,
             (Key.Left, false, false) when allowFrameNavigation => shell.PreviousFrameCommand,
             (Key.Right, false, false) when allowFrameNavigation => shell.NextFrameCommand,
@@ -797,9 +799,9 @@ public partial class EditorWindow : Window
             (Key.Home, false, false) when allowFrameNavigation => shell.GoToStartCommand,
             (Key.End, false, false) when allowFrameNavigation => shell.GoToEndCommand,
             // Editing keys never act while a text field or list owns the keyboard (they keep their own copy/paste/space).
-            (Key.C, true, false) when !TextInputHasFocus() => shell.Animation.CopyKeyframesCommand,
-            (Key.V, true, false) when !TextInputHasFocus() => shell.Animation.PasteKeyframesCommand,
-            (Key.Delete, false, false) when !TextInputHasFocus() => shell.Animation.DeleteKeyframesCommand,
+            (Key.C, true, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.CopyKeyframesCommand,
+            (Key.V, true, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.PasteKeyframesCommand,
+            (Key.Delete, false, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.DeleteKeyframesCommand,
             _ => null
         };
         if (command?.CanExecute(null) != true) return false;
