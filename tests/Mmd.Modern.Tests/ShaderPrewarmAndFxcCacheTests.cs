@@ -11,6 +11,8 @@ using Xunit;
 
 namespace Mmd.Modern.Tests;
 
+// The FXC deduplication assertion observes a process-wide compiler invocation counter.
+[Collection(RayGiTimingEnvironmentCollection.Name)]
 public sealed class ShaderPrewarmAndFxcCacheTests : IDisposable
 {
     private const string Compute = """
