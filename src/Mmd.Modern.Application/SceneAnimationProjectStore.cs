@@ -107,9 +107,7 @@ public static class SceneAnimationProjectStore
         string destination = ProjectPath(path), parent = Path.GetDirectoryName(destination)!;
         ArgumentNullException.ThrowIfNull(composition); ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(state); cancellationToken.ThrowIfCancellationRequested();
-        if (state.CoupledSoftBodies && settings is null)
-            settings = new() { Physics = new() { CoupledSoftBodies = true, SharedWorld = state.SharedPhysicsWorld } };
-        if (state.CoupledSoftBodies != (settings?.Physics.CoupledSoftBodies ?? false))
+        if (settings is not null && state.CoupledSoftBodies != settings.Physics.CoupledSoftBodies)
             throw new InvalidOperationException("Saved coupled-physics selection must match the active animation session.");
         if (!composition.Objects.SequenceEqual(state.Objects) || !lighting.Lights.SequenceEqual(state.Lighting.Lights)
             || !lighting.Groups.SequenceEqual(state.Lighting.Groups) || lighting.Settings != state.Lighting.Settings)
@@ -127,7 +125,10 @@ public static class SceneAnimationProjectStore
         using var layout = JsonDocument.Parse(layoutJson);
         int version = SelectDocumentVersion(state, settings);
         if (version >= SettingsVersion)
-            settings ??= new ProjectSettings();
+            settings ??= new ProjectSettings
+            {
+                Physics = new() { CoupledSoftBodies = state.CoupledSoftBodies, SharedWorld = state.SharedPhysicsWorld },
+            };
         var document = new Document
         {
             Format = Format, Version = version,
@@ -169,7 +170,7 @@ public static class SceneAnimationProjectStore
         if (state.Motions.Any(motion => motion.Detachment is not null) || state.PmmControls?.HasReplacementMetadata == true)
             return ModelReplacementVersion;
         if (state.PmmControls is not null) return PmmControlsVersion;
-        if (settings is not null) return SettingsVersion;
+        if (settings is not null || state.CoupledSoftBodies || state.SharedPhysicsWorld) return SettingsVersion;
         if (state.SceneMotion is not null) return SceneMotionVersion;
         if (state.OutsideParents.Count != 0) return OutsideParentVersion;
         if (state.Motions.Any(binding => binding.Asset!.NameOverrides.Count != 0)) return MixedNameVersion;

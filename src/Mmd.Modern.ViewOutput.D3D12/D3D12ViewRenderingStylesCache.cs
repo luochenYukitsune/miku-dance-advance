@@ -194,7 +194,7 @@ internal sealed class D3D12ViewRenderingStylesCache
                 throw new NotSupportedException("Non-MMD surface shader styles require explicit modern frame options.");
 
             var surfaceStyles = bs.GetOrUpdateStaticSurfaceStyles(cfg, scene.Surface.Snapshot.Materials);
-            var resultScene = bs.ResolveSceneMaterials(cfg, scene, surfaceStyles, out _);
+            var resultScene = bs.ResolveSceneMaterials(cfg, scene, surfaceStyles);
             var result = new D3D12ViewRenderingStylesResult(resultScene, surfaceStyles, bs.StaticDiagnostics);
             lastExactScene = scene;
             lastExactResult = result;
@@ -217,13 +217,9 @@ internal sealed class D3D12ViewRenderingStylesCache
             if (pf.NeedsRawRadialSeeds)
                 _ = D3D12TangentCornerGeometry.GetOrComputeRawRadialSeeds(snapshot, out _);
 
-            var resultScene = bs.ResolveSceneMaterials(cfg, scene, pf.SurfaceStyles, out bool materialsReused);
-            if ((pf.HasEmptyMikkBufferBinding && !ReferenceEquals(snapshot, pf.LastValidatedSnapshot))
-                || (pf.HasEffectiveTreatment && !materialsReused))
-            {
-                pf.SurfaceStyles.Validate(resultScene);
-                pf.LastValidatedSnapshot = snapshot;
-            }
+            bool validateGeometry = pf.HasEmptyMikkBufferBinding && !ReferenceEquals(snapshot, pf.LastValidatedSnapshot);
+            var resultScene = bs.ResolveSceneMaterials(cfg, scene, pf.SurfaceStyles, validateGeometry);
+            pf.LastValidatedSnapshot = snapshot;
 
             var cachedResult = new D3D12ViewRenderingStylesResult(resultScene, pf.SurfaceStyles, bs.StaticDiagnostics);
             lastExactScene = scene;
@@ -285,7 +281,6 @@ internal sealed class D3D12ViewRenderingStylesCache
 
         var resultScene = bs.ApplyTransformations(cfg, scene);
         surfaceStyles.Validate(resultScene);
-        bs.CommitMaterialTransformCache(scene, resultScene);
 
         pluginFrame = PluginFrameCache.Capture(
             scene,
@@ -296,6 +291,7 @@ internal sealed class D3D12ViewRenderingStylesCache
             primaryLightColor,
             cameraPosition,
             observedTextureIndices);
+        bs.CommitMaterialTransformCache(scene, resultScene, surfaceStyles, bs.HasEffectiveTreatment(surfaceStyles));
 
         var result = new D3D12ViewRenderingStylesResult(resultScene, surfaceStyles, bs.StaticDiagnostics);
         lastExactScene = scene;
@@ -380,7 +376,6 @@ internal sealed class D3D12ViewRenderingStylesCache
                 RequiresOptionsForPreset = false,
                 RequiresOptionsForSurface = false,
                 CanModifySceneMaterials = outlineScales.Length > 0,
-                HasEffectiveTreatment = false,
                 PluginSlots = Array.Empty<PreparedPluginSlot>(),
                 PluginObjectIds = Array.Empty<Guid>(),
                 OrderedPluginOrDeferredSteps = Array.Empty<OrderedPluginStep>(),
@@ -391,7 +386,6 @@ internal sealed class D3D12ViewRenderingStylesCache
         bool requiresOptionsForPreset = false;
         bool requiresOptionsForSurface = false;
         bool hasNonMmdVisibleCharacterPreset = false;
-        bool hasEffectiveTreatment = false;
 
         var pluginSlots = new List<PreparedPluginSlot>();
         var orderedSteps = new List<OrderedPluginStep>();
@@ -446,12 +440,6 @@ internal sealed class D3D12ViewRenderingStylesCache
                     var fallbackStyle = D3D12ViewRenderingStyles.BuildFallbackMaterialStyle(
                         snapshotMaterials[frameIdx].Name, charMat, cfg.GuessMaterialRoles);
                     table.SetMaterial(frameIdx, fallbackStyle);
-                    if (fallbackStyle.PmxMaterialTreatment is { } tr
-                        && (tr.Saturation != 1 || tr.TransitionWidthScale != 1 || tr.ValueContrast != 0 || tr.ShadeGamma != 1 || tr.HairHighlightStrength != 0)
-                        && fallbackStyle.Role is D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair)
-                    {
-                        hasEffectiveTreatment = true;
-                    }
                     continue;
                 }
 
@@ -513,7 +501,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             RequiresOptionsForPreset = requiresOptionsForPreset,
             RequiresOptionsForSurface = requiresOptionsForSurface,
             CanModifySceneMaterials = hasNonMmdVisibleCharacterPreset || outlineScales.Length > 0,
-            HasEffectiveTreatment = hasEffectiveTreatment,
             PluginSlots = pluginSlots.ToArray(),
             PluginObjectIds = pluginObjectIds.ToArray(),
             OrderedPluginOrDeferredSteps = orderedSteps.ToArray(),
@@ -773,7 +760,6 @@ internal sealed class D3D12ViewRenderingStylesCache
         public required bool RequiresOptionsForPreset { get; init; }
         public required bool RequiresOptionsForSurface { get; init; }
         public required bool CanModifySceneMaterials { get; init; }
-        public required bool HasEffectiveTreatment { get; init; }
         public required PreparedPluginSlot[] PluginSlots { get; init; }
         public required Guid[] PluginObjectIds { get; init; }
         public required OrderedPluginStep[] OrderedPluginOrDeferredSteps { get; init; }
@@ -782,6 +768,8 @@ internal sealed class D3D12ViewRenderingStylesCache
         private ReadOnlyCollection<OriginalFrameMaterialFlags>? lastInputMaterials;
         private IReadOnlyList<OriginalOutlineMaterial>? lastOutlineMaterials;
         private ReadOnlyCollection<OriginalFrameMaterialFlags>? lastResultMaterials;
+        private D3D12SurfaceStyleMap? lastMaterialStyles;
+        private bool lastHasEffectiveTreatment;
 
         public D3D12SurfaceStyleMap GetOrUpdateStaticSurfaceStyles(
             PreparedConfig cfg,
@@ -823,32 +811,41 @@ internal sealed class D3D12ViewRenderingStylesCache
             PreparedConfig cfg,
             OriginalFrameScene scene,
             D3D12SurfaceStyleMap surfaceStyles,
-            out bool materialsReused)
+            bool validateGeometry = false)
         {
-            if (!CanModifySceneMaterials)
-            {
-                materialsReused = true;
+            bool hasTreatment = HasEffectiveTreatment(surfaceStyles);
+            if (!CanModifySceneMaterials && !hasTreatment && !validateGeometry)
                 return scene;
-            }
 
-            var outlineMaterials = scene.Outline?.Materials;
-            if (lastInputMaterials is not null
-                && SameEdgeFlags(outlineMaterials, lastOutlineMaterials)
-                && SameMaterials(scene.Materials, lastInputMaterials))
+            bool sameInputs = lastInputMaterials is not null
+                && SameEdgeFlags(scene.Outline?.Materials, lastOutlineMaterials)
+                && SameMaterials(scene.Materials, lastInputMaterials);
+            var result = scene;
+            if (CanModifySceneMaterials)
             {
-                materialsReused = true;
-                return lastResultMaterials is null
-                    ? scene
-                    : new OriginalFrameScene(scene.Surface, scene.Outline, scene.OutlineOptions, scene.Options,
+                if (!sameInputs)
+                    result = ApplyTransformations(cfg, scene);
+                else if (lastResultMaterials is not null)
+                    result = new OriginalFrameScene(scene.Surface, scene.Outline, scene.OutlineOptions, scene.Options,
                         lastResultMaterials, scene.Lighting, scene.EditorOverlay);
             }
 
-            materialsReused = false;
-            var transformed = ApplyTransformations(cfg, scene);
-            if (!UsesPluginStyle && HasEffectiveTreatment)
-                surfaceStyles.Validate(transformed);
-            CommitMaterialTransformCache(scene, transformed);
-            return transformed;
+            // SameMaterials includes CharacterToonResponse. Reuse its proof only with the map that passed validation.
+            bool sameStyles = ReferenceEquals(surfaceStyles, lastMaterialStyles);
+            if (validateGeometry || (hasTreatment && !(sameStyles && sameInputs)))
+                surfaceStyles.Validate(result);
+            if (!sameStyles || !sameInputs)
+                CommitMaterialTransformCache(scene, result, surfaceStyles, hasTreatment);
+            return result;
+        }
+
+        public bool HasEffectiveTreatment(D3D12SurfaceStyleMap surfaceStyles)
+        {
+            if (ReferenceEquals(surfaceStyles, lastMaterialStyles)) return lastHasEffectiveTreatment;
+            if (RequiresOptionsForSurface)
+                for (int i = 0; i < surfaceStyles.Count; i++)
+                    if (surfaceStyles.EffectivePmxMaterialTreatment(i) is not null) return true;
+            return false;
         }
 
         private static bool SameEdgeFlags(IReadOnlyList<OriginalOutlineMaterial>? current, IReadOnlyList<OriginalOutlineMaterial>? previous)
@@ -863,8 +860,11 @@ internal sealed class D3D12ViewRenderingStylesCache
         public OriginalFrameScene ApplyTransformations(PreparedConfig cfg, OriginalFrameScene scene)
             => D3D12ViewRenderingStyles.ApplySceneTransformations(scene, cfg.EffectiveCatalog, Selected, OutlineScales);
 
-        public void CommitMaterialTransformCache(OriginalFrameScene inputScene, OriginalFrameScene resultScene)
+        public void CommitMaterialTransformCache(OriginalFrameScene inputScene, OriginalFrameScene resultScene,
+            D3D12SurfaceStyleMap surfaceStyles, bool hasEffectiveTreatment)
         {
+            lastMaterialStyles = surfaceStyles;
+            lastHasEffectiveTreatment = hasEffectiveTreatment;
             lastInputMaterials = inputScene.Materials;
             lastOutlineMaterials = inputScene.Outline?.Materials;
             lastResultMaterials = ReferenceEquals(resultScene, inputScene) ? null : resultScene.Materials;
@@ -885,7 +885,6 @@ internal sealed class D3D12ViewRenderingStylesCache
         public bool NeedsAdditionalUvs { get; }
         public bool NeedsRawRadialSeeds { get; }
         public bool HasEmptyMikkBufferBinding { get; }
-        public bool HasEffectiveTreatment { get; }
         public int MaxPluginTextureIndex { get; }
         public SceneSnapshot LastValidatedSnapshot { get; set; }
 
@@ -901,7 +900,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             bool needsAdditionalUvs,
             bool needsRawRadialSeeds,
             bool hasEmptyMikkBufferBinding,
-            bool hasEffectiveTreatment,
             int maxPluginTextureIndex,
             SceneSnapshot lastValidatedSnapshot)
         {
@@ -916,7 +914,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             NeedsAdditionalUvs = needsAdditionalUvs;
             NeedsRawRadialSeeds = needsRawRadialSeeds;
             HasEmptyMikkBufferBinding = hasEmptyMikkBufferBinding;
-            HasEffectiveTreatment = hasEffectiveTreatment;
             MaxPluginTextureIndex = maxPluginTextureIndex;
             LastValidatedSnapshot = lastValidatedSnapshot;
         }
@@ -953,7 +950,6 @@ internal sealed class D3D12ViewRenderingStylesCache
             bool needsAdditionalUvs = false;
             bool needsRawRadialSeeds = false;
             bool hasEmptyMikkBufferBinding = false;
-            bool hasEffectiveTreatment = false;
             int maxPluginTextureIndex = -1;
 
             for (int i = 0; i < bs.PluginSlots.Length; i++)
@@ -977,8 +973,6 @@ internal sealed class D3D12ViewRenderingStylesCache
                 var geom = surfaceStyles.EffectiveGeometryRequirements(frameIdx);
                 needsAdditionalUvs |= geom.HasFlag(D3D12StyleGeometryRequirements.SubTextureUv);
                 needsRawRadialSeeds |= geom.HasFlag(D3D12StyleGeometryRequirements.RawRadialSeeds);
-                if (surfaceStyles.EffectivePmxMaterialTreatment(frameIdx) is not null)
-                    hasEffectiveTreatment = true;
                 if (surfaceStyles.GetPluginDraw(frameIdx) is { } draw)
                 {
                     if (draw.TextureBindings is { Count: > 0 } textures)
@@ -1021,7 +1015,6 @@ internal sealed class D3D12ViewRenderingStylesCache
                 needsAdditionalUvs,
                 needsRawRadialSeeds,
                 hasEmptyMikkBufferBinding,
-                hasEffectiveTreatment,
                 maxPluginTextureIndex,
                 snapshot);
         }
