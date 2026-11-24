@@ -105,6 +105,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         Browser.SelectionChanged += (_, _) => RefreshSelection();
         Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion, Animation.RegistrationHistory); };
         Animation.CanMutateProject = () => !IsBusy && !IsPlaying;
+        Animation.IsHostBusy = () => IsBusy;
         Workspace.CapturePoseDrafts = Animation.CaptureNativeDrafts;
         Animation.DraftContentEdited += (_, _) => { if (IsPlaying) StopPlayback(); Workspace.MarkPoseDraftEdited(); OnPropertyChanged(nameof(ProjectTitle)); };
         Animation.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => Animation.Status; };

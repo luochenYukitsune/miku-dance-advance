@@ -790,7 +790,7 @@ public partial class EditorWindow : Window
             (Key.Enter or Key.K, false, false) when shell.IsLightInspector && shell.SceneInspector.ShowsPrimaryLightTrack
                 && (fromViewport || FocusManager?.GetFocusedElement() == SceneFrameTimeline) => shell.SceneInspector.RegisterLightKeyframeCommand,
             (Key.Enter or Key.K, false, false) when shell.IsAnimationInspector && (fromViewport || FocusManager?.GetFocusedElement() == FrameTimeline)
-                => shell.Animation.RegisterPoseCommand,
+                => shell.Animation.IsMorphSelected ? shell.Animation.RegisterKeyframeCommand : shell.Animation.RegisterPoseCommand,
             (Key.Space, false, false) when modifiers == KeyModifiers.None && !IsEditableTextFocused() && !IsButtonActionFocused() => shell.PlayCommand,
             (Key.Left, false, false) when allowFrameNavigation => shell.PreviousFrameCommand,
             (Key.Right, false, false) when allowFrameNavigation => shell.NextFrameCommand,

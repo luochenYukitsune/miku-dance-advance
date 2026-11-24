@@ -920,13 +920,19 @@ public sealed partial class EditorTimeline : TemplatedControl
         if (track is not null && _rowDrafts.TryGetValue(track, out var drafts)
             && Math.Abs(position.Y - (RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight + 7)) <= 3)
         {
-            int draftFrame = FrameAtX(position.X);
-            int marker = drafts.LowerBound(draftFrame);
-            if (marker < drafts.Frames.Count && drafts.Frames[marker] == (uint)draftFrame)
+            double rawFrame = FirstVisibleFrame + (position.X - TrackHeaderWidth) / PixelsPerFrame;
+            int marker = drafts.LowerBound(Math.Max(0, rawFrame));
+            if (marker >= drafts.Frames.Count || (marker > 0 && Math.Abs(drafts.Frames[marker - 1] - rawFrame) < Math.Abs(drafts.Frames[marker] - rawFrame))) marker--;
+            if (marker >= 0 && marker < drafts.Frames.Count)
             {
-                SetCurrentValue(CurrentFrameProperty, draftFrame);
-                if (track.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
-                return;
+                uint draftFrame = drafts.Frames[marker];
+                double markerX = TrackHeaderWidth + (draftFrame - FirstVisibleFrame) * PixelsPerFrame;
+                if (Math.Abs(position.X - markerX) <= 3)
+                {
+                    SetCurrentValue(CurrentFrameProperty, (int)draftFrame);
+                    if (track.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
+                    return;
+                }
             }
         }
         _gestureTracks = tracks;

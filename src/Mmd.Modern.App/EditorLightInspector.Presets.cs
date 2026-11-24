@@ -176,17 +176,48 @@ public partial class EditorLightInspector
         var document = sourceDocumentId;
         if (ViewModel is not { ShowSingleLight: true, SelectedLight.Id: var id }
             || await PickPresetAsync() is not { } preset || sourceDocumentId != document
-            || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } model || light.Id != id
-            || EditStartingRequested?.Invoke() == false || !TryReadLightingDraft(out var draft) || draft is null) return;
-        if (preset.Lighting.Lights.Count != 1) { model.SetValidationMessage("Mda.Text.Layout.SingleLightRequired"); return; }
+            || ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } || light.Id != id) return;
+        ApplySingleLightPreset(preset);
+    }
+
+    internal bool ApplySingleLightPreset(SceneLightingPreset preset)
+    {
+        var document = sourceDocumentId;
+        if (ViewModel is not { ShowSingleLight: true, SelectedLight: { } light } model
+            || EditStartingRequested?.Invoke() == false) return false;
+        var id = light.Id;
+        pendingNumericBinding = null;
+        bool hadNumeric = numericEdit is not null;
+        numericEdit = null;
+        focusedNumericDraft = null;
+        CancelActiveParameterEdit();
         try
         {
+            if (!TryReadLightingDraft(out var draft) || draft is null) return false;
+            if (preset.Lighting.Lights.Count != 1) { model.SetValidationMessage("Mda.Text.Layout.SingleLightRequired"); return false; }
             var snapshot = preset.ApplyToLight(draft.Snapshot, id);
-            if (CommitRequested?.Invoke(new(snapshot, id)) == true) SetLighting(snapshot, id, document);
-            else model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed");
+            committing = true;
+            bool accepted;
+            try { accepted = CommitRequested?.Invoke(new(snapshot, id)) == true; }
+            finally { committing = false; }
+            if (accepted)
+            {
+                rawHexText.Remove(id);
+                rawNumericText.Remove(id);
+                if (renderedColorSource?.Id == id) { renderedColorSource = null; renderedHexText = ""; }
+                source = draft.Snapshot;
+                SetLighting(snapshot, id, document);
+                return true;
+            }
+            model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed");
+            return false;
         }
         catch (Exception error) when (IsPresetFileError(error))
-        { model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed"); }
+        { model.SetValidationMessage("Mda.Text.Context.Lighting.Presets.ApplyFailed"); return false; }
+        finally
+        {
+            if (hadNumeric) PreviewRequested?.Invoke(null);
+        }
     }
 
     private async void SaveSingleLightPreset(object? sender, RoutedEventArgs args)

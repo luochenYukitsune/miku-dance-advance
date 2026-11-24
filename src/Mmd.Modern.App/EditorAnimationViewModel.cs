@@ -116,7 +116,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         CopyKeyframesCommand = new AnimationCommand(() => { CopyKeyframes(); return Task.CompletedTask; }, () => CanEditSelection);
         PasteKeyframesCommand = new AnimationCommand(PasteKeyframesAsync, () => CanPaste);
         MoveKeyframesCommand = new AnimationCommand(MoveKeyframesAsync, () => CanModifySelection);
-        ResetPoseCommand = new AnimationCommand(() => { ResetPose(); return Task.CompletedTask; }, () => HasEditableSelection && !IsBusy);
+        ResetPoseCommand = new AnimationCommand(() => { ResetPose(); return Task.CompletedTask; }, () => HasEditableSelection && !IsProjectBusy);
         CopyPoseCommand = new AnimationCommand(() => { CopyPose(); return Task.CompletedTask; }, () => CanCopyPose);
         PasteMirroredPoseCommand = new AnimationCommand(() => { PasteMirroredPose(); return Task.CompletedTask; }, () => CanPastePose);
         SelectTimelineRangeCommand = new AnimationCommand(() => { SelectTimelineRange(); return Task.CompletedTask; }, () => CanSelectTimelineRange);
@@ -130,6 +130,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     /// <summary>Host validation includes raw native numeric text that has no parsed Value.</summary>
     public Func<bool>? ValidateInput { get; set; }
     public Func<bool>? CanMutateProject { get; set; }
+    internal Func<bool>? IsHostBusy { get; set; }
     public void RefreshInputValidation() => RefreshCommands();
     public Action<string>? ReportStatus { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -149,9 +150,9 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     public bool IsMorphSelected => HasActor && morphIndex.HasValue;
     public bool HasEditableSelection => IsBoneSelected || IsMorphSelected;
     public bool IsEmptySelection => !HasEditableSelection;
-    public bool CanTranslate => !IsSelectedUnowned && IsBoneSelected && SelectedBone!.Flags.HasFlag(PmxBoneFlags.AllowTranslate) && !IsBusy;
-    public bool CanRotate => !IsSelectedUnowned && IsBoneSelected && SelectedBone!.Flags.HasFlag(PmxBoneFlags.AllowRotate) && !IsBusy;
-    public bool CanEditMorph => !IsSelectedUnowned && IsMorphSelected && !IsBusy;
+    public bool CanTranslate => !IsSelectedUnowned && IsBoneSelected && SelectedBone!.Flags.HasFlag(PmxBoneFlags.AllowTranslate) && !IsProjectBusy;
+    public bool CanRotate => !IsSelectedUnowned && IsBoneSelected && SelectedBone!.Flags.HasFlag(PmxBoneFlags.AllowRotate) && !IsProjectBusy;
+    public bool CanEditMorph => !IsSelectedUnowned && IsMorphSelected && !IsProjectBusy;
     /// <summary>Bone/morph registration belongs to the authored animation context only.
     /// Camera, world and main light have their own registration entries and must not receive a
     /// retained model channel's key while their context is active.</summary>
@@ -171,6 +172,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     /// <summary>Includes other bones, morphs and models at this same global frame.</summary>
     public bool HasAnyDraft => actorDrafts.Values.Any(draft => !draft.IsEmpty);
     public bool IsBusy => isBusy;
+    private bool IsProjectBusy => IsBusy || IsHostBusy?.Invoke() == true;
     public string Status => Format(status, statusArguments) + statusError?.Message;
     public string SelectionName => IsBoneSelected ? SelectedBone!.Name : IsMorphSelected ? model!.Morphs[morphIndex!.Value].Name : Text("未选择骨骼或表情");
     public string SelectionLabel => HasActor ? $"{ActorDisplayName} › {SelectionName}" : SelectionName;
@@ -351,7 +353,10 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     public void SelectBone(int? index)
     {
         var validIndex = index is { } value && HasActor && value >= 0 && value < model!.Bones.Count ? index : null;
-        if (boneIndex == validIndex && morphIndex is null) return;
+        bool sameSelection = validIndex is { } target
+            ? selectedBoneIndices.Count == 1 && selectedBoneIndices[0] == target
+            : selectedBoneIndices.Count == 0;
+        if (boneIndex == validIndex && morphIndex is null && sameSelection) return;
         selectedBoneIndices = validIndex is { } selected ? [selected] : [];
         boneIndex = validIndex;
         morphIndex = null; contextRevision++;
@@ -473,7 +478,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
 
     public void ResetPose()
     {
-        if (!HasEditableSelection || IsBusy) return;
+        if (!HasEditableSelection || IsProjectBusy) return;
         if (IsBoneSelected)
         {
             if (CanTranslate) { PositionX = 0; PositionY = 0; PositionZ = 0; }
@@ -680,7 +685,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
     }
     private void SetDraft(ref decimal? field, decimal? value, bool rotation = false, [CallerMemberName] string? property = null)
     {
-        if (field == value || IsBusy) return;
+        if (field == value || IsProjectBusy) return;
         field = value; Changed(property);
         if (!loadingPose && HasEditableSelection)
         {

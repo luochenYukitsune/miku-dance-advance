@@ -117,13 +117,13 @@ public sealed partial class EditorAnimationViewModel
 
     private bool HasInvalidBoneRegistration => objectId is { } id && actorDrafts.TryGetValue((id, CurrentFrame), out var pending)
         && pending.Bones.Any(pair => !pair.Value.IsValid || detachment?.BoneNames.Contains(pending.Model.Bones[pair.Key].Name) == true);
-    private bool CanRegisterBones => HasActor && !playing && !IsBusy && animationContextActive
+    private bool CanRegisterBones => HasActor && !playing && !IsProjectBusy && animationContextActive
         && CanMutateProject?.Invoke() != false && ValidateInput?.Invoke() != false
         && !HasInvalidBoneRegistration && (actorDrafts.GetValueOrDefault((objectId!.Value, CurrentFrame))?.Bones.Count > 0
             || selectedBoneIndices.Count > 0 && !IsSelectedUnowned && DraftIsValid);
-    private bool CanCopyPose => !playing && !IsBusy && animationContextActive && selectedBoneIndices.Count > 0
+    private bool CanCopyPose => !playing && !IsProjectBusy && animationContextActive && selectedBoneIndices.Count > 0
         && !HasInvalidBoneRegistration && CanMutateProject?.Invoke() != false;
-    private bool CanPastePose => !playing && !IsBusy && animationContextActive && HasActor && copiedPose.Length != 0
+    private bool CanPastePose => !playing && !IsProjectBusy && animationContextActive && HasActor && copiedPose.Length != 0
         && CanMutateProject?.Invoke() != false;
 
     private VpdLocalBoneTransform LocalBonePose(int index)

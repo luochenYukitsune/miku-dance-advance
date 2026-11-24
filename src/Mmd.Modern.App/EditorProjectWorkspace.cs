@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using Mmd.Modern.Formats;
@@ -56,9 +57,12 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         => EditorRenderEngineBinding.Require(RenderEngine, RenderEngine.Bind(this));
 
     private PmaLoadedProject? package;
+    private readonly object dirtySync = new();
+    private long editVersion;
+    private readonly ConditionalWeakTable<PmaSaveSnapshot, StrongBox<long>> snapshotVersions = new();
     internal EditorPoseDraftPackage OpenedPoseDrafts { get; private set; } = EditorPoseDraftPackage.Empty;
     internal Func<IReadOnlyList<SceneActorMotion>, EditorPoseDraftPackage>? CapturePoseDrafts { get; set; }
-    internal void MarkPoseDraftEdited() => IsDirty = true;
+    internal void MarkPoseDraftEdited() { lock (dirtySync) { editVersion++; IsDirty = true; } }
     private CancellationTokenSource? shaderPrewarmCts;
     private Task shaderPrewarmTask = Task.CompletedTask;
     private bool disposed;
@@ -615,12 +619,22 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         catch (PmaSaveCommittedException error)
         {
             // The neutral writer proves this operation committed; existence alone is not proof.
-            ProjectPath = error.DestinationPath; IsDirty = false;
+            ProjectPath = error.DestinationPath;
+            ClearDirtyIfCurrentSnapshot(snapshot);
             try { Changed?.Invoke(this, EventArgs.Empty); }
             catch (Exception notificationError) { error.Data["EditorSaveNotificationError"] = notificationError; }
             throw;
         }
-        ProjectPath = destination; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
+        ProjectPath = destination; ClearDirtyIfCurrentSnapshot(snapshot); Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ClearDirtyIfCurrentSnapshot(PmaSaveSnapshot snapshot)
+    {
+        lock (dirtySync)
+        {
+            if (!snapshotVersions.TryGetValue(snapshot, out var captured) || editVersion == captured.Value)
+                IsDirty = false;
+        }
     }
 
     internal EditorProjectFormat ConversionFormat =>
@@ -652,7 +666,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     internal PmaSaveSnapshot CaptureRecoverySnapshot(CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        return persistence.CaptureSnapshot(this, CreateSaveOptions(token), token);
+        long capturedVersion;
+        lock (dirtySync) capturedVersion = editVersion;
+        var snapshot = persistence.CaptureSnapshot(this, CreateSaveOptions(token), token);
+        snapshotVersions.AddOrUpdate(snapshot, new StrongBox<long>(capturedVersion));
+        return snapshot;
     }
 
     internal EditorRecoverySessionState ProjectRecoveryState(EditorRecoverySessionState state)
@@ -738,7 +756,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         ProjectPath = recovered ? null : fullPath;
         MaterialBindings = loaded.MaterialBindings; ProjectMetadata = loaded.Metadata;
         GuessMaterialRoles = loaded.MaterialBindings.Count == 0 || loaded.MaterialBindings.Values.All(static p => p.GuessMaterialRoles);
-        IsDirty = recovered;
+        lock (dirtySync) { editVersion++; IsDirty = recovered; }
         StartShaderPrewarm();
         if (notifyChanged) Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -759,7 +777,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         standaloneSessions.Add(Session);
         foreach (var id in candidate.ModelObjects.Values)
             importedMotionCodePages.Add(id, candidate.Plan.Document.AnsiCodePage);
-        ProjectPath = null; IsDirty = true;
+        ProjectPath = null; lock (dirtySync) { editVersion++; IsDirty = true; }
         StartShaderPrewarm();
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -792,11 +810,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     { MaterialBindings.Clear(); foreach (var value in values) MaterialBindings.Add(value.Key, value.Value); }
     public void MarkChanged() => MarkChanged(false);
     private void MarkChanged(bool preservePoseDrafts, bool preserveRenderBinding = false)
-    { IsDirty = true; Changed?.Invoke(this, new EditorWorkspaceChangedEventArgs(preservePoseDrafts, preserveRenderBinding)); }
+    { lock (dirtySync) { editVersion++; IsDirty = true; } Changed?.Invoke(this, new EditorWorkspaceChangedEventArgs(preservePoseDrafts, preserveRenderBinding)); }
     public void New()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        CloseContent(); ProjectPath = null; IsDirty = false; Changed?.Invoke(this, EventArgs.Empty);
+        CloseContent(); ProjectPath = null; lock (dirtySync) { editVersion++; IsDirty = false; } Changed?.Invoke(this, EventArgs.Empty);
     }
     private void StartShaderPrewarm()
     {

@@ -629,7 +629,7 @@ public sealed partial class EditorAnimationViewModel
 
     internal ViewportBoneDraftState? CaptureViewportBoneDraft()
     {
-        if (!IsBoneSelected || IsBusy || !DraftIsValid) return null;
+        if (!IsBoneSelected || IsProjectBusy || !DraftIsValid) return null;
         return new(objectId!.Value, model!, sourceMotion, CurrentFrame, boneIndex!.Value,
             new(DraftTranslation, DraftRotation), hasDraft, positionX, positionY, positionZ,
             rotationX, rotationY, rotationZ, sampledRotation, rotationEdited);
@@ -638,7 +638,7 @@ public sealed partial class EditorAnimationViewModel
     internal void ApplyViewportBoneDraft(ViewportBoneDraftState before, VpdLocalBoneTransform pose)
     {
         using var measure = InteractionDiagnostics.Measure("bone.apply-draft", EditorInteractionTrace.CurrentInput);
-        if (!ViewportContextMatches(before) || objectId != before.ObjectId || boneIndex != before.BoneIndex || IsBusy) return;
+        if (!ViewportContextMatches(before) || objectId != before.ObjectId || boneIndex != before.BoneIndex || IsProjectBusy) return;
         if (!FiniteTranslation(pose.Translation) || !TryNormalizeSavedRotation(pose.Rotation, out var normalized)) return;
         var degrees = ToDegrees(normalized);
         var draft = new BoneDraft(ToDecimal(pose.Translation.X), ToDecimal(pose.Translation.Y), ToDecimal(pose.Translation.Z),
@@ -651,7 +651,7 @@ public sealed partial class EditorAnimationViewModel
 
     internal void RestoreViewportBoneDraft(ViewportBoneDraftState before)
     {
-        if (!ViewportContextMatches(before)) return;
+        if (!ViewportContextMatches(before) || IsProjectBusy) return;
         if (before.HadDraft)
         {
             if (!actorDrafts.TryGetValue((before.ObjectId, before.Frame), out var pending)) actorDrafts.Add((before.ObjectId, before.Frame), pending = new(before.Model, before.Source));

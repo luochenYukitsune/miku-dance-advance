@@ -149,4 +149,22 @@ public sealed class SceneLightingPresetTests
         }
         finally { Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public void ApplySingleLightPresetPreservesTargetAimDistance()
+    {
+        var target = Light() with { AimDistance = 37.5f };
+        var other = Light() with { AimDistance = 14f };
+        var source = new SceneLightingSnapshot([target, other]);
+        var presetLight = Light() with { AimDistance = 6f, Intensity = 4.2f, Name = "PresetSpot" };
+        var preset = SceneLightingPreset.Capture("Single", new([presetLight]), [presetLight.Id]);
+
+        var updated = preset.ApplyToLight(source, target.Id);
+
+        Assert.Equal(target.Id, updated.Lights[0].Id);
+        Assert.Equal(37.5f, updated.Lights[0].AimDistance);
+        Assert.Equal(4.2f, updated.Lights[0].Intensity);
+        Assert.Equal(target.Name, updated.Lights[0].Name);
+        Assert.Equal(other, updated.Lights[1]);
+    }
 }

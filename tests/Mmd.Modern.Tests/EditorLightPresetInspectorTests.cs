@@ -162,6 +162,45 @@ public sealed class EditorLightPresetInspectorTests : IAsyncDisposable
         }
     }, TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task ApplySingleLightPresetReplacesTargetWithoutStaleHexOrIntensityRestoringOverPreset() => await session.Dispatch(() =>
+    {
+        var light = Light() with { Intensity = 1f, Color = new(1, 1, 1) };
+        var other = Light() with { Name = "Other", Color = new(1, 1, 1) };
+        var initial = new SceneLightingSnapshot([light, other]);
+        var presetLight = Light() with { Intensity = 5f, Color = new(0, 1, 0) };
+        var singlePreset = SceneLightingPreset.Capture("Single", new([presetLight]), [presetLight.Id]);
+        var document = Guid.NewGuid();
+        SceneLightingSnapshot? committed = null;
+        var inspector = new EditorLightInspector();
+        var window = Host(inspector);
+        try
+        {
+            inspector.CommitRequested = draft => { committed = draft.Snapshot; return true; };
+            inspector.SetLighting(initial, light.Id, document);
+            Pump(window);
+            var number = inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(c => c.Name == "InlineLightIntensity");
+            var hex = inspector.GetVisualDescendants().OfType<TextBox>().Single(c => c.Name == "LightHexColor");
+            number.Value = 2m;
+            number.Text = "2";
+            hex.Text = "#112233";
+            Assert.True(inspector.ApplySingleLightPreset(singlePreset));
+            Pump(window);
+            Assert.NotNull(committed);
+            var updated = committed!.Lights.First(value => value.Id == light.Id);
+            Assert.Equal(5f, updated.Intensity);
+            Assert.Equal(new(0, 1, 0), updated.Color);
+            Assert.Equal(5m, inspector.ViewModel!.SelectedLight!.Intensity);
+            Assert.Equal(5m, inspector.GetVisualDescendants().OfType<EditorNumericUpDown>().Single(c => c.Name == "InlineLightIntensity").Value);
+            Assert.Equal("#00FF00", inspector.GetVisualDescendants().OfType<TextBox>().Single(c => c.Name == "LightHexColor").Text);
+        }
+        finally
+        {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    }, TestContext.Current.CancellationToken);
+
     private static Window Host(EditorLightInspector inspector)
     {
         var window = new Window { Width = 450, Height = 900, Content = new ScrollViewer { Content = inspector } };

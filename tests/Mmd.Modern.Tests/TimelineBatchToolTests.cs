@@ -187,6 +187,93 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
         return true;
     }, Token);
 
+    [Fact]
+    public async Task ClickingDraftMarkerUsesPixelToleranceAcrossZoomLevels() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, _) = CreateEditor();
+        try
+        {
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            shell.CurrentFrame = 25;
+            shell.Animation.SelectBone(0);
+            shell.Animation.PositionX = 2m;
+            Assert.Equal([25], shell.Animation.DraftFrames);
+
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            int row = timeline.DisplayRows
+                .Select((item, index) => (item, index))
+                .First(pair => pair.item.ContainsChannel(KeyframeAddress.Bone("root", 0))).index;
+            var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+            double y = EditorTimeline.RulerHeight + (row - timeline.FirstVisibleTrack + .5) * EditorTimeline.TrackRowHeight + 7;
+
+            shell.CurrentFrame = 0;
+            shell.PixelsPerFrame = 64;
+            timeline.FirstVisibleFrame = 20;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(64, timeline.PixelsPerFrame);
+
+            double highZoomX = timeline.TrackHeaderWidth + (25 - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame;
+            PressTimeline(window, timeline, pointer, new(highZoomX + 16, y));
+            Assert.Equal(0, shell.CurrentFrame);
+            MoveTimeline(window, timeline, pointer, new(highZoomX + 32, y));
+            ReleaseTimeline(window, timeline, pointer, new(highZoomX + 32, y));
+            Assert.Equal(0, shell.CurrentFrame);
+
+            PressTimeline(window, timeline, pointer, new(highZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(highZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+
+            shell.CurrentFrame = 0;
+            shell.PixelsPerFrame = 0.5;
+            timeline.FirstVisibleFrame = 0;
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0.5, timeline.PixelsPerFrame);
+
+            double lowZoomX = timeline.TrackHeaderWidth + (25 - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame;
+            PressTimeline(window, timeline, pointer, new(lowZoomX + 6, y));
+            Assert.Equal(0, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(lowZoomX + 6, y));
+            Assert.NotEqual(25, shell.CurrentFrame);
+
+            shell.CurrentFrame = 0;
+            Dispatcher.UIThread.RunJobs();
+            PressTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            ReleaseTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
+            Assert.Equal(25, shell.CurrentFrame);
+            return true;
+        }
+        finally { Close(window, shell); }
+    }, Token);
+
+    private static void PressTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerPressedEventArgs(timeline, pointer, window, windowPoint, 1,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void MoveTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, timeline, pointer, window, windowPoint, 2,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void ReleaseTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
+    {
+        var windowPoint = timeline.TranslatePoint(position, window)!.Value;
+        timeline.RaiseEvent(new PointerReleasedEventArgs(timeline, pointer, window, windowPoint, 3,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+        Dispatcher.UIThread.RunJobs();
+    }
+
     private static (EditorWindow Window, EditorShellViewModel Shell, EditorViewportHost Viewport, Guid Actor) CreateEditor(int width = 1480, int height = 960)
     {
         var window = new EditorWindow(false) { Width = width, Height = height };

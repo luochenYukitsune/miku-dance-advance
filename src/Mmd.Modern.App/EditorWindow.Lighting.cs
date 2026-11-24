@@ -349,8 +349,8 @@ public partial class EditorWindow
         if (_shell is not { IsBusy: false, HasProject: true } shell || sender is not ToggleButton button) return;
         try
         {
-            if (!CanBeginLightGesture()) return;
             bool enable = button.IsChecked == true;
+            if (!CanBeginLightGesture()) return;
             if (lightController?.SelectedLightId is { } id)
             {
                 var scene = shell.Workspace.Session!.Lighting;

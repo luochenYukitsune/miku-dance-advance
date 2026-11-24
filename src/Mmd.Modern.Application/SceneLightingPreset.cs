@@ -89,7 +89,7 @@ public sealed class SceneLightingPreset
         var value = Lighting.EffectiveLights[0];
         var target = scene.Lights.Single(light => light.Id == id);
         var updated = value with { Id = id, Name = target.Name, Position = target.Position,
-            Rotation = target.Rotation, Parent = target.Parent, Receivers = target.Receivers, GroupId = target.GroupId };
+            Rotation = target.Rotation, AimDistance = target.AimDistance, Parent = target.Parent, Receivers = target.Receivers, GroupId = target.GroupId };
         return scene.WithLights(scene.Lights.Select(light => light.Id == id ? updated : light));
     }
 
