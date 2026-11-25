@@ -217,4 +217,205 @@ public sealed class StartupUpdateServiceTests
                 { Content = new StringContent(content, Encoding.UTF8, "application/json") });
         }
     }
+
+    [Fact]
+    public async Task GitHubReleaseMetadataParsesInsidePrereleaseAndSkipsDrafts()
+    {
+        const string hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        var json = $$"""
+            [
+              {
+                "tag_name": "v0.9.0-Inside",
+                "html_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.9.0-Inside",
+                "draft": true,
+                "prerelease": true,
+                "body": "Draft release should be ignored",
+                "assets": [
+                  {
+                    "name": "MDA-0.9.0-Inside-win-x64-setup.exe",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.9.0-Inside/MDA-0.9.0-Inside-win-x64-setup.exe",
+                    "size": 4096,
+                    "digest": "sha256:{{hash}}"
+                  }
+                ]
+              },
+              {
+                "tag_name": "v0.5.2-Inside",
+                "html_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.5.2-Inside",
+                "draft": false,
+                "prerelease": true,
+                "body": "Inside fixes",
+                "assets": [
+                  {
+                    "name": "MDA-0.5.2-Inside-win-x64-setup.exe",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.2-Inside/MDA-0.5.2-Inside-win-x64-setup.exe",
+                    "size": 4096,
+                    "digest": "sha256:{{hash}}"
+                  }
+                ]
+              }
+            ]
+            """;
+
+        var options = StartupUpdateConfiguration.CreateProductionOptions();
+        using var client = new HttpClient(new ResponseHandler(json));
+        var service = new StartupUpdateService(
+            options,
+            "0.5.1-Inside",
+            () => new GitHubReleaseUpdateMetadataSource(client, options, "x64"));
+
+        var result = await service.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(StartupUpdateStatus.Available, result.Status);
+        Assert.NotNull(result.Release);
+        Assert.Equal("0.5.2-Inside", result.Release.Version);
+        Assert.EndsWith("/MDA-0.5.2-Inside-win-x64-setup.exe", result.Release.Package?.Url.AbsoluteUri);
+        Assert.Equal(hash, result.Release.Package?.Sha256);
+    }
+
+    [Fact]
+    public async Task GitHubReleaseMetadataFallsBackToMirrorAtomAndChecksumsWhenPrimaryFails()
+    {
+        const string hash = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+        const string atomXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <entry>
+                <id>tag:github.com,2008:Repository/1/v0.6.0-Inside</id>
+                <link rel="alternate" type="text/html" href="https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.6.0-Inside"/>
+                <title>v0.6.0-Inside</title>
+                <content type="html">&lt;p&gt;Mirror fallback &lt;strong&gt;works&lt;/strong&gt;.&lt;/p&gt;</content>
+              </entry>
+            </feed>
+            """;
+        var requestedUris = new List<string>();
+        var handler = new RoutingHandler(request =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            requestedUris.Add(url);
+
+            if (url.StartsWith("https://api.github.com/", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            if (url.Equals("https://github.com/luochenYukitsune/miku-dance-advance/releases.atom", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.BadGateway);
+            if (url.Equals("https://gh-proxy.org/https://github.com/luochenYukitsune/miku-dance-advance/releases.atom", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(atomXml, Encoding.UTF8, "application/atom+xml") };
+            if (url.EndsWith("/SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{hash} *MDA-0.6.0-Inside-win-x64-setup.exe\n", Encoding.UTF8, "text/plain")
+                };
+            if (request.Method == HttpMethod.Head && url.EndsWith("/MDA-0.6.0-Inside-win-x64-setup.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                var head = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([]) };
+                head.Content.Headers.ContentLength = 8192;
+                return head;
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var options = StartupUpdateConfiguration.CreateProductionOptions();
+        using var client = new HttpClient(handler);
+        var service = new StartupUpdateService(
+            options,
+            "0.5.1-Inside",
+            () => new GitHubReleaseUpdateMetadataSource(client, options, "x64"));
+
+        var result = await service.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(StartupUpdateStatus.Available, result.Status);
+        Assert.NotNull(result.Release);
+        Assert.Equal("0.6.0-Inside", result.Release.Version);
+        Assert.Equal(new Uri("https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.6.0-Inside/MDA-0.6.0-Inside-win-x64-setup.exe"),
+            result.Release.Package?.Url);
+        Assert.Equal(8192, result.Release.Package?.Size);
+        Assert.Equal(hash, result.Release.Package?.Sha256);
+        Assert.Contains("Mirror fallback", result.Release.Summary);
+        Assert.Contains(requestedUris, u => u.StartsWith("https://gh-proxy.org/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task GitHubReleaseMetadataRejectsUntrustedDownloadDomainInJson()
+    {
+        const string json = """
+            [
+              {
+                "tag_name": "v0.7.0-Inside",
+                "html_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.7.0-Inside",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                  {
+                    "name": "MDA-0.7.0-Inside-win-x64-setup.exe",
+                    "browser_download_url": "https://evil.example/MDA-0.7.0-Inside-win-x64-setup.exe",
+                    "size": 4096,
+                    "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  }
+                ]
+              }
+            ]
+            """;
+
+        var options = StartupUpdateConfiguration.CreateProductionOptions();
+        using var client = new HttpClient(new ResponseHandler(json));
+        var service = new StartupUpdateService(
+            options,
+            "0.5.1-Inside",
+            () => new GitHubReleaseUpdateMetadataSource(client, options, "x64"));
+
+        var result = await service.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(StartupUpdateStatus.InvalidMetadata, result.Status);
+    }
+
+    [Fact]
+    public async Task GitHubReleaseMetadataReturnsUnavailableWhenAllEndpointsAndMirrorsFail()
+    {
+        var options = StartupUpdateConfiguration.CreateProductionOptions();
+        using var client = new HttpClient(new RoutingHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        var service = new StartupUpdateService(
+            options,
+            "0.5.1-Inside",
+            () => new GitHubReleaseUpdateMetadataSource(client, options, "x64"));
+
+        var result = await service.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(StartupUpdateStatus.Unavailable, result.Status);
+    }
+
+    [Fact]
+    public async Task HttpsOnlyRedirectHandlerRejectsHttpDowngradeRedirect()
+    {
+        var inner = new RoutingHandler(_ =>
+        {
+            var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+            redirect.Headers.Location = new Uri("http://insecure.example/setup.exe");
+            return redirect;
+        });
+
+        using var client = new HttpClient(new HttpsOnlyRedirectHandler(inner));
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            client.GetAsync("https://github.com/luochenYukitsune/miku-dance-advance/releases.atom",
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void ResolveReleaseDownloadCandidatesOnlyWrapsCanonicalRepoUrls()
+    {
+        var canonical = new Uri("https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.1-Inside/MDA-0.5.1-Inside-win-x64-setup.exe");
+        var candidates = GitHubReleaseUpdateMetadataSource.ResolveReleaseDownloadCandidates(canonical);
+        Assert.Equal(canonical, candidates[0]);
+        Assert.True(candidates.Count > 1);
+        Assert.Contains(candidates, c => c.Host == "ghfast.top");
+
+        var external = new Uri("https://updates.example.com/setup.exe");
+        var externalOnly = GitHubReleaseUpdateMetadataSource.ResolveReleaseDownloadCandidates(external);
+        Assert.Equal([external], externalOnly);
+    }
+
+    private sealed class RoutingHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(responder(request));
+    }
 }

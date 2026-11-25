@@ -44,6 +44,7 @@ public partial class EditorPreferencesWindow : Window
         PreferencesLanguageBox.ItemsSource = new[] { "简体中文", "English", "日本語" };
         PreferencesLanguageBox.SelectedIndex = Array.IndexOf(Languages, _source.Language);
         PreferencesWorldGuidesBox.IsChecked = _source.ShowWorldGuides;
+        PreferencesAutoCheckUpdatesBox.IsChecked = _source.AutoCheckUpdates;
         PreferencesInvertCameraMouseXBox.IsChecked = _source.InvertCameraMouseX;
         PreferencesInvertCameraMouseYBox.IsChecked = _source.InvertCameraMouseY;
         PreferencesFfmpegBox.Text = _source.FfmpegPath;
@@ -284,6 +285,7 @@ public partial class EditorPreferencesWindow : Window
                 ThemeIndex = PreferencesThemeBox.SelectedIndex,
                 Language = Languages[PreferencesLanguageBox.SelectedIndex],
                 ShowWorldGuides = PreferencesWorldGuidesBox.IsChecked == true,
+                AutoCheckUpdates = PreferencesAutoCheckUpdatesBox.IsChecked == true,
                 InvertCameraMouseX = PreferencesInvertCameraMouseXBox.IsChecked == true,
                 InvertCameraMouseY = PreferencesInvertCameraMouseYBox.IsChecked == true,
                 FfmpegPath = (PreferencesFfmpegBox.Text ?? "").Trim(),
