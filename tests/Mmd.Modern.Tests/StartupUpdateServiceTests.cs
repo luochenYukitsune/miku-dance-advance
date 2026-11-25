@@ -386,17 +386,96 @@ public sealed class StartupUpdateServiceTests
     [Fact]
     public async Task HttpsOnlyRedirectHandlerRejectsHttpDowngradeRedirect()
     {
-        var inner = new RoutingHandler(_ =>
+        var innerRequests = new List<Uri>();
+        var inner = new RoutingHandler(request =>
         {
+            innerRequests.Add(request.RequestUri!);
             var redirect = new HttpResponseMessage(HttpStatusCode.Found);
             redirect.Headers.Location = new Uri("http://insecure.example/setup.exe");
             return redirect;
         });
 
+        var startUri = new Uri("https://github.com/luochenYukitsune/miku-dance-advance/releases.atom");
         using var client = new HttpClient(new HttpsOnlyRedirectHandler(inner));
         await Assert.ThrowsAsync<HttpRequestException>(() =>
-            client.GetAsync("https://github.com/luochenYukitsune/miku-dance-advance/releases.atom",
-                TestContext.Current.CancellationToken));
+            client.GetAsync(startUri, TestContext.Current.CancellationToken));
+        Assert.Equal([startUri], innerRequests);
+    }
+
+    [Fact]
+    public async Task GitHubReleaseMetadataSkipsInvalidLeadingZeroPrereleaseAndNullAssetSize()
+    {
+        const string hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        var json = $$"""
+            [
+              {
+                "tag_name": "v0.9.0-rc.01",
+                "html_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.9.0-rc.01",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                  {
+                    "name": "MDA-0.9.0-rc.01-win-arm64-setup.exe",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.9.0-rc.01/MDA-0.9.0-rc.01-win-arm64-setup.exe",
+                    "size": 4096,
+                    "digest": "sha256:{{hash}}"
+                  }
+                ]
+              },
+              {
+                "tag_name": "v0.5.3-Inside",
+                "html_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.5.3-Inside",
+                "draft": false,
+                "prerelease": true,
+                "assets": [
+                  {
+                    "name": "MDA-0.5.3-Inside-win-x64-setup.exe",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.3-Inside/MDA-0.5.3-Inside-win-x64-setup.exe",
+                    "size": null
+                  },
+                  {
+                    "name": "MDA-0.5.3-Inside-win-arm64-setup.exe",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.3-Inside/MDA-0.5.3-Inside-win-arm64-setup.exe",
+                    "size": 4096
+                  },
+                  {
+                    "name": "SHA256SUMS.txt",
+                    "browser_download_url": "https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.3-Inside/SHA256SUMS.txt",
+                    "size": 128
+                  }
+                ]
+              }
+            ]
+            """;
+
+        var handler = new RoutingHandler(req =>
+        {
+            var url = req.RequestUri!.AbsoluteUri;
+            if (url.StartsWith("https://api.github.com/", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            if (url.Equals("https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.5.3-Inside/SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("incomplete file\n", Encoding.UTF8, "text/plain") };
+            if (url.EndsWith("/SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($"{hash} *MDA-0.5.3-Inside-win-arm64-setup.exe\n", Encoding.UTF8, "text/plain")
+                };
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+        var options = StartupUpdateConfiguration.CreateProductionOptions();
+        using var client = new HttpClient(handler);
+        var service = new StartupUpdateService(
+            options,
+            "0.5.1-Inside",
+            () => new GitHubReleaseUpdateMetadataSource(client, options, "arm64"));
+
+        var result = await service.CheckAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(StartupUpdateStatus.Available, result.Status);
+        Assert.Equal("0.5.3-Inside", result.Release?.Version);
+        Assert.EndsWith("/MDA-0.5.3-Inside-win-arm64-setup.exe", result.Release?.Package?.Url.AbsoluteUri);
+        Assert.Equal(hash, result.Release?.Package?.Sha256);
     }
 
     [Fact]

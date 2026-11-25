@@ -379,8 +379,10 @@ public sealed class StartupUpdateDownloadTests
         var badMirror = new Uri($"https://ghfast.top/{primary.AbsoluteUri}");
         var goodMirror = new Uri($"https://gh-proxy.org/{primary.AbsoluteUri}");
 
+        var requested = new List<Uri>();
         using var client = new HttpClient(new DelegateHandler(req =>
         {
+            requested.Add(req.RequestUri!);
             if (req.RequestUri == badMirror) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(corrupt) };
             if (req.RequestUri == goodMirror) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) };
             return new HttpResponseMessage(HttpStatusCode.BadGateway);
@@ -390,9 +392,15 @@ public sealed class StartupUpdateDownloadTests
         try
         {
             var confirmed = false;
+            byte[]? confirmedBytes = null;
             var sut = new StartupUpdateDownloadUpgradeHandler(
                 client,
-                (_, _) => { confirmed = true; return Task.FromResult(false); },
+                async (verified, ct) =>
+                {
+                    confirmed = true;
+                    confirmedBytes = await File.ReadAllBytesAsync(verified.Path, ct);
+                    return false;
+                },
                 (_, _) => Task.FromResult(true),
                 downloadDir,
                 resolveCandidateUrls: _ => [primary, badMirror, goodMirror]);
@@ -407,7 +415,57 @@ public sealed class StartupUpdateDownloadTests
 
             Assert.False(result.InstallerStarted);
             Assert.True(confirmed);
+            Assert.Equal([primary, badMirror, goodMirror], requested);
+            Assert.Equal(payload, confirmedBytes);
             Assert.Empty(Directory.EnumerateFiles(downloadDir));
+        }
+        finally
+        {
+            if (Directory.Exists(downloadDir)) Directory.Delete(downloadDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task InstallerDownloadFailsOverWhenFirstCandidateStalls()
+    {
+        byte[] payload = "stalled-primary-mirror-succeeds"u8.ToArray();
+        string sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(payload));
+        var primary = new Uri("https://github.com/luochenYukitsune/miku-dance-advance/releases/download/v0.6.0-Inside/MDA-0.6.0-Inside-win-x64-setup.exe");
+        var mirror = new Uri($"https://ghfast.top/{primary.AbsoluteUri}");
+        var requested = new List<Uri>();
+
+        using var client = new HttpClient(new DelegateHandler(req =>
+        {
+            requested.Add(req.RequestUri!);
+            if (req.RequestUri == primary) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new BlockingStream()) };
+            if (req.RequestUri == mirror) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) };
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var downloadDir = Path.Combine(Path.GetTempPath(), "mda-upd-stall-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var launched = false;
+            var sut = new StartupUpdateDownloadUpgradeHandler(
+                client,
+                (_, _) => Task.FromResult(true),
+                (_, _) => { launched = true; return Task.FromResult(true); },
+                downloadDir,
+                downloadTimeout: TimeSpan.FromSeconds(5),
+                resolveCandidateUrls: _ => [primary, mirror],
+                idleTimeout: TimeSpan.FromMilliseconds(50));
+
+            var release = new StartupUpdateRelease(
+                "0.6.0-Inside",
+                "Stall failover",
+                new Uri("https://github.com/luochenYukitsune/miku-dance-advance/releases/tag/v0.6.0-Inside"),
+                new StartupUpdatePackage(primary, sha256, payload.Length));
+
+            var result = await sut.UpgradeAsync(release, cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.True(result.InstallerStarted);
+            Assert.True(launched);
+            Assert.Equal([primary, mirror], requested);
         }
         finally
         {

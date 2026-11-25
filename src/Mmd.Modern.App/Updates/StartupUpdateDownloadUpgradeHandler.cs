@@ -22,13 +22,15 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
     private readonly string downloadDirectory;
     private readonly long maximumPackageBytes;
     private readonly TimeSpan downloadTimeout;
+    private readonly TimeSpan idleTimeout;
     private readonly Func<Uri, IReadOnlyList<Uri>>? resolveCandidateUrls;
 
     public StartupUpdateDownloadUpgradeHandler(HttpClient client,
         Func<VerifiedStartupUpdateInstaller, CancellationToken, Task<bool>> confirmInstaller,
         Func<VerifiedStartupUpdateInstaller, CancellationToken, Task<bool>> launchInstaller,
         string? downloadDirectory = null, long maximumPackageBytes = DefaultMaximumPackageBytes,
-        TimeSpan? downloadTimeout = null, Func<Uri, IReadOnlyList<Uri>>? resolveCandidateUrls = null)
+        TimeSpan? downloadTimeout = null, Func<Uri, IReadOnlyList<Uri>>? resolveCandidateUrls = null,
+        TimeSpan? idleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(confirmInstaller);
@@ -37,12 +39,17 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
         var timeout = downloadTimeout ?? TimeSpan.FromMinutes(10);
         if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromHours(1))
             throw new ArgumentOutOfRangeException(nameof(downloadTimeout));
+        var defaultIdle = timeout < TimeSpan.FromSeconds(15) ? timeout : TimeSpan.FromSeconds(15);
+        var perCandidateIdle = idleTimeout ?? defaultIdle;
+        if (perCandidateIdle <= TimeSpan.Zero || perCandidateIdle > timeout)
+            throw new ArgumentOutOfRangeException(nameof(idleTimeout));
         this.client = client;
         this.confirmInstaller = confirmInstaller;
         this.launchInstaller = launchInstaller;
         this.downloadDirectory = Path.GetFullPath(downloadDirectory ?? Path.Combine(Path.GetTempPath(), "MDA", "Updates"));
         this.maximumPackageBytes = maximumPackageBytes;
         this.downloadTimeout = timeout;
+        this.idleTimeout = perCandidateIdle;
         this.resolveCandidateUrls = resolveCandidateUrls;
     }
 
@@ -172,10 +179,14 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
     }
 
     private async Task DownloadAsync(Uri candidateUrl, StartupUpdatePackage package, FileStream destination,
-        IProgress<StartupUpdateProgress>? progress, CancellationToken cancellationToken)
+        IProgress<StartupUpdateProgress>? progress, CancellationToken overallToken)
     {
+        using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(overallToken);
+        stallCts.CancelAfter(idleTimeout);
+        var token = stallCts.Token;
+
         using var response = await client.GetAsync(candidateUrl, HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+            token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         if (response.RequestMessage?.RequestUri is { } finalUri && !StartupUpdateService.IsHttps(finalUri))
             throw new InvalidDataException("The installer response must use HTTPS.");
@@ -183,27 +194,28 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
         if (declaredLength > maximumPackageBytes ||
             (package.Size is { } expectedSize && declaredLength is { } actualSize && expectedSize != actualSize))
             throw new InvalidDataException("The installer size does not match.");
-        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var input = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var buffer = new byte[64 * 1024];
         long downloaded = 0;
         var limit = package.Size ?? maximumPackageBytes;
         while (true)
         {
-            var count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var count = await input.ReadAsync(buffer, token).ConfigureAwait(false);
             if (count == 0) break;
+            stallCts.CancelAfter(idleTimeout);
             if (count > limit - downloaded) throw new InvalidDataException("The installer exceeds its size limit.");
-            await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+            await destination.WriteAsync(buffer.AsMemory(0, count), overallToken).ConfigureAwait(false);
             hash.AppendData(buffer, 0, count);
             downloaded += count;
             progress?.Report(new(downloaded, package.Size ?? declaredLength));
         }
-        cancellationToken.ThrowIfCancellationRequested();
+        overallToken.ThrowIfCancellationRequested();
         if (downloaded == 0 || (package.Size is { } expected && downloaded != expected) ||
             (declaredLength is { } declared && downloaded != declared) ||
             !CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), Convert.FromHexString(package.Sha256)))
             throw new InvalidDataException("The installer verification failed.");
-        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await destination.FlushAsync(overallToken).ConfigureAwait(false);
     }
 
     private static void DeleteOwnedFile(string path)

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -161,15 +160,12 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         var token = overallCts.Token;
 
         Exception? lastFailure = null;
-        bool primaryFailed = false;
-
         if (!endpoint.AbsolutePath.EndsWith(".atom", StringComparison.OrdinalIgnoreCase))
         {
             var jsonResult = await TryFetchFromGitHubJsonAsync(endpoint, attemptTimeout, token, cancellationToken)
                 .ConfigureAwait(false);
             if (jsonResult.Handled) return jsonResult.Release;
             lastFailure = jsonResult.Error;
-            primaryFailed = true;
         }
 
         var primaryAtom = endpoint.AbsolutePath.EndsWith(".atom", StringComparison.OrdinalIgnoreCase)
@@ -194,25 +190,23 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
 
                 var sumsUri = new Uri($"{CanonicalRepoDownloadPrefix}{Uri.EscapeDataString(entry.Tag)}/SHA256SUMS.txt");
                 var sumsCandidates = PrioritizeDownloadCandidates(
-                    sumsUri, candidate.MirrorBase, options.DownloadMirrorBases, preferMirrorFirst: primaryFailed || candidate.MirrorBase is not null);
-                var sumsText = await TryDownloadTextAsync(sumsCandidates, MaximumChecksumsBytes, attemptTimeout, token, cancellationToken)
-                    .ConfigureAwait(false);
-                if (sumsText is null)
-                {
-                    lastFailure ??= new HttpRequestException("Unable to fetch SHA256SUMS.txt from release endpoints or mirrors.");
-                    continue;
-                }
-
-                var match = FindInstallerChecksum(sumsText, architecture);
+                    sumsUri, candidate.MirrorBase, options.DownloadMirrorBases, preferMirrorFirst: candidate.MirrorBase is not null);
+                var match = await TryDownloadMatchingAsync(
+                    sumsCandidates,
+                    MaximumChecksumsBytes,
+                    attemptTimeout,
+                    token,
+                    cancellationToken,
+                    text => FindInstallerChecksum(text, architecture)).ConfigureAwait(false);
                 if (match is null)
                 {
-                    lastFailure = new InvalidDataException("Installer checksum entry missing in SHA256SUMS.txt.");
+                    lastFailure ??= new HttpRequestException("Unable to obtain a matching installer checksum from SHA256SUMS.txt.");
                     continue;
                 }
 
                 var installerUri = new Uri($"{CanonicalRepoDownloadPrefix}{Uri.EscapeDataString(entry.Tag)}/{Uri.EscapeDataString(match.Value.FileName)}");
                 var headCandidates = PrioritizeDownloadCandidates(
-                    installerUri, candidate.MirrorBase, options.DownloadMirrorBases, preferMirrorFirst: primaryFailed || candidate.MirrorBase is not null);
+                    installerUri, candidate.MirrorBase, options.DownloadMirrorBases, preferMirrorFirst: candidate.MirrorBase is not null);
                 long? packageSize = await TryProbeContentLengthAsync(headCandidates, attemptTimeout, token, cancellationToken)
                     .ConfigureAwait(false);
                 if (packageSize is null or <= 0)
@@ -238,7 +232,6 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
             catch (Exception error) when (IsRecoverableFetchFailure(error))
             {
                 lastFailure = error;
-                primaryFailed = true;
             }
         }
 
@@ -306,24 +299,20 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         }
 
         candidates.Sort(static (left, right) => right.Version.CompareTo(left.Version));
-        string? cachedSums = null;
-        Uri? cachedSumsUrl = null;
 
         foreach (var candidate in candidates)
         {
             string? sha256 = candidate.DirectSha256;
             if (sha256 is null && candidate.ChecksumsUrl is not null)
             {
-                if (cachedSumsUrl != candidate.ChecksumsUrl)
-                {
-                    var sumsCandidates = ResolveReleaseDownloadCandidates(candidate.ChecksumsUrl, options.DownloadMirrorBases);
-                    cachedSums = await TryDownloadTextAsync(sumsCandidates, MaximumChecksumsBytes, attemptTimeout, overallToken, callerToken)
-                        .ConfigureAwait(false);
-                    cachedSumsUrl = candidate.ChecksumsUrl;
-                }
-
-                if (cachedSums is not null)
-                    sha256 = FindChecksumForFile(cachedSums, candidate.AssetName);
+                var sumsCandidates = ResolveReleaseDownloadCandidates(candidate.ChecksumsUrl, options.DownloadMirrorBases);
+                sha256 = await TryDownloadMatchingAsync(
+                    sumsCandidates,
+                    MaximumChecksumsBytes,
+                    attemptTimeout,
+                    overallToken,
+                    callerToken,
+                    text => FindChecksumForFile(text, candidate.AssetName)).ConfigureAwait(false);
             }
 
             if (sha256 is null) continue;
@@ -354,10 +343,7 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
 
         if (!element.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return false;
 
-        string? assetName = null;
-        Uri? downloadUrl = null;
-        long assetSize = 0;
-        string? directSha256 = null;
+        var installers = new List<(int Rank, string Name, Uri Url, long Size, string? DirectSha256)>();
         Uri? checksumsUrl = null;
         bool sawUntrustedAssetUrl = false;
 
@@ -372,7 +358,7 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
             if (!IsCanonicalRepoDownloadUri(parsedUrl))
             {
                 if (string.Equals(name, "SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase)
-                    || IsMatchingInstallerFileName(name, architecture))
+                    || GetInstallerMatchRank(name, architecture) > 0)
                 {
                     sawUntrustedAssetUrl = true;
                 }
@@ -385,24 +371,43 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
                 continue;
             }
 
-            if (!IsMatchingInstallerFileName(name, architecture)) continue;
-            if (!asset.TryGetProperty("size", out var sizeProp) || !sizeProp.TryGetInt64(out long size) || size <= 0) continue;
+            int rank = GetInstallerMatchRank(name, architecture);
+            if (rank == 0) continue;
 
-            assetName = name;
-            downloadUrl = parsedUrl;
-            assetSize = size;
-            directSha256 = ParseDigestProperty(ReadOptionalString(asset, "digest"));
-            break;
+            if (!asset.TryGetProperty("size", out var sizeProp)
+                || sizeProp.ValueKind != JsonValueKind.Number
+                || !sizeProp.TryGetInt64(out long size)
+                || size <= 0)
+            {
+                continue;
+            }
+
+            var directSha256 = ParseDigestProperty(ReadOptionalString(asset, "digest"));
+            installers.Add((rank, name, parsedUrl, size, directSha256));
         }
 
-        if (assetName is not null && downloadUrl is not null)
-        {
-            results.Add(new JsonReleaseCandidate(
-                parsedVersion, versionText, htmlUrl, summary, assetName, downloadUrl, assetSize, directSha256, checksumsUrl));
-            return false;
-        }
+        if (installers.Count == 0) return sawUntrustedAssetUrl;
 
-        return sawUntrustedAssetUrl;
+        // Prefer installers that already have a usable checksum source (direct digest or SHA256SUMS.txt),
+        // then native architecture over x64 fallback, and direct digest over external checksums lookup.
+        var usable = installers
+            .Where(item => item.DirectSha256 is not null || checksumsUrl is not null)
+            .OrderByDescending(item => item.Rank)
+            .ThenByDescending(item => item.DirectSha256 is not null)
+            .FirstOrDefault();
+        if (usable.Name is null) return false;
+
+        results.Add(new JsonReleaseCandidate(
+            parsedVersion,
+            versionText,
+            htmlUrl,
+            summary,
+            usable.Name,
+            usable.Url,
+            usable.Size,
+            usable.DirectSha256,
+            checksumsUrl));
+        return false;
     }
 
     private static (bool HadEntries, bool RejectedUntrustedUrl, AtomReleaseCandidate? Best) ParseHighestAtomEntry(byte[] atomBytes)
@@ -420,12 +425,14 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         using var reader = XmlReader.Create(stream, settings);
         var document = XDocument.Load(reader, LoadOptions.None);
         XNamespace atom = AtomNamespace;
+        if (document.Root is not { } root || root.Name != atom + "feed")
+            throw new XmlException("Expected Atom <feed> root element.");
+
         AtomReleaseCandidate? best = null;
         bool hadEntries = false;
         bool rejectedUntrustedUrl = false;
 
-        if (document.Root is null) return (false, false, null);
-        foreach (var entry in document.Root.Elements(atom + "entry"))
+        foreach (var entry in root.Elements(atom + "entry"))
         {
             hadEntries = true;
             if (TryReadAtomEntry(entry, atom, out var candidate, out var untrusted))
@@ -498,12 +505,13 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         return true;
     }
 
-    private async Task<string?> TryDownloadTextAsync(
+    private async Task<T?> TryDownloadMatchingAsync<T>(
         IReadOnlyList<Uri> candidates,
         int maxBytes,
         TimeSpan attemptTimeout,
         CancellationToken overallToken,
-        CancellationToken callerToken)
+        CancellationToken callerToken,
+        Func<string, T?> selector)
     {
         foreach (var uri in candidates)
         {
@@ -512,7 +520,9 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
             {
                 var bytes = await ReadBoundedBytesAsync(uri, maxBytes, attemptTimeout, overallToken, callerToken)
                     .ConfigureAwait(false);
-                return Encoding.UTF8.GetString(bytes);
+                var text = Encoding.UTF8.GetString(bytes);
+                var matched = selector(text);
+                if (matched is not null) return matched;
             }
             catch (OperationCanceledException) when (callerToken.IsCancellationRequested || overallToken.IsCancellationRequested)
             {
@@ -523,7 +533,7 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
             }
         }
 
-        return null;
+        return default;
     }
 
     private async Task<long?> TryProbeContentLengthAsync(
@@ -616,6 +626,9 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         if (IsHttpsUri(primaryAtom) && seen.Add(primaryAtom))
             list.Add((primaryAtom, null));
 
+        if (!IsCanonicalRepoUri(primaryAtom))
+            return list;
+
         foreach (var mirrorBase in mirrorBases ?? StartupUpdateConfiguration.DefaultMirrorBases)
         {
             if (TryBuildMirrorUri(mirrorBase, primaryAtom, out var mirrored) && seen.Add(mirrored))
@@ -654,13 +667,15 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
 
     private static (string FileName, string Sha256)? FindInstallerChecksum(string sumsText, string arch)
     {
+        (string FileName, string Sha256)? fallback = null;
         foreach (var entry in ParseChecksumEntries(sumsText))
         {
-            if (IsMatchingInstallerFileName(entry.FileName, arch))
-                return entry;
+            int rank = GetInstallerMatchRank(entry.FileName, arch);
+            if (rank == 2) return entry;
+            if (rank == 1 && fallback is null) fallback = entry;
         }
 
-        return null;
+        return fallback;
     }
 
     private static string? FindChecksumForFile(string sumsText, string fileName)
@@ -695,19 +710,22 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         }
     }
 
-    private static bool IsMatchingInstallerFileName(string name, string arch)
+    private static int GetInstallerMatchRank(string name, string arch)
     {
-        if (!IsSafeFileName(name)) return false;
-        string suffix = $"-win-{arch}-setup.exe";
-        if (name.StartsWith("MDA-", StringComparison.OrdinalIgnoreCase)
-            && name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        if (!IsSafeFileName(name) || !name.StartsWith("MDA-", StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        string nativeSuffix = $"-win-{arch}-setup.exe";
+        if (name.EndsWith(nativeSuffix, StringComparison.OrdinalIgnoreCase))
+            return 2;
+
+        if (!string.Equals(arch, "x64", StringComparison.OrdinalIgnoreCase)
+            && name.EndsWith("-win-x64-setup.exe", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return 1;
         }
 
-        return !string.Equals(arch, "x64", StringComparison.OrdinalIgnoreCase)
-            && name.StartsWith("MDA-", StringComparison.OrdinalIgnoreCase)
-            && name.EndsWith("-win-x64-setup.exe", StringComparison.OrdinalIgnoreCase);
+        return 0;
     }
 
     private static bool IsSafeFileName(string? name) =>
@@ -856,10 +874,10 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         return WebUtility.HtmlDecode(sb.ToString()).Trim();
     }
 
-    private static bool TryNormalizeVersion(string? raw, out string versionText, out ReleaseSemVer parsed)
+    private static bool TryNormalizeVersion(string? raw, out string versionText, out UpdateVersion parsed)
     {
         versionText = string.Empty;
-        parsed = default;
+        parsed = default!;
         if (string.IsNullOrWhiteSpace(raw)) return false;
 
         var trimmed = raw.Trim();
@@ -868,14 +886,15 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
 
         int plus = trimmed.IndexOf('+');
         if (plus >= 0) trimmed = trimmed[..plus];
-        if (!ReleaseSemVer.TryParse(trimmed, out parsed)) return false;
+        if (!UpdateVersion.TryParse(trimmed, out var version) || version is null) return false;
 
         versionText = trimmed;
+        parsed = version;
         return true;
     }
 
     private sealed record JsonReleaseCandidate(
-        ReleaseSemVer Version,
+        UpdateVersion Version,
         string VersionText,
         Uri ReleaseNotesUrl,
         string Summary,
@@ -886,88 +905,9 @@ public sealed class GitHubReleaseUpdateMetadataSource : IStartupUpdateMetadataSo
         Uri? ChecksumsUrl);
 
     private sealed record AtomReleaseCandidate(
-        ReleaseSemVer Version,
+        UpdateVersion Version,
         string Tag,
         string VersionText,
         Uri ReleaseNotesUrl,
         string Summary);
-
-    private readonly record struct ReleaseSemVer(int Major, int Minor, int Patch, string? PreRelease)
-        : IComparable<ReleaseSemVer>
-    {
-        public static bool TryParse(string text, out ReleaseSemVer result)
-        {
-            result = default;
-            if (string.IsNullOrWhiteSpace(text)) return false;
-
-            int dash = text.IndexOf('-');
-            string core = dash >= 0 ? text[..dash] : text;
-            string? pre = dash >= 0 ? text[(dash + 1)..] : null;
-            if (pre is "") return false;
-
-            var parts = core.Split('.');
-            if (parts.Length is < 2 or > 3) return false;
-            if (!int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out int major)
-                || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int minor))
-            {
-                return false;
-            }
-
-            int patch = 0;
-            if (parts.Length == 3
-                && !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out patch))
-            {
-                return false;
-            }
-
-            if (pre is not null)
-            {
-                foreach (var seg in pre.Split('.'))
-                {
-                    if (string.IsNullOrEmpty(seg)) return false;
-                    foreach (char c in seg)
-                    {
-                        if (!char.IsLetterOrDigit(c) && c != '-') return false;
-                    }
-                }
-            }
-
-            result = new ReleaseSemVer(major, minor, patch, pre);
-            return true;
-        }
-
-        public int CompareTo(ReleaseSemVer other)
-        {
-            int c = Major.CompareTo(other.Major);
-            if (c != 0) return c;
-            c = Minor.CompareTo(other.Minor);
-            if (c != 0) return c;
-            c = Patch.CompareTo(other.Patch);
-            if (c != 0) return c;
-
-            if (PreRelease is null && other.PreRelease is null) return 0;
-            if (PreRelease is null) return 1;
-            if (other.PreRelease is null) return -1;
-
-            var a = PreRelease.Split('.');
-            var b = other.PreRelease.Split('.');
-            int count = Math.Min(a.Length, b.Length);
-            for (int i = 0; i < count; i++)
-            {
-                bool aNum = int.TryParse(a[i], NumberStyles.None, CultureInfo.InvariantCulture, out int ai);
-                bool bNum = int.TryParse(b[i], NumberStyles.None, CultureInfo.InvariantCulture, out int bi);
-                if (aNum && bNum)
-                {
-                    c = ai.CompareTo(bi);
-                    if (c != 0) return c;
-                    continue;
-                }
-                if (aNum != bNum) return aNum ? -1 : 1;
-                c = StringComparer.Ordinal.Compare(a[i], b[i]);
-                if (c != 0) return c;
-            }
-
-            return a.Length.CompareTo(b.Length);
-        }
-    }
 }

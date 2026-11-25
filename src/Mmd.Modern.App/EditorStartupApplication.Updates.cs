@@ -32,6 +32,7 @@ internal sealed partial class EditorStartupApplication
     {
         HttpClient? ownedHttpClient = null;
         var downloading = false;
+        var userDeclinedInstall = false;
         try
         {
             StartupUpdateService activeService;
@@ -58,10 +59,13 @@ internal sealed partial class EditorStartupApplication
                     new FileStartupUpdateSkipStore(Path.Combine(EditorUserDataPaths.Current.ConfigDirectory, "skipped-update.txt")));
                 activeHandler = new StartupUpdateDownloadUpgradeHandler(
                     ownedHttpClient,
-                    confirmInstaller: (verified, cancellation) =>
+                    confirmInstaller: async (verified, cancellation) =>
                     {
                         Volatile.Write(ref downloading, false);
-                        return startup.ConfirmUpdateInstallationAsync(verified.Release, cancellation);
+                        var consented = await Dispatcher.UIThread.InvokeAsync(
+                            () => startup.ConfirmUpdateInstallationAsync(verified.Release, cancellation));
+                        if (!consented) Volatile.Write(ref userDeclinedInstall, true);
+                        return consented;
                     },
                     launchInstaller: StartVerifiedInstallerAsync,
                     resolveCandidateUrls: uri => GitHubReleaseUpdateMetadataSource.ResolveReleaseDownloadCandidates(
@@ -124,12 +128,28 @@ internal sealed partial class EditorStartupApplication
                         desktop.Shutdown(0);
                         return false;
                     }
+
+                    Volatile.Write(ref downloading, false);
+                    if (!closed && !lifetimeExited) startup.SetUpdateBusy(false);
+                    var declined = Volatile.Read(ref userDeclinedInstall)
+                        || string.Equals(applied.Message, "Installer launch was declined.", StringComparison.Ordinal);
+                    if (!declined && !closed && !lifetimeExited)
+                    {
+                        await startup.ShowUpdateFailureAsync(release, EditorLocalization.Text("Mda.Text.Update.Failed"), token);
+                        token.ThrowIfCancellationRequested();
+                    }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception error)
                 {
                     Trace.TraceWarning("MDA update handoff failed: {0}", error.GetType().Name);
-                    startup.SetUpdateMessage(EditorLocalization.Text("Mda.Text.Update.Failed"));
+                    Volatile.Write(ref downloading, false);
+                    if (!closed && !lifetimeExited)
+                    {
+                        startup.SetUpdateBusy(false);
+                        await startup.ShowUpdateFailureAsync(release, EditorLocalization.Text("Mda.Text.Update.Failed"), token);
+                        token.ThrowIfCancellationRequested();
+                    }
                 }
                 finally
                 {
