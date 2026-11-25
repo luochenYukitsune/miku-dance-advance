@@ -11,6 +11,8 @@ public partial class EditorWindow
 {
     private bool dockReady, dockRefreshPending;
     private bool animationDockExpanded = true;
+    private bool _lightingOutlineActive;
+    private int _nonLightingOutlineFilter;
     private VmdMotion? inlineSource;
     private Guid? inlineActor;
     private uint? inlineCameraFrame;
@@ -68,6 +70,22 @@ public partial class EditorWindow
         SceneObjects.IsVisible = filter != 1;
         OutlineWorld.IsVisible = OutlineCamera.IsVisible = filter == 0;
         OutlineAdditionalLights.IsVisible = filter != 1 && _shell?.SupportsModernLightingWorkspace == true;
+    }
+
+    private void SyncOutlineFilterForInspectorPage(bool lighting)
+    {
+        if (!dockReady || lighting == _lightingOutlineActive) return;
+        _lightingOutlineActive = lighting;
+        if (lighting)
+        {
+            int current = OutlineFilter.SelectedIndex;
+            _nonLightingOutlineFilter = current is >= 0 and <= 2 ? current : 0;
+            if (OutlineFilter.SelectedIndex != 2) OutlineFilter.SelectedIndex = 2;
+        }
+        else if (OutlineFilter.SelectedIndex == 2)
+        {
+            OutlineFilter.SelectedIndex = _nonLightingOutlineFilter is >= 0 and <= 2 ? _nonLightingOutlineFilter : 0;
+        }
     }
 
     private void ResizeAnimationDock(object? sender, SizeChangedEventArgs args) => RefreshAnimationDockLayout();

@@ -106,6 +106,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     }
     internal static bool HasNativeLights(OriginalFrameScene frame) => frame.Lighting is { } lighting &&
         (lighting.Settings.EnvironmentStrength > 0 || lighting.EffectiveLights.Any(l => l.Enabled && l.Intensity > 0 && l.Color != Vector3.Zero));
+    internal static bool HasPrimaryLight(OriginalStyleProfile profile) => profile.LightAmbient != Vector3.Zero;
 
     [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct NativeLightConstants(Vector4 PositionKind, Vector4 DirectionRange, Vector4 ColorIntensity, Vector4 ConeShadow, Vector4 AreaRightTile);

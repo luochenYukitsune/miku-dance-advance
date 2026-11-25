@@ -223,7 +223,8 @@ public partial class EditorWindow : Window
         SetRightRailVisible(true);
         SetAnimationDockVisible(true);
         SetOutlineVisible(true);
-        OutlineFilter.SelectedIndex = 0;
+        _nonLightingOutlineFilter = 0;
+        OutlineFilter.SelectedIndex = _shell?.IsLightingPage == true ? 2 : 0;
         GetColumn("UpperStageColumnsGrid", 0).Width = new GridLength(DefaultLeftRailWidth);
         GetColumn("WorkspaceColumnsGrid", 2).Width = new GridLength(DefaultRightRailWidth);
     }

@@ -249,6 +249,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             dummyStructuredBuffer = cache.BufferByIdentity("plugin-dummy-structured-v1", new byte[256], ResourceStates.PixelShaderResource, "plugin-dummy-structured-v1").GPUVirtualAddress;
         }
         bool hasFrameSubTexture = HasSubTexture(frame);
+        bool hasPrimaryLight = HasPrimaryLight(style.Profile);
 
         using (var surfaceCpu = MeasureSceneCpu(SceneCpuStage.SurfaceLoop))
         {
@@ -276,7 +277,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                             : null);
                     response = surfaceStyles.EffectiveToonResponse(i, response);
                     bool characterToon = response is not null || pipeline.Key.CharacterToon;
-                    bool preserveDirect = surfaceStyles.EffectivePreserveDirectLightPalette(i, flags.PreserveDirectLightPalette);
+                    bool preserveDirect = hasPrimaryLight && surfaceStyles.EffectivePreserveDirectLightPalette(i, flags.PreserveDirectLightPalette);
                     var selected = GetPluginSurfacePipelines(pipeline, surfaceStyles.StyleIds[i], module, effectiveHooks, effectiveGeom, characterToon, preserveDirect);
                     commands.SetPipelineState(both ? selected.Both : selected.Back);
                 }
@@ -361,9 +362,9 @@ public sealed partial class D3D12OriginalStyleRenderer
                     var info = new NativeMaterialInfo((uint)ready.Native!.Count, ready.Native.ReceiverMasks[i],
                         flags.UseSceneLighting ? 1u : 0u, flags.ReceiveSelfShadow ? 1u : 0u);
                     var diffuse = material.Diffuse;
-                    bool preserveDirect = isPluginStyle
+                    bool preserveDirect = hasPrimaryLight && (isPluginStyle
                         ? surfaceStyles!.EffectivePreserveDirectLightPalette(i, flags.PreserveDirectLightPalette)
-                        : flags.PreserveDirectLightPalette;
+                        : flags.PreserveDirectLightPalette);
                     diffuse.W = preserveDirect ? 1 : 0;
                     commands.SetGraphicsRootConstantBufferView(nativeRoot, context.UploadConstants(new NativeMaterialConstants(info, diffuse)));
                 }
@@ -436,7 +437,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             frame.Materials.Any(flags => flags.CharacterToonResponse is not null),
             hasPluginSpace2,
             D3D12RasterWinding.FrontCounterClockwise(frame),
-            HasNativeLights(frame) && frame.Materials.Any(flags => flags.PreserveDirectLightPalette));
+            HasNativeLights(frame) && HasPrimaryLight(frame.Surface.Profile) && frame.Materials.Any(flags => flags.PreserveDirectLightPalette));
         if (framePipelines.TryGetValue(key, out var existing)) return existing;
 
         RootParameter[] parameters =

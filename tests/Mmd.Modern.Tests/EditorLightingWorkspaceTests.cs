@@ -39,16 +39,108 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             Assert.True(window.FindControl<TabControl>("InspectorPageTabs")!.IsEffectivelyVisible);
             var filter = window.FindControl<ComboBox>("OutlineFilter")!;
-            Assert.Equal(0, filter.SelectedIndex);
+            Assert.Equal(2, filter.SelectedIndex);
             Assert.False(window.FindControl<TextBox>("LightSearchInput")!.IsEffectivelyVisible);
+            Assert.False(window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!.IsEffectivelyVisible);
             Assert.True(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
             filter.SelectedIndex = 1;
             Assert.Equal(EditorInspectorPage.Lighting, shell.InspectorPage);
             Assert.True(window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!.IsEffectivelyVisible);
             Assert.False(window.FindControl<ListBox>("WorkspaceLightList")!.IsEffectivelyVisible);
+            filter.SelectedIndex = 2;
+            shell.ShowInspectorPage(EditorInspectorPage.Style);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0, filter.SelectedIndex);
+            Assert.True(window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!.IsEffectivelyVisible);
             return true;
         }
         finally { Close(window); }
+    }, TestContext.Current.CancellationToken);
+
+    [Theory]
+    [InlineData("zh-CN")] [InlineData("en")] [InlineData("ja")]
+    public async Task LightingPageHidesRightUpperBoneAndModelBrowserAndRestoresOnReturn(string language) => await session.Dispatch(() =>
+    {
+        var (window, shell) = Editor();
+        string previous = EditorLocalization.CurrentLanguage;
+        try
+        {
+            EditorLocalization.SetLanguage(language);
+            string path = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+            using var input = File.OpenRead(path);
+            var asset = EditorProjectWorkspace.CreateModelAsset(PmdPmxAdapter.Convert(PmdReader.Read(input)), path);
+            var objectId = shell.Workspace.AddModel(path, asset, ModelRole.Character);
+            var key = new NativeSceneLight(Guid.NewGuid(), "Face fill", SceneLightKind.Spot, Vector3.One, Quaternion.Identity, Vector3.One);
+            shell.Workspace.EditLighting(new(new SceneLightingSnapshot([key])));
+            shell.RefreshWorkspace(objectId);
+            shell.Browser.IsHierarchyExpanded = true;
+            shell.Browser.SelectedBoneIndex = 0;
+
+            var modelBrowser = window.FindControl<EditorModelBrowser>("ModelBrowserSurface")!;
+            var boneTree = modelBrowser.FindControl<TreeView>("BoneTree")!;
+            var lightList = window.FindControl<ListBox>("WorkspaceLightList")!;
+            var trackLight = window.FindControl<ListBoxItem>("OutlineTrackLight")!;
+            var worldItem = window.FindControl<ListBoxItem>("OutlineWorld")!;
+            var cameraItem = window.FindControl<ListBoxItem>("OutlineCamera")!;
+            var filter = window.FindControl<ComboBox>("OutlineFilter")!;
+
+            window.Width = 1480; window.Height = 940;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.True(modelBrowser.IsEffectivelyVisible);
+            Assert.True(boneTree.IsEffectivelyVisible);
+            Assert.Equal(0, filter.SelectedIndex);
+
+            shell.ShowInspectorPage(EditorInspectorPage.Lighting);
+            foreach (var (width, height) in new[] { (1480, 940), (1440, 900), (1100, 720) })
+            {
+                window.Width = width; window.Height = height;
+                window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                if (width is 1480 or 1100 && Environment.GetEnvironmentVariable("MDA_LIGHTING_LAYOUT_EVIDENCE") is { Length: > 0 } evidence)
+                {
+                    Directory.CreateDirectory(evidence);
+                    using var frame = HeadlessTestHost.CaptureLayoutFrame(window);
+                    Assert.NotNull(frame);
+                    frame.Save(Path.Combine(evidence, $"lighting-focus-{language}-{width}.png"));
+                }
+                Assert.Equal(2, filter.SelectedIndex);
+                Assert.Equal(EditorLocalization.Text("Mda.Text.3b579010a041"), filter.SelectionBoxItem);
+                Assert.False(modelBrowser.IsEffectivelyVisible);
+                Assert.False(boneTree.IsEffectivelyVisible);
+                Assert.False(worldItem.IsEffectivelyVisible);
+                Assert.False(cameraItem.IsEffectivelyVisible);
+                Assert.True(trackLight.IsEffectivelyVisible);
+                Assert.True(lightList.IsEffectivelyVisible);
+                Assert.True(window.FindControl<ScrollViewer>("NativeLightInspectorArea")!.IsEffectivelyVisible);
+                Assert.False(window.FindControl<Border>("BoneToolsContainer")!.IsVisible);
+                Assert.False(window.FindControl<Grid>("AnimationDock")!.IsVisible);
+            }
+
+            // Switching back to Style (or camera) restores the outline filter and bone browser cleanly.
+            shell.ShowInspectorPage(EditorInspectorPage.Style);
+            window.Width = 1480; window.Height = 940;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0, filter.SelectedIndex);
+            Assert.True(modelBrowser.IsEffectivelyVisible);
+            Assert.True(boneTree.IsEffectivelyVisible);
+            Assert.True(worldItem.IsEffectivelyVisible);
+            Assert.True(cameraItem.IsEffectivelyVisible);
+            Assert.True(window.FindControl<Grid>("AnimationDock")!.IsEffectivelyVisible);
+
+            // An explicit prior filter (Models) is also remembered across lighting adjustment.
+            filter.SelectedIndex = 1;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            shell.ShowInspectorPage(EditorInspectorPage.Lighting);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal(2, filter.SelectedIndex);
+            Assert.False(modelBrowser.IsEffectivelyVisible);
+            shell.ShowInspectorPage(EditorInspectorPage.Material);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            Assert.Equal(1, filter.SelectedIndex);
+            Assert.True(modelBrowser.IsEffectivelyVisible);
+            Assert.True(boneTree.IsEffectivelyVisible);
+            return true;
+        }
+        finally { EditorLocalization.SetLanguage(previous); Close(window); }
     }, TestContext.Current.CancellationToken);
 
     [Fact]

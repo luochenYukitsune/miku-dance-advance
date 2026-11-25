@@ -18,6 +18,9 @@ public partial class EditorWindow
     private void InitializeInspectorPages(EditorShellViewModel shell)
     {
         _observedInspectorPage = shell.InspectorPage;
+        _lightingOutlineActive = false;
+        _nonLightingOutlineFilter = 0;
+        if (dockReady && OutlineFilter.SelectedIndex != 0) OutlineFilter.SelectedIndex = 0;
         ApplyInspectorPagePresentation(shell);
     }
 
@@ -129,6 +132,7 @@ public partial class EditorWindow
         this.FindControl<EditorViewportHost>("SceneViewport")!.SetBoneToolsEnabled(!lighting && lightController?.IsDragging != true);
         this.FindControl<Control>("BoneToolsContainer")!.IsVisible = !lighting;
         this.FindControl<Control>("LightToolsBar")!.IsVisible = lighting;
+        SyncOutlineFilterForInspectorPage(lighting);
     }
 
     /// <summary>One explicit validated workspace transaction for the project-default style. The candidate's
