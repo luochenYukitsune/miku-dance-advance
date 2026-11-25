@@ -11,6 +11,11 @@ public sealed class ExportCoordinator
     private readonly Func<CancellationToken, ValueTask<ViewPlaybackOwner>> sessionFactory;
     private readonly Func<ViewRenderRequest, CancellationToken, ValueTask<IViewRenderer>> rendererFactory;
     private int state;
+    private volatile bool outputPublished;
+    /// <summary>Exception.Data key for the publication status when RunAsync fails.</summary>
+    public const string OutputPublishedDataKey = "MDA.ViewOutput.OutputPublished";
+    /// <summary>True once the sink has successfully completed, including when subsequent cleanup or notification fails.</summary>
+    public bool OutputPublished => outputPublished;
     /// <summary>Overlaps capture and write with simulation of the next frame. Off reproduces the fully serial order,
     /// in which a capture may still observe the owner at its own sample.</summary>
     internal bool OverlapCapture { get; set; } = true;
@@ -66,7 +71,7 @@ public sealed class ExportCoordinator
         if (Interlocked.CompareExchange(ref state, (int)ExportTaskState.Running, (int)ExportTaskState.Ready) != (int)ExportTaskState.Ready)
             throw new InvalidOperationException("An export coordinator can run only once.");
         ViewPlaybackOwner? session = null; IViewRenderer? renderer = null;
-        OfflineFrameRunResult? result = null; string backendId = ""; bool published = false;
+        OfflineFrameRunResult? result = null; string backendId = "";
         Exception? failure = null; var cleanupErrors = new List<Exception>();
         var tracker = new ProgressTracker(progress);
         string phase = "request.validate";
@@ -113,10 +118,10 @@ public sealed class ExportCoordinator
             phase = "sink.complete";
             cancellationToken.ThrowIfCancellationRequested();
             await sink.CompleteAsync(cancellationToken).ConfigureAwait(false);
-            published = true;
+            outputPublished = true;
         }
         catch (Exception error) { if (!HasFailurePhase(error)) AddFailurePhase(error, phase); failure = error; }
-        if (!published)
+        if (!outputPublished)
             await CleanupAsync(() => sink.AbortAsync(failure, CancellationToken.None), cleanupErrors, "sink.abort").ConfigureAwait(false);
         if (renderer is not null) await CleanupAsync(renderer.DisposeAsync, cleanupErrors, "renderer.dispose").ConfigureAwait(false);
         if (session is not null)
@@ -127,16 +132,25 @@ public sealed class ExportCoordinator
         if (failure is null && cleanupErrors.Count > 0) failure = cleanupErrors[0];
         if (failure is not null && cleanupErrors.Count > 0) AddFailureData(failure, "ViewOutputCleanupErrors", cleanupErrors.AsReadOnly());
         var finalState = failure is null ? ExportTaskState.Completed
-            : failure is OperationCanceledException && cancellationToken.IsCancellationRequested ? ExportTaskState.Cancelled : ExportTaskState.Failed;
+            : !outputPublished && failure is OperationCanceledException && cancellationToken.IsCancellationRequested ? ExportTaskState.Cancelled : ExportTaskState.Failed;
         Volatile.Write(ref state, (int)finalState);
         // A notification failure cannot mask the task's original failure or skip cleanup.
         try { tracker.ReportFinal(finalState, request.Plan?.FrameCount ?? 0); }
         catch (Exception error)
         {
-            if (failure is null) { failure = error; Volatile.Write(ref state, (int)ExportTaskState.Failed); }
+            if (failure is null)
+            {
+                AddFailurePhase(error, "progress.final");
+                failure = error;
+                Volatile.Write(ref state, (int)ExportTaskState.Failed);
+            }
             else AddFailureData(failure, "ViewOutputProgressError", error);
         }
-        if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
+        if (failure is not null)
+        {
+            AddFailureData(failure, OutputPublishedDataKey, outputPublished);
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
         return new(result!.CompletedFrames, result.SimulationTicks, backendId);
     }
 

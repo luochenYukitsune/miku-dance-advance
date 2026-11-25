@@ -272,12 +272,11 @@ public sealed class EditorPluginStyleUiTests : IAsyncDisposable
                     var restoringCard = enableButton.FindAncestorOfType<Border>()!;
                     var discardChoice = Assert.Single(restoringCard.GetVisualDescendants().OfType<ComboBox>());
                     discardChoice.SelectedIndex = 0;
+                    // The service can become active before the dialog finishes rebuilding its rows.
+                    var choiceRemoved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    discardChoice.DetachedFromVisualTree += (_, _) => choiceRemoved.TrySetResult();
                     enableButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    for (int step = 0; step < 30 && pluginService.FindPluginForStyle("wuthering-waves")?.State != PluginState.Active; step++)
-                    {
-                        await Task.Delay(20, Token);
-                        Dispatcher.UIThread.RunJobs();
-                    }
+                    await choiceRemoved.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
                     Dispatcher.UIThread.RunJobs();
                     Assert.Equal(PluginState.Active, pluginService.FindPluginForStyle("wuthering-waves")?.State);
 

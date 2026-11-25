@@ -56,47 +56,10 @@ internal sealed class D3D12GpuCache:IDisposable
     internal ID3D12Resource WritableGpuBuffer(string stream,int count,int stride,out ResourceStates currentState,out bool replaced)
         =>writableGpuBuffers.GetWritable(stream,count,stride,out currentState,out replaced);
     internal void SetWritableGpuBufferState(string stream,ResourceStates state)=>writableGpuBuffers.SetWritableState(stream,state);
-    internal D3D12BufferUploadStaging.Allocation StageFrameBytes(ReadOnlySpan<byte> bytes)=>bufferUploadStaging.Write(bytes);
-    internal unsafe D3D12BufferUploadStaging.Allocation StageFrameBytesAligned(ReadOnlySpan<byte> bytes,int alignment)
-    {
-        if(bytes.IsEmpty)throw new ArgumentException("A buffer upload must contain data.",nameof(bytes));
-        if(alignment<=0||!BitOperations.IsPow2((uint)alignment))
-            throw new ArgumentOutOfRangeException(nameof(alignment),"Alignment must be a positive power of two.");
-        if(alignment<=4)return bufferUploadStaging.Write(bytes);
-
-        int padding=alignment-1;
-        if(bytes.Length<=D3D12BufferUploadStaging.MaximumRetainedPageBytes-padding)
-        {
-            int shift=0;
-            fixed(byte* source=bytes)
-            {
-                nint sourceAddress=(nint)source;
-                int sourceLength=bytes.Length;
-                var allocation=bufferUploadStaging.Write(checked(sourceLength+padding),destination=>
-                {
-                    byte* dstPtr=(byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(destination));
-                    shift=(int)(((nuint)alignment-((nuint)dstPtr&(nuint)padding))&(nuint)padding);
-                    new ReadOnlySpan<byte>((void*)sourceAddress,sourceLength).CopyTo(destination.Slice(shift,sourceLength));
-                });
-                ulong offset=allocation.Offset+(ulong)shift;
-                if((offset&(ulong)padding)==0)return new(allocation.Resource,offset);
-            }
-        }
-
-        var direct=bufferUploadStaging.Write(bytes);
-        if((direct.Offset&(ulong)padding)==0)return direct;
-        ulong nextOffset=direct.Offset+(ulong)((bytes.Length+3)&~3);
-        int gap=(int)(((ulong)alignment-(nextOffset&(ulong)padding))&(ulong)padding);
-        if(gap>0)
-        {
-            Span<byte> scratch=gap<=256?stackalloc byte[gap]:new byte[gap];
-            scratch.Clear();
-            bufferUploadStaging.Write(scratch);
-        }
-        var aligned=bufferUploadStaging.Write(bytes);
-        if((aligned.Offset&(ulong)padding)==0)return aligned;
-        throw new InvalidOperationException($"Staging allocation offset {aligned.Offset} is not {alignment}-byte aligned.");
-    }
+    /// <summary>Aligns the byte offset within the upload buffer. GPU addresses have the requested alignment
+    /// when the underlying committed resource's base address also satisfies it.</summary>
+    internal D3D12BufferUploadStaging.Allocation StageFrameBytes(ReadOnlySpan<byte> bytes, int alignment = 4)
+        => bufferUploadStaging.Write(bytes, alignment);
     internal ID3D12GraphicsCommandList4 AcquireCommandList4(ID3D12GraphicsCommandList commands)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed),this);

@@ -38,6 +38,7 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 extern "C" HRESULT WINAPI D3DXCreateEffect(IDirect3DDevice9*,const void*,UINT,const D3DXMACRO*,ID3DXInclude*,DWORD,ID3DXEffectPool*,ID3DXEffect**,ID3DXBuffer**);
 extern "C" HRESULT WINAPI D3DXLoadSurfaceFromMemory(IDirect3DSurface9*,const PALETTEENTRY*,const RECT*,const void*,D3DFORMAT,UINT,const PALETTEENTRY*,const RECT*,DWORD,D3DCOLOR);
@@ -1141,6 +1142,60 @@ template<class T> FrozenDraw freezeDraw(const T& c,Session& session){
  }
  frozen.metadata=Metadata(frame,session.id,bool(session.objectFx));return frozen;
 }
+template<class Request>
+void presentFrame(Session& s, const Request* request, Mda9PresentResultV1* result) {
+    constexpr bool withOverlay = std::is_same_v<Request, Mda9PresentV2>;
+    if (s.mode != Session::Mode::Preview)
+        fail(MDA9_UNSUPPORTED, withOverlay ? "PresentV2 cannot be used with a capture session" : "PresentV1 cannot be used with a capture session");
+    if (s.poisoned) fail(MDA9_DEVICE_FAILURE, "host state is poisoned; destroy this session before creating another");
+    structure(request);
+    structure(result);
+    extent(request->width, request->height);
+    if (request->reserved[0] || request->reserved[1])
+        fail(MDA9_INVALID_ARGUMENT, "present reserved fields must be zero");
+
+    const uint64_t required = MDA9_FEATURE_SURFACE | MDA9_FEATURE_PRESENT | s.effectFeatures();
+    uint64_t allowed = required | MDA9_FEATURE_UV1 | MDA9_FEATURE_ACCESSORY;
+    if (s.emmConfigured())
+        allowed |= MDA9_FEATURE_MODEL_MATERIAL_METADATA | MDA9_FEATURE_SHADOW | MDA9_FEATURE_OUTLINE | MDA9_FEATURE_MEDIA;
+    if constexpr (withOverlay) allowed |= MDA9_FEATURE_EDITOR_OVERLAY;
+    if ((request->requiredFeatures & required) != required || (request->requiredFeatures & ~allowed))
+        fail(MDA9_UNSUPPORTED, withOverlay
+            ? "PresentV2 features must match SURFACE|PRESENT and the immutable effect scope, with optional typed frame/editor-overlay capabilities"
+            : "Present features must match SURFACE|PRESENT and the immutable effect scope, with optional typed frame capabilities");
+    if (request->flags != s.configuredScope())
+        fail(MDA9_UNSUPPORTED, "present scope does not match the immutable session effect configuration");
+    if (request->renderOrder > MDA9_ORDER_OPAQUE_FIRST)
+        fail(MDA9_INVALID_ARGUMENT, "unknown render order");
+
+    std::vector<Mda9EditorOverlayPrimitiveV1> overlay;
+    if constexpr (withOverlay) overlay = freezeEditorOverlay(*request);
+    auto frozen = freezeDraw(*request, s);
+    if constexpr (withOverlay) frozen.editorOverlay = std::move(overlay);
+    validateTarget(s.borrowedTarget, s.targetThread, s.targetProcess);
+    if (s.generation == UINT64_MAX || s.presents == UINT64_MAX)
+        fail(MDA9_INTERNAL_ERROR, "present generation space exhausted");
+    RecoverOnFailure recovery{s};
+    const uint32_t draws = s.render(frozen, request->renderOrder);
+    s.present();
+    ++s.presents;
+
+    result->width = s.width;
+    result->height = s.height;
+    result->sourceFrame = s.scene.sourceFrame;
+    result->completedPresents = s.presents;
+    result->geometryGeneration = s.generation;
+    result->readbackBytes = 0;
+    result->drawCalls = draws;
+    result->flags = s.resultScope() | MDA9_PRESENT_RESULT_API_ACCEPTED | (s.softwareVp ? MDA9_RESULT_SOFTWARE_VERTEX_PROCESSING : 0);
+    result->effectDispatches = s.diagnostic.dispatches;
+    result->effectPassDraws = s.diagnostic.passDraws;
+    result->effectPassFailures = s.diagnostic.passFailures;
+    result->rawFallbackDraws = s.diagnostic.fallbacks;
+    result->noUiDiagnostics = s.diagnostic.noUi;
+    result->reserved = 0;
+}
+
 void preparePackageResources(ObjectFxState& next,std::vector<resources::Row>& mappings){
  for(auto& row:mappings){row.origin=resources::Normalize(row.origin);row.local=resources::Normalize(row.local);const auto local=exactAnsi(row.local);if(local.size()>=MAX_PATH)fail(MDA9_UNSUPPORTED,"mapped resource path exceeds pinned MAX_PATH limit");}
  next.resources=std::make_unique<resources::Map>(mappings);
@@ -1371,28 +1426,10 @@ Mda9Status MDA9_CALL MdaD3D9CaptureV1(Mda9Session id,const Mda9CaptureV1* c,Mda9
  check(s.readback->UnlockRect(),"readback unlock");++s.captures;
  out->width=s.width;out->height=s.height;out->sourceFrame=s.scene.sourceFrame;out->completedCaptures=s.captures;out->geometryGeneration=s.generation;out->rgbaBytesRequired=required;out->drawCalls=draws;out->flags=s.resultScope()|(s.softwareVp?MDA9_RESULT_SOFTWARE_VERTEX_PROCESSING:0);out->effectDispatches=s.diagnostic.dispatches;out->effectPassDraws=s.diagnostic.passDraws;out->effectPassFailures=s.diagnostic.passFailures;out->rawFallbackDraws=s.diagnostic.fallbacks;out->noUiDiagnostics=s.diagnostic.noUi;out->reserved=0;
  });}
-Mda9Status MDA9_CALL MdaD3D9PresentV1(Mda9Session id,const Mda9PresentV1* c,Mda9PresentResultV1* out,Mda9ErrorV1* e){return invoke(e,[&]{
- auto& s=session(id);if(s.mode!=Session::Mode::Preview)fail(MDA9_UNSUPPORTED,"PresentV1 cannot be used with a capture session");if(s.poisoned)fail(MDA9_DEVICE_FAILURE,"host state is poisoned; destroy this session before creating another");
- structure(c);structure(out);extent(c->width,c->height);if(c->reserved[0]||c->reserved[1])fail(MDA9_INVALID_ARGUMENT,"present reserved fields must be zero");
- const uint64_t required=MDA9_FEATURE_SURFACE|MDA9_FEATURE_PRESENT|s.effectFeatures();
- if((c->requiredFeatures&required)!=required||(c->requiredFeatures&~uint64_t(required|MDA9_FEATURE_UV1|MDA9_FEATURE_ACCESSORY|(s.emmConfigured()?uint64_t(MDA9_FEATURE_MODEL_MATERIAL_METADATA|MDA9_FEATURE_SHADOW|MDA9_FEATURE_OUTLINE|MDA9_FEATURE_MEDIA):0))))fail(MDA9_UNSUPPORTED,"Present features must match SURFACE|PRESENT and the immutable effect scope, with optional typed frame capabilities");
- if(c->flags!=s.configuredScope())fail(MDA9_UNSUPPORTED,"present scope does not match the immutable session effect configuration");
- if(c->renderOrder>MDA9_ORDER_OPAQUE_FIRST)fail(MDA9_INVALID_ARGUMENT,"unknown render order");
- auto frozen=freezeDraw(*c,s);validateTarget(s.borrowedTarget,s.targetThread,s.targetProcess);
- if(s.generation==UINT64_MAX||s.presents==UINT64_MAX)fail(MDA9_INTERNAL_ERROR,"present generation space exhausted");
- RecoverOnFailure recovery{s};const uint32_t draws=s.render(frozen,c->renderOrder);s.present();++s.presents;
- out->width=s.width;out->height=s.height;out->sourceFrame=s.scene.sourceFrame;out->completedPresents=s.presents;out->geometryGeneration=s.generation;out->readbackBytes=0;out->drawCalls=draws;out->flags=s.resultScope()|MDA9_PRESENT_RESULT_API_ACCEPTED|(s.softwareVp?MDA9_RESULT_SOFTWARE_VERTEX_PROCESSING:0);out->effectDispatches=s.diagnostic.dispatches;out->effectPassDraws=s.diagnostic.passDraws;out->effectPassFailures=s.diagnostic.passFailures;out->rawFallbackDraws=s.diagnostic.fallbacks;out->noUiDiagnostics=s.diagnostic.noUi;out->reserved=0;
- });}
-Mda9Status MDA9_CALL MdaD3D9PresentV2(Mda9Session id,const Mda9PresentV2* c,Mda9PresentResultV1* out,Mda9ErrorV1* e){return invoke(e,[&]{
- auto& s=session(id);if(s.mode!=Session::Mode::Preview)fail(MDA9_UNSUPPORTED,"PresentV2 cannot be used with a capture session");if(s.poisoned)fail(MDA9_DEVICE_FAILURE,"host state is poisoned; destroy this session before creating another");
- structure(c);structure(out);extent(c->width,c->height);if(c->reserved[0]||c->reserved[1])fail(MDA9_INVALID_ARGUMENT,"present reserved fields must be zero");
- const uint64_t required=MDA9_FEATURE_SURFACE|MDA9_FEATURE_PRESENT|s.effectFeatures();
- if((c->requiredFeatures&required)!=required||(c->requiredFeatures&~uint64_t(required|MDA9_FEATURE_UV1|MDA9_FEATURE_ACCESSORY|MDA9_FEATURE_EDITOR_OVERLAY|(s.emmConfigured()?uint64_t(MDA9_FEATURE_MODEL_MATERIAL_METADATA|MDA9_FEATURE_SHADOW|MDA9_FEATURE_OUTLINE|MDA9_FEATURE_MEDIA):0))))fail(MDA9_UNSUPPORTED,"PresentV2 features must match SURFACE|PRESENT and the immutable effect scope, with optional typed frame/editor-overlay capabilities");
- if(c->flags!=s.configuredScope())fail(MDA9_UNSUPPORTED,"present scope does not match the immutable session effect configuration");
- if(c->renderOrder>MDA9_ORDER_OPAQUE_FIRST)fail(MDA9_INVALID_ARGUMENT,"unknown render order");
- auto rows=freezeEditorOverlay(*c);auto frozen=freezeDraw(*c,s);frozen.editorOverlay=std::move(rows);validateTarget(s.borrowedTarget,s.targetThread,s.targetProcess);
- if(s.generation==UINT64_MAX||s.presents==UINT64_MAX)fail(MDA9_INTERNAL_ERROR,"present generation space exhausted");
- RecoverOnFailure recovery{s};const uint32_t draws=s.render(frozen,c->renderOrder);s.present();++s.presents;
- out->width=s.width;out->height=s.height;out->sourceFrame=s.scene.sourceFrame;out->completedPresents=s.presents;out->geometryGeneration=s.generation;out->readbackBytes=0;out->drawCalls=draws;out->flags=s.resultScope()|MDA9_PRESENT_RESULT_API_ACCEPTED|(s.softwareVp?MDA9_RESULT_SOFTWARE_VERTEX_PROCESSING:0);out->effectDispatches=s.diagnostic.dispatches;out->effectPassDraws=s.diagnostic.passDraws;out->effectPassFailures=s.diagnostic.passFailures;out->rawFallbackDraws=s.diagnostic.fallbacks;out->noUiDiagnostics=s.diagnostic.noUi;out->reserved=0;
- });}
+Mda9Status MDA9_CALL MdaD3D9PresentV1(Mda9Session id, const Mda9PresentV1* request, Mda9PresentResultV1* result, Mda9ErrorV1* error) {
+    return invoke(error, [&] { presentFrame(session(id), request, result); });
+}
+Mda9Status MDA9_CALL MdaD3D9PresentV2(Mda9Session id, const Mda9PresentV2* request, Mda9PresentResultV1* result, Mda9ErrorV1* error) {
+    return invoke(error, [&] { presentFrame(session(id), request, result); });
+}
 }

@@ -138,6 +138,50 @@ public sealed class D3D12BufferUploadPackingTests
         AssertExact(read); Assert.Equal(0, staging.Statistics.LivePages);
     }
 
+    [Theory]
+    [InlineData(16)]
+    [InlineData(256)]
+    [InlineData(MiB)]
+    [InlineData(1 << 30)]
+    public void AlignedUploadCopiesOnlyThePayloadAndPreservesAdjacentRanges(int alignment)
+    {
+        using var runtime = new D3D12GpuRuntime();
+        using var cache = new D3D12GpuCache(runtime);
+        runtime.Begin();
+        byte[] expected = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        var before = cache.StageFrameBytes(expected.AsSpan(0, 3));
+        var aligned = cache.StageFrameBytes(expected.AsSpan(3, 5), alignment);
+        var after = cache.StageFrameBytes(expected.AsSpan(8));
+        using var read = new QueuedCopy(runtime.Device.CreateCommittedResource(HeapType.Readback,
+            ResourceDescription.Buffer((ulong)expected.Length), ResourceStates.CopyDest), expected);
+        runtime.Commands.CopyBufferRegion(read.Resource, 0, before.Resource, before.Offset, 3);
+        runtime.Commands.CopyBufferRegion(read.Resource, 3, aligned.Resource, aligned.Offset, 5);
+        runtime.Commands.CopyBufferRegion(read.Resource, 8, after.Resource, after.Offset, 1);
+        runtime.Submit();
+        runtime.WaitForIdle();
+
+        Assert.Equal(0UL, aligned.Offset % (ulong)alignment);
+        if (alignment is 16 or 256)
+            Assert.Equal(0UL, (aligned.Resource.GPUVirtualAddress + aligned.Offset) % (ulong)alignment);
+        Assert.Equal(0UL, after.Offset % 4);
+        Assert.Equal(3, cache.BufferUploadStatistics.Copies);
+        Assert.Equal(expected.Length, cache.BufferUploadStatistics.CopiedBytes);
+        Assert.Equal(alignment < MiB ? 1 : 2, cache.BufferUploadStatistics.PageCreations);
+        AssertExact(read);
+    }
+
+    [Fact]
+    public void InvalidAlignmentIsRejectedBeforeReservingUploadSpace()
+    {
+        using var runtime = new D3D12GpuRuntime();
+        using var cache = new D3D12GpuCache(runtime);
+        runtime.Begin();
+        foreach (int alignment in new[] { int.MinValue, -1, 0, 3 })
+            Assert.Throws<ArgumentOutOfRangeException>(() => cache.StageFrameBytes(new byte[1], alignment));
+        Assert.Equal(0, cache.BufferUploadStatistics.PageCreations);
+        runtime.Abort();
+    }
+
     private sealed record QueuedCopy(ID3D12Resource Resource, byte[] Expected) : IDisposable
     {
         public void Dispose() => Resource.Dispose();

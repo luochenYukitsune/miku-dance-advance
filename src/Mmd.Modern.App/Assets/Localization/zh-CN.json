@@ -1097,6 +1097,7 @@
   "Mda.Text.ExportStatus.Completed": "渲染完成",
   "Mda.Text.ExportStatus.Cancelled": "渲染已取消",
   "Mda.Text.ExportStatus.Failed": "渲染失败",
+  "Mda.Text.ExportStatus.FailedAfterPublication": "已导出，后续处理失败",
   "Mda.Text.ExportStatus.Frames": "{0} / {1} 帧",
   "Mda.Text.ExportStatus.FramesUnknown": "已完成 {0} 帧",
   "Mda.Text.ExportStatus.Elapsed": "已用时间",

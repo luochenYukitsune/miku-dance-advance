@@ -170,15 +170,8 @@ public sealed class ExperimentalD3D9SurfacePreviewRenderer : IRealtimeViewRender
         if (mediaInputs is not null && (emm is null || classicPassInputs is null))
             throw new NotSupportedException("Background decoding requires the Classic EMM original-pass path.");
         if (targetHwnd == 0) throw new ArgumentException("An existing target HWND is required.", nameof(targetHwnd));
-        var frozen = emm is not null ? D3D9SurfacePreflight.FreezeEmmRequest(request, background)
-            : sceneFx is not null ? D3D9SurfacePreflight.FreezeSceneFxRequest(request, background)
-            : objectFx is not null ? D3D9SurfacePreflight.FreezeObjectFxRequest(request, background)
-            : D3D9SurfacePreflight.FreezeRequest(request, background, isolation);
-        // Freeze and validate every binding before loading a native DLL or creating its device.
-        var encoder = emm is not null ? new D3D9SurfaceFrameEncoder(bindings, emm, screenCaptureMode)
-            : sceneFx is not null ? new D3D9SurfaceFrameEncoder(bindings, sceneFx)
-            : objectFx is not null ? new D3D9SurfaceFrameEncoder(bindings, objectFx) : new D3D9SurfaceFrameEncoder(bindings);
-        encoder.UseClassicPassInputs(classicPassInputs);
+        var (frozen, encoder) = D3D9SurfacePreflight.PrepareRenderer(request, background, isolation,
+            bindings, objectFx, sceneFx, emm, classicPassInputs, screenCaptureMode);
         var session = await factory(new(frozen.Width, frozen.Height), encoder.NativeObjectIds, token).ConfigureAwait(false)
             ?? throw new InvalidOperationException("The surface preview factory returned null.");
         return new(frozen, background, encoder, session, mediaInputs);
@@ -238,9 +231,8 @@ public sealed class ExperimentalD3D9SurfacePreviewRenderer : IRealtimeViewRender
             var resized = current with { Width = width, Height = height };
             var next = encoder.Scope switch
             {
-                D3D9SurfaceScope.ConfiguredEmm => D3D9SurfacePreflight.FreezeEmmRequest(resized, background),
-                D3D9SurfaceScope.ConfiguredSceneFx => D3D9SurfacePreflight.FreezeSceneFxRequest(resized, background),
-                D3D9SurfaceScope.ConfiguredObjectFx => D3D9SurfacePreflight.FreezeObjectFxRequest(resized, background),
+                D3D9SurfaceScope.ConfiguredEmm or D3D9SurfaceScope.ConfiguredSceneFx or D3D9SurfaceScope.ConfiguredObjectFx
+                    => D3D9SurfacePreflight.FreezeSurfaceRequest(resized, background),
                 D3D9SurfaceScope.IsolatedSurface => D3D9SurfacePreflight.FreezeRequest(resized, background,
                     D3D9SurfaceIsolation.NoConfiguredMmeOrEmm),
                 _ => throw new InvalidOperationException("Unsupported surface scope.")

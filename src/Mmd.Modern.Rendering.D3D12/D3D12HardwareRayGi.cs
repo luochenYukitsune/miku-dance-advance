@@ -594,7 +594,7 @@ internal static class D3D12HardwareRayGi
             AccelerationStructure = bottom.GPUVirtualAddress,
         };
         var instanceBytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref instance, 1));
-        var instanceUpload = cache.StageFrameBytesAligned(instanceBytes, 16);
+        var instanceUpload = cache.StageFrameBytes(instanceBytes, alignment: 16);
         var topInputs = new BuildRaytracingAccelerationStructureInputs
         {
             Type = RaytracingAccelerationStructureType.TopLevel,

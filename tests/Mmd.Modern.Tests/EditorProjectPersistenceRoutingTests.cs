@@ -611,6 +611,32 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
         }, Token);
 
     [Fact]
+    public void SavePreflightReportsMissingVmdHeaderAndCanRetryAfterCorrection()
+    {
+        using var files = new Fixture();
+        using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("header-cache") };
+        var id = files.AddModel(workspace);
+        // A PMM import can retain a motion whose model name exceeds the VMD header width.
+        workspace.Edit(edit => edit.Motions[0] = edit.Motions[0] with
+        {
+            Motion = new VmdMotion { ModelName = new string('x', 21) }, Asset = null
+        });
+
+        Assert.Equal(id, Assert.Single(workspace.GetMotionHeaderRequirements()).ObjectId);
+        Assert.Empty(workspace.GetMotionPersistenceErrors());
+        string path = files.Path("header.pma");
+        var error = Assert.Throws<InvalidOperationException>(() => workspace.Save(path, Token));
+        Assert.Contains(workspace.Session!.Objects.Single().Name, error.Message);
+        Assert.False(File.Exists(path));
+        Assert.True(workspace.IsDirty);
+
+        workspace.SetMotionHeader(id, "short");
+        workspace.Save(path, Token);
+        workspace.Open(path, Token);
+        Assert.Equal("short", Assert.Single(workspace.Motions).Motion.ModelName);
+    }
+
+    [Fact]
     public void SaveCapturedKeepsWorkspaceDirtyWhenEditedAfterCapture()
     {
         using var files = new Fixture();
@@ -630,6 +656,33 @@ public sealed class EditorProjectPersistenceRoutingTests : IAsyncDisposable
         using var freshSnapshot = workspace.CaptureRecoverySnapshot(Token);
         workspace.SaveCaptured(path, freshSnapshot, Token);
         Assert.False(workspace.IsDirty);
+
+        workspace.SaveCaptured(path, staleSnapshot, Token);
+        Assert.True(workspace.IsDirty);
+    }
+
+    [Fact]
+    public void SavingPreviousDocumentSnapshotPreservesActiveDocumentAndWritesOriginalPackage()
+    {
+        using var files = new Fixture();
+        using var workspace = new EditorProjectWorkspace { PackageCacheDirectory = files.Path("switch-cache") };
+        var originalActor = files.AddModel(workspace);
+        using var snapshot = workspace.CaptureRecoverySnapshot(Token);
+        workspace.New();
+        files.AddModel(workspace);
+        string currentPath = files.Path("current.pma");
+        workspace.Save(currentPath, Token);
+        workspace.MarkPoseDraftEdited();
+        int changed = 0;
+        workspace.Changed += (_, _) => changed++;
+
+        string previousPath = files.Path("previous.pma");
+        workspace.SaveCaptured(previousPath, snapshot, Token);
+        Assert.Equal(currentPath, workspace.ProjectPath);
+        Assert.True(workspace.IsDirty);
+        Assert.Equal(0, changed);
+        workspace.Open(previousPath, Token);
+        Assert.Equal(originalActor, Assert.Single(workspace.Motions).ObjectId);
     }
 
     [Fact]

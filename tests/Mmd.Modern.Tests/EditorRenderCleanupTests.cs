@@ -111,10 +111,23 @@ public sealed class EditorRenderCleanupTests : IAsyncDisposable
             var fresh = new CaptureRenderer();
             var engine = new TestEngine { Capture = old };
             using var workspace = files.Workspace(engine);
+            var draft = files.Draft("first");
+            byte[] previous = [1, 2, 3];
+            await File.WriteAllBytesAsync(draft.Destination, previous, Token);
             var failure = await Assert.ThrowsAsync<IOException>(() =>
-                EditorExportService.ExportAsync(workspace, files.Draft("first"), null, null, token: Token));
+                EditorExportService.ExportAsync(workspace, draft, null, null, token: Token));
             Assert.Equal(captureFails ? "capture failed" : "capture destroy failed", failure.Message);
             Assert.IsType<IOException>(failure.Data["EditorRenderCleanupRetryError"]);
+            bool published = Assert.IsType<bool>(failure.Data[ExportCoordinator.OutputPublishedDataKey]);
+            Assert.Equal(!captureFails, published);
+            byte[] output = await File.ReadAllBytesAsync(draft.Destination, Token);
+            if (published)
+                Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, output[..8]);
+            else
+                Assert.Equal(previous, output);
+            var status = new ExportRenderStatusViewModel(draft.Destination, 1);
+            status.MarkFailed(failure, published);
+            Assert.Equal(EditorLocalization.Text(published ? "Mda.Text.ExportStatus.FailedAfterPublication" : "Mda.Text.ExportStatus.Failed"), status.StageText);
             Assert.Equal(2, old.Disposals); // Coordinator cleanup, then ExportCore's bounded finally retry.
             Assert.Equal(1, engine.CaptureCreates);
             engine.Capture = fresh;

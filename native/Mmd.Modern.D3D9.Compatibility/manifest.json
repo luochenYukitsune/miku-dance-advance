@@ -70,8 +70,8 @@
     },
     {
       "path": "session.cpp",
-      "bytes": 146596,
-      "sha256": "5056b4a84254579b9f0d472682946aecb107ccc49179d7c00fc6aa2f39420a20"
+      "bytes": 145820,
+      "sha256": "63abe756c27795e62daedf840f65dfaac09d196a79c2d0f47148379b3e1cb5bb"
     },
     {
       "path": "surface.fx",

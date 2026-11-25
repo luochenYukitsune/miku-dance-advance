@@ -59,7 +59,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     private PmaLoadedProject? package;
     private readonly object dirtySync = new();
     private long editVersion;
-    private readonly ConditionalWeakTable<PmaSaveSnapshot, StrongBox<long>> snapshotVersions = new();
+    private sealed record SnapshotOrigin(Guid DocumentId, long EditVersion);
+    private readonly ConditionalWeakTable<PmaSaveSnapshot, SnapshotOrigin> snapshotOrigins = new();
     internal EditorPoseDraftPackage OpenedPoseDrafts { get; private set; } = EditorPoseDraftPackage.Empty;
     internal Func<IReadOnlyList<SceneActorMotion>, EditorPoseDraftPackage>? CapturePoseDrafts { get; set; }
     internal void MarkPoseDraftEdited() { lock (dirtySync) { editVersion++; IsDirty = true; } }
@@ -70,12 +71,13 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
         bool PreservePoseDrafts = false, bool PreserveRenderBinding = false,
-        bool BeforeGuessMaterialRoles = true, bool AfterGuessMaterialRoles = true, Action<bool>? PoseDraftHistory = null);
+        (bool Before, bool After)? GuessMaterialRolesChange = null, Action<bool>? PoseDraftHistory = null);
     private readonly Stack<HistoryStep> undo = [], redo = [];
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
     public SceneProjectSession? Session { get; private set; }
-    internal Guid DocumentId { get; private set; } = Guid.NewGuid();
+    private Guid documentId = Guid.NewGuid();
+    internal Guid DocumentId { get { lock (dirtySync) return documentId; } }
     public string? ProjectPath { get; private set; }
     public bool IsDirty { get; private set; }
     public bool CanUndo => undo.Count > 0;
@@ -216,158 +218,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
             var beforeMetadata = ProjectMetadata;
             Session = candidate; ProjectMetadata = metadata;
             standaloneSessions.Add(Session);
-            undo.Push(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata,
-                BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles)); redo.Clear();
+            RecordHistory(new(null, Session, false, [], SnapshotMappings(), beforeMetadata, metadata));
         }
         else { Edit(edit => Add(edit.Composition, edit.Lighting, edit.Motions)); return id; }
         MarkChanged();
         return id;
-    }
-
-    public void CommitMotion(Guid objectId, VmdMotion motion) => CommitMotion(objectId, motion, null);
-    internal void CommitMotion(Guid objectId, VmdMotion motion, Action<bool>? poseDraftHistory)
-    {
-        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        var old = Motions.Single(actor => actor.ObjectId == objectId);
-        var writeOptions = new VmdWriteOptions
-        {
-            AnsiCodePage = MotionCodePage(old),
-            // A user-confirmed short header belongs to this binding and survives subsequent edits.
-            ModelNameOverride = old.Asset is { } previous && motion.ModelName != previous.Motion.ModelName
-                ? previous.Motion.ModelName : null
-        };
-        var asset = CaptureMotion(motion, old.Asset?.Name ?? "motion.vmd", writeOptions);
-        Edit(edit =>
-        {
-            int index = edit.Motions.FindIndex(actor => actor.ObjectId == objectId);
-            if (index < 0) throw new InvalidOperationException(EditorLocalization.Text("选中的模型已被移除。"));
-            edit.Motions[index] = edit.Motions[index] with { Motion = asset?.Motion ?? motion, Asset = asset };
-        }, null, poseDraftHistory: poseDraftHistory);
-    }
-
-    private static SceneMotionAsset? CaptureMotion(VmdMotion motion, string name, VmdWriteOptions options)
-    {
-        try { return SceneMotionAsset.FromMotion(motion, name, options); }
-        catch (ArgumentException error) when (error.ParamName == "header.modelName" && options.ModelNameOverride is null)
-        {
-            // PMX/PMM display names have no VMD's twenty-byte header restriction. Keep all authored
-            // tracks intact; the save/export host must ask for an explicit encodable header.
-            return null;
-        }
-        catch (ArgumentException error) when (error.ParamName?.EndsWith(".name", StringComparison.Ordinal) == true)
-        {
-            // Keep PMM's full channel names editable. PMA/VMD serialization reports its own
-            // format restriction before writing; ordinary pose edits must not truncate them.
-            return null;
-        }
-    }
-
-    /// <summary>Registers all prepared actor/scene drafts as one undoable project transaction.</summary>
-    public void CommitDraftMotions(IReadOnlyDictionary<Guid, VmdMotion> motions, VmdMotion? sceneMotion,
-        uint cameraFrame = 0, PmmCameraPose? cameraPose = null)
-    {
-        var source = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        var replacements = motions.ToDictionary(pair => pair.Key, pair =>
-        {
-            var actor = Motions.Single(item => item.ObjectId == pair.Key);
-            var asset = CaptureMotion(pair.Value, actor.Asset?.Name ?? "motion.vmd", new()
-            { AnsiCodePage = MotionCodePage(actor), ModelNameOverride = actor.Asset?.Motion.ModelName });
-            return actor with { Motion = asset?.Motion ?? pair.Value, Asset = asset };
-        });
-        var oldScene = source.CaptureAuthoredContent().SceneMotion;
-        var sceneAsset = sceneMotion is null ? null : SceneMotionAsset.FromMotion(sceneMotion, oldScene?.Name ?? "scene.vmd",
-            new() { AnsiCodePage = oldScene?.AnsiCodePage ?? 932 });
-        if (replacements.Count == 0 && sceneAsset is null) return;
-        Edit(edit =>
-        {
-            for (int index = 0; index < edit.Motions.Count; index++)
-                if (replacements.TryGetValue(edit.Motions[index].ObjectId, out var actor)) edit.Motions[index] = actor;
-            if (sceneAsset is not null) edit.SceneMotion = sceneAsset;
-            if (cameraPose is { } camera && edit.PmmControls is { } controls)
-                edit.PmmControls = controls.WithCameraParent(cameraFrame,
-                    RegisteredCamera(sceneAsset?.Motion, cameraFrame, camera));
-        });
-    }
-
-    /// <summary>Bindings whose complete authored motion needs an explicit VMD model header before
-    /// PMA save/export. This read has no edit or Undo side effect.</summary>
-    public IReadOnlyList<SceneActorMotion> GetMotionHeaderRequirements()
-        => Array.AsReadOnly(Motions.Where(actor => actor.Asset is null && IsHeaderFailure(actor)).ToArray());
-
-    private bool IsHeaderFailure(SceneActorMotion actor)
-    {
-        try { _ = VmdWriter.ToBytes(actor.Motion, new() { AnsiCodePage = MotionCodePage(actor) }); return false; }
-        catch (ArgumentException error) when (error.ParamName == "header.modelName") { return true; }
-        catch (ArgumentException) { return false; }
-    }
-
-    public IReadOnlyList<string> GetMotionPersistenceErrors()
-    {
-        var errors = new List<string>();
-        foreach (var actor in Motions.Where(actor => actor.Asset is null))
-        {
-            try { _ = VmdWriter.ToBytes(actor.Motion, new() { AnsiCodePage = MotionCodePage(actor) }); }
-            catch (ArgumentException error) when (error.ParamName != "header.modelName")
-            { errors.Add(actor.Model.Name + ": " + error.Message); }
-        }
-        return errors.AsReadOnly();
-    }
-
-    private int MotionCodePage(SceneActorMotion actor)
-        => actor.Asset?.AnsiCodePage ?? importedMotionCodePages.GetValueOrDefault(actor.ObjectId, 932);
-
-    /// <summary>Captures a user-supplied header as one undoable motion edit. Model display names and
-    /// source files are unchanged; an invalid header fails before publication.</summary>
-    public void SetMotionHeader(Guid objectId, string modelNameOverride)
-    {
-        ArgumentNullException.ThrowIfNull(modelNameOverride);
-        var old = Motions.Single(actor => actor.ObjectId == objectId);
-        var asset = SceneMotionAsset.FromMotion(old.Motion, old.Asset?.Name ?? "motion.vmd", new()
-        { AnsiCodePage = MotionCodePage(old), ModelNameOverride = modelNameOverride });
-        Edit(edit =>
-        {
-            int index = edit.Motions.FindIndex(actor => actor.ObjectId == objectId);
-            if (index < 0) throw new InvalidOperationException(EditorLocalization.Text("选中的模型已被移除。"));
-            edit.Motions[index] = edit.Motions[index] with { Motion = asset.Motion, Asset = asset };
-        });
-    }
-
-    public void BindMotion(Guid objectId, SceneMotionAsset asset)
-    {
-        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        Edit(edit =>
-        {
-            int index = edit.Motions.FindIndex(actor => actor.ObjectId == objectId);
-            if (index < 0) throw new InvalidOperationException(EditorLocalization.Text("请选择动作所属的模型。"));
-            edit.Motions[index] = edit.Motions[index] with { Motion = asset.Motion, Asset = asset };
-        });
-    }
-
-    public void CommitSceneMotion(VmdMotion motion) => CommitSceneMotion(motion, 0, null);
-
-    public void CommitSceneMotion(VmdMotion motion, uint cameraFrame, PmmCameraPose? cameraPose)
-    {
-        var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
-        var old = session.CaptureAuthoredContent().SceneMotion;
-        var asset = SceneMotionAsset.FromMotion(motion, old?.Name ?? "scene.vmd",
-            new VmdWriteOptions { AnsiCodePage = old?.AnsiCodePage ?? 932 });
-        Edit(edit =>
-        {
-            edit.SceneMotion = asset;
-            if (cameraPose is { } camera && edit.PmmControls is { } controls)
-                edit.PmmControls = controls.WithCameraParent(cameraFrame,
-                    RegisteredCamera(asset.Motion, cameraFrame, camera));
-        });
-    }
-
-    private static PmmCameraPose RegisteredCamera(VmdMotion? motion, uint frame, PmmCameraPose parent)
-    {
-        var key = motion?.CameraKeyframes.LastOrDefault(value => value.Frame == frame)
-            ?? throw new InvalidOperationException("A registered camera parent requires its matching authored camera key.");
-        // The numeric editor accepts fractional FOV; VMD registration rounds it to its integer
-        // field. Retained PMM local values must use that same actual key, including this rounding.
-        return parent with { LookAt = key.Interest, Angle = key.Rotation, Distance = key.Distance,
-            Fov = key.ViewAngle, Perspective = key.Perspective, ViewOffset = Vector2.Zero };
     }
 
     public void Edit(Action<SceneProjectEdit> edit) => Edit(edit, null);
@@ -403,8 +258,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         else session.Edit(Prepare);
         commitMappings?.Invoke();
         ProjectMetadata = preparedMetadata;
-        undo.Push(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata,
-            preservePoseDrafts, preserveRenderBinding, GuessMaterialRoles, GuessMaterialRoles, poseDraftHistory)); redo.Clear();
+        RecordHistory(new(session, session, true, before, SnapshotMappings(), beforeMetadata, preparedMetadata,
+            preservePoseDrafts, preserveRenderBinding, PoseDraftHistory: poseDraftHistory));
         MarkChanged(preservePoseDrafts, preserveRenderBinding);
     }
 
@@ -515,9 +370,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         var mappings = SnapshotMappings();
         apply();
-        undo.Push(new(session, session, true, mappings, mappings, ProjectMetadata, ProjectMetadata,
-            PreservePoseDrafts: true, BeforeGuessMaterialRoles: GuessMaterialRoles, AfterGuessMaterialRoles: GuessMaterialRoles));
-        redo.Clear();
+        RecordHistory(new(session, session, true, mappings, mappings, ProjectMetadata, ProjectMetadata,
+            PreservePoseDrafts: true));
         StartShaderPrewarm();
         MarkChanged(preservePoseDrafts: true);
     }
@@ -560,10 +414,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         }
 
         GuessMaterialRoles = enabled;
-        undo.Push(new(session, session, false, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
-            PreservePoseDrafts: true, PreserveRenderBinding: false,
-            BeforeGuessMaterialRoles: beforeGuess, AfterGuessMaterialRoles: enabled));
-        redo.Clear();
+        RecordHistory(new(session, session, false, before, SnapshotMappings(), ProjectMetadata, ProjectMetadata,
+            PreservePoseDrafts: true, GuessMaterialRolesChange: (beforeGuess, enabled)));
         MarkChanged(preservePoseDrafts: true, preserveRenderBinding: false);
         return true;
     }
@@ -601,8 +453,9 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         var beforeMetadata = ProjectMetadata;
         bool beforeGuess = GuessMaterialRoles;
         Session = null; MaterialBindings.Clear(); ProjectMetadata = null; GuessMaterialRoles = true;
-        undo.Push(new(session, null, false, before, [], beforeMetadata, null,
-            BeforeGuessMaterialRoles: beforeGuess, AfterGuessMaterialRoles: true)); redo.Clear(); MarkChanged();
+        RecordHistory(new(session, null, false, before, [], beforeMetadata, null,
+            GuessMaterialRolesChange: (beforeGuess, true)));
+        MarkChanged();
     }
 
     public void Save(string path, CancellationToken token = default)
@@ -619,22 +472,23 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         catch (PmaSaveCommittedException error)
         {
             // The neutral writer proves this operation committed; existence alone is not proof.
-            ProjectPath = error.DestinationPath;
-            ClearDirtyIfCurrentSnapshot(snapshot);
-            try { Changed?.Invoke(this, EventArgs.Empty); }
+            try { PublishCommittedSave(error.DestinationPath, snapshot); }
             catch (Exception notificationError) { error.Data["EditorSaveNotificationError"] = notificationError; }
             throw;
         }
-        ProjectPath = destination; ClearDirtyIfCurrentSnapshot(snapshot); Changed?.Invoke(this, EventArgs.Empty);
+        PublishCommittedSave(destination, snapshot);
     }
 
-    private void ClearDirtyIfCurrentSnapshot(PmaSaveSnapshot snapshot)
+    private void PublishCommittedSave(string destination, PmaSaveSnapshot snapshot)
     {
         lock (dirtySync)
         {
-            if (!snapshotVersions.TryGetValue(snapshot, out var captured) || editVersion == captured.Value)
-                IsDirty = false;
+            // A detached writer may finish after New/Open replaced the active document.
+            if (!snapshotOrigins.TryGetValue(snapshot, out var origin) || documentId != origin.DocumentId) return;
+            ProjectPath = destination;
+            IsDirty = editVersion != origin.EditVersion;
         }
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     internal EditorProjectFormat ConversionFormat =>
@@ -666,10 +520,10 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     internal PmaSaveSnapshot CaptureRecoverySnapshot(CancellationToken token = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        long capturedVersion;
-        lock (dirtySync) capturedVersion = editVersion;
+        SnapshotOrigin origin;
+        lock (dirtySync) origin = new(documentId, editVersion);
         var snapshot = persistence.CaptureSnapshot(this, CreateSaveOptions(token), token);
-        snapshotVersions.AddOrUpdate(snapshot, new StrongBox<long>(capturedVersion));
+        snapshotOrigins.AddOrUpdate(snapshot, origin);
         return snapshot;
     }
 
@@ -683,14 +537,14 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     {
         var session = Session ?? throw new InvalidOperationException(EditorLocalization.Text("请先载入模型。"));
         token.ThrowIfCancellationRequested();
-        var missingHeaders = GetMotionHeaderRequirements();
-        var unsupportedNames = GetMotionPersistenceErrors();
+        var actors = Motions;
+        var (missingHeaders, unsupportedNames) = InspectUncapturedMotions(actors, token);
         if (unsupportedNames.Count != 0) throw new NotSupportedException(EditorLocalization.Text("当前 PMA 动作存储遵守 VMD 的名称字段限制。请保留 PMM 原工程；以下名称不能无损写入，未改名或截断：\n") + string.Join("\n", unsupportedNames));
         if (missingHeaders.Count != 0)
             throw new InvalidOperationException(EditorLocalization.Text("以下模型的动作需要明确填写可编码且不超过 20 字节的 VMD 模型头，才可保存或导出：")
                 + string.Join("、", missingHeaders.Select(actor => session.Objects.Single(item => item.Id == actor.ObjectId).Name)));
         var options = new PmaSaveOptions { ValidationOptions = PackageLimits, CacheDirectory = PackageCacheDirectory };
-        var drafts = CapturePoseDrafts?.Invoke(Motions) ?? OpenedPoseDrafts.ForModels(Motions);
+        var drafts = CapturePoseDrafts?.Invoke(actors) ?? OpenedPoseDrafts.ForModels(actors);
         if (drafts.Actors.Length == 0 && package?.OptionalExtensions.ContainsKey(EditorPoseDraftPackage.Extension) != true) return options;
         return options with { OptionalExtensions = new Dictionary<string, System.Text.Json.JsonElement> { [EditorPoseDraftPackage.Extension] = drafts.Encode() } };
     }
@@ -782,12 +636,18 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    private void RecordHistory(HistoryStep step)
+    {
+        undo.Push(step);
+        redo.Clear();
+    }
+
     public bool Undo()
     {
         if (!undo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Undo() != true) return false;
         undo.Pop(); redo.Push(step); Session = step.Before; ProjectMetadata = step.BeforeMetadata;
-        GuessMaterialRoles = step.BeforeGuessMaterialRoles;
+        if (step.GuessMaterialRolesChange is { } change) GuessMaterialRoles = change.Before;
         RestoreMappings(step.BeforeMappings); step.PoseDraftHistory?.Invoke(true); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     public bool Redo()
@@ -795,7 +655,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         if (!redo.TryPeek(out var step)) return false;
         if (step.SessionEdit && step.After?.Redo() != true) return false;
         redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
-        GuessMaterialRoles = step.AfterGuessMaterialRoles;
+        if (step.GuessMaterialRolesChange is { } change) GuessMaterialRoles = change.After;
         RestoreMappings(step.AfterMappings); step.PoseDraftHistory?.Invoke(false); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
@@ -858,7 +718,7 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         OpenedPoseDrafts = EditorPoseDraftPackage.Empty;
         package = null; Session = null; MaterialBindings.Clear(); StyleGlobalParameters.Clear(); ProjectMetadata = null; importedMotionCodePages.Clear();
         GuessMaterialRoles = true;
-        DocumentId = Guid.NewGuid();
+        lock (dirtySync) documentId = Guid.NewGuid();
     }
     public static string CacheDirectory => EditorUserDataPaths.Current.ProjectCacheDirectory;
     public void Dispose()

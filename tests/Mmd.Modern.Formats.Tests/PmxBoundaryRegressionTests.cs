@@ -47,6 +47,34 @@ public sealed class PmxBoundaryRegressionTests
     }
 
     [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(4)]
+    [InlineData(5)] [InlineData(6)] [InlineData(7)] [InlineData(8)] [InlineData(9)] [InlineData(10)]
+    public void MorphCountUsesExactRecordWidth(byte type)
+    {
+        foreach (var (vertexWidth, signedWidth) in new[] { (1, 4), (2, 2), (4, 1) })
+        {
+            Probe probe = Make(new(VertexWidth: vertexWidth, SignedWidth: signedWidth, MorphTypes: [type]));
+            CheckMorphBoundary(probe);
+        }
+    }
+
+    [Theory]
+    [InlineData(1, 4)]
+    [InlineData(4, 1)]
+    public void MaterialMorphUsesMaterialIndexWidth(int materialWidth, int morphWidth)
+    {
+        Probe probe = Make(new(MaterialWidth: materialWidth, MorphWidth: morphWidth, MorphTypes: [8]));
+        CheckMorphBoundary(probe);
+    }
+
+    private static void CheckMorphBoundary(Probe probe)
+    {
+        int end = checked((int)probe.Offsets["displayFrames.count"]);
+        Reject(probe with { Bytes = probe.Bytes[..(end - 1)] }, "morphs[0].count");
+        Reject(probe with { Bytes = probe.Bytes[..end] }, "displayFrames.count");
+    }
+
+    [Theory]
     [InlineData(1)] [InlineData(2)] [InlineData(4)]
     public void DeferredImpulseReferencesHaveOriginalFieldAndOffset(int width)
     {
@@ -201,7 +229,7 @@ public sealed class PmxBoundaryRegressionTests
         int[]? MaterialFaces = null, int[]? FaceIndices = null, int LastFaceVertex = 2,
         byte[]? MorphTypes = null, bool BoneFeatures = false, bool DisplayTargets = false,
         bool Joint = false, bool SoftBody = false, string? OverrideField = null,
-        int OverrideIndex = 0, byte[]? TrailingBytes = null);
+        int OverrideIndex = 0, byte[]? TrailingBytes = null, int? MaterialWidth = null, int? MorphWidth = null);
 
     private sealed record Probe(byte[] Bytes, Dictionary<string, long> Offsets);
 
@@ -227,7 +255,13 @@ public sealed class PmxBoundaryRegressionTests
         writer.Write("PMX "u8); Mark("header.version"); writer.Write(o.Version);
         writer.Write((byte)8); writer.Write((byte)1); writer.Write((byte)0);
         writer.Write((byte)o.VertexWidth);
-        for (int i = 0; i < 5; i++) writer.Write((byte)o.SignedWidth);
+        int materialWidth = o.MaterialWidth ?? o.SignedWidth;
+        int morphWidth = o.MorphWidth ?? o.SignedWidth;
+        writer.Write((byte)o.SignedWidth); // texture
+        writer.Write((byte)materialWidth);
+        writer.Write((byte)o.SignedWidth); // bone
+        writer.Write((byte)morphWidth);
+        writer.Write((byte)o.SignedWidth); // rigid body
         Text(); Text(); Text(); Text();
         writer.Write(o.Vertices);
         for (int i = 0; i < o.Vertices; i++)
@@ -275,20 +309,23 @@ public sealed class PmxBoundaryRegressionTests
         {
             string field = $"morphs[{i}]";
             byte type = morphTypes[i];
-            Text(); Text(); writer.Write((byte)4); writer.Write(type); writer.Write(1);
+            Text(); Text(); writer.Write((byte)4); writer.Write(type);
+            Mark(field + ".count"); writer.Write(1);
             switch (type)
             {
                 case 0: case 9:
-                    Index(field + (type == 0 ? ".groupOffsets[0].morphIndex" : ".flipOffsets[0].morphIndex"), 0);
+                    Index(field + (type == 0 ? ".groupOffsets[0].morphIndex" : ".flipOffsets[0].morphIndex"), 0, morphWidth);
                     writer.Write(1f); break;
                 case 1: Index(field + ".positionOffsets[0].vertexIndex", 0, o.VertexWidth); Floats(3); break;
                 case 2: Index(field + ".boneOffsets[0].boneIndex", 0); Floats(7); break;
-                case 8: Index(field + ".materialOffsets[0].materialIndex", -1); writer.Write((byte)1); Floats(28); break;
+                case >= 3 and <= 7:
+                    Index(field + ".uvOffsets[0].vertexIndex", 0, o.VertexWidth); Floats(4); break;
+                case 8: Index(field + ".materialOffsets[0].materialIndex", -1, materialWidth); writer.Write((byte)1); Floats(28); break;
                 case 10: Index(field + ".impulseOffsets[0].rigidBodyIndex", 0); writer.Write((byte)0); Floats(6); break;
                 default: throw new InvalidOperationException("Unsupported test morph");
             }
         }
-        writer.Write(o.Frames);
+        Mark("displayFrames.count"); writer.Write(o.Frames);
         for (int i = 0; i < o.Frames; i++)
         {
             Text(); Text(); writer.Write((byte)(i < 2 ? 1 : 0));
@@ -297,7 +334,7 @@ public sealed class PmxBoundaryRegressionTests
             if (targets)
             {
                 writer.Write((byte)0); Index("displayFrames[0].targets[0].index", 0);
-                writer.Write((byte)1); Index("displayFrames[0].targets[1].index", 0);
+                writer.Write((byte)1); Index("displayFrames[0].targets[1].index", 0, morphWidth);
             }
         }
         writer.Write(o.RigidBodies);
@@ -318,7 +355,7 @@ public sealed class PmxBoundaryRegressionTests
             Mark("softBodies.count"); writer.Write(o.SoftBody ? 1 : 0);
             if (o.SoftBody)
             {
-                Text(); Text(); writer.Write((byte)0); Index("softBodies[0].materialIndex", 0);
+                Text(); Text(); writer.Write((byte)0); Index("softBodies[0].materialIndex", 0, materialWidth);
                 writer.Write((byte)0); writer.Write((ushort)0); writer.Write((byte)0);
                 writer.Write(0); writer.Write(0); Floats(2); writer.Write(0);
                 Floats(18); for (int i = 0; i < 4; i++) writer.Write(0); Floats(3);

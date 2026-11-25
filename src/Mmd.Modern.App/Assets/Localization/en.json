@@ -1097,6 +1097,7 @@
   "Mda.Text.ExportStatus.Completed": "Render complete",
   "Mda.Text.ExportStatus.Cancelled": "Render canceled",
   "Mda.Text.ExportStatus.Failed": "Render failed",
+  "Mda.Text.ExportStatus.FailedAfterPublication": "Output saved, final processing failed",
   "Mda.Text.ExportStatus.Frames": "{0} / {1} frames",
   "Mda.Text.ExportStatus.FramesUnknown": "{0} frames completed",
   "Mda.Text.ExportStatus.Elapsed": "Elapsed",

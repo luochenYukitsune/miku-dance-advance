@@ -155,10 +155,11 @@ internal sealed class D3D12GpuRuntime:IDisposable
         internal readonly List<ConstantUploadPage> ConstantPages=[];
         internal int ConstantPage,ConstantOffset;
         internal ulong Fence;
-        internal Slot(ID3D12Device device)
+        internal Slot(ID3D12Device device, D3D12ConstructionScope construction)
         {
-            Allocator=device.CreateCommandAllocator(CommandListType.Direct);
-            Commands=device.CreateCommandList<ID3D12GraphicsCommandList>(CommandListType.Direct,Allocator,null); Commands.Close();
+            Allocator = construction.Own(device.CreateCommandAllocator(CommandListType.Direct));
+            Commands = construction.Own(device.CreateCommandList<ID3D12GraphicsCommandList>(CommandListType.Direct, Allocator, null));
+            Commands.Close();
         }
     }
     internal ID3D12Device Device {get;}
@@ -202,13 +203,21 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         DebugRequested=Environment.GetEnvironmentVariable("MMD_D3D12_DEBUG")=="1";
         DebugLayerEnabled=D3D12DebugLayerBootstrap.BeforeDeviceCreation(DebugRequested);
-        (Device,AdapterName,IsWarp)=D3D12AdapterSelection.CreateDevice(FeatureLevel.Level_11_0);
-        FeatureLevel=Device.CheckMaxSupportedFeatureLevel();
-        if(DebugRequested) DebugQueue=Device.QueryInterfaceOrNull<ID3D12InfoQueue>();
-        Queue=Device.CreateCommandQueue(CommandListType.Direct);fence=Device.CreateFence(0,FenceFlags.None);fenceWaiter=new(fence);
-        slots=Enumerable.Range(0,3).Select(_=>new Slot(Device)).ToArray();
-        Transients=new(this);
-        pipelineLibrary=new(Device,pipelineCacheDirectory);
+        using var construction = new D3D12ConstructionScope();
+        (Device, AdapterName, IsWarp) = D3D12AdapterSelection.CreateDevice(FeatureLevel.Level_11_0);
+        construction.Own(Device);
+        FeatureLevel = Device.CheckMaxSupportedFeatureLevel();
+        if (DebugRequested && Device.QueryInterfaceOrNull<ID3D12InfoQueue>() is { } debugQueue)
+            DebugQueue = construction.Own(debugQueue);
+        Queue = construction.Own(Device.CreateCommandQueue(CommandListType.Direct));
+        fence = construction.Own(Device.CreateFence(0, FenceFlags.None));
+        fenceWaiter = construction.Own(new D3D12FenceWaiter(fence));
+        slots = new Slot[D3D12SsaaGiMemoryBudget.MaximumInFlightFrames];
+        for (int i = 0; i < slots.Length; i++)
+            slots[i] = new Slot(Device, construction);
+        Transients = new(this);
+        pipelineLibrary = new(Device, pipelineCacheDirectory);
+        construction.Complete();
     }
     internal D3D12RecordingContext Begin()
     {
@@ -226,7 +235,8 @@ internal sealed class D3D12GpuRuntime:IDisposable
     {
         const int pageSize=ConstantUploadPage.Size;
         if(!IsRecording)throw new InvalidOperationException("No open GPU frame.");
-        int aligned=(bytes.Length+255)&~255;if(aligned>pageSize)throw new ArgumentException("A constant allocation exceeds one upload page.");
+        if (bytes.Length > pageSize) throw new ArgumentException("A constant allocation exceeds one upload page.");
+        int aligned = (bytes.Length + 255) & ~255;
         var slot=slots[slotIndex];
         ConstantAllocations++;ConstantBytes+=bytes.Length;
         if(slot.ConstantOffset+aligned>pageSize){slot.ConstantPage++;slot.ConstantOffset=0;}

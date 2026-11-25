@@ -40,6 +40,36 @@ public sealed class D3D12FrameSessionTests
         Assert.Equal(actual.Rgba,fresh.Capture(scene,width,height).Rgba);
     }
     [Fact]
+    public void AbortedPresentKeepsCompletedFrameDiagnosticsUntilTheNextSuccessfulRender()
+    {
+        var scene = D3D12OriginalFrameTests.Shadow(true);
+        using var session = new D3D12FrameSession();
+        using var first = session.Render(scene, 64, 48);
+        var firstTargets = session.LastTargets;
+        var firstRecordings = session.LastRecordings;
+        Assert.Contains(firstTargets, target => target.Name == "$output" && target.Size == (64, 48));
+        Assert.NotEmpty(firstRecordings);
+        Assert.All(firstRecordings, recording => Assert.Equal(first.FrameId, recording.FrameId));
+
+        var failure = new InvalidOperationException("Presentation recording failed.");
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => session.RenderForPresent(scene, 96, 72, null,
+            (_, target) =>
+            {
+                Assert.Equal((96, 72), (target.Width, target.Height));
+                throw failure;
+            })));
+        Assert.Same(firstTargets, session.LastTargets);
+        Assert.Same(firstRecordings, session.LastRecordings);
+        Assert.Same(first.Statistics, session.Statistics);
+
+        using var recovered = session.Render(scene, 96, 72);
+        Assert.Contains(session.LastTargets, target => target.Name == "$output" && target.Size == (96, 72));
+        Assert.True(recovered.FrameId > first.FrameId);
+        Assert.NotEmpty(session.LastRecordings);
+        Assert.All(session.LastRecordings, recording => Assert.Equal(recovered.FrameId, recording.FrameId));
+    }
+
+    [Fact]
     public void RemovalFenceAllowsTeardownAndANewSessionRendersTheSameLighting()
     {
         var scene = D3D12NativeLightTests.Fixture();

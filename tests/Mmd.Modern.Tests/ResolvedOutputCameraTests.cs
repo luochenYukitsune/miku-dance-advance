@@ -105,6 +105,9 @@ public sealed class ResolvedOutputCameraTests
             using var actual = await renderer.CaptureAsync(packet, TestContext.Current.CancellationToken);
             byte[] pixels = actual.Pixels.ToArray();
             Assert.Equal(reference.Capture(expected, 96, 72).Rgba, pixels);
+            Assert.Equal(new byte[] { 20, 24, 32, 255 }, pixels[..4]);
+            uint background = BitConverter.ToUInt32(pixels, 0);
+            Assert.Contains(Enumerable.Range(1, pixels.Length / 4 - 1), i => BitConverter.ToUInt32(pixels, 4 * i) != background);
             if (first is null) first = pixels; else Assert.NotEqual(first, pixels);
         }
         var unparentedPose = playback.CameraPose with { ParentModelIndex = -1 };
@@ -138,8 +141,9 @@ internal static class ResolvedOutputCameraFixture
                 InitialKeyframe = new() { Color = Vector3.One, Direction = -Vector3.UnitY } },
             Settings = new() { CameraLookAtModelIndex = 0, CameraLookAtBoneIndex = 0,
                 EdgeColorRgb = new int[3], UnknownMatrix = new byte[64], PreferredFps = 30 },
-            Camera = new() { Position = new(0, 0, -4), Perspective = true,
-                InitialKeyframe = new() { Distance = -4, Fov = 45, Perspective = true, ParentModelIndex = 0,
+            // Parented PMM cameras store their local eye in LookAt, including the keyframe used by Seek.
+            Camera = new() { Position = new(0, 0, -4), LookAt = new(0, 0, -4), Perspective = true,
+                InitialKeyframe = new() { LookAt = new(0, 0, -4), Distance = -4, Fov = 45, Perspective = true, ParentModelIndex = 0,
                     ParentBoneIndex = 0, Interpolation = cameraCurve } }
         };
         var model = new PmxModel

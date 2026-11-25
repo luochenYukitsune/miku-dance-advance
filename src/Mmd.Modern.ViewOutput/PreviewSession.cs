@@ -48,7 +48,7 @@ public sealed class PreviewSession : IAsyncDisposable
     private readonly IReadOnlyList<SceneObjectRenderRequest> sceneInputRequests;
     private readonly SemaphoreSlim gate = new(1, 1);
     private ViewRenderRequest request;
-    private bool paused, disposed;
+    private bool paused, closing, rendererDisposed, sessionDisposed;
     private long historyGeneration, cameraCutKey;
     private PreviewSession(ViewPlaybackOwner session, IRealtimeViewRenderer renderer, ViewRenderRequest request,
         IReadOnlyList<SceneObjectRenderRequest> sceneInputRequests)
@@ -180,8 +180,12 @@ public sealed class PreviewSession : IAsyncDisposable
         {
             RequireAlive(); var next = request with { Width = width, Height = height };
             renderer.Capabilities.Validate(next, capture: false);
-            await renderer.ResizeAsync(width, height, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            // A native resize can take effect before the renderer observes cancellation.
+            // Finish the admitted resize and publish its dimensions together.
+            await renderer.ResizeAsync(width, height, CancellationToken.None).ConfigureAwait(false);
             request = next;
+            cancellationToken.ThrowIfCancellationRequested();
         }
         finally { gate.Release(); }
     }
@@ -191,15 +195,33 @@ public sealed class PreviewSession : IAsyncDisposable
         await gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (disposed) return; disposed = true;
+            closing = true;
             Exception? failure = null;
-            try { await renderer.DisposeAsync().ConfigureAwait(false); } catch (Exception error) { failure = error; }
-            try { session.Dispose(); }
-            catch (Exception error) { if (failure is null) failure = error; else failure.Data["ViewOutputCleanupErrors"] = new[] { error }; }
+            if (!rendererDisposed)
+            {
+                try
+                {
+                    await renderer.DisposeAsync().ConfigureAwait(false);
+                    rendererDisposed = true;
+                }
+                catch (Exception error) { failure = error; }
+            }
+            if (!sessionDisposed)
+            {
+                try
+                {
+                    session.Dispose();
+                    sessionDisposed = true;
+                }
+                catch (Exception error) when (failure is not null)
+                {
+                    failure.Data["ViewOutputCleanupErrors"] = new[] { error };
+                }
+            }
             if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
         finally { gate.Release(); }
     }
 
-    private void RequireAlive() => ObjectDisposedException.ThrowIf(disposed, this);
+    private void RequireAlive() => ObjectDisposedException.ThrowIf(closing, this);
 }

@@ -38,6 +38,51 @@ public sealed class D3D12PmxMaterialTreatmentViewTests
             styleCatalog: TestStylePlugins.AllViewCatalog));
     }
 
+    [Theory]
+    [InlineData(true)]  // The plugin treatment must still reject the same input on retry.
+    [InlineData(false)] // The fallback treatment must validate when only its source toon response changes.
+    public void CachedTreatmentValidatesChangedSourceToonOnEveryAttempt(bool loadTreatedSlotPlugin)
+    {
+        var styles = loadTreatedSlotPlugin ? TestStylePlugins.AllViewCatalog : new D3D12ViewStyleCatalog([TestStylePlugins.Genshin]);
+        var preset = D3D12StylePresetResult.Resolve(new("inherit-star", "Inherited toon", "star-rail", null, null),
+            TestStylePlugins.AllPresetCatalog.Plugins);
+        var catalog = TestStylePlugins.AllViewCatalog.ToD3D12PresetCatalog([preset]);
+        SceneRenderingStyleBinding[] bindings =
+        [
+            new(Guid.NewGuid(), new("genshin"), ModelRole.Character, 0, 1, true),
+            new(Guid.NewGuid(), new("inherit-star"), ModelRole.Character, 1, 1, true),
+        ];
+        var treatment = new D3D12PmxMaterialTreatment(1, 1.5f);
+        D3D12ViewCharacterMaterial[] overrides =
+        [
+            new(bindings[0].ObjectId, 0, D3D12CharacterMaterialRole.Eye),
+            new(bindings[1].ObjectId, 0, PmxTreatment: treatment),
+        ];
+        var cache = new D3D12ViewRenderingStylesCache(catalog, overrides, [], [], styles, null);
+        var source = Source();
+        OriginalFrameScene WithResponse(CharacterToonResponse toon) => new(source.Surface, source.Outline,
+            source.OutlineOptions, source.Options, [source.Materials[0], source.Materials[1] with { CharacterToonResponse = toon }]);
+
+        var initial = WithResponse(new(.5f, .1f));
+        var first = cache.Resolve(initial, bindings);
+        Assert.Null(first.SurfaceStyles.EffectivePmxMaterialTreatment(0));
+        Assert.Equal(treatment, first.SurfaceStyles.EffectivePmxMaterialTreatment(1));
+        var invalid = WithResponse(new(.05f, .1f));
+        var directError = Assert.Throws<ArgumentException>(() =>
+            D3D12ViewRenderingStyles.Resolve(invalid, catalog, bindings, overrides, styleCatalog: styles));
+        Assert.Equal("response", directError.ParamName);
+        for (int i = 0; i < 2; i++)
+            Assert.Equal(directError.ParamName, Assert.Throws<ArgumentException>(() => cache.Resolve(invalid, bindings)).ParamName);
+        Assert.Same(first, cache.Resolve(initial, bindings));
+
+        var corrected = WithResponse(new(.4f, .1f));
+        var recovered = cache.Resolve(corrected, bindings);
+        Assert.Same(first.SurfaceStyles, recovered.SurfaceStyles);
+        Assert.Equal(new CharacterToonResponse(.4f, .15f),
+            recovered.SurfaceStyles.EffectiveToonResponse(1, recovered.Scene.Materials[1].CharacterToonResponse));
+        Assert.Equal(new CharacterToonResponse(.5f, .1f), first.Scene.Materials[1].CharacterToonResponse);
+    }
+
     [Fact]
     public void ExplicitInstanceLocalSelectionRebasesAndHiddenRowsDoNotLeakToAnotherObject()
     {

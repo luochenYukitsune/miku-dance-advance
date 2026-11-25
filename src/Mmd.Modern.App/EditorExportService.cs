@@ -108,15 +108,12 @@ public static partial class EditorExportService
                 }
                 finally { diagnostics.CaptureFinalNativeModules(); }
             }, token).ConfigureAwait(false);
-            if (ownsDiagnostics) diagnostics.Finish(ExportTaskState.Completed);
             return result;
         }
         catch (Exception error)
         {
             failure = error;
             diagnostics.RecordFailure(error);
-            if (ownsDiagnostics) diagnostics.Finish(error is OperationCanceledException && token.IsCancellationRequested
-                ? ExportTaskState.Cancelled : ExportTaskState.Failed, error);
             throw;
         }
         finally
@@ -134,12 +131,26 @@ public static partial class EditorExportService
                 { try { failure.Data["EditorRenderCleanupRetryError"] = cleanup; } catch { } }
                 else
                 {
+                    failure = cleanup;
+                    if (diagnostics.OutputPublished)
+                    {
+                        try { cleanup.Data[ExportCoordinator.OutputPublishedDataKey] = true; } catch { }
+                    }
                     diagnostics.RecordFailure(cleanup);
-                    if (ownsDiagnostics) diagnostics.Finish(ExportTaskState.Failed, cleanup);
                     throw;
                 }
             }
-            finally { if (ownsDiagnostics) diagnostics.Dispose(); }
+            finally
+            {
+                if (ownsDiagnostics)
+                {
+                    var finalState = failure is null ? ExportTaskState.Completed
+                        : !diagnostics.OutputPublished && failure is OperationCanceledException && token.IsCancellationRequested
+                            ? ExportTaskState.Cancelled : ExportTaskState.Failed;
+                    diagnostics.Finish(finalState, failure);
+                    diagnostics.Dispose();
+                }
+            }
         }
     }
 
@@ -157,8 +168,12 @@ public static partial class EditorExportService
         { diagnostics.ReportPhase("sink.begin"); return inner.BeginAsync(request, token); }
         public ValueTask WriteAsync(Mmd.Modern.Application.OfflineFrameSample sample, FrameBufferLease frame, CancellationToken token = default)
             => inner.WriteAsync(sample, frame, token);
-        public ValueTask CompleteAsync(CancellationToken token = default)
-        { diagnostics.ReportPhase("sink.complete"); return inner.CompleteAsync(token); }
+        public async ValueTask CompleteAsync(CancellationToken token = default)
+        {
+            diagnostics.ReportPhase("sink.complete");
+            await inner.CompleteAsync(token).ConfigureAwait(false);
+            diagnostics.RecordPublication();
+        }
         public ValueTask AbortAsync(Exception? error, CancellationToken token = default)
         { diagnostics.ReportPhase("sink.abort"); return inner.AbortAsync(error, token); }
         public ValueTask DisposeAsync()

@@ -53,6 +53,9 @@ internal sealed class ExportDiagnosticSession : IDisposable
     private readonly List<ExportDiagnosticException> secondaryErrors = [];
     private bool finished, disposed, identitiesCaptured, nativeFinalCaptured;
 
+    internal bool OutputPublished { get; private set; }
+    internal void RecordPublication() => Guard(() => { OutputPublished = true; Append("output-published", null); });
+
     internal string TaskId { get; } = Guid.NewGuid().ToString("N");
     internal string? JsonLinesPath { get; private set; }
     internal string? SummaryPath { get; private set; }
@@ -272,7 +275,7 @@ internal sealed class ExportDiagnosticSession : IDisposable
 
     private object FinalReport() => new
     {
-        schema = Schema, schemaVersion = SchemaVersion, taskId = TaskId, startedUtc, state,
+        schema = Schema, schemaVersion = SchemaVersion, taskId = TaskId, startedUtc, state, outputPublished = OutputPublished,
         elapsedMilliseconds = elapsed.Elapsed.TotalMilliseconds, phase, completedFrames, totalFrames = plan?.FrameCount,
         simulationTicks, lastCompletedFrame = lastCompleted, failureContext, metadata, exception = failure, secondaryErrors,
         progressEvents, progressEventsCapped = progressEvents >= MaximumProgressEvents,
@@ -304,6 +307,7 @@ internal sealed class ExportDiagnosticSession : IDisposable
         text.AppendLine("Schema: " + Schema + " v" + SchemaVersion + "    Task ID: " + TaskId);
         text.AppendLine("Started UTC: " + startedUtc.ToString("O", CultureInfo.InvariantCulture));
         text.AppendLine("State: " + state + "    Phase: " + phase + "    Elapsed: " + elapsed.Elapsed.ToString("c", CultureInfo.InvariantCulture));
+        text.AppendLine("Output published: " + OutputPublished);
         text.AppendLine("Completed output frames: " + completedFrames + " / " + (plan?.FrameCount.ToString(CultureInfo.InvariantCulture) ?? "not observed"));
         text.AppendLine("Completed 120Hz simulation ticks since Seek: " + (simulationTicks?.ToString(CultureInfo.InvariantCulture) ?? "not observed"));
         text.AppendLine("Output index is zero-based; ordinal is one-based. Null means not observed. Attempted ticks are not completed ticks.");
