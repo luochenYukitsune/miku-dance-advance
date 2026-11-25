@@ -53,6 +53,82 @@ public sealed class SceneAnimationProjectStoreTests : IDisposable
     }
 
     [Fact]
+    public void SaveWithoutExplicitSettingsRoundTripsDetachedMotionAndDefaults()
+    {
+        var model = Model(morph: true);
+        var (scene, lighting, first, _) = Scene(model);
+        var asset = SceneMotionAsset.FromBytes(MotionBytes(30, new(3, 0, 0), morph: true));
+        var motion = new SceneActorMotion(first.Id, model, asset.Motion, Asset: asset)
+        {
+            Detachment = new([], ["smile"], [], []),
+        };
+        using var session = new SceneAnimationSession(scene.Objects, [motion], NoPhysics, lighting.Snapshot, Token);
+
+        SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, ExternalAssets, Token);
+
+        var document = Document();
+        Assert.Equal(SceneAnimationProjectStore.ModelReplacementVersion, document["version"]!.GetValue<int>());
+        Assert.Equal("smile", document["motions"]![0]!["detachment"]!["morphNames"]![0]!.GetValue<string>());
+        using var reopened = SceneAnimationProjectStore.Load(ProjectPath, (_, _) => new(model, Rest(model)), NoPhysics, Token);
+        Assert.Equal(new ProjectSettings(), reopened.Settings);
+        Assert.Empty(reopened.Media);
+        reopened.Animation.Seek(30, Token);
+        Near(new(3, 0, 0), reopened.Animation.Frame.Surface.Snapshot.Vertices[0].Position);
+    }
+
+    [Fact]
+    public void ExplicitSettingsCanSelectIndependentWorldButMustMatchCoupling()
+    {
+        var model = Model();
+        var (scene, lighting, _, _) = Scene(model);
+        using var session = new SceneAnimationSession(scene.Objects, [], NoPhysics, lighting.Snapshot, Token,
+            sharedPhysicsFactory: () => new TrackingSharedBackend());
+        Assert.True(session.UsesSharedPhysicsWorld);
+        var settings = new ProjectSettings { Width = 640 };
+        SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, settings, [], ExternalAssets, Token);
+        using var reopened = SceneAnimationProjectStore.Load(ProjectPath, (_, _) => new(model, Rest(model)), NoPhysics, Token);
+        Assert.Equal(settings, reopened.Settings);
+        Assert.False(reopened.Animation.UsesSharedPhysicsWorld);
+
+        var saved = File.ReadAllBytes(ProjectPath);
+        var mismatched = settings with { Physics = new() { CoupledSoftBodies = true } };
+        Assert.Throws<InvalidOperationException>(() =>
+            SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, mismatched, [], ExternalAssets, Token));
+        Assert.Equal(saved, File.ReadAllBytes(ProjectPath));
+    }
+
+    [Theory]
+    [InlineData(true, false, false, SceneAnimationProjectStore.SettingsVersion)]
+    [InlineData(false, true, false, SceneAnimationProjectStore.SettingsVersion)]
+    [InlineData(true, true, false, SceneAnimationProjectStore.SettingsVersion)]
+    [InlineData(true, false, true, SceneAnimationProjectStore.ModelReplacementVersion)]
+    public void ImplicitSettingsRoundTripSharedAndCoupledPhysics(bool shared, bool coupled, bool detached, int expectedVersion)
+    {
+        var model = Model(physics: true);
+        var (scene, lighting, first, _) = Scene(model);
+        var asset = SceneMotionAsset.FromBytes(MotionBytes(30, Vector3.One));
+        var motion = new SceneActorMotion(first.Id, model, asset.Motion, Asset: asset)
+        {
+            Detachment = detached ? new(["root"], [], [], []) : null,
+        };
+        using var session = new SceneAnimationSession(scene.Objects, [motion], _ => new CoupledSoftBodyTests.Owner(),
+            lighting.Snapshot, Token, sharedPhysicsFactory: shared ? () => new CoupledSoftBodyTests.Owner() : null,
+            coupledSoftBodies: coupled);
+        SceneAnimationProjectStore.Save(ProjectPath, scene, lighting, session, ExternalAssets, Token);
+
+        var expected = new ProjectPhysicsSettings { SharedWorld = shared, CoupledSoftBodies = coupled };
+        ProjectPhysicsSettings? backendSettings = null;
+        var provider = new ProjectSettingsBackendProvider(
+            (settings, _) => { backendSettings = settings; return new CoupledSoftBodyTests.Owner(); },
+            settings => { backendSettings = settings; return new CoupledSoftBodyTests.Owner(); });
+        using var reopened = SceneAnimationProjectStore.Load(ProjectPath, (_, _) => new(model, Rest(model)), provider, Token);
+        Assert.Equal(expectedVersion, Document()["version"]!.GetValue<int>());
+        Assert.Equal(expected, reopened.Settings.Physics);
+        Assert.Equal(expected, backendSettings);
+        Assert.Equal(shared, reopened.Animation.UsesSharedPhysicsWorld);
+    }
+
+    [Fact]
     public void CapturedBytesAreCopiedOnceByHashAndSharedMotionAssetsAreDeduplicated()
     {
         var model = Model(); var (scene, lighting, first, second) = Scene(model);

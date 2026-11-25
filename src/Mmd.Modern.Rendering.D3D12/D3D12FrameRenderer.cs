@@ -184,31 +184,9 @@ public sealed class D3D12FrameRenderer : IDisposable
             ? new D3D12SpatialUpscalingDimensions(width,height,width,height) : temporalUpscaling.GetDimensions(width,height);
         bool temporal=temporalUpscaling.Mode!=D3D12TemporalUpscalingMode.Off;
         bool straightAlpha=frame.Options?.AlphaOutput==FrameAlphaOutput.Straight;
-        if(straightAlpha)D3D12AlphaResolvePass.ValidateCoverage(frame);
-        if(straightAlpha&&(temporal||upscaling.Mode!=D3D12SpatialUpscalingMode.Off))
-            throw new NotSupportedException("Straight-alpha output with spatial/temporal upscaling requires an explicit coverage contract and is not supported.");
-        if(straightAlpha&&!capture&&frame.EditorOverlay is {Lines.Count:>0})
-            throw new NotSupportedException("Straight-alpha GPU output requires editor overlays to be disabled; their compositor uses the opaque viewport contract.");
-        if(temporal)
-        {
-            if(upscaling.Mode!=D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples??1)!=1 || frame.Options?.Antialiasing==FrameAntialiasing.Smaa1X)
-                throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, SMAA and spatial supersampling to be explicitly disabled.");
-            if(frame.Options?.BackgroundColor is {W:not 1f})
-                throw new NotSupportedException("Temporal reconstruction currently requires an opaque composited background.");
-            var camera=frame.Options?.CameraOverride??scene.Camera;
-            // The locked FSR provider reconstructs perspective view Z from near/far/FOV.
-            // XeSS consumes device depth for motion dilation and receives no projection parameters.
-            if(temporalUpscaling.Mode==D3D12TemporalUpscalingMode.Fsr&&camera.VerticalFovDegrees is null)
-                throw new NotSupportedException("Temporal FSR currently requires a perspective camera; its installed provider has no orthographic projection contract.");
-            if(temporalUpscaling.Mode==D3D12TemporalUpscalingMode.Dlss&&camera.VerticalFovDegrees is null)
-                throw new NotSupportedException("Temporal DLSS currently requires a perspective camera; orthographic reconstruction has not been validated.");
-            if(camera.ProjectionJitterPixels!=Vector2.Zero)
-                throw new NotSupportedException("Temporal reconstruction owns the camera jitter sequence; supply an unjittered effective camera.");
-            dimensions=temporalDimensions;
-        }
+        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode);
+        if (temporal) dimensions = temporalDimensions;
         bool upscale=upscaling.Mode==D3D12SpatialUpscalingMode.Fsr1;
-        if(upscale&&frame.Options?.BackgroundColor is { W: not 1f })
-            throw new NotSupportedException("FSR1 currently requires an opaque background; transparent coverage reconstruction is not implemented.");
         int displayWidth=width,displayHeight=height;
         width=dimensions.RenderWidth;height=dimensions.RenderHeight;
         int spatialSamples=frame.Options?.SpatialSamples??1;
@@ -641,7 +619,6 @@ public sealed class D3D12FrameRenderer : IDisposable
                 if(overlay.Lines.Any(line=>line.DeviceDepth is null))Recorded("editor:selection-overlay",output,defaultDepth);
                 editorOverlayMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(overlayStart).TotalMilliseconds;
             }
-            LastTargets=targetRecorder.Commit();
             commands.UnsetRenderTargets(); Transition(output,ResourceStates.CopySource);
             byte[] rgba=[];
             ID3D12Resource? readback=null;ulong bytes=0;var footprints=new PlacedSubresourceFootPrint[1];
@@ -702,6 +679,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                 CaptureLowMemory=captureLowMemory,CaptureInFlightFrames=CaptureMemoryStatistics?.InFlightFrames??0,
                 CaptureRetirementMilliseconds=captureRetirementMilliseconds,
                 TemporalUpscaling=TemporalUpscalingStatistics};
+            LastTargets=targetRecorder.Commit();
             LastRecordings=recordingRecords;
             // A pooled final image leaves the pool until the lease is disposed, so later frames cannot overwrite it.
             if(!capture)LastGpuOutput=new(displayWidth,displayHeight,runtime.FrameId,Statistics,output.Resource.QueryInterface<ID3D12Resource>(),
@@ -716,6 +694,37 @@ public sealed class D3D12FrameRenderer : IDisposable
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
         }
+    }
+
+    private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
+        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode)
+    {
+        if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
+        {
+            D3D12AlphaResolvePass.ValidateCoverage(frame);
+            if (temporalMode != D3D12TemporalUpscalingMode.Off || spatialMode != D3D12SpatialUpscalingMode.Off)
+                throw new NotSupportedException("Straight-alpha output with spatial/temporal upscaling requires an explicit coverage contract and is not supported.");
+            if (!capture && frame.EditorOverlay is { Lines.Count: > 0 })
+                throw new NotSupportedException("Straight-alpha GPU output requires editor overlays to be disabled; their compositor uses the opaque viewport contract.");
+        }
+        if (temporalMode != D3D12TemporalUpscalingMode.Off)
+        {
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1 || frame.Options?.Antialiasing == FrameAntialiasing.Smaa1X)
+                throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, SMAA and spatial supersampling to be explicitly disabled.");
+            if (frame.Options?.BackgroundColor is { W: not 1f })
+                throw new NotSupportedException("Temporal reconstruction currently requires an opaque composited background.");
+            var camera = frame.Options?.CameraOverride ?? frame.Surface.Snapshot.Camera;
+            // The locked FSR provider reconstructs perspective view Z from near/far/FOV.
+            // XeSS consumes device depth for motion dilation and receives no projection parameters.
+            if (temporalMode == D3D12TemporalUpscalingMode.Fsr && camera.VerticalFovDegrees is null)
+                throw new NotSupportedException("Temporal FSR currently requires a perspective camera; its installed provider has no orthographic projection contract.");
+            if (temporalMode == D3D12TemporalUpscalingMode.Dlss && camera.VerticalFovDegrees is null)
+                throw new NotSupportedException("Temporal DLSS currently requires a perspective camera; orthographic reconstruction has not been validated.");
+            if (camera.ProjectionJitterPixels != Vector2.Zero)
+                throw new NotSupportedException("Temporal reconstruction owns the camera jitter sequence; supply an unjittered effective camera.");
+        }
+        if (spatialMode == D3D12SpatialUpscalingMode.Fsr1 && frame.Options?.BackgroundColor is { W: not 1f })
+            throw new NotSupportedException("FSR1 currently requires an opaque background; transparent coverage reconstruction is not implemented.");
     }
 
     internal bool[] GetMipmapTextures(OriginalFrameScene frame, D3D12SurfaceStyleMap? surfaceStyles = null)

@@ -107,7 +107,7 @@ public sealed partial class D3D9EffectResourceTree
         var metadata = new MetadataV3(3, D3D9EffectDependencyStatus.Complete, [], required, descriptions, composedNodes,
             roots.Select(root => new RootData(root.OriginAbsolutePath, root.Provenance with { })).ToArray(), identity!,
             profiles.Values.ToArray(), edges.ToArray(), diagnostics.ToArray());
-        ValidateDependencyMetadata(metadata, limits, token);
+        new DependencyValidator(metadata, limits, token).Validate();
         if (JsonSerializer.SerializeToUtf8Bytes(metadata, Json).Length > limits.MaxMetadataBytes)
             throw new InvalidDataException("Composed effect dependency metadata exceeds its byte budget.");
         token.ThrowIfCancellationRequested(); return new(contents, metadata);

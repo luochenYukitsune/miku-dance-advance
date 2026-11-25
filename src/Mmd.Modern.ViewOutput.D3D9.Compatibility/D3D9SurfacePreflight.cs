@@ -15,16 +15,25 @@ internal static class D3D9SurfacePreflight
         return FreezeSurfaceRequest(request, background);
     }
 
-    internal static ViewRenderRequest FreezeObjectFxRequest(ViewRenderRequest request, Vector4 background)
-        => FreezeSurfaceRequest(request, background);
+    internal static (ViewRenderRequest Request, D3D9SurfaceFrameEncoder Encoder) PrepareRenderer(
+        ViewRenderRequest request, Vector4 background, D3D9SurfaceIsolation isolation,
+        IEnumerable<D3D9SurfaceObjectBinding> bindings, D3D9ObjectFxConfiguration? objectFx,
+        D3D9SceneFxConfiguration? sceneFx, D3D9EmmRuntimeConfiguration? emm,
+        Func<OfflineFrame, D3D9ClassicPassInputs>? classicPassInputs, D3D9ClassicScreenCaptureMode? screenCaptureMode)
+    {
+        // Reject the request before enumerating bindings or opening the native session.
+        var frozen = emm is null && sceneFx is null && objectFx is null
+            ? FreezeRequest(request, background, isolation)
+            : FreezeSurfaceRequest(request, background);
+        var encoder = emm is not null ? new D3D9SurfaceFrameEncoder(bindings, emm, screenCaptureMode)
+            : sceneFx is not null ? new D3D9SurfaceFrameEncoder(bindings, sceneFx)
+            : objectFx is not null ? new D3D9SurfaceFrameEncoder(bindings, objectFx)
+            : new D3D9SurfaceFrameEncoder(bindings);
+        encoder.UseClassicPassInputs(classicPassInputs);
+        return (frozen, encoder);
+    }
 
-    internal static ViewRenderRequest FreezeSceneFxRequest(ViewRenderRequest request, Vector4 background)
-        => FreezeSurfaceRequest(request, background);
-
-    internal static ViewRenderRequest FreezeEmmRequest(ViewRenderRequest request, Vector4 background)
-        => FreezeSurfaceRequest(request, background);
-
-    private static ViewRenderRequest FreezeSurfaceRequest(ViewRenderRequest request, Vector4 background)
+    internal static ViewRenderRequest FreezeSurfaceRequest(ViewRenderRequest request, Vector4 background)
     {
         ArgumentNullException.ThrowIfNull(request);
         request.Validate();

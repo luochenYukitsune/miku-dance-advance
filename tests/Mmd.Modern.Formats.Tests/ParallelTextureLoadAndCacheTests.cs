@@ -139,6 +139,33 @@ public sealed class ParallelTextureLoadAndCacheTests : IDisposable
     }
 
     [Fact]
+    public void LoadAfterCancelledPrefetchCachesSuccessfulRetry()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        string path = Path.Combine(directory, "retry.bin");
+        File.WriteAllBytes(path, [42]);
+        using var started = new ManualResetEventSlim();
+        using var prefetchCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cache = new SceneTextureCache(maxParallelism: 1);
+        cache.Prefetch(path, "retry.bin", token =>
+        {
+            started.Set();
+            token.WaitHandle.WaitOne();
+            token.ThrowIfCancellationRequested();
+            return null;
+        }, prefetchCancellation.Token);
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(5), ct));
+        prefetchCancellation.Cancel();
+        var recovered = cache.Load(path, "retry.bin",
+            _ => new SceneTexture("retry.bin", 1, 1, [1, 2, 3, 255]), ct);
+        var cached = cache.Load(path, "retry.bin", _ => throw new InvalidOperationException("Unexpected decode"), ct);
+        Assert.NotNull(recovered);
+        Assert.Same(recovered, cached);
+        Assert.Equal(2, cache.DecodeCount);
+    }
+
+    [Fact]
     public void MissingAndInlineFailuresAreNeverCachedAcrossRetries()
     {
         var ct = TestContext.Current.CancellationToken;

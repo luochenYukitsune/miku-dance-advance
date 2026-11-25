@@ -1,3 +1,4 @@
+using System.Numerics;
 using Vortice.Direct3D12;
 
 namespace Mmd.Modern.Rendering.D3D12;
@@ -144,15 +145,22 @@ internal sealed class D3D12BufferUploadStaging(D3D12GpuRuntime runtime):IDisposa
         }
         return slot;
     }
-    internal Allocation Write(ReadOnlySpan<byte> bytes)
+    internal Allocation Write(ReadOnlySpan<byte> bytes, int alignment = 4)
     {
-        Enter();try{return WriteCore(bytes);}finally{Exit();}
+        Enter();
+        try
+        {
+            if (!BitOperations.IsPow2(alignment))
+                throw new ArgumentOutOfRangeException(nameof(alignment), "Alignment must be a positive power of two.");
+            return WriteCore(bytes, alignment);
+        }
+        finally { Exit(); }
     }
-    private Allocation WriteCore(ReadOnlySpan<byte> bytes)
+    private Allocation WriteCore(ReadOnlySpan<byte> bytes, int alignment = 4)
     {
         var slot=CurrentSlot();
         if(bytes.IsEmpty)throw new ArgumentException("A buffer upload must contain data.",nameof(bytes));
-        var reserved=Reserve(slot,bytes.Length);
+        var reserved=Reserve(slot,bytes.Length,alignment);
         reserved.Page.Write(reserved.Offset,bytes);
         copies++;copiedBytes+=bytes.Length;
         return new(reserved.Page.Resource,(ulong)reserved.Offset);
@@ -173,21 +181,27 @@ internal sealed class D3D12BufferUploadStaging(D3D12GpuRuntime runtime):IDisposa
         }
         finally{Exit();}
     }
-    private Reservation Reserve(Slot slot,int length)
+    private Reservation Reserve(Slot slot, int length, int alignment = 4)
     {
         if(length>MaximumRetainedPageBytes)return ReserveTransient(length);
-        int aligned=(length+3)&~3;
-        D3D12RetainedResource? selected=null;Page? selectedPage=null;int bestRemaining=int.MaxValue;
-        // A large request can skip a partially used page without consuming its tail.
-        // Best fit also keeps small recordings on smaller pages so unused big pages trim.
-        foreach(var retained in slot.Pages)
+        int reservedLength = (length + 3) & ~3;
+        D3D12RetainedResource? selected = null;
+        int selectedOffset = 0, bestRemaining = int.MaxValue;
+        // Align the offset within each resource before comparing free tails.
+        // A skipped page stays available for a later copy with a smaller alignment.
+        foreach (var retained in slot.Pages)
         {
-            var page=(Page)retained.Value;int remaining=page.Capacity-page.Offset;
-            if(remaining<aligned||remaining>=bestRemaining)continue;
-            selected=retained;selectedPage=page;bestRemaining=remaining;
-            if(remaining==aligned)break;
+            var page = (Page)retained.Value;
+            int padding = -page.Offset & (alignment - 1);
+            int offset = page.Offset + padding;
+            int remaining = page.Capacity - offset;
+            if (remaining < reservedLength || remaining >= bestRemaining) continue;
+            selected = retained;
+            selectedOffset = offset;
+            bestRemaining = remaining;
+            if (remaining == reservedLength) break;
         }
-        if(selected is not null)return ReservePage(selected,selectedPage!,aligned);
+        if (selected is not null) return ReservePage(selected, selectedOffset, reservedLength);
         // Only unused, too-small pages can be replaced in this recording. Partial
         // pages keep every queued source range and remain available to later writes.
         for(int i=slot.Pages.Count-1;i>=0;i--)
@@ -198,7 +212,7 @@ internal sealed class D3D12BufferUploadStaging(D3D12GpuRuntime runtime):IDisposa
         var created=CreatePage(capacity,false);var owner=new D3D12RetainedResource(created,created);
         try{slot.Pages.Add(owner);}catch{owner.Dispose();throw;}
         slot.RetainedBytes+=capacity;
-        return ReservePage(owner,created,aligned);
+        return ReservePage(owner, 0, reservedLength);
     }
     internal Allocation WriteLargeRetained(ReadOnlySpan<byte> bytes)
     {
@@ -237,7 +251,7 @@ internal sealed class D3D12BufferUploadStaging(D3D12GpuRuntime runtime):IDisposa
         foreach(var slot in slots)RemoveLargePage(slot);
         // Do not clear LargeUsed: a source already recorded in this list remains in use.
     }
-    private Reservation ReservePage(D3D12RetainedResource retained,Page page,int aligned)
+    private Reservation ReservePage(D3D12RetainedResource retained, int offset, int reservedLength)
     {
         // Cache disposal only releases its owner. The mapped resource remains alive
         // until every recorded copy in this slot has submitted/retired or aborted.
@@ -247,7 +261,8 @@ internal sealed class D3D12BufferUploadStaging(D3D12GpuRuntime runtime):IDisposa
             try{runtime.Own(lease);}catch{lease.Dispose();throw;}
             retained.LastFrameId=runtime.FrameId;
         }
-        int offset=page.Offset;page.Offset+=aligned;
+        var page = (Page)retained.Value;
+        page.Offset = offset + reservedLength;
         return new(page,offset);
     }
     private Reservation ReserveTransient(int length)

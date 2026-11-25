@@ -30,6 +30,7 @@ public sealed class WorkbenchReplacementUiTests : IAsyncDisposable
         {
             var (asset, path) = Model("Original");
             var id = shell.Workspace.AddModel(path, asset, ModelRole.Character);
+            Assert.True(shell.Workspace.SetGuessMaterialRoles(false));
             shell.RefreshWorkspace(id);
             var (replacement, newPath) = Model("Replacement");
             var plan = shell.Workspace.Session!.PrepareModelReplacement(id, newPath, replacement, TestContext.Current.CancellationToken);
@@ -43,8 +44,10 @@ public sealed class WorkbenchReplacementUiTests : IAsyncDisposable
             Assert.Equal("Replacement", properties.Name); Assert.Equal(newPath, properties.SourcePath);
             Assert.True(shell.Workspace.Undo()); shell.RefreshWorkspace(id);
             Assert.Equal("Original", shell.Browser.SelectedModel!.Name);
+            Assert.False(shell.Workspace.GuessMaterialRoles);
             Assert.True(shell.Workspace.Redo()); shell.RefreshWorkspace(id);
             Assert.Equal("Replacement", shell.Browser.SelectedModel!.Name);
+            Assert.False(shell.Workspace.GuessMaterialRoles);
             return true;
         }
         finally { Close(window); }

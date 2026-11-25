@@ -74,7 +74,7 @@ public partial class EditorWindow
                         _preferences.FfprobePath, progress, rendering, token, diagnostics);
                     shell.OperationStatus = EditorLocalization.Text("导出完成：") + draft.Destination;
                 }
-                catch (OperationCanceledException error) { cancelled = true; cancellationError = error; throw; }
+                catch (OperationCanceledException error) when (!diagnostics.OutputPublished) { cancelled = true; cancellationError = error; throw; }
                 catch (Exception error) { failure = error; throw; }
                 finally
                 {
@@ -105,7 +105,7 @@ public partial class EditorWindow
             diagnostics.Finish(failure is not null ? ExportTaskState.Failed : cancelled ? ExportTaskState.Cancelled : ExportTaskState.Completed,
                 failure ?? cancellationError);
             status.SetDiagnostics(diagnostics);
-            if (failure is not null) status.MarkFailed(failure);
+            if (failure is not null) status.MarkFailed(failure, diagnostics.OutputPublished);
             else if (cancelled) status.MarkCancelled();
             else status.MarkCompleted();
         }

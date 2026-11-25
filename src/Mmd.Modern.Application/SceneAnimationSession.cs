@@ -265,17 +265,28 @@ public sealed partial class SceneAnimationSession : IDisposable
         RequireProjectControlEdit();
         RequireHealthyWithoutPreviewCompletion(); ArgumentNullException.ThrowIfNull(motion); cancellationToken.ThrowIfCancellationRequested();
         int index = Index(motion.ObjectId); CompletePreviewLeaves(cancellationToken);
-        if (sharedWorld is not null) { BindSharedMotion(index, motion, cancellationToken); return; }
         bool modelChanged = !ReferenceEquals(entries[index].Motion?.Model, motion.Model);
-        if (outsideBindings.Length != 0)
+        // Stage the complete graph when a binding or a fallible soft-body reset depends on it.
+        bool rebuildShared = sharedWorld is not null && (coupledSoftBodies
+            || entries.Any(entry => entry.Controller?.SoftBodiesEnabled == true)
+            || motion.PhysicsEnabled && motion.Model.SoftBodies.Count != 0);
+        if (outsideBindings.Length != 0 || rebuildShared)
         {
             var motions = entries.Where(entry => entry.Motion is not null && entry.Object.Id != motion.ObjectId).Select(entry => entry.Motion!).Append(motion).ToArray();
             ReplaceGraph(outsideBindings, motions, cancellationToken);
-            if (modelChanged) { outsideUndo.Clear(); outsideRedo.Clear(); }
-            return;
         }
+        else if (sharedWorld is not null)
+            BindSharedMotion(index, motion, cancellationToken);
+        else
+            BindIndependentMotion(index, motion, cancellationToken);
+
+        if (modelChanged) { outsideUndo.Clear(); outsideRedo.Clear(); }
+    }
+
+    private void BindIndependentMotion(int index, SceneActorMotion motion, CancellationToken cancellationToken)
+    {
         var previous = entries[index];
-        var candidate = PrepareEntry(entries[index].Object, motion, CurrentFrame, cancellationToken);
+        var candidate = PrepareEntry(previous.Object, motion, CurrentFrame, cancellationToken);
         try
         {
             var next = (Entry[])entries.Clone(); next[index] = candidate;
@@ -284,7 +295,6 @@ public sealed partial class SceneAnimationSession : IDisposable
             entries = next; published = frame; states = nextStates; DurationFrames = Duration(next);
         }
         catch { Release(candidate); throw; }
-        if (modelChanged) { outsideUndo.Clear(); outsideRedo.Clear(); }
         Release(previous);
     }
 

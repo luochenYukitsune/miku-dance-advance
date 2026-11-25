@@ -569,7 +569,7 @@ public sealed partial class SceneAnimationSession
             : SharedLocalFrame(entry, pose);
 
     private static void EnrichPhysicsStepException(Exception error, Entry[] source,
-        int singleEntryIndex, IReadOnlyList<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview)>? batchItems,
+        int singleEntryIndex, IReadOnlyList<PendingPhysicsPose>? batchItems,
         double frame, double prior)
     {
         try
@@ -615,490 +615,63 @@ public sealed partial class SceneAnimationSession
         if (deferRigidSkinning && (reset || coupledSoftBodies
             || source.Any(entry => entry.Controller?.SoftBodiesEnabled == true)))
             throw new InvalidOperationException("Deferred rigid skinning requires a rigid-only non-reset boundary.");
-        int actorCount = source.Length;
-        var pending = new List<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview)>();
-        var pendingByIndex = new int[actorCount];
-        Array.Fill(pendingByIndex, -1);
-        List<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, bool Frozen)>? softOnly = null;
-        int[]? softOnlyByIndex = null;
-        var preparedWorldsByIndex = new IReadOnlyList<Matrix4x4>?[actorCount];
-        var physicalDisabledByIndex = new IReadOnlySet<int>?[actorCount];
-        Matrix4x4[]?[]? resetAfterPhysicsWorldsByIndex = reset ? new Matrix4x4[]?[actorCount] : null;
-        var phase1OutsideParentsByIndex = new Dictionary<int, Matrix4x4>?[actorCount];
-        var hasPhase1OutsideParents = new bool[actorCount];
-        NonPhysicalAttachedState?[]? nonPhysicalAttached = null;
-        try
+        var clock = new BoundaryClock(frame, prior, reset, step);
+        var activeParents = boundaryGraph?.Parents ?? ControlParents(frame);
+        var topology = boundaryGraph?.Topology ?? GetSharedBoundaryTopology(source, activeParents);
+        using var poses = new BoundaryPoses(source.Length, reset, activeParents.Length > 0);
+        // A pure visual leaf supplies no input to this unpublished physical boundary.
+        // Recompute this set at every clock: PMM can attach/detach actors mid-advance.
+        var requiredParents = (deferRigidSkinning || previewWorking is not null) && !initializing && !interactiveObjectId.HasValue
+            ? topology.ParentObjectIds : null;
+        if (coupledSoftBodies)
         {
-            var activeParents = boundaryGraph?.Parents ?? ControlParents(frame);
-            var topology = boundaryGraph?.Topology ?? GetSharedBoundaryTopology(source, activeParents);
-            if (activeParents.Length > 0) nonPhysicalAttached = new NonPhysicalAttachedState?[actorCount];
-            // A pure visual leaf supplies no input to this unpublished physical boundary.
-            // Recompute this set at every clock: PMM can attach/detach actors mid-advance.
-            var requiredParents = (deferRigidSkinning || previewWorking is not null) && !initializing && !interactiveObjectId.HasValue
-                ? topology.ParentObjectIds : null;
-            if (coupledSoftBodies)
+            var preview = new Dictionary<Guid, Matrix4x4[]>(source.Length);
+            foreach (int index in topology.TopologicalOrder)
             {
-                var preview = new Dictionary<Guid, Matrix4x4[]>(actorCount);
-                foreach (int index in topology.TopologicalOrder)
-                {
-                    var entry = source[index]; if (entry.Controller is not { } controller) continue;
-                    var bindings = topology.BindingsByIndex[index];
-                    var parentIndices = topology.ParentActorIndicesByBinding[index];
-                    var parents = BuildBoundaryOutsideParents(source, entry, bindings, parentIndices,
-                        ControlGroundParents(entry.Object.Id, frame), (parentIdx, _) => preview[source[parentIdx].Object.Id]);
-                    preview.Add(entry.Object.Id, controller.PreviewCoupledBoundary(Math.Min(frame, controller.DurationFrames),
-                        entry.Motion!.IkEnabled, entry.Motion.MorphsEnabled, parents, ControlDisabled(entry.Object.Id, frame),
-                        !initializing && !reset && prior >= controller.DurationFrames, ControlTrackWindows(entry.Object.Id, frame)));
-                }
-            }
-            if (!initializing) ApplyControlGravity(source, frame, reset, step);
-            // Preserve membership at the start of an uncontrolled boundary, including when a
-            // later actor invokes user code. PMM-controlled actors consult their live world.
-            bool[]? physicalAtBoundary = null;
-            if (pmmControls is null && world is not null)
-            {
-                physicalAtBoundary = new bool[actorCount];
-                for (int i = 0; i < actorCount; i++)
-                    physicalAtBoundary[i] = world.ContainsActor(source[i].Object.Id);
-            }
-            int maxDegree = Math.Clamp(Environment.ProcessorCount, 1, 16);
-            bool canParallelBoundary = !token.CanBeCanceled
-                && !coupledSoftBodies
-                && !interactiveObjectId.HasValue
-                && activeActors is null
-                && maxDegree >= 2
-                && !PoseEvaluationEventSource.Log.IsEnabled()
-                && !AnySoftBodyController(source)
-                && AreControllersParallelSafe(source);
-            int[] boundaryOrder = topology.TopologicalOrder;
-
-            if (canParallelBoundary)
-            {
-                PrepareSharedBoundaryLevelsParallel(source, world, topology, boundaryGraph, physicalAtBoundary,
-                    requiredParents, frame, prior, reset, initializing, deferRigidSkinning, maxDegree,
-                    pending, pendingByIndex, preparedWorldsByIndex, physicalDisabledByIndex,
-                    resetAfterPhysicsWorldsByIndex, phase1OutsideParentsByIndex, hasPhase1OutsideParents, nonPhysicalAttached);
-            }
-            else
-            {
-                for (int k = 0; k < boundaryOrder.Length; k++)
-                {
-                    int index = boundaryOrder[k];
-                    token.ThrowIfCancellationRequested(); var entry = source[index]; var controller = entry.Controller;
-                    if (controller is null) continue;
-                    if (activeActors is not null && !activeActors.Contains(entry.Object.Id)) continue;
-                    var motion = entry.Motion!; double local = Math.Min(frame, controller.DurationFrames);
-                    bool edited = interactiveObjectId == entry.Object.Id;
-                    bool frozen = !initializing && !reset && !edited && prior >= controller.DurationFrames;
-                    var overrides = edited ? localBoneOverrides : null;
-                    var bindings = topology.BindingsByIndex[index];
-                    var parentIndices = topology.ParentActorIndicesByBinding[index];
-                    var groundParents = boundaryGraph is not null ? boundaryGraph.GroundByIndex[index] : ControlGroundParents(entry.Object.Id, frame);
-                    var trackWindows = boundaryGraph is not null ? boundaryGraph.TrackWindowsByIndex[index] : ControlTrackWindows(entry.Object.Id, frame);
-                    bool hasBindings = bindings.Length != 0;
-                    bool attached = hasBindings || groundParents.Length != 0;
-                    bool trackWindowChanged = pmmControls is not null && controller.SetOutsideParentTrackWindows(trackWindows);
-                    bool physical = physicalAtBoundary?[index] ?? (ActorWorld(entry, world)?.ContainsActor(entry.Object.Id) == true);
-                    if (!physical && deferRigidSkinning && requiredParents is not null && frozen && !initializing && !reset
-                        && !interactiveObjectId.HasValue && !requiredParents.Contains(entry.Object.Id)
-                        && controller.CanDeferFrozenAttachmentBoundary(bindings, groundParents, trackWindowChanged))
-                    {
-                        continue;
-                    }
-                    if (interactiveObjectId.HasValue && frozen && !attached && !physical && !trackWindowChanged
-                        && controller.CanRetainCompleteRigidInteractivePose(local, motion.IkEnabled, motion.MorphsEnabled))
-                    {
-                        // Retain the immutable local scene of stopped rooms/props. Descendants still
-                        // receive its completed bones in dependency order, and every physical world
-                        // keeps its normal step. Editing this actor or attaching it takes the full path.
-                        preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
-                        continue;
-                    }
-                    Dictionary<int, Matrix4x4>? parents = attached
-                        ? BuildBoundaryOutsideParents(source, entry, bindings, parentIndices, groundParents,
-                            (parentIdx, parentBone) =>
-                            {
-                                var parentDisabled = physicalDisabledByIndex[parentIdx];
-                                Matrix4x4[]? resetWorlds = null;
-                                if (reset && parentDisabled is not null
-                                    && source[parentIdx].Controller!.IsBoneAffectedByAfterPhysics(parentBone))
-                                    resetWorlds = EnsureResetAfterPhysicsParentWorlds(source, parentIdx,
-                                        physicalDisabledByIndex, resetAfterPhysicsWorldsByIndex!, frame,
-                                        interactiveObjectId, localBoneOverrides);
-                                return ResolvePhase1ParentBoneWorlds(source[parentIdx], parentBone,
-                                    preparedWorldsByIndex[parentIdx], parentDisabled, resetWorlds);
-                            })
-                        : null;
-                    if (attached || pmmControls is not null)
-                    {
-                        phase1OutsideParentsByIndex[index] = parents;
-                        hasPhase1OutsideParents[index] = true;
-                    }
-                    // A frozen attachment can move during a fixed-clock gesture. Its immutable anchor
-                    // must rebase on every boundary, but the matching skin belongs to completion below.
-                    bool deferFrozenSkin = interactiveObjectId.HasValue || deferRigidSkinning || controller.HasUnpublishedRigidBonePose;
-                    var frozenFrame = ApplyPhase1OutsideParents(entry, local, frozen, attached, physical, deferFrozenSkin,
-                        trackWindowChanged, parents, out bool fullEvalFrozen, out bool sampleFrozen, out bool publishedFrozenDisplay);
-                    if (frozenFrame is not null)
-                        source[index] = entry = entry with { LocalFrame = frozenFrame };
-                    if (interactiveObjectId.HasValue && sampleFrozen && attached && !physical && !edited && !trackWindowChanged
-                        && controller.HasCompleteRigidFrozenAttachmentPose(local, motion.IkEnabled, motion.MorphsEnabled, parents!))
-                    {
-                        // Refresh above proved that the current parent matrices still match a
-                        // complete rigid display. Retain its scene, but keep supplying its solved
-                        // bones to descendants in the same dependency order and step every world.
-                        if (hasBindings) nonPhysicalAttached![index] = new(local, sampleFrozen, deferFrozenSkin, overrides);
-                        preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
-                        continue;
-                    }
-                    if (!physical)
-                    {
-                        if (requiredParents is not null && !frozen && !attached && !reset
-                            && frame < controller.DurationFrames && motion.Model.SoftBodies.Count == 0
-                            && !requiredParents.Contains(entry.Object.Id))
-                        {
-                            // No solver, soft state, attachment or consumer can observe these
-                            // intermediate bones. The final displayed boundary evaluates them
-                            // normally. Never skip crossing an actor's end: later frozen parent
-                            // rebasing requires a successfully completed tail, including PMM
-                            // slots first activated after that local animation has ended.
-                            if (previewWorking is not null) previewWorking[entry.Object.Id] = local;
-                            continue;
-                        }
-                        if (!coupledSoftBodies && !initializing && !reset && !interactiveObjectId.HasValue
-                            && !trackWindowChanged && !fullEvalFrozen
-                            && controller.TryRetainCompleteRigidPlaybackPose(local, motion.IkEnabled, motion.MorphsEnabled))
-                        {
-                            // Every control/parent boundary above still ran. A complete constant
-                            // local result also supplies the exact stable bones to descendants;
-                            // retain both products while advancing the controller's cache clock.
-                            if (hasBindings) nonPhysicalAttached![index] = new(local, sampleFrozen, deferFrozenSkin, overrides);
-                            if (!deferRigidSkinning) previewWorking?.Remove(entry.Object.Id);
-                            preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
-                            continue;
-                        }
-                        if (controller.SoftBodiesEnabled && hasBindings && !interactiveObjectId.HasValue)
-                        {
-                            var softPose = controller.BeginSharedPhysicsSample(local, motion.IkEnabled, motion.MorphsEnabled, frozen: sampleFrozen);
-                            try
-                            {
-                                softOnly ??= [];
-                                if (softOnlyByIndex is null) { softOnlyByIndex = new int[actorCount]; Array.Fill(softOnlyByIndex, -1); }
-                                softOnlyByIndex[index] = softOnly.Count;
-                                softOnly.Add((index, softPose, frozen));
-                                preparedWorldsByIndex[index] = softPose.BeforePhysicsBoneWorlds;
-                            }
-                            catch { softPose.Dispose(); throw; }
-                            continue;
-                        }
-                        if (interactiveObjectId.HasValue)
-                        {
-                            // The warm interactive route excludes soft bodies and keeps authored animation
-                            // at one clock. A nonphysical PMM parent still needs its raw local draft here.
-                            CharacterAnimationController.SharedPreparedPhysicsSample pose;
-                            using (PoseEvaluationMetrics.Measure("boundary.nonphysical.interactive-prepare", entry.Object.Id))
-                                pose = controller.BeginSharedPhysicsSample(local, motion.IkEnabled, motion.MorphsEnabled,
-                                    frozen: sampleFrozen, localBoneOverrides: overrides);
-                            using (pose)
-                            {
-                                if (deferRigidSkinning)
-                                {
-                                    using var completionMeasure = PoseEvaluationMetrics.Measure("boundary.nonphysical.interactive-complete-bones", entry.Object.Id);
-                                    pose.CompleteRigidBoneWorlds(pose.BeforePhysicsBoneWorlds);
-                                }
-                                else
-                                {
-                                    using var completionMeasure = PoseEvaluationMetrics.Measure("boundary.nonphysical.interactive-complete-full", entry.Object.Id);
-                                    source[index] = entry with { LocalFrame = SharedLocalFrame(entry, pose.Complete(pose.BeforePhysicsBoneWorlds)) };
-                                }
-                            }
-                        }
-                        else if (controller.SoftBodiesEnabled)
-                        {
-                            using var softPose = controller.BeginSharedPhysicsSample(local, motion.IkEnabled, motion.MorphsEnabled, frozen: sampleFrozen);
-                            double? softElapsed = reset ? null : step && !frozen ? CharacterPhysicsSession.FixedStepSeconds : 0;
-                            source[index] = entry with { LocalFrame = SharedLocalFrame(entry,
-                                softPose.Complete(softPose.BeforePhysicsBoneWorlds, [], softElapsed)) };
-                        }
-                        else if (sampleFrozen && controller.HasUnpublishedRigidBonePose)
-                        {
-                            // The stopped actor may have reached its end in a bone-only middle
-                            // boundary or changed/dropped a PMM parent slot. Preserve its rebased
-                            // frozen bones; resampling authored animation would lose that anchor.
-                            if (!deferRigidSkinning)
-                            {
-                                using var completionMeasure = PoseEvaluationMetrics.Measure("boundary.nonphysical.frozen-complete-full", entry.Object.Id);
-                                using var frozenPose = controller.BeginSharedPhysicsSample(local, motion.IkEnabled, motion.MorphsEnabled, frozen: true);
-                                source[index] = entry with { LocalFrame = SharedLocalFrame(entry, frozenPose.Complete(frozenPose.BeforePhysicsBoneWorlds)) };
-                            }
-                        }
-                        else if (!publishedFrozenDisplay && (!sampleFrozen || reset || attached))
-                        {
-                            if (deferRigidSkinning)
-                            {
-                                using var sampleMeasure = PoseEvaluationMetrics.Measure("boundary.nonphysical.bones-only", entry.Object.Id);
-                                controller.SampleRigidInitializationBoneWorlds(local, motion.IkEnabled, motion.MorphsEnabled);
-                            }
-                            else
-                            {
-                                using var sampleMeasure = PoseEvaluationMetrics.Measure("boundary.nonphysical.full-sample", entry.Object.Id);
-                                source[index] = entry with { LocalFrame = SharedLocalFrame(entry, controller.SampleAt(local, motion.IkEnabled, motion.MorphsEnabled)) };
-                            }
-                        }
-                        // Controllers replace their read-only palette on completion; they never mutate
-                        // an earlier palette. Keep that stable snapshot without copying every parent.
-                        if (hasBindings) nonPhysicalAttached![index] = new(local, sampleFrozen, deferFrozenSkin, overrides);
-                        if (!deferRigidSkinning) previewWorking?.Remove(entry.Object.Id);
-                        preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
-                        continue;
-                    }
-                    var disabled = boundaryGraph?.DisabledByIndex[index] ?? (pmmControls is null ? EmptyDisabledBones : ControlDisabled(entry.Object.Id, frame));
-                    physicalDisabledByIndex[index] = disabled;
-                    CharacterAnimationController.SharedPreparedPhysicsSample preparation;
-                    using (PoseEvaluationMetrics.Measure("boundary.physical.prepare", entry.Object.Id))
-                        preparation = controller.BeginSharedPhysicsSample(local, motion.IkEnabled, motion.MorphsEnabled, disabled, sampleFrozen, overrides);
-                    preparedWorldsByIndex[index] = preparation.BeforePhysicsBoneWorlds;
-                    // Only this actor's terminal skin is delayed. The existing middle-boundary
-                    // flag also affects nonphysical parents, so it must not be widened here.
-                    // Children consume its before-physics bones above; rigid worlds do not read its skin.
-                    bool deferPreview = previewWorking is not null && !deferRigidSkinning && !initializing && !reset
-                        && !interactiveObjectId.HasValue && !frozen && !attached && local < controller.DurationFrames
-                        && requiredParents is not null
-                        && AppContext.TryGetSwitch(PhysicalPreviewSwitch, out bool enabled) && enabled;
-                    pendingByIndex[index] = pending.Count;
-                    pending.Add((index, preparation, new(entry.Object.Id, preparation.BeforePhysicsBoneWorlds)
-                    { Frozen = frozen, Impulses = initializing || interactiveObjectId.HasValue ? [] : preparation.Impulses, DisabledBoneIndices = disabled }, deferPreview));
-                }
-            }
-
-            var resultsByEntryIndex = new Matrix4x4[]?[actorCount];
-            if (pending.Count > 0)
-            {
-                if (controlledWorlds.Count == 0)
-                {
-                    var batchWorld = ActorWorld(source[pending[0].Index], world)!;
-                    var samples = new SharedPhysicsActorSample[pending.Count];
-                    Vector3[]?[]? targets = coupledSoftBodies ? new Vector3[]?[pending.Count] : null;
-                    for (int p = 0; p < pending.Count; p++)
-                    {
-                        samples[p] = pending[p].Physics;
-                        if (targets is not null)
-                            targets[p] = source[pending[p].Index].Controller!.PrepareCoupledTargets(pending[p].Pose);
-                    }
-                    if (reset) batchWorld.ResetAll(samples);
-                    if (targets is not null)
-                    {
-                        for (int p = 0; p < pending.Count; p++)
-                        {
-                            var item = pending[p];
-                            var entry = source[item.Index];
-                            if (entry.Controller!.SupportsSoftBodies && reset)
-                                entry.Controller.ResetSharedCoupledSoftBodies(batchWorld, entry.Object.Id, entry.Object.World, item.Pose);
-                            var pins = reset ? entry.Controller.PrepareCoupledTargets(item.Pose) : targets[p];
-                            entry.Controller.PublishCoupledTargets(pins, item.Physics.Frozen, step || reset);
-                        }
-                    }
-                    if (currentControlGravity is { } gravity) batchWorld.SetGravity(gravity);
-                    try
-                    {
-                        using (PoseEvaluationMetrics.Measure(step ? "boundary.world.step" : "boundary.world.reflect"))
-                        {
-                            var stepped = step ? batchWorld.Step(samples) : batchWorld.Reflect(samples);
-                            for (int p = 0; p < pending.Count; p++)
-                            {
-                                int entryIndex = pending[p].Index;
-                                resultsByEntryIndex[entryIndex] = stepped[source[entryIndex].Object.Id];
-                            }
-                        }
-                    }
-                    catch (Exception error)
-                    {
-                        EnrichPhysicsStepException(error, source, -1, pending, frame, prior);
-                        throw;
-                    }
-                }
-                else if (canParallelBoundary && pending.Count >= 2)
-                {
-                    int degree = Math.Min(pending.Count, maxDegree);
-                    var stepErrors = new ExceptionDispatchInfo?[pending.Count];
-                    Parallel.For(0, pending.Count, new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = degree,
-                        TaskScheduler = TaskScheduler.Default,
-                    }, p =>
-                    {
-                        var item = pending[p];
-                        var entry = source[item.Index];
-                        var actorWorld = controlledWorlds[entry.Object.Id];
-                        var samples = new[] { item.Physics };
-                        try
-                        {
-                            if (reset) actorWorld.ResetAll(samples);
-                            if (currentControlGravity is { } gravity) actorWorld.SetGravity(gravity);
-                            var stepped = step ? actorWorld.Step(samples) : actorWorld.Reflect(samples);
-                            resultsByEntryIndex[item.Index] = stepped[entry.Object.Id];
-                        }
-                        catch (Exception error)
-                        {
-                            EnrichPhysicsStepException(error, source, item.Index, null, frame, prior);
-                            stepErrors[p] = ExceptionDispatchInfo.Capture(error);
-                        }
-                    });
-                    for (int p = 0; p < pending.Count; p++) stepErrors[p]?.Throw();
-                }
-                else
-                {
-                    for (int p = 0; p < pending.Count; p++)
-                    {
-                        var item = pending[p];
-                        var entry = source[item.Index];
-                        var actorWorld = ActorWorld(entry, world)!;
-                        var samples = new[] { item.Physics };
-                        var targets = coupledSoftBodies ? entry.Controller!.PrepareCoupledTargets(item.Pose) : null;
-                        if (reset) actorWorld.ResetAll(samples);
-                        if (coupledSoftBodies && entry.Controller!.SupportsSoftBodies)
-                        {
-                            if (reset)
-                                entry.Controller.ResetSharedCoupledSoftBodies(actorWorld, entry.Object.Id, entry.Object.World, item.Pose);
-                            var pins = reset ? entry.Controller.PrepareCoupledTargets(item.Pose) : targets;
-                            entry.Controller.PublishCoupledTargets(pins, item.Physics.Frozen, step || reset);
-                        }
-                        if (currentControlGravity is { } gravity) actorWorld.SetGravity(gravity);
-                        try
-                        {
-                            using (PoseEvaluationMetrics.Measure(step ? "boundary.world.step" : "boundary.world.reflect"))
-                            {
-                                var stepped = step ? actorWorld.Step(samples) : actorWorld.Reflect(samples);
-                                resultsByEntryIndex[item.Index] = stepped[entry.Object.Id];
-                            }
-                        }
-                        catch (Exception error)
-                        {
-                            EnrichPhysicsStepException(error, source, item.Index, null, frame, prior);
-                            throw;
-                        }
-                    }
-                }
-            }
-
-            if (activeParents.Length == 0 && (softOnly is null || softOnly.Count == 0))
-            {
-                if (canParallelBoundary && pending.Count >= 2)
-                {
-                    int degree = Math.Min(pending.Count, maxDegree);
-                    var completeFrames = new OriginalFrameScene?[pending.Count];
-                    var completeErrors = new ExceptionDispatchInfo?[pending.Count];
-                    Parallel.For(0, pending.Count, new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = degree,
-                        TaskScheduler = TaskScheduler.Default,
-                    }, p =>
-                    {
-                        var item = pending[p];
-                        var entry = source[item.Index];
-                        var boneWorlds = resultsByEntryIndex[item.Index]!;
-                        try
-                        {
-                            completeFrames[p] = CompletePendingSample(entry, world, item, boneWorlds, reset, step, deferRigidSkinning);
-                        }
-                        catch (Exception error)
-                        {
-                            completeErrors[p] = ExceptionDispatchInfo.Capture(error);
-                        }
-                    });
-                    for (int p = 0; p < pending.Count; p++)
-                    {
-                        completeErrors[p]?.Throw();
-                        CommitPendingSampleCompletion(source, pending[p], completeFrames[p], frame, deferRigidSkinning);
-                    }
-                }
-                else
-                {
-                    for (int p = 0; p < pending.Count; p++)
-                    {
-                        var item = pending[p];
-                        var entry = source[item.Index];
-                        var boneWorlds = resultsByEntryIndex[item.Index]!;
-                        var completedFrame = CompletePendingSample(entry, world, item, boneWorlds, reset, step, deferRigidSkinning);
-                        CommitPendingSampleCompletion(source, item, completedFrame, frame, deferRigidSkinning);
-                    }
-                }
-            }
-            else if (canParallelBoundary)
-            {
-                CompletePhase3LevelsParallel(source, world, topology, boundaryGraph, frame, reset, step, deferRigidSkinning,
-                    maxDegree, pending, pendingByIndex, physicalDisabledByIndex, phase1OutsideParentsByIndex,
-                    hasPhase1OutsideParents, nonPhysicalAttached, resultsByEntryIndex);
-            }
-            else
-            {
-                var updatedInPhase3 = new bool[actorCount];
-                for (int k = 0; k < boundaryOrder.Length; k++)
-                {
-                    int index = boundaryOrder[k];
-                    var entry = source[index];
-                    if (entry.Controller is null) continue;
-                    int p = pendingByIndex[index];
-                    int s = softOnlyByIndex is null ? -1 : softOnlyByIndex[index];
-                    bool hasNonPhysical = nonPhysicalAttached is not null && nonPhysicalAttached[index].HasValue;
-                    if (p < 0 && s < 0 && !hasNonPhysical) continue;
-                    var bindings = topology.BindingsByIndex[index];
-                    var parentIndices = topology.ParentActorIndicesByBinding[index];
-                    bool hasPhase3Parent = false;
-                    for (int b = 0; b < bindings.Length; b++)
-                    {
-                        int parentIdx = parentIndices[b];
-                        if (updatedInPhase3[parentIdx]) { hasPhase3Parent = true; break; }
-                        if (physicalDisabledByIndex[parentIdx] is not null
-                            && source[parentIdx].Controller!.IsBoneAffectedByAfterPhysics(bindings[b].ParentBoneIndex))
-                        {
-                            hasPhase3Parent = true;
-                            break;
-                        }
-                    }
-                    Dictionary<int, Matrix4x4>? afterParents = null;
-                    if (hasPhase3Parent)
-                    {
-                        var groundParents = boundaryGraph is not null ? boundaryGraph.GroundByIndex[index] : ControlGroundParents(entry.Object.Id, frame);
-                        var postParents = BuildBoundaryOutsideParents(source, entry, bindings, parentIndices, groundParents,
-                            (parentIdx, _) => source[parentIdx].Controller!.BoneWorldMatrices);
-                        if (!hasPhase1OutsideParents[index]
-                            || !CharacterAnimationController.OutsideParentsEqual(phase1OutsideParentsByIndex[index], postParents))
-                            afterParents = postParents;
-                    }
-                    if (p >= 0)
-                    {
-                        var item = pending[p];
-                        var boneWorlds = resultsByEntryIndex[index]!;
-                        var completedFrame = CompletePendingSample(entry, world, item, boneWorlds, reset, step, deferRigidSkinning, afterParents);
-                        CommitPendingSampleCompletion(source, item, completedFrame, frame, deferRigidSkinning);
-                        if (afterParents is not null) updatedInPhase3[index] = true;
-                    }
-                    else if (s >= 0)
-                    {
-                        var softItem = softOnly![s];
-                        double? softElapsed = reset ? null : step && !softItem.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0;
-                        source[index] = entry with { LocalFrame = SharedLocalFrame(entry,
-                            softItem.Pose.Complete(softItem.Pose.BeforePhysicsBoneWorlds, [], softElapsed, afterParents)) };
-                        if (afterParents is not null) updatedInPhase3[index] = true;
-                    }
-                    else if (afterParents is not null && hasNonPhysical)
-                    {
-                        var info = nonPhysicalAttached![index]!.Value;
-                        var localFrame = EvaluateNonPhysicalAfterPhysics(entry, info, afterParents, interactiveObjectId, deferRigidSkinning);
-                        if (localFrame is not null) source[index] = entry with { LocalFrame = localFrame };
-                        if (!deferRigidSkinning) previewWorking?.Remove(entry.Object.Id);
-                        updatedInPhase3[index] = true;
-                    }
-                }
+                var entry = source[index]; if (entry.Controller is not { } controller) continue;
+                var bindings = topology.BindingsByIndex[index];
+                var parentIndices = topology.ParentActorIndicesByBinding[index];
+                var parents = BuildBoundaryOutsideParents(source, entry, bindings, parentIndices,
+                    ControlGroundParents(entry.Object.Id, frame), (parentIdx, _) => preview[source[parentIdx].Object.Id]);
+                preview.Add(entry.Object.Id, controller.PreviewCoupledBoundary(Math.Min(frame, controller.DurationFrames),
+                    entry.Motion!.IkEnabled, entry.Motion.MorphsEnabled, parents, ControlDisabled(entry.Object.Id, frame),
+                    !initializing && !reset && prior >= controller.DurationFrames, ControlTrackWindows(entry.Object.Id, frame)));
             }
         }
-        finally
+        if (!initializing) ApplyControlGravity(source, frame, reset, step);
+        // Preserve membership at the start of an uncontrolled boundary, including when a
+        // later actor invokes user code. PMM-controlled actors consult their live world.
+        bool[]? physicalAtBoundary = null;
+        if (pmmControls is null && world is not null)
         {
-            foreach (var item in pending) item.Pose.Dispose();
-            if (softOnly is not null)
-                foreach (var item in softOnly) item.Pose.Dispose();
+            physicalAtBoundary = new bool[source.Length];
+            for (int i = 0; i < source.Length; i++)
+                physicalAtBoundary[i] = world.ContainsActor(source[i].Object.Id);
         }
+        int maxDegree = Math.Clamp(Environment.ProcessorCount, 1, 16);
+        bool canParallelBoundary = !token.CanBeCanceled
+            && !coupledSoftBodies
+            && !interactiveObjectId.HasValue
+            && activeActors is null
+            && maxDegree >= 2
+            && !PoseEvaluationEventSource.Log.IsEnabled()
+            && !AnySoftBodyController(source)
+            && AreControllersParallelSafe(source);
+        if (canParallelBoundary)
+            PrepareSharedBoundaryLevelsParallel(source, world, topology, boundaryGraph, physicalAtBoundary, requiredParents,
+                frame, prior, reset, initializing, deferRigidSkinning, maxDegree, poses);
+        else
+            PrepareSharedBoundarySerial(source, world, topology, boundaryGraph, physicalAtBoundary, requiredParents,
+                clock, initializing, deferRigidSkinning, poses,
+                token, interactiveObjectId, localBoneOverrides, activeActors);
+
+        var results = SolveBoundaryWorlds(source, world, poses.Physical, clock, canParallelBoundary, maxDegree);
+        if (activeParents.Length == 0 && poses.SoftOnly is null)
+            CompleteUnattachedPoses(source, world, poses.Physical, results, clock, deferRigidSkinning, canParallelBoundary, maxDegree);
+        else if (canParallelBoundary)
+            CompletePhase3LevelsParallel(source, world, topology, boundaryGraph, clock, deferRigidSkinning, maxDegree, poses, results);
+        else
+            CompleteAttachedPosesSerial(source, world, topology, boundaryGraph, clock, deferRigidSkinning, poses, results, interactiveObjectId);
     }
 
     private OriginalFrameScene? ApplyPhase1OutsideParents(Entry entry, double local, bool frozen, bool attached,
@@ -1146,8 +719,8 @@ public sealed partial class SceneAnimationSession
     }
 
     private OriginalFrameScene? CompletePendingSample(Entry entry, SharedCharacterPhysicsSession? world,
-        (int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview) item,
-        Matrix4x4[] boneWorlds, bool reset, bool step, bool deferRigidSkinning, Dictionary<int, Matrix4x4>? afterParents = null)
+        PendingPhysicsPose item,
+        Matrix4x4[] boneWorlds, BoundaryClock clock, bool deferRigidSkinning, Dictionary<int, Matrix4x4>? afterParents = null)
     {
         if (deferRigidSkinning)
         {
@@ -1161,14 +734,13 @@ public sealed partial class SceneAnimationSession
             item.Pose.CompleteRigidBoneWorldsAndDefer(boneWorlds, afterParents);
             return null;
         }
-        double? softElapsed = reset ? null : step && !item.Physics.Frozen ? CharacterPhysicsSession.FixedStepSeconds : 0;
         using var fullCompletionMeasure = PoseEvaluationMetrics.Measure("boundary.physical.complete-full", entry.Object.Id);
         var softRigidWorlds = entry.Controller!.SoftBodiesEnabled ? SharedSoftRigidWorlds(entry, ActorWorld(entry, world)!) : [];
-        return SharedLocalFrame(entry, item.Pose.Complete(boneWorlds, softRigidWorlds, softElapsed, afterParents));
+        return SharedLocalFrame(entry, item.Pose.Complete(boneWorlds, softRigidWorlds, clock.SoftElapsed(item.Physics.Frozen), afterParents));
     }
 
     private void CommitPendingSampleCompletion(Entry[] source,
-        (int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview) item,
+        PendingPhysicsPose item,
         OriginalFrameScene? completedFrame, double frame, bool deferRigidSkinning)
     {
         if (deferRigidSkinning) return;
@@ -1182,11 +754,8 @@ public sealed partial class SceneAnimationSession
         previewWorking?.Remove(entry.Object.Id);
     }
 
-    private enum Phase1LevelWorkKind { NonPhysicalWork, PhysicalPrepare }
-
     private readonly record struct Phase1LevelWorkItem(
         int EntryIndex,
-        Phase1LevelWorkKind Kind,
         double LocalFrame,
         bool Frozen,
         SceneOutsideParentBinding[] Bindings,
@@ -1231,10 +800,7 @@ public sealed partial class SceneAnimationSession
         SharedBoundaryTopology topology, SharedBoundaryGraph? boundaryGraph, bool[]? physicalAtBoundary,
         HashSet<Guid>? requiredParents, double frame, double prior, bool reset, bool initializing,
         bool deferRigidSkinning, int maxDegree,
-        List<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview)> pending,
-        int[] pendingByIndex, IReadOnlyList<Matrix4x4>?[] preparedWorldsByIndex, IReadOnlySet<int>?[] physicalDisabledByIndex,
-        Matrix4x4[]?[]? resetAfterPhysicsWorldsByIndex, Dictionary<int, Matrix4x4>?[] phase1OutsideParentsByIndex,
-        bool[] hasPhase1OutsideParents, NonPhysicalAttachedState?[]? nonPhysicalAttached)
+        BoundaryPoses poses)
     {
         bool physicalPreviewSwitchEnabled = previewWorking is not null && !deferRigidSkinning && !initializing && !reset
             && requiredParents is not null && AppContext.TryGetSwitch(PhysicalPreviewSwitch, out bool enabled) && enabled;
@@ -1249,7 +815,6 @@ public sealed partial class SceneAnimationSession
                 var entry = source[index];
                 var controller = entry.Controller;
                 if (controller is null) continue;
-                var motion = entry.Motion!;
                 double local = Math.Min(frame, controller.DurationFrames);
                 bool frozen = !initializing && !reset && prior >= controller.DurationFrames;
                 var bindings = topology.BindingsByIndex[index];
@@ -1270,9 +835,7 @@ public sealed partial class SceneAnimationSession
 
                 if (!physical)
                 {
-                    if (requiredParents is not null && !frozen && !attached && !reset
-                        && frame < controller.DurationFrames && motion.Model.SoftBodies.Count == 0
-                        && !requiredParents.Contains(entry.Object.Id))
+                    if (CanDeferVisualLeaf(entry, requiredParents, frame, frozen, attached, reset))
                     {
                         if (pmmControls is not null) controller.SetOutsideParents(null);
                         if (previewWorking is not null) previewWorking[entry.Object.Id] = local;
@@ -1284,11 +847,11 @@ public sealed partial class SceneAnimationSession
                     {
                         if (pmmControls is not null)
                         {
-                            phase1OutsideParentsByIndex[index] = null;
-                            hasPhase1OutsideParents[index] = true;
+                            poses.BeforeParents[index] = null;
+                            poses.HasBeforeParents[index] = true;
                         }
                         if (!deferRigidSkinning) previewWorking?.Remove(entry.Object.Id);
-                        preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
+                        poses.PreparedWorlds[index] = controller.BoneWorldMatrices;
                         continue;
                     }
                 }
@@ -1298,20 +861,19 @@ public sealed partial class SceneAnimationSession
                 for (int b = 0; b < bindings.Length; b++)
                 {
                     int parentIdx = parentIndices[b];
-                    if (physicalDisabledByIndex[parentIdx] is not null
+                    if (poses.DisabledBones[parentIdx] is not null
                         && source[parentIdx].Controller!.IsBoneAffectedByAfterPhysics(bindings[b].ParentBoneIndex)
                         && reset)
                     {
                         _ = EnsureResetAfterPhysicsParentWorlds(source, parentIdx,
-                            physicalDisabledByIndex, resetAfterPhysicsWorldsByIndex!, frame, null, null);
+                            poses.DisabledBones, poses.ResetParentWorlds!, frame, null, null);
                     }
                 }
 
                 var disabled = physical
                     ? (boundaryGraph?.DisabledByIndex[index] ?? (pmmControls is null ? EmptyDisabledBones : ControlDisabled(entry.Object.Id, frame)))
                     : null;
-                levelWork.Add(new(index, physical ? Phase1LevelWorkKind.PhysicalPrepare : Phase1LevelWorkKind.NonPhysicalWork,
-                    local, frozen, bindings, parentIndices, groundParents, trackWindowChanged, physical, disabled));
+                levelWork.Add(new(index, local, frozen, bindings, parentIndices, groundParents, trackWindowChanged, physical, disabled));
             }
 
             int workCount = levelWork.Count;
@@ -1321,7 +883,6 @@ public sealed partial class SceneAnimationSession
             var phase1ParentsOut = new Dictionary<int, Matrix4x4>?[workCount];
             var hasPhase1ParentsOut = new bool[workCount];
             var nonPhysicalAttachedOut = new NonPhysicalAttachedState?[workCount];
-            var errors = new ExceptionDispatchInfo?[workCount];
             try
             {
                 void ExecuteWorkItem(int w)
@@ -1330,109 +891,78 @@ public sealed partial class SceneAnimationSession
                     var entry = source[item.EntryIndex];
                     var controller = entry.Controller!;
                     var motion = entry.Motion!;
-                    try
+                    bool hasBindings = item.Bindings.Length != 0;
+                    bool attached = hasBindings || item.GroundParents.Length != 0;
+                    Dictionary<int, Matrix4x4>? parents = attached
+                        ? BuildBoundaryOutsideParents(source, entry, item.Bindings, item.ParentIndices, item.GroundParents,
+                            (parentIdx, parentBone) => ResolvePhase1ParentBoneWorlds(source[parentIdx], parentBone,
+                                poses.PreparedWorlds[parentIdx], poses.DisabledBones[parentIdx],
+                                poses.ResetParentWorlds?[parentIdx]))
+                        : null;
+                    if (attached || pmmControls is not null)
                     {
-                        bool hasBindings = item.Bindings.Length != 0;
-                        bool attached = hasBindings || item.GroundParents.Length != 0;
-                        Dictionary<int, Matrix4x4>? parents = attached
-                            ? BuildBoundaryOutsideParents(source, entry, item.Bindings, item.ParentIndices, item.GroundParents,
-                                (parentIdx, parentBone) => ResolvePhase1ParentBoneWorlds(source[parentIdx], parentBone,
-                                    preparedWorldsByIndex[parentIdx], physicalDisabledByIndex[parentIdx],
-                                    resetAfterPhysicsWorldsByIndex?[parentIdx]))
-                            : null;
-                        if (attached || pmmControls is not null)
-                        {
-                            phase1ParentsOut[w] = parents;
-                            hasPhase1ParentsOut[w] = true;
-                        }
-                        bool deferFrozenSkin = deferRigidSkinning || controller.HasUnpublishedRigidBonePose;
-                        if (ApplyPhase1OutsideParents(entry, item.LocalFrame, item.Frozen, attached, item.Physical, deferFrozenSkin,
-                            item.TrackWindowChanged, parents, out bool fullEvalFrozen, out bool sampleFrozen, out bool publishedFrozenDisplay) is { } frozenFrame)
-                        {
-                            localFrames[w] = frozenFrame;
-                        }
-
-                        if (item.Kind == Phase1LevelWorkKind.NonPhysicalWork)
-                        {
-                            if (!initializing && !reset && !item.TrackWindowChanged && !fullEvalFrozen
-                                && controller.TryRetainCompleteRigidPlaybackPose(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled))
-                            {
-                                if (hasBindings) nonPhysicalAttachedOut[w] = new(item.LocalFrame, sampleFrozen, deferFrozenSkin, null);
-                                return;
-                            }
-                            if (sampleFrozen && controller.HasUnpublishedRigidBonePose)
-                            {
-                                if (!deferRigidSkinning)
-                                {
-                                    using var frozenPose = controller.BeginSharedPhysicsSample(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled, frozen: true);
-                                    localFrames[w] = SharedLocalFrame(entry, frozenPose.Complete(frozenPose.BeforePhysicsBoneWorlds));
-                                }
-                            }
-                            else if (!publishedFrozenDisplay && (!sampleFrozen || reset || attached))
-                            {
-                                if (deferRigidSkinning)
-                                    controller.SampleRigidInitializationBoneWorlds(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled);
-                                else
-                                    localFrames[w] = SharedLocalFrame(entry, controller.SampleAt(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled));
-                            }
-                            if (hasBindings) nonPhysicalAttachedOut[w] = new(item.LocalFrame, sampleFrozen, deferFrozenSkin, null);
-                        }
-                        else
-                        {
-                            preparations[w] = controller.BeginSharedPhysicsSample(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled,
-                                item.Disabled, sampleFrozen, null);
-                        }
+                        phase1ParentsOut[w] = parents;
+                        hasPhase1ParentsOut[w] = true;
                     }
-                    catch (Exception error)
+                    bool deferFrozenSkin = deferRigidSkinning || controller.HasUnpublishedRigidBonePose;
+                    if (ApplyPhase1OutsideParents(entry, item.LocalFrame, item.Frozen, attached, item.Physical, deferFrozenSkin,
+                        item.TrackWindowChanged, parents, out bool fullEvalFrozen, out bool sampleFrozen, out bool publishedFrozenDisplay) is { } frozenFrame)
                     {
-                        errors[w] = ExceptionDispatchInfo.Capture(error);
+                        localFrames[w] = frozenFrame;
+                    }
+
+                    if (!item.Physical)
+                    {
+                        if (!initializing && !reset && !item.TrackWindowChanged && !fullEvalFrozen
+                            && controller.TryRetainCompleteRigidPlaybackPose(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled))
+                        {
+                            if (hasBindings) nonPhysicalAttachedOut[w] = new(item.LocalFrame, sampleFrozen, deferFrozenSkin, null);
+                            return;
+                        }
+                        if (SampleNonPhysicalRigidBoundary(entry, item.LocalFrame, sampleFrozen, reset, attached,
+                            publishedFrozenDisplay, deferRigidSkinning) is { } rigidFrame)
+                            localFrames[w] = rigidFrame;
+                        if (hasBindings) nonPhysicalAttachedOut[w] = new(item.LocalFrame, sampleFrozen, deferFrozenSkin, null);
+                    }
+                    else
+                    {
+                        preparations[w] = controller.BeginSharedPhysicsSample(item.LocalFrame, motion.IkEnabled, motion.MorphsEnabled,
+                            item.Disabled, sampleFrozen, null);
                     }
                 }
 
-                if (workCount == 1)
-                    ExecuteWorkItem(0);
-                else
-                    Parallel.For(0, workCount, new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = Math.Min(workCount, maxDegree),
-                        TaskScheduler = TaskScheduler.Default,
-                    }, ExecuteWorkItem);
-
-                for (int w = 0; w < workCount; w++)
+                void CommitWorkItem(int w)
                 {
-                    errors[w]?.Throw();
                     var item = levelWork[w];
                     int index = item.EntryIndex;
                     var entry = source[index];
                     var controller = entry.Controller!;
                     if (hasPhase1ParentsOut[w])
                     {
-                        phase1OutsideParentsByIndex[index] = phase1ParentsOut[w];
-                        hasPhase1OutsideParents[index] = true;
+                        poses.BeforeParents[index] = phase1ParentsOut[w];
+                        poses.HasBeforeParents[index] = true;
                     }
-                    if (item.Kind == Phase1LevelWorkKind.NonPhysicalWork)
+                    if (!item.Physical)
                     {
                         if (localFrames[w] is { } localFrame)
                             source[index] = entry with { LocalFrame = localFrame };
                         if (nonPhysicalAttachedOut[w] is { } attachedState)
-                            nonPhysicalAttached![index] = attachedState;
+                            poses.NonPhysicalAttachments![index] = attachedState;
                         if (!deferRigidSkinning) previewWorking?.Remove(entry.Object.Id);
-                        preparedWorldsByIndex[index] = controller.BoneWorldMatrices;
+                        poses.PreparedWorlds[index] = controller.BoneWorldMatrices;
                     }
                     else
                     {
                         var preparation = preparations[w]!;
-                        preparations[w] = null;
-                        physicalDisabledByIndex[index] = item.Disabled;
-                        preparedWorldsByIndex[index] = preparation.BeforePhysicsBoneWorlds;
                         bool deferPreview = physicalPreviewSwitchEnabled && !item.Frozen
                             && item.Bindings.Length == 0 && item.GroundParents.Length == 0
                             && item.LocalFrame < controller.DurationFrames;
-                        pendingByIndex[index] = pending.Count;
-                        pending.Add((index, preparation, new(entry.Object.Id, preparation.BeforePhysicsBoneWorlds)
-                        { Frozen = item.Frozen, Impulses = initializing ? [] : preparation.Impulses, DisabledBoneIndices = item.Disabled! }, deferPreview));
+                        poses.AddPhysical(index, entry.Object.Id, preparation, item.Disabled!, item.Frozen, !initializing, deferPreview);
+                        preparations[w] = null; // The boundary now owns this worker's preparation.
                     }
                 }
+
+                RunBoundaryWorkers(workCount, maxDegree, ExecuteWorkItem, CommitWorkItem);
             }
             finally
             {
@@ -1442,11 +972,8 @@ public sealed partial class SceneAnimationSession
     }
 
     private void CompletePhase3LevelsParallel(Entry[] source, SharedCharacterPhysicsSession? world, SharedBoundaryTopology topology,
-        SharedBoundaryGraph? boundaryGraph, double frame, bool reset, bool step, bool deferRigidSkinning, int maxDegree,
-        List<(int Index, CharacterAnimationController.SharedPreparedPhysicsSample Pose, SharedPhysicsActorSample Physics, bool DeferPreview)> pending,
-        int[] pendingByIndex, IReadOnlySet<int>?[] physicalDisabledByIndex,
-        Dictionary<int, Matrix4x4>?[] phase1OutsideParentsByIndex, bool[] hasPhase1OutsideParents,
-        NonPhysicalAttachedState?[]? nonPhysicalAttached, Matrix4x4[]?[] resultsByEntryIndex)
+        SharedBoundaryGraph? boundaryGraph, BoundaryClock clock, bool deferRigidSkinning, int maxDegree,
+        BoundaryPoses poses, Matrix4x4[]?[] resultsByEntryIndex)
     {
         var updatedInPhase3 = new bool[source.Length];
         var levelWork = new List<Phase3LevelWorkItem>();
@@ -1459,23 +986,10 @@ public sealed partial class SceneAnimationSession
                 int index = level[k];
                 var entry = source[index];
                 if (entry.Controller is null) continue;
-                int p = pendingByIndex[index];
-                bool hasNonPhysical = nonPhysicalAttached is not null && nonPhysicalAttached[index].HasValue;
+                int p = poses.PhysicalSlots[index];
+                bool hasNonPhysical = poses.NonPhysicalAttachments is not null && poses.NonPhysicalAttachments[index].HasValue;
                 if (p < 0 && !hasNonPhysical) continue;
-                var bindings = topology.BindingsByIndex[index];
-                var parentIndices = topology.ParentActorIndicesByBinding[index];
-                bool hasPhase3Parent = false;
-                for (int b = 0; b < bindings.Length; b++)
-                {
-                    int parentIdx = parentIndices[b];
-                    if (updatedInPhase3[parentIdx]) { hasPhase3Parent = true; break; }
-                    if (physicalDisabledByIndex[parentIdx] is not null
-                        && source[parentIdx].Controller!.IsBoneAffectedByAfterPhysics(bindings[b].ParentBoneIndex))
-                    {
-                        hasPhase3Parent = true;
-                        break;
-                    }
-                }
+                bool hasPhase3Parent = HasUpdatedParent(source, topology, poses, updatedInPhase3, index);
                 if (p < 0 && !hasPhase3Parent) continue;
                 levelWork.Add(new(index, p, hasPhase3Parent));
             }
@@ -1484,64 +998,36 @@ public sealed partial class SceneAnimationSession
             if (workCount == 0) continue;
             var completeFrames = new OriginalFrameScene?[workCount];
             var updatedOut = new bool[workCount];
-            var errors = new ExceptionDispatchInfo?[workCount];
 
             void ExecuteWorkItem(int w)
             {
                 var item = levelWork[w];
                 int index = item.EntryIndex;
                 var entry = source[index];
-                try
+                var afterParents = item.HasPhase3Parent
+                    ? ResolveUpdatedParents(source, topology, boundaryGraph, poses, index, clock.Frame) : null;
+                if (item.PendingSlot >= 0)
                 {
-                    Dictionary<int, Matrix4x4>? afterParents = null;
-                    if (item.HasPhase3Parent)
-                    {
-                        var bindings = topology.BindingsByIndex[index];
-                        var parentIndices = topology.ParentActorIndicesByBinding[index];
-                        var groundParents = boundaryGraph is not null ? boundaryGraph.GroundByIndex[index] : ControlGroundParents(entry.Object.Id, frame);
-                        var postParents = BuildBoundaryOutsideParents(source, entry, bindings, parentIndices, groundParents,
-                            (parentIdx, _) => source[parentIdx].Controller!.BoneWorldMatrices);
-                        if (!hasPhase1OutsideParents[index]
-                            || !CharacterAnimationController.OutsideParentsEqual(phase1OutsideParentsByIndex[index], postParents))
-                            afterParents = postParents;
-                    }
-                    if (item.PendingSlot >= 0)
-                    {
-                        var pendingItem = pending[item.PendingSlot];
-                        var boneWorlds = resultsByEntryIndex[index]!;
-                        completeFrames[w] = CompletePendingSample(entry, world, pendingItem, boneWorlds, reset, step, deferRigidSkinning, afterParents);
-                        updatedOut[w] = afterParents is not null;
-                    }
-                    else if (afterParents is not null)
-                    {
-                        var info = nonPhysicalAttached![index]!.Value;
-                        completeFrames[w] = EvaluateNonPhysicalAfterPhysics(entry, info, afterParents, null, deferRigidSkinning);
-                        updatedOut[w] = true;
-                    }
+                    var pendingItem = poses.Physical[item.PendingSlot];
+                    var boneWorlds = resultsByEntryIndex[index]!;
+                    completeFrames[w] = CompletePendingSample(entry, world, pendingItem, boneWorlds, clock, deferRigidSkinning, afterParents);
+                    updatedOut[w] = afterParents is not null;
                 }
-                catch (Exception error)
+                else if (afterParents is not null)
                 {
-                    errors[w] = ExceptionDispatchInfo.Capture(error);
+                    var info = poses.NonPhysicalAttachments![index]!.Value;
+                    completeFrames[w] = EvaluateNonPhysicalAfterPhysics(entry, info, afterParents, null, deferRigidSkinning);
+                    updatedOut[w] = true;
                 }
             }
 
-            if (workCount == 1)
-                ExecuteWorkItem(0);
-            else
-                Parallel.For(0, workCount, new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = Math.Min(workCount, maxDegree),
-                    TaskScheduler = TaskScheduler.Default,
-                }, ExecuteWorkItem);
-
-            for (int w = 0; w < workCount; w++)
+            void CommitWorkItem(int w)
             {
-                errors[w]?.Throw();
                 var item = levelWork[w];
                 int index = item.EntryIndex;
                 if (item.PendingSlot >= 0)
                 {
-                    CommitPendingSampleCompletion(source, pending[item.PendingSlot], completeFrames[w], frame, deferRigidSkinning);
+                    CommitPendingSampleCompletion(source, poses.Physical[item.PendingSlot], completeFrames[w], clock.Frame, deferRigidSkinning);
                 }
                 else if (updatedOut[w])
                 {
@@ -1551,19 +1037,13 @@ public sealed partial class SceneAnimationSession
                 }
                 if (updatedOut[w]) updatedInPhase3[index] = true;
             }
+
+            RunBoundaryWorkers(workCount, maxDegree, ExecuteWorkItem, CommitWorkItem);
         }
     }
 
     private void BindSharedMotion(int index, SceneActorMotion motion, CancellationToken token)
     {
-        // Soft candidate resets can fail. Rebuild a complete candidate graph before publishing,
-        // rather than replacing live rigid membership and then attempting a fallible soft reset.
-        if (coupledSoftBodies || outsideBindings.Length != 0 || entries.Any(entry => entry.Controller?.SoftBodiesEnabled == true)
-            || motion.PhysicsEnabled && motion.Model.SoftBodies.Count != 0)
-        {
-            var motions = entries.Where(entry => entry.Motion is not null && entry.Object.Id != motion.ObjectId).Select(entry => entry.Motion!).Append(motion).ToArray();
-            ReplaceGraph(outsideBindings, motions, token); return;
-        }
         var previous = entries[index]; var candidate = PrepareEntry(previous.Object, motion, CurrentFrame, token);
         CharacterAnimationController.SharedPreparedPhysicsSample? initial = null;
         try
@@ -1585,7 +1065,6 @@ public sealed partial class SceneAnimationSession
             }
             else if (has) sharedWorld.RemoveActor(motion.ObjectId);
             entries = next; published = prospective; states = CaptureStates(next, CurrentFrame); DurationFrames = Duration(next);
-            if (!ReferenceEquals(previous.Motion?.Model, motion.Model)) { outsideUndo.Clear(); outsideRedo.Clear(); }
         }
         catch (Exception error)
         {

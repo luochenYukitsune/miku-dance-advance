@@ -47,6 +47,8 @@ public sealed class D3D12ConstantUploadTests
             Assert.Equal(second + 256, third);
             Assert.NotEqual(first, second);
             Assert.Throws<ArgumentException>(() => runtime.UploadConstants(new byte[full.Length + 1]));
+            Assert.Equal(3, runtime.ConstantAllocations);
+            Assert.Equal(full.Length + 2L * small.Length, runtime.ConstantBytes);
             runtime.Submit();
         }
         runtime.WaitForIdle();

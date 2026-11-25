@@ -74,6 +74,7 @@ public sealed class EffectDependencyTreeTests : IDisposable
     [InlineData("required-root")]
     [InlineData("bad-main-profile")]
     [InlineData("bad-function-profile")]
+    [InlineData("function-entry-case")]
     [InlineData("duplicate-origin")]
     [InlineData("invalid-reference")]
     [InlineData("failed-diagnostic")]
@@ -96,6 +97,7 @@ public sealed class EffectDependencyTreeTests : IDisposable
             case "missing-root-edge": edges.RemoveAt(0); break;
             case "required-root": metadata["requiredRelativeFiles"]!.AsArray().RemoveAt(0); break;
             case "bad-main-profile": metadata["profiles"]![0]!["macros"]![0]!["value"] = "wrong"; break;
+            case "function-entry-case": Edge(D3D9EffectDependencyEdgeKind.TextureFunction)["functionEntryPoint"] = "MAKE"; break;
             case "bad-function-profile": metadata["profiles"]!.AsArray().Last()!["flags"] = 0x1000; break;
             case "duplicate-origin": metadata["nodes"]![1]!["originAbsolutePath"] = metadata["nodes"]![0]!["originAbsolutePath"]!.GetValue<string>(); break;
             case "invalid-reference": Edge(D3D9EffectDependencyEdgeKind.IncludeLocal)["reference"]!["codePage"] = 0; break;

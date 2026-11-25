@@ -36,6 +36,8 @@ public sealed class D3D12AnimatedPhysicsGiTests
         var initialGi = session.Capture(initial, Width, Height, rayGiOptions: gi);
         long initialContribution = CenterRedContribution(initialOff, initialGi);
         Assert.True(initialContribution > 0, "The finite red bounce wall must contribute GI before moving.");
+        var lastBuildVertices = initialVertices;
+        int expectedRebuilds = 0, expectedRefits = 0;
         var firstGeometry = RayGiScene.FromOriginal(initial).GeometryIdentity;
         Guid previousGeometry = firstGeometry;
         int? cacheBaseline = null;
@@ -57,8 +59,17 @@ public sealed class D3D12AnimatedPhysicsGiTests
                 Assert.Equal(0, submitted.Statistics.ReadbackCount);
                 Assert.Equal(1, submitted.Statistics.SubmissionCount);
                 Assert.InRange(submitted.Statistics.PendingFrames, 0, 3);
-                Assert.Equal(0, session.RayGiStatistics!.AccelerationBuilds);
-                Assert.Equal(mode == LightingMode.HardwareRayTracing ? 1 : 0, session.RayGiStatistics.AccelerationUpdates);
+                bool hardware = mode == LightingMode.HardwareRayTracing;
+                var vertices = final.Surface.Snapshot.Vertices;
+                bool needsBuild = hardware && ExceedsRefitDistance(lastBuildVertices, vertices);
+                Assert.Equal(needsBuild ? 1 : 0, session.RayGiStatistics!.AccelerationBuilds);
+                Assert.Equal(hardware && !needsBuild ? 1 : 0, session.RayGiStatistics.AccelerationUpdates);
+                if (needsBuild)
+                {
+                    lastBuildVertices = vertices.ToArray();
+                    expectedRebuilds++;
+                }
+                else if (hardware) expectedRefits++;
                 cacheBaseline ??= submitted.Statistics.CachedResources;
                 Assert.InRange(submitted.Statistics.CachedResources, 0, cacheBaseline.Value + 4);
             }
@@ -80,6 +91,11 @@ public sealed class D3D12AnimatedPhysicsGiTests
             }
         }
 
+        if (mode == LightingMode.HardwareRayTracing)
+        {
+            Assert.True(expectedRefits > 0, "Small changes to the receiver and wall must refit.");
+            Assert.True(expectedRebuilds > 0, "Gravity must move the wall far enough to require a fresh build.");
+        }
         Assert.NotNull(final);
         var finalVertices = final.Surface.Snapshot.Vertices.ToArray();
         Assert.True(controller.BoneWorldMatrices[0].Translation.X > initialWorlds[0].Translation.X + .01f,
@@ -102,6 +118,22 @@ public sealed class D3D12AnimatedPhysicsGiTests
         Assert.Equal(firstAdvancedVertices, replay.Surface.Snapshot.Vertices.ToArray());
         Assert.Equal(firstAdvancedImage, session.Capture(replay, Width, Height, rayGiOptions: gi).Rgba);
         session.WaitForIdle();
+    }
+
+    private static bool ExceedsRefitDistance(ReadOnlySpan<SceneVertex> built, ReadOnlySpan<SceneVertex> current)
+    {
+        // The fixture has two translating quads in one DXR sample block. Their corners span
+        // the sampled bounds, so we can check the quarter-diagonal policy using the original mesh.
+        var min = built[0].Position;
+        var max = min;
+        float maxDistance = 0;
+        for (int i = 0; i < built.Length; i++)
+        {
+            min = Vector3.Min(min, built[i].Position);
+            max = Vector3.Max(max, built[i].Position);
+            maxDistance = Math.Max(maxDistance, Vector3.Distance(built[i].Position, current[i].Position));
+        }
+        return maxDistance > Vector3.Distance(min, max) / 4;
     }
 
     private static long CenterRedContribution(RenderedFrame off, RenderedFrame on)
