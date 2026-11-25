@@ -108,6 +108,10 @@ internal sealed partial class D3D12RayGiTemporalPass(D3D12GpuRuntime runtime):ID
             .SequenceEqual(previous.Frame.Materials.Select(value=>value.CharacterToonResponse)))return "ReceiverResponseChanged";
         if(!frame.Materials.Select(value=>value.PreserveDirectLightPalette)
             .SequenceEqual(previous.Frame.Materials.Select(value=>value.PreserveDirectLightPalette)))return "ReceiverResponseChanged";
+        if(D3D12OriginalStyleRenderer.HasNativeLights(frame)&&D3D12OriginalStyleRenderer.HasNativeLights(previous.Frame)
+            &&frame.Materials.Any(value=>value.PreserveDirectLightPalette)
+            &&D3D12OriginalStyleRenderer.HasPrimaryLight(frame.Surface.Profile)!=D3D12OriginalStyleRenderer.HasPrimaryLight(previous.Frame.Surface.Profile))
+            return "ReceiverResponseChanged";
         if(a.VertexCount!=b.VertexCount||!new D3D12IndexStreamIdentity(a).Equals(new D3D12IndexStreamIdentity(b))||a.Materials.Count!=b.Materials.Count)return "TopologyChanged";
         for(int i=0;i<a.Materials.Count;i++)
             if(a.Materials[i].StartIndex!=b.Materials[i].StartIndex||a.Materials[i].IndexCount!=b.Materials[i].IndexCount)return "TopologyChanged";

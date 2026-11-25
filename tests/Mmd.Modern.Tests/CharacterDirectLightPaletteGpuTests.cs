@@ -1,6 +1,10 @@
 using System.Numerics;
+using Mmd.Modern.App;
+using Mmd.Modern.Application;
 using Mmd.Modern.Core;
+using Mmd.Modern.Formats;
 using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput.D3D12;
 using Xunit;
 
 namespace Mmd.Modern.Tests;
@@ -144,6 +148,83 @@ public sealed class CharacterDirectLightPaletteGpuTests
             Assert.Equal(reason, session.RayGiStatistics!.TemporalResetReason);
         }
         static OriginalFrameOptions sourceOptions() => new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: Vector4.Zero);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DirectionalLightIlluminatesCharacterWhenPrimaryMainLightIsOffAcrossToonAndShadowModes(bool whiteToon)
+    {
+        using var session = new D3D12FrameSession();
+        var template = Surface(primary: -Vector3.UnitZ);
+        var mesh = template.Surface.Snapshot;
+        var profile = template.Surface.Profile with { LightAmbient = Vector3.Zero, LightSpecular = Vector3.Zero };
+        var binding = whiteToon ? new OriginalStyleMaterialBinding(Vector3.One) : template.Surface.Materials[0];
+        var darkCharacter = new OriginalFrameScene(new(mesh, [binding], profile),
+            options: template.Options, materials: template.Materials);
+        var light = Directional(1.0f, new(1, .8f, .6f)) with { CastShadows = true };
+
+        var baseline = session.Capture(With(darkCharacter, true), Width, Height);
+        AssertPixel(baseline, Vector3.Zero);
+        var lit = session.Capture(With(darkCharacter, true, light), Width, Height);
+        Assert.Equal(session.Capture(With(darkCharacter, false, light), Width, Height).Rgba, lit.Rgba);
+        byte[] pixel = Pixel(lit);
+        Assert.True(pixel[0] > 80 && pixel[0] > pixel[1] && pixel[1] > pixel[2], string.Join(",", pixel));
+
+        var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: 1f, SamplesPerPixel: 4,
+            Composition: RayGiComposition.ToonPalette, Denoiser: RayGiDenoiser.TemporalSpatial);
+        using (var first = session.Render(With(darkCharacter, true, light), Width, Height, gi))
+            Assert.Equal("FirstFrame", session.RayGiStatistics!.TemporalResetReason);
+        var mainOn = new OriginalFrameScene(new(mesh, [binding], template.Surface.Profile),
+            options: template.Options, materials: template.Materials);
+        using (var second = session.Render(With(mainOn, true, light), Width, Height, gi))
+            Assert.Equal("ReceiverResponseChanged", session.RayGiStatistics!.TemporalResetReason);
+    }
+
+    [Fact]
+    public void HumanoidCharacterWithMainLightOffReceivesDirectionalLightInDefaultAndPluginStyles()
+    {
+        using var session = new D3D12FrameSession();
+        string pmdPath = Path.Combine(AppContext.BaseDirectory, "fixtures/humanoid.pmd");
+        using var input = File.OpenRead(pmdPath);
+        var model = PmdPmxAdapter.Convert(PmdReader.Read(input), Path.GetDirectoryName(pmdPath));
+        using var workspace = new EditorProjectWorkspace();
+        var asset = EditorProjectWorkspace.CreateModelAsset(model, pmdPath, TestContext.Current.CancellationToken);
+        var charId = workspace.AddModel(pmdPath, asset, ModelRole.Character);
+        var cameraPose = EditorLightPlacement.DefaultCamera;
+        var mainOff = new PmmLightPose(Vector3.Zero, new(-.5f, -1, .5f));
+        var dirLight = EditorLightPlacement.Create(Guid.NewGuid(), "dir", SceneLightKind.Directional, cameraPose) with { Intensity = 2.0f };
+
+        var baseSnap = workspace.Session!.CaptureRenderSnapshot();
+        var baseFrame = D3D12ViewScene.Resolve(baseSnap.Scene, cameraPose, mainOff, null,
+            baseSnap.MorphChannels, new(), cameraPose.CreateCamera());
+        var baseMmd = session.Capture(baseFrame, Width, Height);
+
+        workspace.EditLighting(new(new SceneLightingSnapshot([dirLight])));
+        var litSnap = workspace.Session!.CaptureRenderSnapshot();
+        var litFrame = D3D12ViewScene.Resolve(litSnap.Scene, cameraPose, mainOff, null,
+            litSnap.MorphChannels, new(), cameraPose.CreateCamera());
+        var litMmd = session.Capture(litFrame, Width, Height);
+
+        int maxDiff = 0, litPixels = 0;
+        for (int i = 0; i < baseMmd.Rgba.Length; i += 4)
+        {
+            int d = Math.Max(Math.Abs(litMmd.Rgba[i] - baseMmd.Rgba[i]),
+                Math.Max(Math.Abs(litMmd.Rgba[i + 1] - baseMmd.Rgba[i + 1]), Math.Abs(litMmd.Rgba[i + 2] - baseMmd.Rgba[i + 2])));
+            if (d > maxDiff) maxDiff = d;
+            if (d > 8) litPixels++;
+        }
+        Assert.True(maxDiff > 50 && litPixels > 20, $"maxDiff={maxDiff}, litPixels={litPixels}");
+
+        var styledBase = D3D12ViewRenderingStyles.Resolve(baseFrame, TestStylePlugins.AllPresetCatalog,
+            [new(charId, new("genshin"), ModelRole.Character, 0, baseFrame.Surface.Snapshot.Materials.Count, true)],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
+        var styledLit = D3D12ViewRenderingStyles.Resolve(litFrame, TestStylePlugins.AllPresetCatalog,
+            [new(charId, new("genshin"), ModelRole.Character, 0, litFrame.Surface.Snapshot.Materials.Count, true)],
+            styleCatalog: TestStylePlugins.AllViewCatalog);
+        var sBase = session.Capture(styledBase.Scene, Width, Height, surfaceStyles: styledBase.SurfaceStyles);
+        var sLit = session.Capture(styledLit.Scene, Width, Height, surfaceStyles: styledLit.SurfaceStyles);
+        Assert.NotEqual(sBase.Rgba, sLit.Rgba);
     }
 
     private static OriginalFrameScene Surface(Vector3? normal = null, Vector3? primary = null, float alpha = 1, bool decorated = false)
