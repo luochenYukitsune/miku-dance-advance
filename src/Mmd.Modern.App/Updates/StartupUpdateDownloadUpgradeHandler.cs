@@ -22,12 +22,15 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
     private readonly string downloadDirectory;
     private readonly long maximumPackageBytes;
     private readonly TimeSpan downloadTimeout;
+    private readonly TimeSpan idleTimeout;
+    private readonly Func<Uri, IReadOnlyList<Uri>>? resolveCandidateUrls;
 
     public StartupUpdateDownloadUpgradeHandler(HttpClient client,
         Func<VerifiedStartupUpdateInstaller, CancellationToken, Task<bool>> confirmInstaller,
         Func<VerifiedStartupUpdateInstaller, CancellationToken, Task<bool>> launchInstaller,
         string? downloadDirectory = null, long maximumPackageBytes = DefaultMaximumPackageBytes,
-        TimeSpan? downloadTimeout = null)
+        TimeSpan? downloadTimeout = null, Func<Uri, IReadOnlyList<Uri>>? resolveCandidateUrls = null,
+        TimeSpan? idleTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(confirmInstaller);
@@ -36,12 +39,18 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
         var timeout = downloadTimeout ?? TimeSpan.FromMinutes(10);
         if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromHours(1))
             throw new ArgumentOutOfRangeException(nameof(downloadTimeout));
+        var defaultIdle = timeout < TimeSpan.FromSeconds(15) ? timeout : TimeSpan.FromSeconds(15);
+        var perCandidateIdle = idleTimeout ?? defaultIdle;
+        if (perCandidateIdle <= TimeSpan.Zero || perCandidateIdle > timeout)
+            throw new ArgumentOutOfRangeException(nameof(idleTimeout));
         this.client = client;
         this.confirmInstaller = confirmInstaller;
         this.launchInstaller = launchInstaller;
         this.downloadDirectory = Path.GetFullPath(downloadDirectory ?? Path.Combine(Path.GetTempPath(), "MDA", "Updates"));
         this.maximumPackageBytes = maximumPackageBytes;
         this.downloadTimeout = timeout;
+        this.idleTimeout = perCandidateIdle;
+        this.resolveCandidateUrls = resolveCandidateUrls;
     }
 
     public async Task<StartupUpdateUpgradeResult> UpgradeAsync(StartupUpdateRelease release,
@@ -54,40 +63,92 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
             !package.Sha256.All(Uri.IsHexDigit))
             return new(false, "The update has no valid installer package.");
 
+        var candidates = BuildCandidateUris(package.Url);
+        if (candidates.Count == 0)
+            return new(false, "The update has no valid installer package.");
+
         string? ownedPath = null;
+        FileStream? verifiedFile = null;
         var installerStarted = false;
         try
         {
             // Neither a URL basename nor feed-supplied text determines a local path.
             Directory.CreateDirectory(downloadDirectory);
-            var candidate = Path.Combine(downloadDirectory, Guid.NewGuid().ToString("N") + ".partial");
-            await using (var destination = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write,
-                FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            using var overallTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            overallTimeout.CancelAfter(downloadTimeout);
+
+            VerifiedStartupUpdateInstaller? verified = null;
+            Exception? lastDownloadError = null;
+            foreach (var candidateUrl in candidates)
             {
-                // Only claim ownership after CreateNew succeeded; never remove a preexisting file.
-                ownedPath = candidate;
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(downloadTimeout);
-                await DownloadAsync(package, destination, progress, timeout.Token).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                overallTimeout.Token.ThrowIfCancellationRequested();
+                if (ownedPath is not null)
+                {
+                    DeleteOwnedFile(ownedPath);
+                    ownedPath = null;
+                }
+
+                try
+                {
+                    var partialPath = Path.Combine(downloadDirectory, Guid.NewGuid().ToString("N") + ".partial");
+                    await using (var destination = new FileStream(partialPath, FileMode.CreateNew, FileAccess.Write,
+                        FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                    {
+                        // Only claim ownership after CreateNew succeeded; never remove a preexisting file.
+                        ownedPath = partialPath;
+                        await DownloadAsync(candidateUrl, package, destination, progress, overallTimeout.Token)
+                            .ConfigureAwait(false);
+                    }
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var installerPath = Path.ChangeExtension(ownedPath, ".exe");
+                    File.Move(ownedPath, installerPath);
+                    ownedPath = installerPath;
+
+                    // Reopen and verify the actual launch file. On Windows this read handle prevents writes,
+                    // replacement and deletion throughout the consent prompt and process-start callback.
+                    verifiedFile = new FileStream(installerPath, FileMode.Open, FileAccess.Read,
+                        FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    if (verifiedFile.Length == 0 || verifiedFile.Length > maximumPackageBytes ||
+                        (package.Size is { } expectedSize && verifiedFile.Length != expectedSize))
+                        throw new InvalidDataException("The installer size does not match.");
+                    var digest = await SHA256.HashDataAsync(verifiedFile, cancellationToken).ConfigureAwait(false);
+                    if (!CryptographicOperations.FixedTimeEquals(digest, Convert.FromHexString(package.Sha256)))
+                        throw new InvalidDataException("The installer checksum does not match.");
+
+                    verified = new VerifiedStartupUpdateInstaller(release, installerPath,
+                        Convert.ToHexString(digest), verifiedFile.Length);
+                    lastDownloadError = null;
+                    break;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || overallTimeout.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception error)
+                {
+                    lastDownloadError = error;
+                    if (verifiedFile is not null)
+                    {
+                        await verifiedFile.DisposeAsync().ConfigureAwait(false);
+                        verifiedFile = null;
+                    }
+                    if (ownedPath is not null)
+                    {
+                        DeleteOwnedFile(ownedPath);
+                        ownedPath = null;
+                    }
+                }
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-            var installerPath = Path.ChangeExtension(ownedPath, ".exe");
-            File.Move(ownedPath, installerPath);
-            ownedPath = installerPath;
+            if (verified is null)
+            {
+                return lastDownloadError is OperationCanceledException
+                    ? new(false, "The installer download timed out.")
+                    : new(false, "The installer could not be downloaded, verified or started.");
+            }
 
-            // Reopen and verify the actual launch file. On Windows this read handle prevents writes,
-            // replacement and deletion throughout the consent prompt and process-start callback.
-            await using var verifiedFile = new FileStream(installerPath, FileMode.Open, FileAccess.Read,
-                FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            if (verifiedFile.Length == 0 || verifiedFile.Length > maximumPackageBytes ||
-                (package.Size is { } expectedSize && verifiedFile.Length != expectedSize))
-                throw new InvalidDataException("The installer size does not match.");
-            var digest = await SHA256.HashDataAsync(verifiedFile, cancellationToken).ConfigureAwait(false);
-            if (!CryptographicOperations.FixedTimeEquals(digest, Convert.FromHexString(package.Sha256)))
-                throw new InvalidDataException("The installer checksum does not match.");
-            var verified = new VerifiedStartupUpdateInstaller(release, installerPath,
-                Convert.ToHexString(digest), verifiedFile.Length);
             cancellationToken.ThrowIfCancellationRequested();
             if (!await confirmInstaller(verified, cancellationToken).ConfigureAwait(false))
                 return new(false, "Installer launch was declined.");
@@ -100,15 +161,32 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
         catch (Exception) { return new(false, "The installer could not be downloaded, verified or started."); }
         finally
         {
+            if (verifiedFile is not null) await verifiedFile.DisposeAsync().ConfigureAwait(false);
             if (!installerStarted && ownedPath is not null) DeleteOwnedFile(ownedPath);
         }
     }
 
-    private async Task DownloadAsync(StartupUpdatePackage package, FileStream destination,
-        IProgress<StartupUpdateProgress>? progress, CancellationToken cancellationToken)
+    private IReadOnlyList<Uri> BuildCandidateUris(Uri primaryUrl)
     {
-        using var response = await client.GetAsync(package.Url, HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+        var raw = resolveCandidateUrls?.Invoke(primaryUrl) ?? [primaryUrl];
+        var result = new List<Uri>(raw.Count);
+        foreach (var uri in raw)
+        {
+            if (StartupUpdateService.IsHttps(uri) && !result.Contains(uri))
+                result.Add(uri);
+        }
+        return result;
+    }
+
+    private async Task DownloadAsync(Uri candidateUrl, StartupUpdatePackage package, FileStream destination,
+        IProgress<StartupUpdateProgress>? progress, CancellationToken overallToken)
+    {
+        using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(overallToken);
+        stallCts.CancelAfter(idleTimeout);
+        var token = stallCts.Token;
+
+        using var response = await client.GetAsync(candidateUrl, HttpCompletionOption.ResponseHeadersRead,
+            token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         if (response.RequestMessage?.RequestUri is { } finalUri && !StartupUpdateService.IsHttps(finalUri))
             throw new InvalidDataException("The installer response must use HTTPS.");
@@ -116,27 +194,28 @@ public sealed class StartupUpdateDownloadUpgradeHandler : IStartupUpdateUpgradeH
         if (declaredLength > maximumPackageBytes ||
             (package.Size is { } expectedSize && declaredLength is { } actualSize && expectedSize != actualSize))
             throw new InvalidDataException("The installer size does not match.");
-        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var input = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var buffer = new byte[64 * 1024];
         long downloaded = 0;
         var limit = package.Size ?? maximumPackageBytes;
         while (true)
         {
-            var count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var count = await input.ReadAsync(buffer, token).ConfigureAwait(false);
             if (count == 0) break;
+            stallCts.CancelAfter(idleTimeout);
             if (count > limit - downloaded) throw new InvalidDataException("The installer exceeds its size limit.");
-            await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+            await destination.WriteAsync(buffer.AsMemory(0, count), overallToken).ConfigureAwait(false);
             hash.AppendData(buffer, 0, count);
             downloaded += count;
             progress?.Report(new(downloaded, package.Size ?? declaredLength));
         }
-        cancellationToken.ThrowIfCancellationRequested();
+        overallToken.ThrowIfCancellationRequested();
         if (downloaded == 0 || (package.Size is { } expected && downloaded != expected) ||
             (declaredLength is { } declared && downloaded != declared) ||
             !CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), Convert.FromHexString(package.Sha256)))
             throw new InvalidDataException("The installer verification failed.");
-        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await destination.FlushAsync(overallToken).ConfigureAwait(false);
     }
 
     private static void DeleteOwnedFile(string path)
