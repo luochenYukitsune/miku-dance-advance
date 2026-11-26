@@ -40,6 +40,16 @@ public sealed class EditorCameraComponentPilotTests : IAsyncDisposable
         var actualForward = Vector3.Normalize(aimedCamera.Target - aimedCamera.Eye);
         Assert.True(Vector3.Dot(expectedForward, actualForward) > 0.9999f);
         Assert.Equal(initial.Angle.Z, aimed.Angle.Z);
+
+        // Straight-up and straight-down targets must keep Eye exact without horizontal drift.
+        foreach (float verticalSign in new[] { 1f, -1f })
+        {
+            var verticalTarget = beforeCamera.Eye + new Vector3(0f, verticalSign * 15f, 0f);
+            var verticalAimed = EditorCameraViewportInteraction.AimAtTarget(initial, verticalTarget);
+            var verticalCamera = verticalAimed.CreateCamera();
+            Assert.True(Vector3.Distance(beforeCamera.Eye, verticalCamera.Eye) < 1e-3f);
+            Assert.True(Vector3.Dot(new Vector3(0f, verticalSign, 0f), Vector3.Normalize(verticalCamera.Target - verticalCamera.Eye)) > 0.9999f);
+        }
     }
 
     [Fact]
@@ -108,9 +118,29 @@ public sealed class EditorCameraComponentPilotTests : IAsyncDisposable
         controller.CancelDrag();
         Assert.False(controller.IsDragging);
         Assert.Equal(scenePose, inspector.CameraPose);
+        Assert.False(inspector.HasCameraDraft);
+
+        // When a draft already existed before dragging, CancelDrag restores the draft and keeps HasCameraDraft true.
+        var priorDraft = scenePose with { LookAt = scenePose.LookAt + new Vector3(1f, 0f, 0f) };
+        inspector.SetCameraDraft(priorDraft);
+        Assert.True(inspector.HasCameraDraft);
+        // Stale snapshot (before re-decorating/presenting priorDraft) must reject TryBeginDrag.
+        Assert.False(controller.TryBeginDrag(eyePx, viewCamera, width, height, isDoubleClick: false));
+
+        var draftDecorated = controller.Decorate(rawFrame, viewCamera);
+        controller.FramePresented(draftDecorated);
+        Assert.True(LightViewportInteraction.TryProject(priorDraft.CreateCamera().Eye, viewCamera, width, height, out var priorEyePx));
+        // Even if the live viewCamera moved before the next frame presented, TryBeginDrag uses the presented snapshot camera.
+        var shiftedLiveCamera = (obsPose with { LookAt = obsPose.LookAt + new Vector3(20f, 0f, 0f) }).CreateCamera();
+        Assert.True(controller.TryBeginDrag(priorEyePx, shiftedLiveCamera, width, height, isDoubleClick: false));
+        controller.MoveDrag(priorEyePx + new Vector2(30, -10));
+        Assert.NotEqual(priorDraft, inspector.CameraPose);
+        controller.CancelDrag();
+        Assert.Equal(priorDraft, inspector.CameraPose);
+        Assert.True(inspector.HasCameraDraft);
 
         // Double-click enters pilot mode immediately without starting a drag.
-        Assert.True(controller.TryBeginDrag(eyePx, viewCamera, width, height, isDoubleClick: true));
+        Assert.True(controller.TryBeginDrag(priorEyePx, viewCamera, width, height, isDoubleClick: true));
         Assert.Equal(1, pilotCalls);
         Assert.False(controller.IsDragging);
 
@@ -118,7 +148,42 @@ public sealed class EditorCameraComponentPilotTests : IAsyncDisposable
         controller.IsPiloting = true;
         var pilotingFrame = controller.Decorate(rawFrame, viewCamera);
         Assert.Null(pilotingFrame.Scene.EditorOverlay);
-        Assert.False(controller.TryBeginDrag(eyePx, viewCamera, width, height, isDoubleClick: false));
+        Assert.False(controller.TryBeginDrag(priorEyePx, viewCamera, width, height, isDoubleClick: false));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DecoratePreservesMainLightAndCameraPresentationCorrelationInEitherOrder(bool cameraFirst)
+    {
+        var scenePose = new PmmCameraPose(new Vector3(0, 10, 0), Vector3.Zero, -45f, 30f, true);
+        var inspector = new EditorSceneInspectorViewModel(scenePose);
+        var obsPose = EditorCameraViewportInteraction.CreateObservationCameraAround(scenePose);
+        var viewCamera = obsPose.CreateCamera();
+        const int width = 800, height = 600;
+
+        var mainLight = new EditorMainLightViewport(inspector, () => true, () => { });
+        var cameraCtrl = new EditorCameraViewportController(
+            inspector, _ => null, () => false, () => { }, () => { }, () => { });
+
+        var rawFrame = new PreviewFrame(width, height, 0,
+            new(new(SceneSnapshot.CreateEmpty(viewCamera), [])), obsPose, null, null) { ResolvedCamera = viewCamera };
+
+        var decorated = cameraFirst
+            ? mainLight.Decorate(cameraCtrl.Decorate(rawFrame, viewCamera), viewCamera)
+            : cameraCtrl.Decorate(mainLight.Decorate(rawFrame, viewCamera), viewCamera);
+
+        mainLight.FramePresented(decorated);
+        cameraCtrl.FramePresented(decorated);
+
+        var mainLightSource = mainLight.Decorate(rawFrame, viewCamera).Scene.EditorOverlay!.Lines
+            .First(line => line.Shape == ViewportOverlayShape.Circle).Start * new Vector2(width, height);
+        Assert.True(mainLight.TryBegin(mainLightSource, viewCamera, width, height));
+        mainLight.Cancel();
+
+        Assert.True(LightViewportInteraction.TryProject(scenePose.CreateCamera().Eye, viewCamera, width, height, out var eyePx));
+        Assert.True(cameraCtrl.TryBeginDrag(eyePx, viewCamera, width, height));
+        cameraCtrl.CancelDrag();
     }
 
     [Fact]
@@ -168,9 +233,18 @@ public sealed class EditorCameraComponentPilotTests : IAsyncDisposable
                 Assert.Equal(EditorLocalization.Text("Mda.Text.CameraPilot.Exit"), inspectorToggle.Content);
             }
 
-            // Pressing Esc from viewport exits Pilot Mode back to Free View.
+            // While piloting, switching inspector context away from camera still routes viewport Enter/K to camera keyframing.
+            int cameraRegisterCalls = 0;
+            shell.SceneInspector.CommitSceneMotionWithCameraParent = (_, _, camera) => { if (camera.HasValue) cameraRegisterCalls++; };
+            shell.SceneSelectionIndex = -1;
+            Assert.False(shell.IsCameraInspector);
             var executeKey = typeof(EditorWindow).GetMethod("ExecuteEditorKey",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            Assert.True((bool)executeKey.Invoke(window, [Key.K, KeyModifiers.None, true])!);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(1, cameraRegisterCalls);
+
+            // Pressing Esc from viewport exits Pilot Mode back to Free View.
             Assert.True((bool)executeKey.Invoke(window, [Key.Escape, KeyModifiers.None, true])!);
             Dispatcher.UIThread.RunJobs();
             Assert.False(viewport.IsPilotingCamera);

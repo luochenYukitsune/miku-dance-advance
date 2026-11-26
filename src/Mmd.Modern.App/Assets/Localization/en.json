@@ -1024,7 +1024,7 @@
   "Mda.Text.CameraPilot.Exit": "Exit Pilot",
   "Mda.Text.CameraPilot.Helpers": "Camera gizmo",
   "Mda.Text.CameraPilot.HelpersTip": "Show the 3D scene camera component and frustum in Free View (click to select, drag to move, double-click to pilot)",
-  "Mda.Text.CameraPilot.Tooltip": "Enter camera pilot mode (camera POV): viewport navigation edits the scene camera for keyframing; toggle off for free observation view",
+  "Mda.Text.CameraPilot.Tooltip": "Enter camera pilot mode (camera POV): viewport navigation edits the scene camera, then press Enter or K to register a keyframe; toggle off for free observation view",
   "Mda.Text.CameraPilot.BannerTitle": "Piloting Scene Camera",
   "Mda.Text.CameraPilot.BannerHint": "Left-drag orbit · Right-drag pan · Wheel zoom · Enter register · Esc exit",
   "Mda.Text.CameraPilot.InspectorHint": "Select the 3D camera in the viewport or pilot it directly to frame and keyframe",

@@ -771,8 +771,8 @@ public partial class EditorWindow : Window
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
         if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true || _mainLightViewport?.IsDragging == true || _cameraController?.IsDragging == true)) return false;
-        if (fromViewport && key == Key.Escape && modifiers == KeyModifiers.None
-            && this.FindControl<EditorViewportHost>("SceneViewport")?.IsPilotingCamera == true)
+        bool pilotingCamera = this.FindControl<EditorViewportHost>("SceneViewport")?.IsPilotingCamera == true;
+        if (fromViewport && key == Key.Escape && modifiers == KeyModifiers.None && pilotingCamera)
         { ExitCameraPilotMode(); return true; }
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
@@ -797,6 +797,8 @@ public partial class EditorWindow : Window
             (Key.S, true, true) => shell.SaveAsCommand, (Key.S, true, false) => shell.SaveProjectCommand,
             (Key.Z, true, true) => shell.RedoCommand, (Key.Z, true, false) => shell.UndoCommand,
             (Key.Y, true, _) => shell.RedoCommand,
+            (Key.Enter or Key.K, false, false) when fromViewport && pilotingCamera
+                => shell.SceneInspector.RegisterCameraKeyframeCommand,
             (Key.Enter or Key.K, false, false) when shell.IsCameraInspector && (fromViewport || FocusManager?.GetFocusedElement() == SceneFrameTimeline)
                 => shell.SceneInspector.RegisterCameraKeyframeCommand,
             (Key.Enter or Key.K, false, false) when shell.IsLightInspector && shell.SceneInspector.ShowsPrimaryLightTrack

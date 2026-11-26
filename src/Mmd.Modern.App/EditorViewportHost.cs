@@ -719,11 +719,11 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         }
         scene = new(scene.Surface, scene.Outline, scene.OutlineOptions, options, scene.Materials, scene.Lighting, overlay);
         frame = frame with { Scene = scene, TemporalState = new() { HistoryGeneration = historyGeneration, CameraCutKey = cameraCutKey } };
+        frame = CameraController?.Decorate(frame, currentCamera) ?? frame;
+        if (cameraGizmoCaptured && CameraController?.IsDragging != true) CancelCameraGizmoDrag();
         frame = FrameDecorator?.Invoke(frame) ?? frame;
         frame = MainLightViewport?.Decorate(frame, currentCamera) ?? frame;
         if (mainLightCaptured && MainLightViewport?.IsDragging != true) CancelMainLightDrag();
-        frame = CameraController?.Decorate(frame, currentCamera) ?? frame;
-        if (cameraGizmoCaptured && CameraController?.IsDragging != true) CancelCameraGizmoDrag();
         return frame;
     }
 

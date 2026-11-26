@@ -1024,7 +1024,7 @@
   "Mda.Text.CameraPilot.Exit": "操作を終了",
   "Mda.Text.CameraPilot.Helpers": "カメラ表示",
   "Mda.Text.CameraPilot.HelpersTip": "フリー視点でシーン内の 3D カメラと視錐台を表示します（クリックで選択、ドラッグで移動、ダブルクリックでカメラ操作）",
-  "Mda.Text.CameraPilot.Tooltip": "カメラ操作モード（カメラ視点）に入ります。ビュー操作でシーンカメラを調整・登録でき、オフでフリー視点に戻ります",
+  "Mda.Text.CameraPilot.Tooltip": "カメラ操作モード（カメラ視点）に入ります。ビュー操作でシーンカメラを調整し、Enter または K でキーフレームを登録します。オフでフリー視点に戻ります",
   "Mda.Text.CameraPilot.BannerTitle": "シーンカメラ操作中",
   "Mda.Text.CameraPilot.BannerHint": "左ドラッグ回転・右ドラッグ移動・ホイール拡大縮小・Enter 登録・Esc 終了",
   "Mda.Text.CameraPilot.InspectorHint": "ビューポートで 3D カメラを選択するか、操作モードで構図を調整して登録できます",

@@ -32,9 +32,10 @@ public sealed class EditorCameraViewportController
         SceneCamera ViewCamera,
         int Width,
         int Height,
-        CameraGizmoPart Part);
+        CameraGizmoPart Part,
+        bool HadDraft);
 
-    private readonly ConditionalWeakTable<PreviewFrame, CapturedCamera> awaiting = new();
+    private readonly ConditionalWeakTable<ViewportOverlayLine, CapturedCamera> awaiting = new();
     private CapturedCamera? presented;
     private DragState? drag;
     private PmmCameraPose? previewPose;
@@ -128,22 +129,32 @@ public sealed class EditorCameraViewportController
             Scene = new(scene.Surface, scene.Outline, scene.OutlineOptions, scene.Options,
                 scene.Materials, scene.Lighting, merged)
         };
-        awaiting.Add(decorated, new CapturedCamera(pose, sceneCamera, viewCamera, frame.Width, frame.Height, selected));
+        awaiting.Add(gizmo.Lines[0], new CapturedCamera(pose, sceneCamera, viewCamera, frame.Width, frame.Height, selected));
         return decorated;
     }
 
     public void FramePresented(PreviewFrame frame)
     {
-        presented = awaiting.TryGetValue(frame, out var captured) ? captured : null;
+        presented = null;
+        foreach (var line in frame.Scene.EditorOverlay?.Lines ?? [])
+        {
+            if (awaiting.TryGetValue(line, out var captured))
+            {
+                awaiting.Remove(line);
+                presented = captured;
+                return;
+            }
+        }
     }
 
     public bool TryBeginDrag(Vector2 pointer, SceneCamera viewCamera, int width, int height, bool isDoubleClick = false)
     {
         if (isPiloting || !helpersVisible || drag is not null || presented is not { } snapshot) return false;
         if (snapshot.Width != width || snapshot.Height != height) return false;
+        if (snapshot.Pose != sceneInspector.CameraPose) return false;
 
         var hit = EditorCameraViewportInteraction.HitTest(
-            pointer, snapshot.SceneCamera, snapshot.Pose, viewCamera, width, height, snapshot.Selected);
+            pointer, snapshot.SceneCamera, snapshot.Pose, snapshot.ViewCamera, width, height, snapshot.Selected);
         if (hit is null) return false;
 
         selectCamera();
@@ -169,10 +180,11 @@ public sealed class EditorCameraViewportController
             snapshot.SceneCamera,
             anchor,
             pointer,
-            viewCamera,
+            snapshot.ViewCamera,
             width,
             height,
-            hit.Part);
+            hit.Part,
+            sceneInspector.HasCameraDraft);
         previewPose = snapshot.Pose;
         redraw();
         return true;
@@ -220,7 +232,11 @@ public sealed class EditorCameraViewportController
         bool changed = previewPose.HasValue && previewPose.Value != active.InitialPose;
         drag = null;
         previewPose = null;
-        if (changed) sceneInspector.SetCameraDraft(active.InitialPose);
+        if (changed)
+        {
+            if (active.HadDraft) sceneInspector.SetCameraDraft(active.InitialPose);
+            else sceneInspector.RestoreCameraPoseWithoutDraft(active.InitialPose);
+        }
         redraw();
     }
 }

@@ -12,7 +12,7 @@ internal sealed class EditorMainLightViewport(EditorSceneInspectorViewModel mode
 {
     private sealed record Handle(SceneCamera Camera, int Width, int Height, long Revision, Vector2 Source, Vector2 Tip,
         float Radius, Vector3 Right, Vector3 Up, Vector3 Front);
-    private readonly ConditionalWeakTable<PreviewFrame, Handle> awaiting = new();
+    private readonly ConditionalWeakTable<ViewportOverlayLine, Handle> awaiting = new();
     private Handle? presented;
     private Handle? gesture;
     private Vector2 start;
@@ -74,12 +74,23 @@ internal sealed class EditorMainLightViewport(EditorSceneInspectorViewModel mode
         var overlay = new ViewportOverlaySnapshot(existing.Take(ViewportOverlaySnapshot.MaxLines - lines.Count).Concat(lines));
         var result = frame with { Scene = new(scene.Surface, scene.Outline, scene.OutlineOptions, scene.Options,
             scene.Materials, scene.Lighting, overlay) };
-        awaiting.Add(result, handle);
+        awaiting.Add(lines[0], handle);
         return result;
     }
 
-    internal void FramePresented(PreviewFrame frame) =>
-        presented = awaiting.TryGetValue(frame, out var pose) ? pose : null;
+    internal void FramePresented(PreviewFrame frame)
+    {
+        presented = null;
+        foreach (var line in frame.Scene.EditorOverlay?.Lines ?? [])
+        {
+            if (awaiting.TryGetValue(line, out var pose))
+            {
+                awaiting.Remove(line);
+                presented = pose;
+                return;
+            }
+        }
+    }
 
     internal bool TryBegin(Vector2 pointer, SceneCamera camera, int width, int height)
     {

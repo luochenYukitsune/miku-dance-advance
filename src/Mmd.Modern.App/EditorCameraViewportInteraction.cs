@@ -49,7 +49,7 @@ public static class EditorCameraViewportInteraction
         if (!float.IsFinite(dist) || dist < 0.05f) return pose;
 
         var forward = offset / dist;
-        float pitch = MathF.Asin(Math.Clamp(forward.Y, -0.9999f, 0.9999f));
+        float pitch = MathF.Asin(Math.Clamp(forward.Y, -1f, 1f));
         float yaw = MathF.Atan2(-forward.X, forward.Z);
         return pose with
         {

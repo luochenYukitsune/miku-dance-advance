@@ -319,6 +319,14 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
         cameraPose = pose; ReadCameraFields(); cameraDraft = true;
         contextRevision++; DraftChanged(); PublishCamera();
     }
+    public void RestoreCameraPoseWithoutDraft(PmmCameraPose pose)
+    {
+        if (IsBusy) return;
+        if (cameraPose == pose && !cameraDraft) return;
+        _ = pose.CreateCamera().ViewProjection(1, 1);
+        cameraPose = pose; ReadCameraFields(); cameraDraft = false;
+        contextRevision++; DraftChanged(); PublishCamera();
+    }
     /// <summary>Restores PMM's saved unregistered main light without changing its keyframes.</summary>
     public void SetLightDraft(PmmLightPose pose)
     {
