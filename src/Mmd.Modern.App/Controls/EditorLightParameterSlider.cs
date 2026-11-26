@@ -21,8 +21,33 @@ public sealed class EditorLightParameterSlider : Slider
     public event EventHandler? EditCompleted;
     public event EventHandler? EditCanceled;
 
+    public static readonly StyledProperty<decimal?> AuthoredNumberProperty =
+        AvaloniaProperty.Register<EditorLightParameterSlider, decimal?>(nameof(AuthoredNumber));
+    public decimal? AuthoredNumber { get => GetValue(AuthoredNumberProperty); set => SetValue(AuthoredNumberProperty, value); }
+    public EditorLightSliderScale NumberScale { get; set; }
+    public static readonly StyledProperty<decimal?> MenuDefaultValueProperty =
+        AvaloniaProperty.Register<EditorLightParameterSlider, decimal?>(nameof(MenuDefaultValue));
+    public decimal? MenuDefaultValue { get => GetValue(MenuDefaultValueProperty); set => SetValue(MenuDefaultValueProperty, value); }
+
+    private void CommitMenuValue(decimal number)
+    {
+        if (editing || !IsEffectivelyEnabled || !Begin()) return;
+        double position = NumberScale switch
+        {
+            EditorLightSliderScale.Brightness => EditorLightParameterScale.BrightnessPosition(number),
+            EditorLightSliderScale.Logarithmic => EditorLightParameterScale.DistancePosition(number),
+            _ => (double)number
+        };
+        position = Math.Clamp(position, Minimum, Maximum);
+        if (position == Value) EditPreview?.Invoke(this, EventArgs.Empty);
+        else SetCurrentValue(ValueProperty, position);
+        Finish(false);
+    }
+
     public EditorLightParameterSlider()
     {
+        EditorNumberMenu.Attach(this, () => NumberScale == EditorLightSliderScale.Linear ? (decimal)Value : AuthoredNumber,
+            () => MenuDefaultValue, CommitMenuValue, () => !editing);
         AddHandler(PointerPressedEvent, BeginPointer, RoutingStrategies.Tunnel, true);
         AddHandler(PointerMovedEvent, (_, args) => { if (suppressPointerUntilRelease) args.Handled = true; }, RoutingStrategies.Tunnel, true);
         AddHandler(PointerReleasedEvent, (_, _) => releasing = true, RoutingStrategies.Tunnel, true);
@@ -96,3 +121,5 @@ public sealed class EditorLightParameterSlider : Slider
         if (change.Property == ValueProperty && editing) EditPreview?.Invoke(this, EventArgs.Empty);
     }
 }
+
+public enum EditorLightSliderScale { Linear, Brightness, Logarithmic }

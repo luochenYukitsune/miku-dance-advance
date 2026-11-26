@@ -503,7 +503,7 @@
   <Grid RowDefinitions="32,40,*,30">
     <Border Classes="panelHeader menuBar" Padding="0">
       <DockPanel>
-        <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="{DynamicResource Mda.Text.df3d58c7d84b}" Margin="6,0" Click="OpenPreferences" ToolTip.Tip="{DynamicResource Mda.Text.3adabe75a1eb}" />
+        <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="{DynamicResource Mda.Text.df3d58c7d84b}" Margin="6,0" Click="OpenPreferences" IsEnabled="{Binding CanEditWorkspace}" ToolTip.Tip="{DynamicResource Mda.Text.3adabe75a1eb}" />
         <Menu DockPanel.Dock="Right" Background="Transparent" IsEnabled="{Binding CanEditWorkspace}">
           <MenuItem Name="ClassicEffectsMenu" Header="MMEffect" IsVisible="False">
             <MenuItem Name="ClassicEffectAssignment" Header="{DynamicResource Mda.Text.Mme.Assignment}" Click="OpenClassicEffects" />
@@ -522,14 +522,14 @@
         <Menu Background="Transparent" RenderOptions.TextRenderingMode="Antialias" IsEnabled="{Binding CanEditWorkspace}">
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.39932f24fe11}" /></MenuItem.Header>
             <MenuItem Header="{DynamicResource Mda.Text.36c3ca51b182}" Command="{Binding NewProjectCommand}" InputGesture="Ctrl+N" /><MenuItem Header="{DynamicResource Mda.Text.7490115b7a71}" Command="{Binding OpenProjectCommand}" InputGesture="Ctrl+O" /><Separator />
-            <MenuItem Header="{DynamicResource Mda.Text.b6ab3d8870aa}" Command="{Binding ImportModelCommand}" /><MenuItem Header="{DynamicResource Mda.Text.25aed4b73b5c}" Command="{Binding ImportMotionCommand}" /><MenuItem Header="{DynamicResource Mda.Text.ae7f218be0f9}" Click="ImportPose" /><Separator />
+            <MenuItem Header="{DynamicResource Mda.Text.b6ab3d8870aa}" Command="{Binding ImportModelCommand}" /><MenuItem Header="{DynamicResource Mda.Text.25aed4b73b5c}" Command="{Binding ImportMotionCommand}" /><MenuItem Header="{DynamicResource Mda.Text.ae7f218be0f9}" Click="ImportPose" IsEnabled="{Binding Browser.HasSelectedModel}" /><Separator />
             <MenuItem Header="{DynamicResource Mda.Text.8bdf49fb2914}" Command="{Binding SaveProjectCommand}" InputGesture="Ctrl+S" /><MenuItem Header="{DynamicResource Mda.Text.9016c463977d}" Command="{Binding SaveAsCommand}" InputGesture="Ctrl+Shift+S" />
             <MenuItem Name="ConvertProjectMenuItem" Header="{Binding ConvertProjectLabel}" Command="{Binding ConvertProjectCommand}" />
-            <MenuItem Header="{DynamicResource Mda.Text.9837932b374e}" Click="SavePmm" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.23d7044e6320}" Click="ExportMotion" /><MenuItem Header="{DynamicResource Mda.Text.409eb92cb153}" Click="ExportPose" />
+            <MenuItem Header="{DynamicResource Mda.Text.9837932b374e}" Click="SavePmm" IsEnabled="{Binding HasProject}" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.23d7044e6320}" Click="ExportMotion" IsEnabled="{Binding Browser.HasSelectedModel}" /><MenuItem Header="{DynamicResource Mda.Text.409eb92cb153}" Click="ExportPose" IsEnabled="{Binding Browser.HasSelectedModel}" />
           </MenuItem>
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.051836569928}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.926a50b98ece}" Command="{Binding UndoCommand}" InputGesture="Ctrl+Z" /><MenuItem Header="{DynamicResource Mda.Text.03717b6f1070}" Command="{Binding RedoCommand}" InputGesture="Ctrl+Y" /><Separator /><MenuItem Header="{DynamicResource Mda.Text.c61bade89d5a}" IsEnabled="{Binding IsAnimationInspector}" Command="{Binding Animation.CopyKeyframesCommand}" InputGesture="Ctrl+C" /><MenuItem Header="{DynamicResource Mda.Text.c2449cd74350}" IsEnabled="{Binding IsAnimationInspector}" Command="{Binding Animation.PasteKeyframesCommand}" InputGesture="Ctrl+V" /></MenuItem>
-          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}" Click="OpenModelProperties" /><MenuItem Name="ModelMaterialStyleMenuItem" Header="{DynamicResource Mda.Text.a0e377b3005d}" IsVisible="{Binding StyleInspector.IsModernEngine}" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" Click="OpenModelMaterialProperties" /><MenuItem Name="RestoreUnownedModelDataMenuItem" Header="{DynamicResource Mda.Text.Context.ReplaceModel.Unowned}" Click="RestoreUnownedModelData" IsEnabled="{Binding Browser.HasSelectedModel}" /><MenuItem Header="{DynamicResource Mda.Text.df725de98db0}" Click="OpenRigSettings" /></MenuItem>
-          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.b15435ced2c9}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /><MenuItem Header="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding Animation.RegisterKeyframeCommand}" InputGesture="Enter" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.c98e118e0a43}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}" Click="OpenModelProperties" IsEnabled="{Binding Browser.HasSelectedModel}" /><MenuItem Name="ModelMaterialStyleMenuItem" Header="{DynamicResource Mda.Text.a0e377b3005d}" IsVisible="{Binding StyleInspector.IsModernEngine}" IsEnabled="{Binding StyleInspector.CanEditSelectedModelStyle}" Click="OpenModelMaterialProperties" /><MenuItem Name="RestoreUnownedModelDataMenuItem" Header="{DynamicResource Mda.Text.Context.ReplaceModel.Unowned}" Click="RestoreUnownedModelData" IsEnabled="{Binding Browser.HasSelectedModel}" /><MenuItem Header="{DynamicResource Mda.Text.df725de98db0}" Click="OpenRigSettings" IsEnabled="{Binding Browser.HasSelectedModel}" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.b15435ced2c9}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.d20383c88bb0}" IsEnabled="{Binding #InlineCurveEditor.IsEnabled}" Click="OpenInterpolation" /><MenuItem Header="{DynamicResource Mda.Text.ca8e993e5d2e}" Command="{Binding Animation.RegisterKeyframeCommand}" InputGesture="Enter" /></MenuItem>
           <MenuItem Name="ViewMenuItem"><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.1c5c06713870}" /></MenuItem.Header>
             <MenuItem Name="ShowLeftRailMenuItem" Header="{DynamicResource Mda.Text.Layout.AnimationDock}" ToggleType="CheckBox" IsChecked="True" Click="ToggleLeftRail" />
             <MenuItem Name="ShowRightRailMenuItem" Header="{DynamicResource Mda.Text.Ux.View.ShowRightRail}" ToggleType="CheckBox" IsChecked="True" Click="ToggleRightRail" />
@@ -541,7 +541,7 @@
             <Separator />
             <MenuItem Name="ResetPanelLayoutMenuItem" Header="{DynamicResource Mda.Text.Ux.View.ResetLayout}" Click="ResetPanelLayout" />
           </MenuItem>
-          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.fb04addb4c26}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.a90bdbd27e6b}" Click="OpenOutputSettings" /><MenuItem Header="{DynamicResource Mda.Text.99d3d2fcb2bb}" Click="OpenOutputSettings" /></MenuItem>
+          <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.fb04addb4c26}" /></MenuItem.Header><MenuItem Header="{DynamicResource Mda.Text.a90bdbd27e6b}" Tag="{x:Static local:OutputMediaKind.PngImage}" Click="OpenOutputSettings" /><MenuItem Header="{DynamicResource Mda.Text.99d3d2fcb2bb}" Tag="{x:Static local:OutputMediaKind.Video}" Click="OpenOutputSettings" /></MenuItem>
           <MenuItem><MenuItem.Header><TextBlock Text="{DynamicResource Mda.Text.a57cfcb8428d}" /></MenuItem.Header><MenuItem Name="PluginsMenuItem" Header="{DynamicResource Mda.Text.Plugins.Title}" Click="OpenPlugins" /><MenuItem Header="{DynamicResource Mda.Text.b6e77060db53}" Click="ShowShortcuts" /><MenuItem Header="{DynamicResource Mda.Text.1e767fbe8e32}" Click="ShowAbout" /></MenuItem>
         </Menu>
       </DockPanel>
@@ -555,7 +555,7 @@
           <TextBlock Text="{Binding LoadingStatus}" Classes="caption" MaxWidth="260" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip.Tip="{Binding LoadingStatus}" />
           <Button Name="CancelOperationButton" Content="{DynamicResource Mda.Text.2cd0f3be8738}" Click="CancelOperation" IsVisible="{Binding IsBusy}" IsEnabled="{Binding CanCancelOperation}" MinWidth="48" FontSize="12" ToolTip.Tip="{Binding CancelOperationHint}" ToolTip.ShowOnDisabled="True" AutomationProperties.Name="{DynamicResource Mda.Text.a7084fcb218d}" />
         </StackPanel>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" ToolTip.Tip="{Binding UnavailableReason}">
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <Button Name="ToolbarUndoButton" Classes="action icon" Width="30" Height="28" Padding="0" Command="{Binding UndoCommand}"
                   ToolTip.Tip="{DynamicResource Mda.Text.Ux.Toolbar.UndoTip}" AutomationProperties.Name="{DynamicResource Mda.Text.926a50b98ece}">
             <PathIcon Data="{StaticResource Mda.Icon.Undo}" Width="14" Height="14" />
@@ -567,7 +567,7 @@
           <Border Width="1" Height="16" Margin="2,0" Background="{DynamicResource EditorBorder}" />
           <!-- Width=NaN is Avalonia's auto (a double cannot be "Auto"): this localized caption ("Save project" / "プロジェクトを保存") sizes to its content; MinWidth keeps the 104 px toolbar rhythm; OutputSettingsButton keeps the fixed tool width. -->
           <Button Name="SaveProjectButton" Classes="action tool" Width="NaN" MinWidth="104" Command="{Binding SaveProjectCommand}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.floppy-disk}" /><TextBlock Text="{DynamicResource Mda.Text.8bdf49fb2914}" /></StackPanel></Button>
-          <Button Name="OutputSettingsButton" Classes="primary tool" Height="28" Click="OpenOutputSettings" ToolTip.Tip="{DynamicResource Mda.Text.57d1d3974734}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.export}" /><TextBlock Text="{DynamicResource Mda.Text.76420433f22d}" /></StackPanel></Button>
+          <Button Name="OutputSettingsButton" Classes="primary tool" Height="28" Click="OpenOutputSettings" IsEnabled="{Binding CanEditWorkspace}" ToolTip.Tip="{DynamicResource Mda.Text.57d1d3974734}"><StackPanel Orientation="Horizontal" Spacing="7"><PathIcon Data="{StaticResource Phosphor.export}" /><TextBlock Text="{DynamicResource Mda.Text.76420433f22d}" /></StackPanel></Button>
         </StackPanel>
       </Grid>
     </Border>
@@ -670,14 +670,14 @@
               <ColumnDefinition Width="0.49*" MaxWidth="168" /><ColumnDefinition Width="0.51*" />
             </Grid.ColumnDefinitions>
             <Border Name="TrackLabelMeasure" IsHitTestVisible="False" />
-            <controls:EditorTimeline Name="SceneFrameTimeline" Grid.ColumnSpan="2" IsVisible="{Binding IsSceneInspector}" CurrentFrame="{Binding CurrentFrame}"
+            <controls:EditorTimeline Name="SceneFrameTimeline" ContextRequested="OpenTimelineContextMenu" Grid.ColumnSpan="2" IsVisible="{Binding IsSceneInspector}" CurrentFrame="{Binding CurrentFrame}"
                 SceneTrack="{Binding SceneInspector.ActiveTimelineTrack}" TrackHeaderWidth="{Binding #TrackLabelMeasure.Bounds.Width}"
                 PixelsPerFrame="{Binding PixelsPerFrame}" FirstVisibleFrame="{Binding FirstVisibleFrame}"
                 ScrubStarted="BeginTimelineScrub" ScrubEnded="EndTimelineScrub"
                 Background="{DynamicResource EditorPanelSurface}" Foreground="{DynamicResource EditorMuted}"
                 GridBrush="{DynamicResource EditorBorder}" PlayheadBrush="{DynamicResource EditorSelection}"
                 FontFamily="{DynamicResource EditorFont}" FontSize="12" />
-            <controls:EditorTimeline Name="FrameTimeline" Grid.ColumnSpan="2" IsVisible="{Binding IsAnimationInspector}" CurrentFrame="{Binding CurrentFrame}"
+            <controls:EditorTimeline Name="FrameTimeline" ContextRequested="OpenTimelineContextMenu" KeyDown="ClearTimelineSelectionWithEscape" Grid.ColumnSpan="2" IsVisible="{Binding IsAnimationInspector}" CurrentFrame="{Binding CurrentFrame}"
                 PixelsPerFrame="{Binding PixelsPerFrame}" FirstVisibleFrame="{Binding FirstVisibleFrame}"
                 TrackHeaderWidth="{Binding #TrackLabelMeasure.Bounds.Width}" Tracks="{Binding Animation.VisibleTracks}" FullTracks="{Binding Animation.Tracks}"
                 Groups="{Binding Animation.TimelineGroups}" Drafts="{Binding Animation.TimelineDrafts}"
@@ -704,12 +704,12 @@
                     <TextBlock Text="{Binding SceneInspector.LightKeyframeSummary}" IsVisible="{Binding SceneInspector.ShowsPrimaryLightTrack}" Classes="caption" TextTrimming="CharacterEllipsis" />
                   </StackPanel>
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                  <Button Name="TimelineZoomOutButton" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
+                  <Button Name="TimelineZoomOutButton" IsEnabled="{Binding CanZoomTimelineOut}" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
                           Click="ZoomTimelineOut" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}"
                           AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomOutTip}">
                     <PathIcon Data="{StaticResource Mda.Icon.Minus}" Width="12" Height="12" />
                   </Button>
-                  <Button Name="TimelineZoomInButton" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
+                  <Button Name="TimelineZoomInButton" IsEnabled="{Binding CanZoomTimelineIn}" Classes="action icon" Width="26" Height="22" MinHeight="20" Padding="0"
                           Click="ZoomTimelineIn" ToolTip.Tip="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}"
                           AutomationProperties.Name="{DynamicResource Mda.Text.Ux.Timeline.ZoomInTip}">
                     <PathIcon Data="{StaticResource Mda.Icon.Plus}" Width="12" Height="12" />
@@ -820,7 +820,7 @@
               <Border Name="MorphDockDivider" Grid.Column="1" Width="1" HorizontalAlignment="Right" Margin="0,8" Background="{DynamicResource EditorSectionRule}" IsHitTestVisible="False" />
               <Grid Name="CurveDockPanel" Margin="8,4" RowDefinitions="Auto,*">
                 <Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.Curve}" Classes="group" VerticalAlignment="Center" />
-                  <Button Grid.Column="1" Classes="action" Height="24" MinHeight="22" Padding="8,0" Content="…" AutomationProperties.Name="{DynamicResource Mda.Text.d20383c88bb0}" ToolTip.Tip="{DynamicResource Mda.Text.d20383c88bb0}" Click="OpenInterpolation" /></Grid>
+                  <Button Grid.Column="1" Classes="action" Height="24" MinHeight="22" Padding="8,0" Content="…" AutomationProperties.Name="{DynamicResource Mda.Text.d20383c88bb0}" ToolTip.Tip="{DynamicResource Mda.Text.d20383c88bb0}" IsEnabled="{Binding #InlineCurveEditor.IsEnabled}" Click="OpenInterpolation" /></Grid>
                 <StackPanel Grid.Row="1" IsVisible="{Binding !#InlineCurveEditor.IsEnabled}" Margin="0,6">
                   <TextBlock Text="{DynamicResource Mda.Text.99108876ba90}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsAnimationInspector}" />
                   <TextBlock Text="{DynamicResource Mda.Text.b7a9483d1b58}" Classes="caption" TextWrapping="Wrap" IsVisible="{Binding IsCameraInspector}" />
@@ -836,16 +836,14 @@
               </Grid>
               <local:EditorMorphDock Name="MorphDockPanel" Grid.Column="1" />
               <Grid Name="StandardSelectionInspector" Grid.Column="2" RowDefinitions="Auto,*" Margin="8,4">
-                <Grid IsVisible="{Binding IsSceneInspector}" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" Margin="0,2">
+                <Grid IsVisible="{Binding IsSceneInspector}" ColumnDefinitions="*,Auto,Auto" Margin="0,2">
                   <TextBlock Name="InspectorTitle" Text="{Binding InspectorTitle}" Classes="group" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                  <Button Grid.Column="1" Classes="action icon" Command="{Binding SceneInspector.RevertDraftCommand}" IsVisible="{Binding IsCameraInspector}"
+                  <Button Grid.Column="1" Margin="6,0,0,0" Classes="action icon" Command="{Binding SceneInspector.RevertDraftCommand}" IsVisible="{Binding IsCameraInspector}"
                           ToolTip.Tip="{DynamicResource Mda.Text.4ee4a023b451}" AutomationProperties.Name="{DynamicResource Mda.Text.e0534b8a4e46}">
                     <PathIcon Data="{StaticResource Phosphor.arrows-clockwise}" Width="14" Height="14" />
                   </Button>
-                  <Button Name="RegisterCameraKeyframeButton" Grid.Column="2" Classes="action accentAction" IsVisible="{Binding IsCameraInspector}"
+                  <Button Name="RegisterCameraKeyframeButton" Grid.Column="2" Margin="6,0,0,0" Classes="action accentAction" IsVisible="{Binding IsCameraInspector}"
                           Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.a619bd96a115}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
-                  <Button Grid.Column="3" Classes="action" Content="{DynamicResource Mda.Text.c6550984b1e3}"
-                          Command="{Binding SelectAnimationContextCommand}" ToolTip.Tip="{DynamicResource Mda.Text.7fb116f40048}" />
                 </Grid>
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                   <Grid>
@@ -865,15 +863,15 @@
                 <ToggleButton Name="OutlineToggle" IsChecked="True" Height="24" Padding="6,0" Content="{DynamicResource Mda.Text.Layout.Outline}" Click="ToggleOutline" Classes="guide" />
                 <ComboBox Name="OutlineFilter" Grid.Column="1" Height="26" MinHeight="26" SelectedIndex="0" MinWidth="0" HorizontalAlignment="Stretch" SelectionChanged="ChangeOutlineFilter" />
                 <Button Name="AddBrowserLightButton" Grid.Column="2" Height="24" MinHeight="22" Padding="7,0" FontSize="{DynamicResource EditorMetadataSize}" IsVisible="{Binding SupportsModernLightingWorkspace}" Content="{DynamicResource Mda.Text.8ffd49a5b1b9}" IsEnabled="{Binding HasProject}">
-                  <Button.Flyout><MenuFlyout>
+                  <Button.Flyout><MenuFlyout Opening="RefreshAddLightMenu">
                     <MenuItem Header="{DynamicResource Mda.Text.dcf867d64ba7}" Click="AddDirectionalLight" />
                     <MenuItem Header="{DynamicResource Mda.Text.164901accbd4}" Click="AddPointLight" />
                     <MenuItem Header="{DynamicResource Mda.Text.5af0185beb3e}" Click="AddSpotLight" />
                     <MenuItem Header="{DynamicResource Mda.Text.Context.Lighting.Area}" Click="AddAreaLight" />
                   <Separator />
-                  <MenuItem Name="AddThreePointLightGroup" Header="{DynamicResource Mda.Text.Layout.ThreePoint}" Click="AddThreePointLighting" />
-                  <MenuItem Header="{DynamicResource Mda.Text.Context.Lighting.Presets.IndoorWindow}" Click="AddWindowLighting" />
-                  <MenuItem Header="{DynamicResource Mda.Text.Layout.ImportLights}" Click="ImportOutlineLightingPreset" />
+                  <MenuItem Name="AddThreePointLightGroup" Tag="PortraitSoft" Header="{DynamicResource Mda.Text.Layout.ThreePoint}" Click="AddThreePointLighting" />
+                  <MenuItem Tag="IndoorWindow" Header="{DynamicResource Mda.Text.Context.Lighting.Presets.IndoorWindow}" Click="AddWindowLighting" />
+                  <MenuItem Name="ImportLightGroupMenuItem" Header="{DynamicResource Mda.Text.Layout.ImportLights}" Click="ImportOutlineLightingPreset" />
                   </MenuFlyout></Button.Flyout>
                 </Button>
               </Grid>
@@ -890,7 +888,7 @@
             <Grid Name="LightBrowserPanel" RowDefinitions="Auto,Auto,Auto" x:DataType="local:EditorLightingViewModel" Margin="8,2,8,4">
               <TextBox Name="LightSearchInput" Classes="editorSearch" IsVisible="{Binding HasOutlineLights}" Text="{Binding SearchText, Mode=TwoWay}"
                        Watermark="{DynamicResource Mda.Text.Context.Lighting.Search}" AutomationProperties.Name="{DynamicResource Mda.Text.Context.Lighting.Search}" />
-              <Grid Grid.Row="1" Margin="0,3,0,0">
+              <Grid Name="LightListArea" Grid.Row="1" MinHeight="28" Background="Transparent" Margin="0,3,0,0">
                 <ListBox ToolTip.Tip="{Binding SelectionHint}" Name="WorkspaceLightList" ItemsSource="{Binding BrowserRows}" SelectionMode="Multiple" SelectionChanged="SelectBrowserLights"
                          Background="Transparent" BorderThickness="0" AutomationProperties.Name="{DynamicResource Mda.Text.3b579010a041}">
                   <ListBox.DataTemplates>

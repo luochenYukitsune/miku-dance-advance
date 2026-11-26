@@ -71,7 +71,8 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         Dictionary<Guid, D3D12MaterialBindingProfile> BeforeMappings, Dictionary<Guid, D3D12MaterialBindingProfile> AfterMappings,
         IEditorProjectMetadata? BeforeMetadata, IEditorProjectMetadata? AfterMetadata,
         bool PreservePoseDrafts = false, bool PreserveRenderBinding = false,
-        (bool Before, bool After)? GuessMaterialRolesChange = null, Action<bool>? PoseDraftHistory = null);
+        (bool Before, bool After)? GuessMaterialRolesChange = null, Action<bool>? PoseDraftHistory = null,
+        EditorNumberHistory? NumberEdit = null);
     private readonly Stack<HistoryStep> undo = [], redo = [];
     private readonly HashSet<SceneProjectSession> standaloneSessions = [];
     private readonly Dictionary<Guid, int> importedMotionCodePages = [];
@@ -80,8 +81,11 @@ public sealed partial class EditorProjectWorkspace : IDisposable
     internal Guid DocumentId { get { lock (dirtySync) return documentId; } }
     public string? ProjectPath { get; private set; }
     public bool IsDirty { get; private set; }
-    public bool CanUndo => undo.Count > 0;
-    public bool CanRedo => redo.Count > 0;
+    public bool CanUndo => undo.Any(step => step.NumberEdit?.CanReplay(true) != false);
+    public bool CanRedo => redo.Any(step => step.NumberEdit?.CanReplay(false) != false);
+    internal event Action? NumberHistoryChanged;
+    internal bool HasNumberHistory => undo.TryPeek(out var previous) && previous.NumberEdit is not null
+        || redo.TryPeek(out var next) && next.NumberEdit is not null;
     public bool GuessMaterialRoles { get; private set; } = true;
     public Dictionary<Guid, D3D12MaterialBindingProfile> MaterialBindings { get; private set; } = [];
     public EditorPreferences Preferences { get; set; } = new();
@@ -642,21 +646,35 @@ public sealed partial class EditorProjectWorkspace : IDisposable
         redo.Clear();
     }
 
-    public bool Undo()
+    internal void RecordNumberEdit(EditorNumberHistory edit)
     {
-        if (!undo.TryPeek(out var step)) return false;
-        if (step.SessionEdit && step.After?.Undo() != true) return false;
-        undo.Pop(); redo.Push(step); Session = step.Before; ProjectMetadata = step.BeforeMetadata;
-        if (step.GuessMaterialRolesChange is { } change) GuessMaterialRoles = change.Before;
-        RestoreMappings(step.BeforeMappings); step.PoseDraftHistory?.Invoke(true); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
+        RecordHistory(new(null, null, false, [], [], null, null, NumberEdit: edit));
+        NumberHistoryChanged?.Invoke();
     }
-    public bool Redo()
+
+    public bool Undo() => ReplayHistory(undo, redo, undoing: true);
+    public bool Redo() => ReplayHistory(redo, undo, undoing: false);
+
+    private bool ReplayHistory(Stack<HistoryStep> from, Stack<HistoryStep> to, bool undoing)
     {
-        if (!redo.TryPeek(out var step)) return false;
-        if (step.SessionEdit && step.After?.Redo() != true) return false;
-        redo.Pop(); undo.Push(step); Session = step.After; ProjectMetadata = step.AfterMetadata;
-        if (step.GuessMaterialRolesChange is { } change) GuessMaterialRoles = change.After;
-        RestoreMappings(step.AfterMappings); step.PoseDraftHistory?.Invoke(false); MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding); return true;
+        // A scene seek can discard its transient draft. Never replay that old field into the new frame.
+        while (from.TryPeek(out var obsolete) && obsolete.NumberEdit?.CanReplay(undoing) == false) from.Pop();
+        if (!from.TryPeek(out var step)) return false;
+        if (step.SessionEdit && (undoing ? step.After?.Undo() : step.After?.Redo()) != true) return false;
+        from.Pop(); to.Push(step);
+        if (step.NumberEdit is { } edit)
+        {
+            edit.Replay(undoing);
+            NumberHistoryChanged?.Invoke();
+            return true;
+        }
+        Session = undoing ? step.Before : step.After;
+        ProjectMetadata = undoing ? step.BeforeMetadata : step.AfterMetadata;
+        if (step.GuessMaterialRolesChange is { } change) GuessMaterialRoles = undoing ? change.Before : change.After;
+        RestoreMappings(undoing ? step.BeforeMappings : step.AfterMappings);
+        step.PoseDraftHistory?.Invoke(undoing);
+        MarkChanged(step.PreservePoseDrafts, step.PreserveRenderBinding);
+        return true;
     }
     private void ValidateProjectMetadata(IEditorProjectMetadata? metadata, SceneProjectSession session)
     {

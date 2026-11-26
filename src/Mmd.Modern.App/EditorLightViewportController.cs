@@ -40,6 +40,7 @@ public sealed class EditorLightViewportController
         this.modernLightingWorkspace = modernLightingWorkspace;
     }
     public event EventHandler? Changed;
+    internal Action<Guid?>? SelectionActivated { get; set; }
     /// <summary>The window commits pending light input before a gesture. Unregistered animation poses
     /// remain independent; native-light edits and their history do not discard or register them.</summary>
     public Func<bool>? CanBeginEdit { get; set; }
@@ -94,6 +95,7 @@ public sealed class EditorLightViewportController
     public void Select(Guid? id)
     {
         SelectMany(id is { } selected ? [selected] : [], id);
+        SelectionActivated?.Invoke(id);
     }
 
     public void SelectMany(IEnumerable<Guid> ids, Guid? primary = null)
@@ -189,6 +191,7 @@ public sealed class EditorLightViewportController
             || !pose.Lights.AuthoredLighting.Groups.SequenceEqual(editor.Snapshot.Groups))
         { requestRender(); return true; }
         if (!selectedIds.Contains(hit.LightId)) Select(hit.LightId);
+        else SelectionActivated?.Invoke(hit.LightId);
         var authored = editor.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         var originals = pose.Lights.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         // A first click can switch from a rotating spot to an unselected point light.

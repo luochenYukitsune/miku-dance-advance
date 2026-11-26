@@ -1,11 +1,13 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:Mmd.Modern.App">
+        xmlns:local="using:Mmd.Modern.App"
+        xmlns:converters="using:Avalonia.Controls.Converters">
   <!-- SukiUI 5.3.0 includes SimpleTheme and gives ThemeBackgroundBrush a fixed light
        value. Its MenuFlyoutPresenter and ToolTip therefore need the same explicit
        palette as the editor text. Keep the existing templates and popup behavior. -->
   <Styles.Resources>
     <ResourceDictionary>
+      <converters:PlatformKeyGestureConverter x:Key="EditorMenuGestureConverter" />
       <FontFamily x:Key="EditorFont">avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC</FontFamily>
       <!-- Output* dialogs use the same palette. These fallbacks allow them to share
            the popup styles; EditorWindow's own resources remain authoritative. -->
@@ -118,6 +120,97 @@
     <Setter Property="BorderBrush" Value="{DynamicResource EditorBorder}" />
     <Setter Property="FontFamily" Value="{DynamicResource EditorFont}" />
     <Setter Property="CornerRadius" Value="5" />
+  </Style>
+  <!-- Suki 5.3 offsets context rows by -20 DIPs and animates submenus to a fixed width.
+       Measure each localized header and gesture inside the actual popup instead. -->
+  <Style Selector="ContextMenu">
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="3" />
+    <Setter Property="MinWidth" Value="144" />
+    <Setter Property="WindowManagerAddShadowHint" Value="True" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"
+                            Grid.IsSharedSizeScope="True" KeyboardNavigation.TabNavigation="Continue" />
+          </ScrollViewer>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ContextMenu MenuItem">
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+          <Panel>
+            <Grid Margin="{TemplateBinding Padding}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" SharedSizeGroup="EditorMenuMarker" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="EditorMenuGesture" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="EditorMenuArrow" />
+              </Grid.ColumnDefinitions>
+              <Panel Name="marker" IsVisible="{TemplateBinding Icon, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Width="14" Height="14" Margin="0,0,6,0" VerticalAlignment="Center">
+                <ContentPresenter Content="{TemplateBinding Icon}" />
+                <Path Name="EditorMenuCheck" IsVisible="{TemplateBinding IsChecked}" Data="M1,7 L5,11 L13,2"
+                      Stroke="{TemplateBinding Foreground}" StrokeThickness="1.6" StrokeLineCap="Round" />
+              </Panel>
+              <ContentPresenter Name="PART_HeaderPresenter" Grid.Column="1" VerticalAlignment="Center"
+                    Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                    RecognizesAccessKey="True" Foreground="{TemplateBinding Foreground}" />
+              <TextBlock Name="PART_InputGestureText" Grid.Column="2" VerticalAlignment="Center"
+                    IsVisible="{TemplateBinding InputGesture, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Text="{TemplateBinding InputGesture, Converter={StaticResource EditorMenuGestureConverter}}" />
+              <Path Name="EditorMenuChevron" Grid.Column="3" Margin="8,0,1,0" VerticalAlignment="Center"
+                    Data="M1,1 L5,5 L1,9" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4" />
+            </Grid>
+            <Popup Name="PART_Popup" IsOpen="{TemplateBinding IsSubMenuOpen, Mode=TwoWay}" IsLightDismissEnabled="False"
+                   Placement="RightEdgeAlignedTop" WindowManagerAddShadowHint="True">
+              <Border Background="{DynamicResource EditorPanelSurface}" BorderBrush="{DynamicResource EditorBorder}"
+                      BorderThickness="1" CornerRadius="7" Padding="3" MinWidth="144">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <ItemsPresenter Name="PART_ItemsPresenter" Grid.IsSharedSizeScope="True" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Panel>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ContextMenu MenuItem[ToggleType=CheckBox] /template/ Panel#marker, ContextMenu MenuItem[ToggleType=Radio] /template/ Panel#marker">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="ContextMenu MenuItem:empty /template/ Path#EditorMenuChevron">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="ContextMenu MenuItem:focus-visible /template/ Border#root">
+    <Setter Property="BorderBrush" Value="{DynamicResource EditorSelection}" />
+  </Style>
+  <Style Selector="ContextMenu Separator">
+    <Setter Property="Background" Value="{DynamicResource EditorBorder}" />
+    <Setter Property="Margin" Value="6,3" />
+    <Setter Property="Height" Value="1" />
+  </Style>
+  <Style Selector="ContextMenu MenuItem /template/ TextBlock#PART_InputGestureText">
+    <Setter Property="Margin" Value="16,0,4,0" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="Foreground" Value="{DynamicResource EditorMuted}" />
+  </Style>
+  <Style Selector="ContextMenu MenuItem:disabled /template/ TextBlock#PART_InputGestureText">
+    <Setter Property="Foreground" Value="{DynamicResource EditorDisabledText}" />
   </Style>
   <Style Selector="ToolTip TextBlock, ToolTip AccessText">
     <Setter Property="Foreground" Value="{DynamicResource EditorText}" />

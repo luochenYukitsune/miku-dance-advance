@@ -71,6 +71,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     public Func<SceneTrackEditPlan, Task<bool>>? ConfirmSceneOverwriteAsync { get; set; }
     /// <summary>Host validation includes raw native numeric text that has no parsed Value.</summary>
     public Func<bool>? ValidateInput { get; set; }
+    internal Func<bool>? CanMutateProject { get; set; }
     public void RefreshInputValidation() => RefreshAvailability();
     public Action<string>? ReportStatus { get; set; }
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -94,8 +95,10 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     public bool HasDraft => IsCameraInspector ? HasCameraDraft : IsLightInspector && HasLightDraft;
     public bool CanRevertDraft => !IsBusy && HasDraft;
     public bool CanRevertLightDraft => !IsBusy && HasLightDraft;
-    public bool CanRegisterCamera => !IsBusy && CameraIsValid && ValidateInput?.Invoke() != false;
-    public bool CanRegisterLight => !IsBusy && LightIsValid && ValidateInput?.Invoke() != false;
+    private bool CanCommit => (CommitSceneMotion is not null || CommitSceneMotionWithCameraParent is not null)
+        && CanMutateProject?.Invoke() != false && ValidateInput?.Invoke() != false;
+    public bool CanRegisterCamera => !IsBusy && CameraIsValid && CanCommit;
+    public bool CanRegisterLight => !IsBusy && LightIsValid && CanCommit;
     public string Status => Format(status, statusArguments);
     public string FrameSummary => Format("第 {0} 帧", CurrentFrame) + (HasDraft ? Text(" · 未登记") : "");
     public string CameraKeyframeSummary => Format("{0} 个相机关键帧", motion.CameraKeyframes.Count);
@@ -269,7 +272,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
             if (plan.Conflicts.Count != 0 && (ConfirmSceneOverwriteAsync is null || !await ConfirmSceneOverwriteAsync(plan)))
             { SetStatus("已取消覆盖关键帧"); return; }
             if (revision != contextRevision) { SetStatus("帧或工程已变化，请重新登记。"); return; }
-            if (ValidateInput?.Invoke() == false) return;
+            if (!CanCommit) return;
             staged.Apply(plan, confirmOverwrite: plan.Conflicts.Count != 0);
             var candidate = staged.ExportMotion();
             committingTrack = kind;
@@ -302,6 +305,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     }
     private void LoadCamera()
     {
+        cameraDraftGeneration++;
         cameraPose = tracks.CameraAt(CurrentFrame) ?? baseCamera;
         if (pmmControls is { } controls)
         {
@@ -339,6 +343,7 @@ public sealed partial class EditorSceneInspectorViewModel : INotifyPropertyChang
     }
     private void LoadLight()
     {
+        lightDraftGeneration++;
         lightPose = tracks.LightAt(CurrentFrame) ?? baseLight;
         // VMD stores radiance RGB only. Intensity starts at one on load, retaining every original RGB bit.
         colorR = Number(lightPose.Color.X); colorG = Number(lightPose.Color.Y); colorB = Number(lightPose.Color.Z); intensity = 1;

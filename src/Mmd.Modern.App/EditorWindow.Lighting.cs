@@ -397,14 +397,13 @@ public partial class EditorWindow
         RefreshLightingInspector();
     }
 
-    /// <summary>Return to animation editing. The current light selection belongs to the lighting page and is
-    /// dropped; a pending inline input is committed by the page-transition guard before this runs.</summary>
+    /// <summary>Activate the bone tools while retaining the lighting inspector's selection and draft.</summary>
     private bool LeaveLightContext()
     {
         if (_shell is not { } shell) return false;
         if (shell.InspectorPage == EditorInspectorPage.Lighting)
             return NavigateInspectorPage(EditorInspectorPage.Animation);
-        if (lightController?.SelectedLightId is not null) lightController.Select(null);
+        shell.ViewportPickedLightId = null;
         return true;
     }
 }

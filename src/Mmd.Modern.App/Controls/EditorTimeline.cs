@@ -906,6 +906,25 @@ public sealed partial class EditorTimeline : TemplatedControl
         context.DrawGeometry(fill, pen, geometry);
     }
 
+    private uint? HitKey(Point position, EditorTimelineRow? track, int row) => track is null ? null :
+        HitFrame(position, track.Frames, RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight, 7, 9);
+
+    private uint? HitDraft(Point position, EditorTimelineRow? track, int row) =>
+        track is not null && _rowDrafts.TryGetValue(track, out var drafts)
+            ? HitFrame(position, drafts.Frames, RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight + 7, 3, 3) : null;
+
+    // Left and right clicks share the drawn marker geometry and the same pixel tolerances at any zoom.
+    private uint? HitFrame(Point position, IReadOnlyList<uint> frames, double centerY, double width, double height)
+    {
+        if (frames.Count == 0 || Math.Abs(position.Y - centerY) > height) return null;
+        double frame = FirstVisibleFrame + (position.X - TrackHeaderWidth) / PixelsPerFrame;
+        int candidate = EditorTimelineTrack.FrameLowerBound(frames, Math.Max(0, frame));
+        if (candidate >= frames.Count || (candidate > 0 && Math.Abs(frames[candidate - 1] - frame) < Math.Abs(frames[candidate] - frame)))
+            candidate--;
+        uint nearest = frames[candidate];
+        return Math.Abs((nearest - frame) * PixelsPerFrame) <= width ? nearest : null;
+    }
+
     private void BeginTrackGesture(Point position, KeyModifiers modifiers, IPointer pointer)
     {
         var tracks = ActiveTracks;
@@ -917,32 +936,14 @@ public sealed partial class EditorTimeline : TemplatedControl
             else if (track?.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
             return;
         }
-        if (track is not null && _rowDrafts.TryGetValue(track, out var drafts)
-            && Math.Abs(position.Y - (RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight + 7)) <= 3)
+        if (HitDraft(position, track, row) is { } draftFrame)
         {
-            double rawFrame = FirstVisibleFrame + (position.X - TrackHeaderWidth) / PixelsPerFrame;
-            int marker = drafts.LowerBound(Math.Max(0, rawFrame));
-            if (marker >= drafts.Frames.Count || (marker > 0 && Math.Abs(drafts.Frames[marker - 1] - rawFrame) < Math.Abs(drafts.Frames[marker] - rawFrame))) marker--;
-            if (marker >= 0 && marker < drafts.Frames.Count)
-            {
-                uint draftFrame = drafts.Frames[marker];
-                double markerX = TrackHeaderWidth + (draftFrame - FirstVisibleFrame) * PixelsPerFrame;
-                if (Math.Abs(position.X - markerX) <= 3)
-                {
-                    SetCurrentValue(CurrentFrameProperty, (int)draftFrame);
-                    if (track.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
-                    return;
-                }
-            }
+            if (draftFrame <= int.MaxValue) SetCurrentValue(CurrentFrameProperty, (int)draftFrame);
+            if (track?.Track is { } channel) TrackHeaderInvoked?.Invoke(this, new(channel, modifiers));
+            return;
         }
         _gestureTracks = tracks;
-        double frame = FirstVisibleFrame + (position.X - TrackHeaderWidth) / PixelsPerFrame;
-        int candidate = track?.LowerBound(Math.Max(0, frame)) ?? -1;
-        if (track is not null && (candidate >= track.Frames.Count || (candidate > 0 && Math.Abs(track.Frames[candidate - 1] - frame) < Math.Abs(track.Frames[candidate] - frame)))) candidate--;
-        uint? hit = track is not null && candidate >= 0 && candidate < track.Frames.Count &&
-            Math.Abs((track.Frames[candidate] - frame) * PixelsPerFrame) <= 7 &&
-            Math.Abs(position.Y - (RulerHeight + (row - FirstVisibleTrack + .5) * TrackRowHeight)) <= 9
-            ? track.Frames[candidate] : null;
+        uint? hit = HitKey(position, track, row);
         _selectionBeforeGesture = Array.AsReadOnly(SelectedKeyframes.ToArray());
         _dragPointer = pointer;
         _gestureStart = _gesturePosition = position;

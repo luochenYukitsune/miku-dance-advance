@@ -35,8 +35,11 @@ public partial class EditorWindow
         if (_shell?.Workspace.RenderEngine is EditorClassicRenderEngine engine)
             this.FindControl<MenuItem>("ClassicEffectsEnabled")!.IsChecked = engine.EffectsEnabled;
         bool project = classic && _shell?.Workspace.ProjectMetadata is EditorClassicDocumentState;
-        this.FindControl<MenuItem>("ClassicEffectAssignment")!.IsEnabled = project;
-        this.FindControl<MenuItem>("ClassicEffectsReload")!.IsEnabled = project;
+        bool hasMapping = classic && _shell?.Workspace.ProjectMetadata is EditorClassicDocumentState { Emm: not null };
+        this.FindControl<MenuItem>("ClassicEffectAssignment")!.IsEnabled = hasMapping;
+        this.FindControl<MenuItem>("ClassicEffectsReload")!.IsEnabled = hasMapping;
+        this.FindControl<MenuItem>("ClassicEffectsAutoReload")!.IsEnabled = hasMapping;
+        this.FindControl<MenuItem>("ClassicMappingAutoSave")!.IsEnabled = hasMapping;
         this.FindControl<MenuItem>("ClassicToonSettings")!.IsEnabled = project;
         this.FindControl<MenuItem>("ClassicToonSlots")!.IsEnabled = project;
         if (classicMappingDocument != _shell?.Workspace.DocumentId)

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.Application;
 using Mmd.Modern.Core;
 using static Mmd.Modern.App.EditorLocalization;
@@ -42,12 +43,12 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
         Workspace = new(renderEngine);
         _projectSession = projectSession;
         Scene = SceneSnapshot.CreateEmpty(camera);
-        SelectAnimationContextCommand = new PresentationCommand(() => SceneSelectionIndex = -1);
-        GoToStartCommand = new PresentationCommand(() => { FirstVisibleFrame = 0; CurrentFrame = 0; });
-        PreviousFrameCommand = new PresentationCommand(() => MoveFrame(-1));
-        NextFrameCommand = new PresentationCommand(() => MoveFrame(1));
-        StepBackCommand = new PresentationCommand(() => MoveFrame(-10));
-        StepForwardCommand = new PresentationCommand(() => MoveFrame(10));
+        GoToStartCommand = new WorkspaceCommand(() => { FirstVisibleFrame = 0; CurrentFrame = 0; },
+            () => !IsBusy && (CurrentFrame > 0 || FirstVisibleFrame > 0));
+        PreviousFrameCommand = new WorkspaceCommand(() => MoveFrame(-1), () => !IsBusy && CurrentFrame > 0);
+        NextFrameCommand = new WorkspaceCommand(() => MoveFrame(1), () => !IsBusy && CurrentFrame < int.MaxValue);
+        StepBackCommand = new WorkspaceCommand(() => MoveFrame(-10), () => !IsBusy && CurrentFrame > 0);
+        StepForwardCommand = new WorkspaceCommand(() => MoveFrame(10), () => !IsBusy && CurrentFrame < int.MaxValue);
         InitializeWorkspace();
         Observe(this, static model => model.RefreshLocalization());
     }
@@ -75,7 +76,6 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
     public PmmCameraPose? CameraPose { get; }
     public bool HasCameraPose => CameraPose.HasValue;
     public bool HasNoCameraPose => !HasCameraPose;
-    public ICommand SelectAnimationContextCommand { get; }
     public ICommand GoToStartCommand { get; }
     public ICommand PreviousFrameCommand { get; }
     public ICommand NextFrameCommand { get; }
@@ -88,8 +88,10 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
         {
             value = Math.Clamp(value, 0, int.MaxValue);
             if (_currentFrame == value) return;
+            var previous = _currentFrame;
             _currentFrame = value;
             OnFrameChanged();
+            if (IsTransportBoundary(previous) || IsTransportBoundary(value)) RefreshTransportCommands();
             OnPropertyChanged();
         }
     }
@@ -99,12 +101,16 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
         set
         {
             if (!double.IsFinite(value)) return;
-            value = Math.Clamp(value, .5, 64);
+            value = Math.Clamp(value, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
             if (_pixelsPerFrame == value) return;
             _pixelsPerFrame = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanZoomTimelineIn));
+            OnPropertyChanged(nameof(CanZoomTimelineOut));
         }
     }
+    public bool CanZoomTimelineIn => PixelsPerFrame < EditorTimeline.MaximumPixelsPerFrame;
+    public bool CanZoomTimelineOut => PixelsPerFrame > EditorTimeline.MinimumPixelsPerFrame;
     public double FirstVisibleFrame
     {
         get => _firstVisibleFrame;
@@ -113,7 +119,9 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
             if (!double.IsFinite(value)) return;
             value = Math.Clamp(value, 0, int.MaxValue);
             if (_firstVisibleFrame == value) return;
+            bool originChanged = _firstVisibleFrame == 0 || value == 0;
             _firstVisibleFrame = value;
+            if (originChanged) ((WorkspaceCommand)GoToStartCommand).RaiseCanExecuteChanged();
             OnPropertyChanged();
         }
     }
@@ -170,6 +178,8 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
     public string AnimationInspectorPrompt => Text(HierarchyTab == 0 ? "未选择模型或骨骼" : "未选择模型或表情");
     public string AnimationWorkflowHint => Text(HierarchyTab == 0 ? "选择骨骼，调整姿态后在当前帧登记。" : "选择表情，调整权重后在当前帧登记。");
     public string InspectorTitle => Text(SceneSelectionIndex switch { 0 => "世界", 1 => "相机", 2 => "主光", _ => "动画属性" });
+    // Picking a viewport light can leave a model, camera or style panel visible.
+    internal Guid? ViewportPickedLightId { get; set; }
     public bool IsAnimationInspector => SceneSelectionIndex == -1;
     public bool IsSceneInspector => !IsAnimationInspector;
     public bool IsWorldInspector => SceneSelectionIndex == 0;
@@ -183,6 +193,7 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
         set
         {
             if (refreshingLocalization || value is < -1 or > 2 || _sceneSelectionIndex == value) return;
+            ViewportPickedLightId = null;
             _sceneSelectionIndex = value;
             SceneInspector.SceneSelectionIndex = value;
             // World/camera/main-light is not an authored animation channel: keep Follow selection quiet
@@ -229,11 +240,13 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
     private void MoveFrame(int delta) => CurrentFrame = (int)Math.Clamp((long)CurrentFrame + delta, 0, int.MaxValue);
     private static string PoseNumber(float? value) => value.HasValue ? Number(value.Value) : "—";
     private static string Degrees(float? radians) => radians.HasValue ? Number(radians.Value * (180 / MathF.PI)) + "°" : "—";
-    private sealed class PresentationCommand(Action execute) : ICommand
+    private int LastFrame => (int)Math.Min(int.MaxValue, Workspace.Session?.DurationFrames ?? 0);
+    private bool IsTransportBoundary(int frame) => frame is 0 or int.MaxValue || frame == LastFrame;
+    private void RefreshTransportCommands()
     {
-        public event EventHandler? CanExecuteChanged { add { } remove { } }
-        public bool CanExecute(object? parameter) => true;
-        public void Execute(object? parameter) => execute();
+        foreach (var command in new[] { GoToStartCommand, PreviousFrameCommand, NextFrameCommand,
+            StepBackCommand, StepForwardCommand, GoToEndCommand })
+            ((WorkspaceCommand)command).RaiseCanExecuteChanged();
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

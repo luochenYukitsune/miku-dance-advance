@@ -10,9 +10,9 @@
     <StackPanel Spacing="2" IsEnabled="{Binding CanEdit}">
       <Grid ColumnDefinitions="*,8,*">
         <TextBlock Text="{DynamicResource Mda.Text.a2846644a638}" Classes="caption" VerticalAlignment="Center" />
-        <validated:EditorNumericUpDown Name="LightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
+        <validated:EditorNumericUpDown Name="LightIntensity" validated:EditorNumberMenu.Draft="MainLightIntensity" Grid.Column="2" Classes="editorNumber" Watermark="—" Minimum="0" FormatString="0.00" Increment="0.1" MenuDefaultValue="1" Value="{Binding LightIntensity, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.8309b0ef182c}" />
       </Grid>
-      <validated:EditorValueSlider Name="LightIntensitySlider" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="1"
+      <validated:EditorValueSlider Name="LightIntensitySlider" validated:EditorNumberMenu.Draft="MainLightIntensity" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="1"
                    Number="{Binding LightIntensity, Mode=TwoWay}"
                    ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.a2846644a638}" />
     </StackPanel>

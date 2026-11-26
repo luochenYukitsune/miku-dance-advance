@@ -27,7 +27,7 @@ public partial class EditorLightInspector
         { ViewModel?.SetValidationMessage("Mda.Text.Context.Lighting.PositiveBrightness"); return; }
         ApplySelectionAction(model => model.SetSelectedIntensity(model.BatchIntensity));
     }
-    private bool ApplySelectionAction(Func<EditorLightingViewModel, bool> action)
+    internal bool ApplySelectionAction(Func<EditorLightingViewModel, bool> action)
     {
         if (!modernParameters || refreshing || committing || recoveryRestoreDepth != 0 || EditStartingRequested?.Invoke() == false || !TryCommit()
             || ViewModel is not { } model || !model.HasSelection) return false;

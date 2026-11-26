@@ -36,13 +36,13 @@
           <TextBlock Text="{DynamicResource Mda.Text.3865483de52d}" Classes="caption" />
           <TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.de32bdb05238}" Classes="caption" />
           <validated:EditorNumericUpDown Name="CameraDistance" Grid.Row="1" Classes="editorNumber" Watermark="—" FormatString="0.00" Increment="1" Value="{Binding CameraDistance, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.24a2c139c050}" />
-          <validated:EditorNumericUpDown Name="CameraFov" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" Minimum="1" Maximum="179" Increment="1" FormatString="0.0" Value="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.28b9f9301519}" />
+          <validated:EditorNumericUpDown Name="CameraFov" validated:EditorNumberMenu.Draft="CameraFov" Grid.Row="1" Grid.Column="1" Classes="editorNumber" Watermark="—" Minimum="1" Maximum="179" Increment="1" FormatString="0.0" MenuDefaultValue="30" Value="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.28b9f9301519}" />
           <ComboBox Name="CameraProjection" Grid.Row="2" SelectedIndex="{Binding CameraProjectionIndex, Mode=TwoWay}"
                     HorizontalAlignment="Stretch" MinWidth="0" ToolTip.Tip="{DynamicResource Mda.Text.caabf3ff858f}" AutomationProperties.Name="{DynamicResource Mda.Text.caabf3ff858f}">
             <ComboBoxItem Content="{DynamicResource Mda.Text.17e14283a497}" />
             <ComboBoxItem Content="{DynamicResource Mda.Text.3759f1efa160}" />
           </ComboBox>
-          <validated:EditorValueSlider Name="CameraFovSlider" Grid.Row="2" Grid.Column="1" Minimum="1" Maximum="125" SmallChange="1" LargeChange="10" Step="0.5" DefaultValue="30"
+          <validated:EditorValueSlider Name="CameraFovSlider" validated:EditorNumberMenu.Draft="CameraFov" Grid.Row="2" Grid.Column="1" Minimum="1" Maximum="125" SmallChange="1" LargeChange="10" Step="0.5" DefaultValue="30"
                     Number="{Binding CameraFov, Mode=TwoWay}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{DynamicResource Mda.Text.de32bdb05238}" />
         </Grid>
       </Grid>

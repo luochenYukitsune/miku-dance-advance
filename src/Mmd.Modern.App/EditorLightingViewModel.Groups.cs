@@ -27,7 +27,24 @@ public sealed partial class EditorLightingViewModel
     public bool ShowBatchControls => HasSelection && !ShowSingleLight;
     public bool CanGroupSelection => SelectedLightIds.Count > 0 && SelectedGroupIds.Count == 0;
     public bool CanDissolveSelection => SelectedGroupIds.Count != 0;
-    public bool CanDuplicateSelection => HasSelection;
+    public bool CanDuplicateSelection => HasSelection && Lights.Count + SelectedLightIds.Count <= SceneLightingSnapshot.MaxLights
+        && EnabledLightCount + Lights.Count(light => SelectedLightIds.Contains(light.Id) && IsLightEnabled(light)) <= SceneLightingSnapshot.MaxActiveLights;
+    public bool CanEnableSelection => CanSetSelectedEnabled(true);
+    public bool CanDisableSelection => CanSetSelectedEnabled(false);
+
+    private bool IsLightEnabled(EditorNativeLightItem light) => light.Enabled
+        && (light.GroupId is not { } id || Groups.Any(group => group.Id == id && group.Enabled));
+
+    private bool CanSetSelectedEnabled(bool enabled)
+    {
+        var groups = SelectedGroupIds.ToHashSet();
+        var direct = SelectedRows.OfType<EditorNativeLightItem>().Where(light => light.GroupId is not { } id || !groups.Contains(id)).ToHashSet();
+        if (!Groups.Any(group => groups.Contains(group.Id) && group.Enabled != enabled) && !direct.Any(light => light.Enabled != enabled)) return false;
+        if (!enabled) return true;
+        var enabledGroups = Groups.Where(group => group.Enabled || groups.Contains(group.Id)).Select(group => group.Id).ToHashSet();
+        return Lights.Count(light => (light.Enabled || direct.Contains(light)) && (light.GroupId is not { } id || enabledGroups.Contains(id)))
+            <= SceneLightingSnapshot.MaxActiveLights;
+    }
     public string SelectionSummary => SelectedGroupIds.Count == 0
         ? Format("Mda.Text.Context.Lighting.SelectedLights", SelectedLightIds.Count)
         : Format("Mda.Text.Context.Lighting.SelectedGroups", SelectedGroupIds.Count, SelectedLightIds.Count);
@@ -44,8 +61,9 @@ public sealed partial class EditorLightingViewModel
     public string SelectionHint => Text("Mda.Text.Context.Lighting.SelectionHint");
     public string RelativeBrightnessLabel => Text("Mda.Text.Context.Lighting.RelativeBrightness");
     public double RelativeBrightnessPosition => Math.Log10((double)relativeBrightness);
+    public decimal RelativeBrightness => relativeBrightness;
     public string RelativeBrightnessSummary => relativeBrightness.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture) + "×";
-    internal void ResetRelativeBrightness() { relativeBrightness = 1; Changed(nameof(RelativeBrightnessPosition)); Changed(nameof(RelativeBrightnessSummary)); }
+    internal void ResetRelativeBrightness() { relativeBrightness = 1; Changed(nameof(RelativeBrightnessPosition)); Changed(nameof(RelativeBrightnessSummary)); Changed(nameof(RelativeBrightness)); }
     internal bool ScaleSelectedIntensity(SceneLightingSnapshot baseline, decimal multiplier)
     {
         try
@@ -60,7 +78,7 @@ public sealed partial class EditorLightingViewModel
             // representable range fail the gesture as a whole rather than corrupting another lamp.
             var edits = values.ToDictionary(pair => pair.Key, pair => (decimal)pair.Value);
             foreach (var light in Lights.Where(light => edits.ContainsKey(light.Id))) light.Intensity = edits[light.Id];
-            relativeBrightness = multiplier; Changed(nameof(RelativeBrightnessSummary)); ValidationMessage = ""; return true;
+            relativeBrightness = multiplier; Changed(nameof(RelativeBrightnessSummary)); Changed(nameof(RelativeBrightness)); ValidationMessage = ""; return true;
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
         { SetValidationError(error); return false; }
@@ -178,6 +196,7 @@ public sealed partial class EditorLightingViewModel
         Changed(nameof(SelectedLight)); Changed(nameof(HasSelectedLight)); Changed(nameof(SelectedGroup)); Changed(nameof(HasSelectedGroup));
         Changed(nameof(HasSelection)); Changed(nameof(ShowSingleLight)); Changed(nameof(ShowBatchControls)); Changed(nameof(CanGroupSelection));
         Changed(nameof(CanDissolveSelection)); Changed(nameof(CanDuplicateSelection)); Changed(nameof(SelectionSummary));
+        Changed(nameof(CanEnableSelection)); Changed(nameof(CanDisableSelection));
         Changed(nameof(SelectedRows)); Changed(nameof(SelectedGroupIds)); Changed(nameof(SelectedLightIds));
         // After the selection notifications: the inspector captures unfinished text from the
         // previous panel before that panel is removed.
@@ -230,6 +249,25 @@ public sealed partial class EditorLightingViewModel
             Groups.Add(new(group));
             foreach (var light in Lights.Where(light => chosen.Contains(light.Id))) light.GroupId = id;
             SelectGroupIds([id], id); ValidationMessage = ""; return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
+        { SetValidationError(error); return false; }
+    }
+
+    internal bool RemoveSelectedLightsFromGroups()
+    {
+        if (SelectedGroupIds.Count != 0) return false;
+        var lights = Lights.Where(light => SelectedLightIds.Contains(light.Id) && light.GroupId.HasValue).ToArray();
+        if (lights.Length == 0) return false;
+        try
+        {
+            // Removing a group mask can increase the active light count. Validate atomically.
+            var ids = lights.Select(light => light.Id).ToHashSet();
+            _ = CreateSnapshot(Lights.Select(light => ids.Contains(light.Id) ? light.Build() with { GroupId = null } : light.Build()),
+                Groups.Select(group => group.Build()));
+            foreach (var light in lights) light.GroupId = null;
+            ValidationMessage = "";
+            return true;
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or OverflowException)
         { SetValidationError(error); return false; }

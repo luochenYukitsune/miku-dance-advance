@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-25T18:16:59.0197841Z",
+    "generatedAtUtc":  "2026-11-26T02:05:10.7952287Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -60,16 +60,16 @@
                      "cache":  "D:/desktop/mmopensource/.dev-cache"
                  },
     "coverage":  {
-                     "expectedCsharpAndProjectFiles":  1563,
-                     "indexedCsharpAndProjectFiles":  1563,
+                     "expectedCsharpAndProjectFiles":  1575,
+                     "indexedCsharpAndProjectFiles":  1575,
                      "missing":  [
 
                                  ],
                      "extra":  [
 
                                ],
-                     "srcCsharpAndProjectFiles":  756,
-                     "testCsharpAndProjectFiles":  795,
+                     "srcCsharpAndProjectFiles":  763,
+                     "testCsharpAndProjectFiles":  800,
                      "sourceProjectCount":  26,
                      "testProjectCount":  11,
                      "toolProjectCount":  3,
@@ -325,7 +325,7 @@
                                                    ],
                          "purpose":  "Avalonia/MVVM、视口/导入/播放/镜头/截图和当前光源/Demo编排",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  198,
+                         "sourceAndProjectFileCount":  205,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -416,7 +416,7 @@
                                                    ],
                          "purpose":  "跨模块核心、物理、效果、D3D12 GPU、App和集成测试",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  521,
+                         "sourceAndProjectFileCount":  526,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -1594,8 +1594,21 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4979,
-                      "sha256":  "49370dcbb12fde2eb95f3a81a88ba070ce979377fa2850d99f8d63c6fcaa3a98",
+                      "bytes":  6563,
+                      "sha256":  "8e34ba09a159a874c063ded2613407a631eb8b66c1ffd7588a7f9bd44b517af9",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/Controls/EditorNumberMenu.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  5273,
+                      "sha256":  "d3af87220f4602805795a631cd703429d5fcd7c3615e23848827ab5ca2b0b06d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1607,8 +1620,21 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4892,
-                      "sha256":  "9d57221721e2e7fb381bb975255504f5564c08979a1874e63570aa6ee6670816",
+                      "bytes":  5967,
+                      "sha256":  "edc472eb53d9ce9f631a9f0b665ddb77ed151a2e9096bca5bdf389645a8b2651",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/Controls/EditorTimeline.ContextMenu.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  2975,
+                      "sha256":  "82c910239cf52464d6489014e86d134149da9f8c0e1dcfd8ccb50ac779b7b640",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1620,8 +1646,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  60807,
-                      "sha256":  "455cecb4f9e393711519abe9d6ec3b70ead1da87440ebda034eedfa8b4cf0b71",
+                      "bytes":  60676,
+                      "sha256":  "e9301e52cafbcf6b4d798ddabb763e21740ea8582e136608d838561752711057",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1659,8 +1685,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5230,
-                      "sha256":  "fe10af98d299ce3afe86cad62ce746937d9c84e06f6bf20cb93d07397c7d5d87",
+                      "bytes":  5454,
+                      "sha256":  "00e2e980a99cee3fc71e2d66b8af557ff1232b4fb9e40f66b1b70a6c918cb841",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1737,8 +1763,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  47356,
-                      "sha256":  "2e569543665e6d6c622ebedf63cc5cc0cdc69d304f5102cf4b22a07bb005f2f2",
+                      "bytes":  47625,
+                      "sha256":  "d6602b2eb4199a6241ec795729df6532fa4754b37635f07377ca373d38a2bdff",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1789,8 +1815,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4532,
-                      "sha256":  "a939c8bf0aee0f7aaab41a7157a72088eb07a5a3c80c680b89bdbe3ddeb4229a",
+                      "bytes":  4602,
+                      "sha256":  "129463a8a6257aa03fc27891cbe09a742a0bf3f9a02dd07b65c18add2f11e580",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -1828,8 +1854,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  41835,
-                      "sha256":  "c35e18e778c74cb1e407a48376c7974fa4fe05f87ec015475e17d917b934fb1d",
+                      "bytes":  41879,
+                      "sha256":  "5e6f84cfdc049877021265247d9da89c443628a9ac4486c91c4561b3d58065a2",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2106,6 +2132,19 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "src/Mmd.Modern.App/EditorContextMenu.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  1944,
+                      "sha256":  "ffeb05df3efd85efd06cb138a6f9c5ddc3d6d2dd8ed37f02690bfe63d3ea67dc",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "src/Mmd.Modern.App/EditorD3D9SurfaceAdapters.cs",
                       "project":  "Mmd.Modern.App",
                       "role":  "product",
@@ -2309,8 +2348,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  1706,
-                      "sha256":  "f90072551df1a5af8609d4388c19faa953b10795a2f27a66d8050d444f304a78",
+                      "bytes":  1829,
+                      "sha256":  "ca00abd5414f8696bccb03c80697a1127b60a23293d170f7c601555f63b45a0b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2322,8 +2361,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  39087,
-                      "sha256":  "566a4163f07e1f00f735120a76616205f70523f81267e2d465a7f110523f6b58",
+                      "bytes":  39252,
+                      "sha256":  "9aa6c270a9bb55ccedb5798afc64b01600910f43cf89015cde2d1f49b1df0377",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2348,8 +2387,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  22900,
-                      "sha256":  "ccc77666e50c45ea3d57760cbc7cca2990271bb91e574636e5f6e70b93ed19e2",
+                      "bytes":  25407,
+                      "sha256":  "016351a29e45c6a236edac6466f59175e303e2ba8d64b2c44d4f9d2f6d529d33",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2413,8 +2452,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  6084,
-                      "sha256":  "93c8ff587139a7a506f43a9d39feee6ca2fa13ca531643762c1a2a6553d47631",
+                      "bytes":  6085,
+                      "sha256":  "197b2072ae7877afaf30493fa71276a5c3365e3435bb848bee10b5a8d858caba",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2452,8 +2491,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14382,
-                      "sha256":  "d227328f67c4eb4cd43dbae08fe5bc17a78cf9a142de1d2a767ca91ce3196bba",
+                      "bytes":  14857,
+                      "sha256":  "a9291f438cadd798284f772667fd1afe446a59b26838c62bcc3a165769d4b605",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2504,8 +2543,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20147,
-                      "sha256":  "de6fb4c11a01c3ae32ae6a1bf0f2bfb1409a3cec185b362c5d9d8f1a3b27c61e",
+                      "bytes":  20302,
+                      "sha256":  "ef4973765ce2fd310350c42180eaf4e227645bfe2886f1cb25b4da25cc47ac9c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2595,8 +2634,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4360,
-                      "sha256":  "d316aceaabd831d6bf539c706f0d656542de760d68e2bcc47fe0c367fbd549d7",
+                      "bytes":  2306,
+                      "sha256":  "29c3ee3b0f53007bdb5eefa4ab4d6159ad27575f7dabd5ab85959931ffc2686e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2699,8 +2738,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  9724,
-                      "sha256":  "1600b6c921b4d755e7982cc1e9a65a34603ecd0af6adef351e31ed3ca53b03d3",
+                      "bytes":  10290,
+                      "sha256":  "ec3df0710acf295e96a95f26f6aec007c26ce6abacb3ef38134900c02d4f0d31",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2727,6 +2766,19 @@
                       "kind":  "csharp",
                       "bytes":  3978,
                       "sha256":  "59dc7afb2d0df79f0f7be37e4748cf149c7c94cb90dd654ae0afa16725a2d949",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorNumberDraft.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  5643,
+                      "sha256":  "07361f27fe2165a80d4cc114b5e2cd97cca74d2f05c9ef788a6b90660ad3075b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3011,8 +3063,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  43354,
-                      "sha256":  "c1d0e994a32b7f142648add883404369f7a8f1dea9fc5d39f50881667d5fe9d5",
+                      "bytes":  44172,
+                      "sha256":  "bb29a22e36843d00fa557725ab685421b498b7ba01c8598030cee61187f85763",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3271,8 +3323,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  26876,
-                      "sha256":  "aee575c12a8e42f4484ab60302fadfa88f691e27716158b62124822cb934f71a",
+                      "bytes":  27124,
+                      "sha256":  "732cc6716f8f9ff30a374c0af7be363b272e25ce80c9f9834b9e9eed5af0379d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3349,8 +3401,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11380,
-                      "sha256":  "29ce983ae8377ba20ad1a03c8178cea37d44328dc8dd9a56479eb07ea4f6fa38",
+                      "bytes":  12544,
+                      "sha256":  "a61c7d2a339942cb7334fbfec74dac00514b718330bc0c6dee9a9fca8341272c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3375,8 +3427,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  23566,
-                      "sha256":  "abc20e8fedf4847604540230d186d9b99db89b58847c840b88904f0b55edd637",
+                      "bytes":  24500,
+                      "sha256":  "c5384dd8fd3b96c4fa5f9bff3247e9345238649ce177521c9257d51387373de6",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3531,8 +3583,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  64366,
-                      "sha256":  "a73c67992abd626b38f58785e3e4418b4d39b9e3a02649ffba61236694d44524",
+                      "bytes":  67293,
+                      "sha256":  "032cd85622a160d8d46de8f03c3bd440205aee2a4a382b03410ad7e4bb678104",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3609,8 +3661,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  9644,
-                      "sha256":  "c98eb0affd8161797aa1956e653714d49be1a89af188c283ddf28ecb63664805",
+                      "bytes":  9768,
+                      "sha256":  "d170842555967b721180afeda778ed83f38f885c0968412fed2be447931f6499",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3622,8 +3674,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11325,
-                      "sha256":  "4c84dc4a466a5fa0829b75c0f183d89b262ff7b5a258580be1a7b12c8b3cd2d6",
+                      "bytes":  11416,
+                      "sha256":  "28d3a3ea0f3bb947ad762f38fb6f247167ec94ac04ed6e1605941700a8f065e2",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3635,8 +3687,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  45999,
-                      "sha256":  "e24a992399aed42b736ac2c70dc53c2b01ccdd6774e71bdc9472d8cbfbcc1e19",
+                      "bytes":  46212,
+                      "sha256":  "1ad6fa5e148aa0ab164177170319bba4193c93d43b212198d46369fcbb70394b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3648,8 +3700,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  9583,
-                      "sha256":  "d5d62e43acb529453b7cded18bbe0cc410179c4a5590066ccead2fa77a6c5b12",
+                      "bytes":  9883,
+                      "sha256":  "2ef03ba8af676a227b28accf91cc994e73ab4733f824cedd6bf04e4c22c06889",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3752,8 +3804,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15588,
-                      "sha256":  "33a471dff865818289e5a29b31eb8476676f8dec085680d70be951967c46d6df",
+                      "bytes":  15640,
+                      "sha256":  "24d8b5da605fd4e32bc480d948b43bb6a24b55aa80e7cbc76c876ac967fae9d1",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3791,8 +3843,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  23260,
-                      "sha256":  "6f792c873622bbfca86ea3615bafac5e530190b1aca9943987ad489b055b50fc",
+                      "bytes":  23109,
+                      "sha256":  "eee4a0008364cfd02f856897a7f5a0b1477dd29823aaec3ab495221a1836a274",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3819,6 +3871,19 @@
                       "kind":  "csharp",
                       "bytes":  4251,
                       "sha256":  "8f06a7be76d1dceae17bc5017651ee5669620ad5a3a5f277fc73fd68db507a01",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorWindow.OutlineMenus.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  15079,
+                      "sha256":  "e82ae28d0c23fddce1fcc926d9ad39d9143656e6cc4dd1b35be52c79ef357617",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3856,8 +3921,21 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  1912,
-                      "sha256":  "d4b535bdbe7f7f46fb309322894cda3b3214c03168ffd92b4073f6ede25fd682",
+                      "bytes":  7861,
+                      "sha256":  "df44418f2e9dc2bd86b69154ca0888e96fedeb134cc8335384590918e2647a67",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorWindow.ViewportMenu.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  5336,
+                      "sha256":  "e48810d82856e0b8d502d9c737fd6a49d3f665a90cd41a873883e605aef2c33c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -4079,6 +4157,19 @@
                       "kind":  "csharp",
                       "bytes":  3621,
                       "sha256":  "4ddf25b029b98111b52143aab907e03cf906d2b3bf1499553bd1332acbbea9f5",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/ViewportContextGesture.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  4094,
+                      "sha256":  "2925943a5cac21d6d18a18b0b2f1f4877708b63c25bf851db2b39bd6808c54ae",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17605,6 +17696,22 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "tests/Mmd.Modern.Tests/EditorActionAvailabilityTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  13998,
+                      "sha256":  "b950aa2b6742d7edb9abf636f95708678a5c895a000409f8642df615c155e6ed",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "tests/Mmd.Modern.Tests/EditorAreaLightAuthoringTests.cs",
                       "project":  "Mmd.Modern.Tests",
                       "role":  "test",
@@ -17664,8 +17771,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11778,
-                      "sha256":  "6e8dd01127a273489411ab836fb72758eb20b2e65e51bcb27bf93ade35aa2918",
+                      "bytes":  14215,
+                      "sha256":  "73cba5270ef63577fbd90cacdc524d81bdc2e07ed724496236bfc6cc17830153",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17794,6 +17901,22 @@
                       "kind":  "csharp",
                       "bytes":  16550,
                       "sha256":  "941042a0c8d0fb2039fa45b394de23168cb97fd3dcb7c8675f9785f06c717517",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.Tests/EditorDraftNumberHistoryTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  7377,
+                      "sha256":  "7648b936861634b70fb2b962a76a5f92c3adfe9838f338e06acf2eef59446b12",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17968,8 +18091,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  27195,
-                      "sha256":  "8f5ebebf8d5d7c68dd6fbb437f143aa3a5367605d804490ec3bcd574d135bfb2",
+                      "bytes":  27785,
+                      "sha256":  "2c141b187ceb5e32d165cdf5f94cec8eab788175efa47a4c25574bd1c73e828a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -18098,6 +18221,38 @@
                       "kind":  "csharp",
                       "bytes":  4378,
                       "sha256":  "02643d6dd0461a6eb3b77036edbb529df6e6cead86933449f1a212a64f2bbb00",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.Tests/EditorOutlineContextMenuTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  14748,
+                      "sha256":  "9af0c94f293d2fd103723baa93716aa58ebda5bb45c01a898f1c48a0a141acdd",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.Tests/EditorParameterContextMenuTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  13132,
+                      "sha256":  "bf215f6c09d65b881b7e654d02b57ec4d5b243bae1f476eec43f2451a0e8e5bc",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -18690,6 +18845,22 @@
                       "kind":  "csharp",
                       "bytes":  3709,
                       "sha256":  "2de363b95c143182c4d4421cf6f3b9efab8574754b2a7d79bdb9392f90e062ed",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.Tests/EditorViewportContextMenuTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  4394,
+                      "sha256":  "5b1c08048c90b9fbc22787cd96abd145c882a54c72c4a01180c49a71ccad2763",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -20896,8 +21067,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14480,
-                      "sha256":  "8f453912b7fe890b5c8ae9c5e872185d9f65462b40f933da20edd3ea39302884",
+                      "bytes":  15150,
+                      "sha256":  "85b1cb6c7f5a765befa9c0b4ac71b83256133bdb34cb8f359f4fe6ba03d68da0",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21776,8 +21947,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20261,
-                      "sha256":  "980b4cedfc35a17434f9cdbb33bf5ce2f6fe051e4b01e63cb1dd380a13595c1a",
+                      "bytes":  26728,
+                      "sha256":  "77c4f5385dce69f2968d7fca5d616b2ef3157e2f5138c54c92896710a5784ff6",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21808,8 +21979,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  13538,
-                      "sha256":  "e78e374759dcf61728e6ee63822f47e69a15005a507593e21f899af2f5aa8abf",
+                      "bytes":  14305,
+                      "sha256":  "1b6805f31e1c2db8f20fed8e2ee474a58a25da3181cfcc188aa6a420dcb4b41b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -22144,8 +22315,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  29263,
-                      "sha256":  "5172a3c92291029c0ed7861e3bd594cfdc188a7af09cf0610e93486bf17a42ab",
+                      "bytes":  30349,
+                      "sha256":  "ec88b06f85e9c77a19b4a2e85d7600bf92700f254ffe005debea21c84f5b934b",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -23946,24 +24117,24 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  134762,
-                                "sha256":  "cb408451aebe0354a76256675e02a1f31cab571a1be2d68bfd4319653e2e952f"
+                                "bytes":  135569,
+                                "sha256":  "6c0117f452389cc28173fb6e7fd6976cad153af842b8fe217df447c9c4929e54"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  170070,
-                                "sha256":  "895ff4bc8eae63b1ec4fe7553dff18aea9a9e11937f6deccca9e83c92c5a7a0b"
+                                "bytes":  171036,
+                                "sha256":  "5ac6f559d015593980e2316d3d947a077d36605dc7fb60eda91c4c9eac265106"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  85055,
-                                "sha256":  "74b18693cdf9c01c2f9df4df8f4e483eda2e1d0f7c656a9aba1cd6af8bb36141"
+                                "bytes":  84948,
+                                "sha256":  "ada03301c9031f53275bc962af0deeaaa4351c5c2625f122deee2e642f3b8793"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/README.md",
@@ -23978,8 +24149,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  129849,
-                                "sha256":  "0474011f29adb3a8fa0536df5961f2b8a359b440f690e7578afea93569c25f80"
+                                "bytes":  130644,
+                                "sha256":  "02b3ccfa133bf17e49116705b75bd1db3b06d6c2b6d3f73a37237fc5aed6be62"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -23994,8 +24165,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  8455,
-                                "sha256":  "6d3cb26f7dc70c94733fb93afd0698c07b6ba208095ca462843802813cc9eb42"
+                                "bytes":  8570,
+                                "sha256":  "71bcec539b909ae9a608d0fff62d83e02c55acd06437cb3c9aa787c528f0eb4c"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorDialogStyles.axaml",
@@ -24026,40 +24197,40 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  38732,
-                                "sha256":  "608ac461340d428194bdf07d621add77dd23e2938852c2c563ac90fd3ba7a8c8"
+                                "bytes":  40265,
+                                "sha256":  "fdd582d39dcf7bf698f0fdfe1503fd17ec9630785d03825eab467bec7db2d4e6"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorMainLightInspector.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  10109,
-                                "sha256":  "2b75c386ba305f07a55e3a6e285ed73f8859ed13b00551a693fbec030bb53946"
+                                "bytes":  10238,
+                                "sha256":  "a09fe5a8d370f0734635b2f23aee6c61720373ecc1d365048318613c38a23720"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorModelBrowser.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  13025,
-                                "sha256":  "7135770ab07a16f0b47f3bc95d1ef14c6c6b97832c3f3dadf7dd4e8709058188"
+                                "bytes":  12087,
+                                "sha256":  "7f47ed05c9e742d4b935d71f84bff753281932a3dadbd215f79ab305f00e4762"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorModelPropertiesWindow.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  70851,
-                                "sha256":  "dccc587c23ea334ad84efc5cda3791222915be978815841e8e06b700a56d3bca"
+                                "bytes":  71372,
+                                "sha256":  "0b4a1a86415524bf5311260d498c5fe14e4a0a0dce58899d66338551890c4d59"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorMorphDock.axaml",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  2142,
-                                "sha256":  "9eee04e8a86c92275fe6461567eeb736a77ff6c2d6f9986e449a8bc1bc988f35"
+                                "bytes":  2192,
+                                "sha256":  "ae91d190fcac9c839b192e6a0b94bb98e7a54e9f165fb8772aa1227e80cedeec"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorPmmImportWindow.axaml",
@@ -24074,8 +24245,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  16431,
-                                "sha256":  "a87d59da5a7db0f4c7c6568e2f00911d586dcd159631997ce81167c69b70cb74"
+                                "bytes":  22243,
+                                "sha256":  "0e86337fb3ff5c7a47848e21598450556aabe0b089889cc6e703a6ef54f26aba"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorPreferencesWindow.axaml",
@@ -24090,8 +24261,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  42229,
-                                "sha256":  "c4339738c1dde8b8f937751e4dd2f2b1450c00e2e0ec0ce5d41d2a7c97eefb87"
+                                "bytes":  42296,
+                                "sha256":  "5db74e2e522c6a0dca3bb35eaab237bea1562782c0941ce4cab137ba36823764"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorRenderEngineSelectionWindow.axaml",
@@ -24114,8 +24285,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  7107,
-                                "sha256":  "ccb0847e181f73e7b23361c302bca24b2cc0519912cf2da2fadbac2f610fa702"
+                                "bytes":  7219,
+                                "sha256":  "2f13ecce25612e7850c5b6ef2bb7e67cfe92111c6426f839dd32db21213f9f69"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorStartupWindow.axaml",
@@ -24130,8 +24301,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  131317,
-                                "sha256":  "9062b2993c706729362e056fef573d53eea28f91a45f5c1f3f0a9d258ed22829"
+                                "bytes":  131956,
+                                "sha256":  "1ccef873633e826a25c78354d6c7d35a21dc9d0b6ca377b6db13db4b93d0f493"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",
@@ -24154,8 +24325,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  48334,
-                                "sha256":  "5d4dd15fef17801d9461ed9924d4daff23b9ca487c3fe953ea3bb986d5cc1ffa"
+                                "bytes":  48378,
+                                "sha256":  "6aa8a4be3a9775fc9fe7cc56fc800e251c1468dff84fe521c7051a311e3fb780"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/packages.lock.json",

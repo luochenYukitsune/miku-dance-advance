@@ -77,11 +77,13 @@ public sealed partial class EditorAnimationViewModel
         SetTimelineRangeValidation(selection.Length == 0 ? "Mda.Text.TimelineBatch.RangeEmpty" : null);
     }
 
-    private void ClearTimelineSelection()
+    private void ClearTimelineSelection() => SelectTrackKeys([]);
+
+    internal void SelectTrackKeys(IReadOnlyList<KeyframeAddress> keys)
     {
         if (!CanSelectTimelineRange) return;
         IsUpdatingTimelineSelectionWithoutNavigation = true;
-        try { SelectedKeyframes = Array.Empty<KeyframeAddress>(); }
+        try { SelectedKeyframes = keys; }
         finally { IsUpdatingTimelineSelectionWithoutNavigation = false; }
         SetTimelineRangeValidation(null);
     }
