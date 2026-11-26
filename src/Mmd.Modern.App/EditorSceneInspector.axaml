@@ -17,6 +17,16 @@
       <TextBlock Text="{DynamicResource Mda.Text.2f22e2a7b204}" />
     </StackPanel>
     <StackPanel Name="CameraInspector" Spacing="4" IsVisible="{Binding IsCameraInspector}">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="0,0,0,2">
+        <TextBlock Name="CameraPilotHintText" Text="{DynamicResource Mda.Text.CameraPilot.InspectorHint}" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        <ToggleButton Name="CameraHelpersToggle" Grid.Column="1" Classes="guide" Height="24" MinHeight="22" Padding="7,0" IsChecked="True"
+                      Content="{DynamicResource Mda.Text.CameraPilot.Helpers}" Click="ToggleCameraHelpersClicked"
+                      ToolTip.Tip="{DynamicResource Mda.Text.CameraPilot.HelpersTip}"
+                      AutomationProperties.Name="{DynamicResource Mda.Text.CameraPilot.Helpers}" />
+        <ToggleButton Name="CameraInspectorPilotToggle" Grid.Column="2" Classes="guide" Height="24" MinHeight="22" Padding="8,0"
+                      Content="{DynamicResource Mda.Text.CameraPilot.Enter}" Click="TogglePilotCameraClicked"
+                      ToolTip.Tip="{DynamicResource Mda.Text.CameraPilot.Tooltip}" />
+      </Grid>
       <Grid Name="CameraPoseGrid" ColumnDefinitions="5*,4*" RowDefinitions="Auto,Auto" ColumnSpacing="10" SizeChanged="ResizeCameraFields" IsEnabled="{Binding CanEdit}">
         <Grid Name="CameraTransformFields" ColumnDefinitions="Auto,*,*,*" RowDefinitions="16,28,28" ColumnSpacing="3" RowSpacing="2">
           <TextBlock Grid.Column="1" Text="X" Classes="axis" /><TextBlock Grid.Column="2" Text="Y" Classes="axis" /><TextBlock Grid.Column="3" Text="Z" Classes="axis" />

@@ -498,6 +498,7 @@
       <StreamGeometry x:Key="Mda.Icon.ModelProperties">M 2,5 L 7,5 7,2 10,2 10,5 22,5 22,7 10,7 10,10 7,10 7,7 2,7 Z M 2,16 L 14,16 14,13 17,13 17,16 22,16 22,18 17,18 17,21 14,21 14,18 2,18 Z</StreamGeometry>
       <StreamGeometry x:Key="Mda.Icon.Minus">M 4,10.8 L 20,10.8 L 20,13.2 L 4,13.2 Z</StreamGeometry>
       <StreamGeometry x:Key="Mda.Icon.Plus">M 10.8,4 L 13.2,4 L 13.2,10.8 L 20,10.8 L 20,13.2 L 13.2,13.2 L 13.2,20 L 10.8,20 L 10.8,13.2 L 4,13.2 L 4,10.8 L 10.8,10.8 Z</StreamGeometry>
+      <StreamGeometry x:Key="Mda.Icon.Camera">M 3,6.5 A 1.5,1.5 0 0 1 4.5,5 L 14.5,5 A 1.5,1.5 0 0 1 16,6.5 L 16,9.2 L 20.4,6.4 A 0.7,0.7 0 0 1 21.5,7 L 21.5,17 A 0.7,0.7 0 0 1 20.4,17.6 L 16,14.8 L 16,17.5 A 1.5,1.5 0 0 1 14.5,19 L 4.5,19 A 1.5,1.5 0 0 1 3,17.5 Z</StreamGeometry>
     </ResourceDictionary>
   </Window.Resources>
   <Grid RowDefinitions="32,40,*,30">
@@ -725,7 +726,7 @@
         </Border>
         <Border Name="LeftSplitterLine" Grid.Column="1" Width="1" Background="{DynamicResource EditorBorder}" /><GridSplitter Name="LeftRailSplitter" Grid.Column="1" ResizeDirection="Columns" HorizontalAlignment="Stretch" />
         <Border Name="ViewportPanel" Grid.Column="2" Classes="panel" MinWidth="280">
-          <Grid RowDefinitions="Auto,*">
+          <Grid RowDefinitions="Auto,Auto,*">
             <Border Classes="panelHeader viewportBar" Height="36" MinHeight="36" Padding="8,0">
               <WrapPanel VerticalAlignment="Center">
                   <Button Name="ViewportQualityButton" Classes="action" Click="OpenPreviewSettings" ToolTip.Tip="{DynamicResource Mda.Text.cafed7fda215}" AutomationProperties.Name="{DynamicResource Mda.Text.cafed7fda215}"><TextBlock Text="{DynamicResource Mda.Text.Layout.Quality}" /></Button>
@@ -747,6 +748,12 @@
                     </MenuFlyout></Button.Flyout>
                   </Button>
                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="4,0,0,0">
+                  <ToggleButton Name="ViewportCameraPilotToggle" Classes="guide icon" IsChecked="False" Click="ToggleViewportCameraPilot"
+                                ToolTip.Tip="{DynamicResource Mda.Text.CameraPilot.Tooltip}"
+                                AutomationProperties.Name="{DynamicResource Mda.Text.CameraPilot.Button}">
+                    <PathIcon Data="{StaticResource Mda.Icon.Camera}" Width="14" Height="14" />
+                  </ToggleButton>
+                  <Border Width="1" Height="16" Background="{DynamicResource EditorBorder}" />
                   <StackPanel Orientation="Horizontal" Spacing="2">
                     <ToggleButton Name="WorldGuidesToggle" Content="{DynamicResource Mda.Text.69989de99333}" IsChecked="{Binding ShowWorldGuides}" Classes="guide" ToolTip.Tip="{DynamicResource Mda.Text.3e9198d067de}" />
                   </StackPanel>
@@ -757,7 +764,21 @@
                 </StackPanel>
               </WrapPanel>
             </Border>
-            <Border Grid.Row="1" Background="White" ClipToBounds="True"><local:EditorViewportHost Name="SceneViewport" /></Border>
+            <Border Name="CameraPilotBanner" Grid.Row="1" IsVisible="False" Background="{DynamicResource EditorSelectedSurface}"
+                    BorderBrush="{DynamicResource EditorSelection}" BorderThickness="0,0,0,1" Padding="10,4">
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <PathIcon Data="{StaticResource Mda.Icon.Camera}" Width="14" Height="14" Foreground="{DynamicResource EditorSelection}" />
+                  <TextBlock Text="{DynamicResource Mda.Text.CameraPilot.BannerTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.CameraPilot.BannerHint}" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <Button Name="CameraPilotBannerRegisterButton" Grid.Column="2" Classes="action accentAction" Height="22" MinHeight="20" Padding="8,0" FontSize="12"
+                        Content="{DynamicResource Mda.Text.Layout.Register}" Command="{Binding SceneInspector.RegisterCameraKeyframeCommand}" />
+                <Button Name="CameraPilotBannerExitButton" Grid.Column="3" Classes="action" Height="22" MinHeight="20" Padding="8,0" FontSize="12"
+                        Content="{DynamicResource Mda.Text.CameraPilot.Exit}" Click="ExitCameraPilotModeClicked" />
+              </Grid>
+            </Border>
+            <Border Grid.Row="2" Background="White" ClipToBounds="True"><local:EditorViewportHost Name="SceneViewport" /></Border>
           </Grid>
         </Border>
           </Grid>
@@ -848,7 +869,7 @@
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                   <Grid>
                     <Border IsVisible="{Binding IsAnimationInspector}"><local:EditorAnimationInspector Name="AnimationInspector" DataContext="{Binding Animation}" /></Border>
-                    <Border IsVisible="{Binding IsSceneInspector}"><local:EditorSceneInspector DataContext="{Binding SceneInspector}" /></Border>
+                    <Border IsVisible="{Binding IsSceneInspector}"><local:EditorSceneInspector Name="SceneInspectorView" DataContext="{Binding SceneInspector}" /></Border>
                   </Grid>
                 </ScrollViewer>
               </Grid>
@@ -881,7 +902,7 @@
             <local:EditorModelBrowser Name="ModelBrowserSurface" DataContext="{Binding Browser}" MaxHeight="280" />
                 <ListBox Name="SceneObjects" Classes="scene" SelectedIndex="{Binding SceneSelectionIndex}" SelectionMode="Single">
                   <ListBoxItem Name="OutlineWorld"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.33650a369521}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.f4b669c55756}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
-                  <ListBoxItem Name="OutlineCamera"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.dacf07026026}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.844b8cc8dff7}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
+                  <ListBoxItem Name="OutlineCamera" DoubleTapped="OutlineCameraDoubleTapped"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.dacf07026026}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.844b8cc8dff7}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
                   <ListBoxItem Name="OutlineTrackLight"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="{DynamicResource Mda.Text.Layout.TrackLight}" /><TextBlock Grid.Column="1" Text="{DynamicResource Mda.Text.f23a01a41c32}" Classes="caption" VerticalAlignment="Center" /></Grid></ListBoxItem>
                 </ListBox>
                 <Border Name="OutlineAdditionalLights">

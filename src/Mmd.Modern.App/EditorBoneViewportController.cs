@@ -15,7 +15,7 @@ public sealed partial class EditorBoneViewportController
     private bool enabled = true, showBones = true, showSelectionBounds, rotateHandle, preferredRotateHandle, manipulate;
     private BoneEditingSpace editingSpace = BoneEditingSpace.Local;
     private CapturedPose? captured;
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<PreviewFrame, CapturedPose> awaitingPresentation = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, CapturedPose> awaitingPresentation = new();
     private Drag? drag;
     private bool dragEdited;
     private Vector2 lastDragPoint;
@@ -176,7 +176,10 @@ public sealed partial class EditorBoneViewportController
             scene.Materials, scene.Lighting, overlay) };
         if (!publishPicking)
         {
-            awaitingPresentation.Add(decorated, captured);
+            object presentationKey = lines.Count > priorityLineCount
+                ? lines[priorityLineCount]
+                : (lines.Count > 0 ? lines[0] : (object)decorated);
+            awaitingPresentation.Add(presentationKey, captured);
             captured = lastPresented;
         }
         return decorated;
@@ -249,6 +252,16 @@ public sealed partial class EditorBoneViewportController
         {
             awaitingPresentation.Remove(frame);
             if (Current(pose)) captured = pose;
+            return;
+        }
+        foreach (var line in frame.Scene.EditorOverlay?.Lines ?? [])
+        {
+            if (awaitingPresentation.TryGetValue(line, out pose))
+            {
+                awaitingPresentation.Remove(line);
+                if (Current(pose)) captured = pose;
+                return;
+            }
         }
     }
 
