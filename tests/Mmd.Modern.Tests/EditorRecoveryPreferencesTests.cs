@@ -320,6 +320,38 @@ public sealed class EditorRecoveryPreferencesTests : IAsyncDisposable
         finally { dialog.Close(null); owner.Close(); Dispatcher.UIThread.RunJobs(); }
     }, TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task AutoCheckUpdatesDefaultsToTrueAndPersistsToggle() => await session.Dispatch(() =>
+    {
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "legacy-preferences.json");
+        File.WriteAllText(path, """{"schemaVersion":1,"themeIndex":0,"language":"zh-CN"}""", new System.Text.UTF8Encoding(false));
+        var loaded = EditorPreferences.Load(out var diagnostic, path);
+        Assert.Null(diagnostic);
+        Assert.True(loaded.AutoCheckUpdates);
+
+        var owner = new Window(); owner.Show();
+        var dialog = new EditorPreferencesWindow(loaded);
+        try
+        {
+            var resultTask = dialog.ShowDialog<EditorPreferences?>(owner);
+            var checkBox = dialog.FindControl<CheckBox>("PreferencesAutoCheckUpdatesBox")!;
+            Assert.True(checkBox.IsChecked);
+            checkBox.IsChecked = false;
+            dialog.FindControl<Button>("ApplyPreferencesButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(resultTask.IsCompleted);
+            var updated = resultTask.Result!;
+            Assert.False(updated.AutoCheckUpdates);
+            updated.Save(path);
+            var reloaded = EditorPreferences.Load(out var reloadDiagnostic, path);
+            Assert.Null(reloadDiagnostic);
+            Assert.False(reloaded.AutoCheckUpdates);
+            return true;
+        }
+        finally { dialog.Close(null); owner.Close(); Dispatcher.UIThread.RunJobs(); }
+    }, TestContext.Current.CancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         try { await Task.Run(session.Dispose).ConfigureAwait(false); }

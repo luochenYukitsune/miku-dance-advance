@@ -244,6 +244,12 @@
               <CheckBox Name="PreferencesWorldGuidesBox" Content="{DynamicResource Mda.Text.691af6e939ed}" />
               <TextBlock Text="{DynamicResource Mda.Text.c7c532369dcf}" Classes="caption" />
             </StackPanel>
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="{DynamicResource Mda.Text.Preferences.AutoCheckUpdates}" Classes="section" />
+              <CheckBox Name="PreferencesAutoCheckUpdatesBox" Content="{DynamicResource Mda.Text.Preferences.AutoCheckUpdatesLabel}" />
+              <TextBlock Text="{DynamicResource Mda.Text.Preferences.AutoCheckUpdatesHint}" Classes="caption" />
+            </StackPanel>
             <Separator />
             <StackPanel Spacing="8">
               <TextBlock Name="PreferencesCameraMouseHeading" Classes="section" />

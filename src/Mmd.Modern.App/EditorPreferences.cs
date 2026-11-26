@@ -30,6 +30,7 @@ public sealed record EditorPreferences
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public int ThemeIndex { get; init; }
     public bool ShowWorldGuides { get; init; } = true;
+    public bool AutoCheckUpdates { get; init; } = true;
     public bool InvertCameraMouseX { get; init; }
     public bool InvertCameraMouseY { get; init; }
     public string Language { get; init; } = "zh-CN";
