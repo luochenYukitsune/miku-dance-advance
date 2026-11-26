@@ -94,6 +94,12 @@ public partial class EditorWindow
         RefreshLightingInspector();
     }
 
+    private void RefreshLightSelectionHandles()
+    {
+        if (_shell is { } shell && lightController is { } tools)
+            tools.ShowSelectionHandles = HasViewportLightTarget(shell);
+    }
+
     private void RefreshLightingInspector()
     {
         if (_publishingInlineLight || _refreshingLightingInspector || _shell is not { } shell) return;
@@ -155,6 +161,7 @@ public partial class EditorWindow
                 _lightParentContextKey = parentKey;
             }
             using (InteractionDiagnostics.Measure("lighting.browser-bind")) BindLightingBrowser(inspector.ViewModel);
+            RefreshLightSelectionHandles();
             var light = selected is { } id ? snapshot.Lights.FirstOrDefault(item => item.Id == id) : null;
             bool multiple = lightController?.SelectedLightIds.Count > 1;
             var lightSwitch = this.FindControl<ToggleButton>("ViewportLightEnabled")!;

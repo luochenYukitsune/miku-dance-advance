@@ -317,6 +317,33 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
     }, Token);
 
     [Fact]
+    public async Task GroupKeyInterpolationMenuIsDisabledDuringPlayback() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, _) = CreateEditor();
+        try
+        {
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            var root = KeyframeAddress.Bone("root", 10);
+            int row = timeline.DisplayRows.Select((track, index) => (track, index))
+                .Single(pair => pair.track.IsGroup && pair.track.ContainsChannel(root)).index;
+            var keyPoint = new Point(timeline.TrackHeaderWidth + 10 * timeline.PixelsPerFrame,
+                EditorTimeline.RulerHeight + (row - timeline.FirstVisibleTrack + .5) * EditorTimeline.TrackRowHeight);
+            var menu = RightClick(window, timeline, keyPoint);
+            Assert.True(MenuEntry(menu, "Mda.Text.d20383c88bb0").IsEffectivelyEnabled);
+            menu.Close();
+
+            shell.PlaybackClock = () => 0;
+            shell.PlayCommand.Execute(null);
+            menu = RightClick(window, timeline, keyPoint);
+            Assert.True(shell.IsPlaying);
+            Assert.False(MenuEntry(menu, "Mda.Text.d20383c88bb0").IsEffectivelyEnabled);
+            menu.Close();
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
+    [Fact]
     public async Task TimelineZoomButtonsFollowBothLimits() => await session.Dispatch(() =>
     {
         var (window, shell, _, _) = CreateEditor();

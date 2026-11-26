@@ -44,11 +44,23 @@ public partial class EditorMorphDock : UserControl
     private void Attach(EditorShellViewModel? value)
     {
         if (ReferenceEquals(value, shell)) return;
-        if (shell is not null) { shell.Animation.PropertyChanged -= AnimationChanged; shell.PropertyChanged -= ShellChanged; }
+        if (shell is not null)
+        {
+            shell.Animation.PropertyChanged -= AnimationChanged;
+            shell.Animation.DraftContentEdited -= DraftContentChanged;
+            shell.PropertyChanged -= ShellChanged;
+        }
         shell = value;
-        if (shell is not null) { shell.Animation.PropertyChanged += AnimationChanged; shell.PropertyChanged += ShellChanged; }
+        if (shell is not null)
+        {
+            shell.Animation.PropertyChanged += AnimationChanged;
+            shell.Animation.DraftContentEdited += DraftContentChanged;
+            shell.PropertyChanged += ShellChanged;
+        }
         RefreshGroups();
     }
+
+    private void DraftContentChanged(object? sender, EventArgs args) => ScheduleRefresh();
 
     private void AnimationChanged(object? sender, PropertyChangedEventArgs args)
     {

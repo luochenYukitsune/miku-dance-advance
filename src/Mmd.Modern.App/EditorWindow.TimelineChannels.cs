@@ -142,7 +142,7 @@ public partial class EditorWindow
             if (row?.AddressesAt(target.Frame).Any(address => address.Kind == KeyframeTrackKind.Bone &&
                 animation.SelectedKeyframes.Contains(address)) == true)
                 items.Add(Item("Mda.Text.d20383c88bb0", () => OpenInterpolation(this, new RoutedEventArgs()),
-                    !animation.IsBusy && !animation.HasHiddenSelectedBoneKeyframes));
+                    !shell.IsPlaying && !animation.IsBusy && !animation.HasHiddenSelectedBoneKeyframes));
             items.Add(Jump());
             return items.ToArray();
         }

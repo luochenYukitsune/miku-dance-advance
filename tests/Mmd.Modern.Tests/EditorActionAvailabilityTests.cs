@@ -227,7 +227,14 @@ public sealed class EditorActionAvailabilityTests : IAsyncDisposable
             viewport.Select(light.Id);
             tabs.SelectedIndex = (int)EditorInspectorPage.Animation;
             shell.Browser.SelectedBoneIndex = 0;
+            viewport.Select(light.Id);
+            Assert.True(viewport.ShowSelectionHandles);
+            Assert.True(PressEditorKey(window, Key.E, true));
+            Assert.False(viewport.ShowSelectionHandles);
+            viewport.Select(light.Id);
+            Assert.True(viewport.ShowSelectionHandles);
             window.FindControl<Button>("BoneMoveMode")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.False(viewport.ShowSelectionHandles);
             Flush(window);
             Assert.Equal(light.Id, viewport.SelectedLightId);
             Assert.True(HasItem("Mda.Text.Menu.ResetBonePose"));

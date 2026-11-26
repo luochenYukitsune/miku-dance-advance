@@ -58,6 +58,44 @@ public sealed class EditorDraftNumberHistoryTests : IAsyncDisposable
         finally { Close(window, shell); }
     }, Token);
 
+    [Fact]
+    public async Task UndoOfInactiveMorphUpdatesNonzeroFilterAndKeepsActiveMorph() => await session.Dispatch(() =>
+    {
+        var (window, shell, _) = Editor();
+        try
+        {
+            shell.Browser.HierarchyTab = 1;
+            shell.Browser.SelectedMorphIndex = 1;
+            shell.Animation.MorphWeight = .4m;
+            shell.Browser.SelectedMorphIndex = 0;
+            var dock = window.FindControl<EditorMorphDock>("MorphDockPanel")!;
+            var filter = dock.FindControl<CheckBox>("NonzeroMorphs")!;
+            filter.IsChecked = true;
+            filter.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Flush(window);
+            var eyes = dock.Groups[1];
+            Assert.Equal("blink", Assert.Single(eyes.Choices).Name);
+            var slider = dock.GetVisualDescendants().OfType<EditorValueSlider>().Single(item => item.DataContext == eyes);
+            Choose(Open(slider), Reset);
+            shell.Browser.SelectedMorphIndex = 1;
+            Flush(window);
+            Assert.Empty(eyes.Choices);
+            shell.UndoCommand.Execute(null);
+            Flush(window);
+            Assert.Equal("blink", Assert.Single(eyes.Choices).Name);
+            Assert.Equal(.75m, eyes.Weight);
+            Assert.Equal(1, shell.Animation.SelectedMorphIndex);
+            Assert.Equal(.4m, shell.Animation.MorphWeight);
+            shell.RedoCommand.Execute(null);
+            Flush(window);
+            Assert.Empty(eyes.Choices);
+            Assert.Equal(1, shell.Browser.SelectedMorphIndex);
+            Assert.Equal("smile", dock.Groups[2].Selected!.Name);
+            return true;
+        }
+        finally { Close(window, shell); }
+    }, Token);
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

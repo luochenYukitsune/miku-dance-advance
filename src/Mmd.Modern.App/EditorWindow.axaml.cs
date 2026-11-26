@@ -172,6 +172,7 @@ public partial class EditorWindow : Window
         if (args.PropertyName == nameof(EditorShellViewModel.RightInspectorPageIndex)
             && sender is EditorShellViewModel pageShell) OnInspectorPageChanged(pageShell);
         if (args.PropertyName == nameof(EditorShellViewModel.SceneSelectionIndex)) OnSceneSelectionIndexChanged();
+        if (args.PropertyName == nameof(EditorShellViewModel.ViewportPickedLightId)) RefreshLightSelectionHandles();
         if (args.PropertyName is nameof(EditorShellViewModel.SceneSelectionIndex) or nameof(EditorShellViewModel.IsPlaying) or nameof(EditorShellViewModel.IsBusy)
             || (args.PropertyName == nameof(EditorShellViewModel.CurrentFrame) && _shell is { IsCameraInspector: true, IsPlaying: false }))
             ScheduleDockRefresh();
@@ -737,6 +738,7 @@ public partial class EditorWindow : Window
             }
         }
         if (boneController is null) return false;
+        shell.ViewportPickedLightId = null;
         switch (key)
         {
             case Key.Q:

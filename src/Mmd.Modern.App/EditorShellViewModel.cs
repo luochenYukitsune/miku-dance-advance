@@ -179,7 +179,16 @@ public sealed partial class EditorShellViewModel : INotifyPropertyChanged
     public string AnimationWorkflowHint => Text(HierarchyTab == 0 ? "选择骨骼，调整姿态后在当前帧登记。" : "选择表情，调整权重后在当前帧登记。");
     public string InspectorTitle => Text(SceneSelectionIndex switch { 0 => "世界", 1 => "相机", 2 => "主光", _ => "动画属性" });
     // Picking a viewport light can leave a model, camera or style panel visible.
-    internal Guid? ViewportPickedLightId { get; set; }
+    internal Guid? ViewportPickedLightId
+    {
+        get;
+        set
+        {
+            if (field == value) return;
+            field = value;
+            OnPropertyChanged();
+        }
+    }
     public bool IsAnimationInspector => SceneSelectionIndex == -1;
     public bool IsSceneInspector => !IsAnimationInspector;
     public bool IsWorldInspector => SceneSelectionIndex == 0;
