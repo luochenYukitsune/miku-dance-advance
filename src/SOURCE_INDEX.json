@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-25T18:16:59.0197841Z",
+    "generatedAtUtc":  "2026-11-26T01:55:14.1399675Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -60,16 +60,16 @@
                      "cache":  "D:/desktop/mmopensource/.dev-cache"
                  },
     "coverage":  {
-                     "expectedCsharpAndProjectFiles":  1563,
-                     "indexedCsharpAndProjectFiles":  1563,
+                     "expectedCsharpAndProjectFiles":  1567,
+                     "indexedCsharpAndProjectFiles":  1567,
                      "missing":  [
 
                                  ],
                      "extra":  [
 
                                ],
-                     "srcCsharpAndProjectFiles":  756,
-                     "testCsharpAndProjectFiles":  795,
+                     "srcCsharpAndProjectFiles":  759,
+                     "testCsharpAndProjectFiles":  796,
                      "sourceProjectCount":  26,
                      "testProjectCount":  11,
                      "toolProjectCount":  3,
@@ -325,7 +325,7 @@
                                                    ],
                          "purpose":  "Avalonia/MVVM、视口/导入/播放/镜头/截图和当前光源/Demo编排",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  198,
+                         "sourceAndProjectFileCount":  201,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -416,7 +416,7 @@
                                                    ],
                          "purpose":  "跨模块核心、物理、效果、D3D12 GPU、App和集成测试",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  521,
+                         "sourceAndProjectFileCount":  522,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -1846,6 +1846,32 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "src/Mmd.Modern.App/EditorCameraViewportController.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  7590,
+                      "sha256":  "94c3d58c7223bf00e79007bf4721b540e302502163a1bf50b212bf1ffec5513a",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorCameraViewportInteraction.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  16955,
+                      "sha256":  "56bca7b07afd0b72d3367a82f5a951cd179f181a8f6e9f9a9d9da3f0b172a441",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "src/Mmd.Modern.App/EditorCaptureMemoryChoice.cs",
                       "project":  "Mmd.Modern.App",
                       "role":  "product",
@@ -3258,8 +3284,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  608,
-                      "sha256":  "9a89272d2ff074b671159b91f5bc5d458ccd7278b0ba3aab0321b381a804c2d0",
+                      "bytes":  2364,
+                      "sha256":  "e5bd057793c57cd50bc44be6b93d4a0abd7a166c24d4e23238f82b8426db3a9f",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3531,8 +3557,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  64366,
-                      "sha256":  "a73c67992abd626b38f58785e3e4418b4d39b9e3a02649ffba61236694d44524",
+                      "bytes":  70975,
+                      "sha256":  "e70ba4a40980a2f836f9ec04bbebe6b940b6847b36c1f49f536841cea8dfa05e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3635,8 +3661,21 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  45999,
-                      "sha256":  "e24a992399aed42b736ac2c70dc53c2b01ccdd6774e71bdc9472d8cbfbcc1e19",
+                      "bytes":  46762,
+                      "sha256":  "b0eba2d3296228c2a1a7d476bd6001b9083f8ff0f420315188cb47fbff73f86f",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.App/EditorWindow.Camera.cs",
+                      "project":  "Mmd.Modern.App",
+                      "role":  "product",
+                      "productModule":  "GUI",
+                      "relatedProductModules":  [
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  4931,
+                      "sha256":  "f409203abdcad0b454ccd9670a6e52e9fadc5ef6bc1cf3c47e4fc5410d7ad042",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17653,6 +17692,22 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "tests/Mmd.Modern.Tests/EditorCameraComponentPilotTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  10291,
+                      "sha256":  "46fdbc3290de5a5aa6f2dcbb61f3afc8cc6c1e6cfb05951cb2aaae0adfdad103",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "tests/Mmd.Modern.Tests/EditorClassicEffectsMenuTests.cs",
                       "project":  "Mmd.Modern.Tests",
                       "role":  "test",
@@ -23946,16 +24001,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  134762,
-                                "sha256":  "cb408451aebe0354a76256675e02a1f31cab571a1be2d68bfd4319653e2e952f"
+                                "bytes":  135593,
+                                "sha256":  "b03800cc95ac2744f7bef9947366a9edcc31effc5cab8fab368c0e4ccaa39241"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  170070,
-                                "sha256":  "895ff4bc8eae63b1ec4fe7553dff18aea9a9e11937f6deccca9e83c92c5a7a0b"
+                                "bytes":  171073,
+                                "sha256":  "38e4707519fb3033b10c27822d0642bf57335b4bfec6bf153ea63f3fdff36c99"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
@@ -23978,8 +24033,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  129849,
-                                "sha256":  "0474011f29adb3a8fa0536df5961f2b8a359b440f690e7578afea93569c25f80"
+                                "bytes":  130733,
+                                "sha256":  "b899fde8990640dceefe029767c02659fd44f982dbef2930cc206c0a4c382bfa"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -24114,8 +24169,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  7107,
-                                "sha256":  "ccb0847e181f73e7b23361c302bca24b2cc0519912cf2da2fadbac2f610fa702"
+                                "bytes":  8152,
+                                "sha256":  "9fccef60ff3a7525d3cae12070e7bb1f60579704fe65835d96dba0c548e0c5a2"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorStartupWindow.axaml",
@@ -24130,8 +24185,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product",
                                 "productModule":  "GUI",
-                                "bytes":  131317,
-                                "sha256":  "9062b2993c706729362e056fef573d53eea28f91a45f5c1f3f0a9d258ed22829"
+                                "bytes":  133749,
+                                "sha256":  "cfa09e3a3cde95305d7991b370b6edd0ca60e8f689e0377390640b51b7d0e286"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/ExportRenderStatusWindow.axaml",

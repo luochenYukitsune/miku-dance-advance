@@ -49,7 +49,8 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private SceneProjectSession? project;
     private SceneCamera emptyCamera = OriginalCameraPose.CreateCamera();
     private SceneCamera currentCamera = OriginalCameraPose.CreateCamera();
-    private PmmCameraPose? manualCameraPose, sampledCameraPose;
+    private PmmCameraPose? manualCameraPose, sampledCameraPose, freeEditorCameraPose;
+    private bool isPilotingCamera = true;
     private PmmLightPose? manualLightPose;
     // UI-owned immutable input identity from the last capture. An ordinary repaint of the same
     // failed frame stays stopped, while a corrected draft or Undo can start a fresh attempt.
@@ -129,7 +130,8 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             Dispatcher.UIThread.VerifyAccess();
             if (ReferenceEquals(project, value)) return;
             CancelMainLightDrag();
-            project = value; manualCameraPose = sampledCameraPose = null;
+            CancelCameraGizmoDrag();
+            project = value; manualCameraPose = sampledCameraPose = freeEditorCameraPose = null;
             renderBinding = EditorRenderEngineBinding.Require(renderEngine, renderEngine.EmptyBinding);
             historyGeneration++; cameraCutKey++;
             RestartRenderer();
@@ -179,6 +181,8 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public bool InvertCameraMouseX { get; set; }
     public bool InvertCameraMouseY { get; set; }
     public PmmCameraPose? ManualCameraPose => manualCameraPose;
+    public PmmCameraPose? FreeEditorCameraPose => freeEditorCameraPose;
+    public bool IsPilotingCamera => isPilotingCamera;
     /// <summary>The current world-space orbit center, including a manual or sampled camera. Read only on the UI thread.</summary>
     public PmmCameraPose LightCreationCamera
     {
@@ -191,6 +195,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public event Action<Exception>? Error;
     public event Action<SceneCamera>? CameraChanged;
     public event Action<PmmCameraPose>? CameraPoseChanged;
+    public event Action<bool>? CameraPilotModeChanged;
     public event Action<EditorViewportPresentationStatistics>? FramePresented;
     public event EventHandler<EditorViewportKeyEventArgs>? EditorKeyPressed;
     public Func<IReadOnlyList<SceneObjectRenderRequest>, SceneProjectRenderSnapshot>? SnapshotProvider { get; set; }
@@ -215,6 +220,11 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public bool RotateLightHandle { get; set; }
     private EditorMainLightViewport? mainLightViewport;
     private bool mainLightCaptured;
+    private EditorCameraViewportController? cameraController;
+    private bool cameraGizmoCaptured;
+    private long lastLeftDownTick;
+    private int lastLeftDownX, lastLeftDownY;
+
     internal EditorMainLightViewport? MainLightViewport
     {
         get => mainLightViewport;
@@ -227,11 +237,67 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             RequestRender();
         }
     }
+
+    public EditorCameraViewportController? CameraController
+    {
+        get => cameraController;
+        set
+        {
+            if (ReferenceEquals(value, cameraController)) return;
+            CancelCameraGizmoDrag();
+            cameraController?.ClearPresentation();
+            cameraController = value;
+            if (cameraController is not null) cameraController.IsPiloting = isPilotingCamera;
+            RequestRender();
+        }
+    }
+
+    public void SetCameraPilotMode(bool pilot, bool initializeFreeViewOffset = true)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        if (dragButton != 0)
+        {
+            dragButton = 0;
+            if (childWindow != nint.Zero && GetCapture() == childWindow) ReleaseCapture();
+        }
+        CancelCameraGizmoDrag();
+        if (isPilotingCamera == pilot)
+        {
+            if (cameraController is not null) cameraController.IsPiloting = pilot;
+            return;
+        }
+        if (!pilot && (freeEditorCameraPose is null || initializeFreeViewOffset))
+        {
+            var scenePose = manualCameraPose ?? sampledCameraPose ?? project?.CameraPose ?? OriginalCameraPose;
+            Matrix4x4? parent = null;
+            if (scenePose.ParentModelIndex >= 0)
+            {
+                try { parent = project?.ResolveCameraParentTransform(scenePose); }
+                catch (Exception) { parent = null; }
+            }
+            freeEditorCameraPose = EditorCameraViewportInteraction.CreateObservationCameraAround(scenePose, parent);
+        }
+        isPilotingCamera = pilot;
+        if (cameraController is not null) cameraController.IsPiloting = pilot;
+        lock (workerGate) InvalidateRecordingAheadLocked();
+        cameraCutKey++;
+        CameraPilotModeChanged?.Invoke(pilot);
+        RequestRender();
+    }
+
     private void CancelMainLightDrag()
     {
         MainLightViewport?.Cancel();
         if (!mainLightCaptured) return;
         mainLightCaptured = false;
+        if (childWindow != nint.Zero && GetCapture() == childWindow) ReleaseCapture();
+    }
+
+    private void CancelCameraGizmoDrag()
+    {
+        CameraController?.CancelDrag();
+        if (!cameraGizmoCaptured) return;
+        cameraGizmoCaptured = false;
         if (childWindow != nint.Zero && GetCapture() == childWindow) ReleaseCapture();
     }
     private bool isSuspended;
@@ -620,14 +686,26 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         }
         sampledCameraPose = frame.Camera;
         if (manualLightPose is { } light) frame = frame with { Light = light };
-        if (manualCameraPose is { } editorCamera)
+        if (isPilotingCamera)
+        {
+            if (manualCameraPose is { } editorCamera)
+                frame = frame with
+                {
+                    Camera = editorCamera, ResolvedCamera = ResolveCamera(editorCamera),
+                    CameraParentTransform = editorCamera.ParentModelIndex >= 0 ? project?.ResolveCameraParentTransform(editorCamera) : null
+                };
+            else if (frame.Camera is null && frame.ResolvedCamera is null)
+                frame = frame with { ResolvedCamera = emptyCamera };
+        }
+        else
+        {
+            var freePose = EnsureFreeEditorCameraPose();
             frame = frame with
             {
-                Camera = editorCamera, ResolvedCamera = ResolveCamera(editorCamera),
-                CameraParentTransform = editorCamera.ParentModelIndex >= 0 ? project?.ResolveCameraParentTransform(editorCamera) : null
+                Camera = freePose, ResolvedCamera = ResolveCamera(freePose),
+                CameraParentTransform = null
             };
-        else if (frame.Camera is null && frame.ResolvedCamera is null)
-            frame = frame with { ResolvedCamera = emptyCamera };
+        }
 
         currentCamera = frame.ResolvedCamera ?? frame.Camera?.CreateCamera() ?? emptyCamera;
         var scene = frame.Scene;
@@ -644,6 +722,8 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         frame = FrameDecorator?.Invoke(frame) ?? frame;
         frame = MainLightViewport?.Decorate(frame, currentCamera) ?? frame;
         if (mainLightCaptured && MainLightViewport?.IsDragging != true) CancelMainLightDrag();
+        frame = CameraController?.Decorate(frame, currentCamera) ?? frame;
+        if (cameraGizmoCaptured && CameraController?.IsDragging != true) CancelCameraGizmoDrag();
         return frame;
     }
 
@@ -803,6 +883,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     BoneController?.FramePresented(frame);
                     LightController?.FramePresented(frame);
                     MainLightViewport?.FramePresented(frame);
+                    CameraController?.FramePresented(frame);
                     Statistics = statistics;
                     if (work.PreparationToken == preparationToken) SetPreparingFrame(false);
                     FramePresented?.Invoke(statistics);
@@ -978,8 +1059,24 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         GC.SuppressFinalize(this);
     }
 
+    private PmmCameraPose EnsureFreeEditorCameraPose()
+    {
+        if (freeEditorCameraPose is { } existing) return existing;
+        var basePose = manualCameraPose ?? sampledCameraPose ?? project?.CameraPose ?? OriginalCameraPose;
+        Matrix4x4? parent = null;
+        if (basePose.ParentModelIndex >= 0)
+        {
+            try { parent = project?.ResolveCameraParentTransform(basePose); }
+            catch (Exception) { parent = null; }
+        }
+        var created = EditorCameraViewportInteraction.CreateObservationCameraAround(basePose, parent);
+        freeEditorCameraPose = created;
+        return created;
+    }
+
     private PmmCameraPose EditableCamera()
     {
+        if (!isPilotingCamera) return EnsureFreeEditorCameraPose();
         var pose = EditableLocalCamera();
         if (pose.ParentModelIndex < 0) return pose;
         var parent = project!.ResolveCameraParentTransform(pose)!.Value;
@@ -1043,11 +1140,22 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private void ChangeCamera(PmmCameraPose pose)
     {
         lock (workerGate) InvalidateRecordingAheadLocked();
-        manualCameraPose = pose;
-        currentCamera = ResolveCamera(pose);
-        CameraPoseChanged?.Invoke(pose); CameraChanged?.Invoke(currentCamera);
+        if (isPilotingCamera)
+        {
+            manualCameraPose = pose;
+            currentCamera = ResolveCamera(pose);
+            CameraPoseChanged?.Invoke(pose); CameraChanged?.Invoke(currentCamera);
+        }
+        else
+        {
+            freeEditorCameraPose = pose;
+            currentCamera = ResolveCamera(pose);
+            CameraChanged?.Invoke(currentCamera);
+        }
         RequestRender();
     }
+
+    private PmmCameraPose ActiveNavigationCamera() => isPilotingCamera ? EditableLocalCamera() : EnsureFreeEditorCameraPose();
 
     private SceneCamera ResolveCamera(PmmCameraPose pose)
     {
@@ -1090,11 +1198,24 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 if (message == 0x202) { MainLightViewport.End(new(x, y)); CancelMainLightDrag(); return nint.Zero; }
                 if (message is 0x201 or 0x204 or 0x207 or 0x20a) return nint.Zero;
             }
+            if (CameraController?.IsDragging == true)
+            {
+                if (message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27)
+                { CancelCameraGizmoDrag(); return nint.Zero; }
+                if (message == 0x200)
+                {
+                    CameraController.MoveDrag(new(x, y));
+                    if (!CameraController.IsDragging) CancelCameraGizmoDrag();
+                    return nint.Zero;
+                }
+                if (message == 0x202) { CameraController.EndDrag(new(x, y)); CancelCameraGizmoDrag(); return nint.Zero; }
+                if (message is 0x201 or 0x204 or 0x207 or 0x20a) return nint.Zero;
+            }
             if ((!IsEffectivelyEnabled || IsSuspended) && message is >= 0x100 and <= 0x20e)
                 return CallWindowProcW(previous, window, message, wParam, lParam);
             if (message is 0x201 or 0x204 or 0x207)
             {
-                if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.HasPointerGesture == true) return nint.Zero;
+                if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.HasPointerGesture == true || CameraController?.IsDragging == true) return nint.Zero;
                 if (message == 0x201 && MainLightViewport is { } main && GetClientRect(window, out var mainBounds) &&
                     main.TryBegin(new(x, y), currentCamera, mainBounds.Right, mainBounds.Bottom))
                 {
@@ -1103,6 +1224,24 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     else if (main.IsDragging) { mainLightCaptured = true; SetCapture(window); }
                     return nint.Zero;
                 }
+                if (message == 0x201 && CameraController is { } camCtrl && GetClientRect(window, out var camBounds))
+                {
+                    long nowTick = Stopwatch.GetTimestamp();
+                    bool isDoubleClick = lastLeftDownTick != 0
+                        && (nowTick - lastLeftDownTick) * 1000L / Stopwatch.Frequency <= 400
+                        && Math.Abs(x - lastLeftDownX) <= 5
+                        && Math.Abs(y - lastLeftDownY) <= 5;
+                    lastLeftDownTick = isDoubleClick ? 0 : nowTick;
+                    lastLeftDownX = x;
+                    lastLeftDownY = y;
+                    if (camCtrl.TryBeginDrag(new(x, y), currentCamera, camBounds.Right, camBounds.Bottom, isDoubleClick))
+                    {
+                        SetFocus(window);
+                        if (!ReferenceEquals(camCtrl, CameraController)) camCtrl.CancelDrag();
+                        else if (camCtrl.IsDragging) { cameraGizmoCaptured = true; SetCapture(window); }
+                        return nint.Zero;
+                    }
+                }
                 if (message == 0x201 && GetClientRect(window, out var lightBounds)
                     && LightController?.TryBeginDrag(x, y, lightBounds.Right, lightBounds.Bottom, currentCamera, RotateLightHandle) == true)
                 { SetFocus(window); if (LightController.IsDragging) SetCapture(window); return nint.Zero; }
@@ -1110,7 +1249,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera,
                         extendSelection: (wParam.ToInt64() & (0x4 | 0x8)) != 0) == true)
                 { SetFocus(window); if (BoneController.HasPointerGesture) SetCapture(window); return nint.Zero; }
-                SetFocus(window); cameraBeforeDrag = manualCameraPose; dragCamera = EditableLocalCamera();
+                SetFocus(window); cameraBeforeDrag = isPilotingCamera ? manualCameraPose : freeEditorCameraPose; dragCamera = ActiveNavigationCamera();
                 dragButton = message; pointerX = x; pointerY = y; SetCapture(window); return nint.Zero;
             }
             if (message == 0x200 && LightController?.IsDragging == true)
@@ -1159,12 +1298,23 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             if (message == 0x100 && wParam.ToInt64() == 27 && dragButton != 0)
             {
                 lock (workerGate) InvalidateRecordingAheadLocked();
-                dragButton = 0; ReleaseCapture(); manualCameraPose = cameraBeforeDrag;
-                if (manualCameraPose is { } restored) ChangeCamera(restored);
+                dragButton = 0; ReleaseCapture();
+                if (isPilotingCamera)
+                {
+                    manualCameraPose = cameraBeforeDrag;
+                    if (manualCameraPose is { } restored) ChangeCamera(restored);
+                    else
+                    {
+                        currentCamera = ResolveCamera(dragCamera);
+                        CameraPoseChanged?.Invoke(dragCamera); CameraChanged?.Invoke(currentCamera);
+                        RequestRender();
+                    }
+                }
                 else
                 {
-                    currentCamera = ResolveCamera(dragCamera);
-                    CameraPoseChanged?.Invoke(dragCamera); CameraChanged?.Invoke(currentCamera);
+                    freeEditorCameraPose = cameraBeforeDrag ?? dragCamera;
+                    currentCamera = ResolveCamera(freeEditorCameraPose.Value);
+                    CameraChanged?.Invoke(currentCamera);
                     RequestRender();
                 }
                 return nint.Zero;
@@ -1178,14 +1328,14 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             if (message == 0x20a)
             {
-                if (LightController?.IsDragging == true) return nint.Zero;
+                if (LightController?.IsDragging == true || CameraController?.IsDragging == true) return nint.Zero;
                 int delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xffff));
-                var camera = EditableLocalCamera();
+                var camera = ActiveNavigationCamera();
                 ChangeCamera(ZoomCamera(camera, delta));
                 return nint.Zero;
             }
         }
-        catch (Exception error) { CancelMainLightDrag(); dragButton = 0; ReleaseCapture(); Error?.Invoke(error); }
+        catch (Exception error) { CancelMainLightDrag(); CancelCameraGizmoDrag(); dragButton = 0; ReleaseCapture(); Error?.Invoke(error); }
         return previous == nint.Zero ? nint.Zero : CallWindowProcW(previous, window, message, wParam, lParam);
     }
 
@@ -1222,6 +1372,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private void DetachInput()
     {
         CancelMainLightDrag();
+        CancelCameraGizmoDrag();
         if (dragButton != 0) { dragButton = 0; ReleaseCapture(); }
         if (childWindow != nint.Zero && previousWindowProcedure != nint.Zero)
             SetWindowLongPtrW(childWindow, -4, previousWindowProcedure);

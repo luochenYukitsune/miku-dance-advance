@@ -88,7 +88,13 @@ public partial class EditorWindow : Window
             _shell?.ReportActivityFailure(error, previewUnavailable: true);
         };
         this.FindControl<EditorViewportHost>("SceneViewport")!.CameraPoseChanged += pose => _shell?.SceneInspector.SetCameraDraft(pose);
+        this.FindControl<EditorViewportHost>("SceneViewport")!.CameraPilotModeChanged += OnViewportCameraPilotModeChanged;
         this.FindControl<EditorViewportHost>("SceneViewport")!.EditorKeyPressed += OnViewportKeyPressed;
+        if (this.FindControl<EditorSceneInspector>("SceneInspectorView") is { } sceneInspectorView)
+        {
+            sceneInspectorView.PilotCameraToggled += OnSceneInspectorPilotToggled;
+            sceneInspectorView.CameraHelpersToggled += OnSceneInspectorHelpersToggled;
+        }
     }
 
     private void AttachShell(EditorShellViewModel? shell)
@@ -115,6 +121,7 @@ public partial class EditorWindow : Window
         viewport.SetPlaybackActive(shell?.IsPlaying == true);
         viewport.SnapshotProvider = null; viewport.FrameDecorator = null; viewport.PoseInputPending = null; viewport.PlaybackAdvance = null;
         viewport.MainLightViewport = null; viewport.LightController = null; viewport.BoneController = null;
+        DetachCameraController(viewport);
         if (shell is null || _shell is null) { _lightParentContextKey = null; return; }
         shell.SceneInspector.PropertyChanged += OnDockSceneTrackChanged;
         shell.Animation.PropertyChanged += OnCurveSelectionChanged;
@@ -130,6 +137,7 @@ public partial class EditorWindow : Window
         viewport.PoseInputPending = () => shell.PosePreview.IsPreparingPreview && !shell.PosePreview.HasLatestInputSnapshot;
         viewport.PlaybackAdvance = shell.AdvancePlaybackForFrame;
         InitializeLightController(shell);
+        InitializeCameraController(shell);
         AttachLoadingState(shell);
         _shell.PropertyChanged += OnShellPropertyChanged;
         _shell.ViewStateChanged += RefreshViewport;
@@ -762,7 +770,10 @@ public partial class EditorWindow : Window
     private bool ExecuteEditorKey(Key key, KeyModifiers modifiers, bool fromViewport)
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
-        if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true || _mainLightViewport?.IsDragging == true)) return false;
+        if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true || _mainLightViewport?.IsDragging == true || _cameraController?.IsDragging == true)) return false;
+        if (fromViewport && key == Key.Escape && modifiers == KeyModifiers.None
+            && this.FindControl<EditorViewportHost>("SceneViewport")?.IsPilotingCamera == true)
+        { ExitCameraPilotMode(); return true; }
         if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
