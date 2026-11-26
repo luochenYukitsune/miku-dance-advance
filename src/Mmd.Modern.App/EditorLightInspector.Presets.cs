@@ -51,12 +51,19 @@ public partial class EditorLightInspector
         if (this.FindControl<ComboBox>("LightPresetChoice")?.SelectedItem is EditorLightPresetChoice choice)
             this.FindControl<TextBox>("LightPresetName")!.Text = choice.Label;
     }
-    internal bool AddBuiltinLighting(SceneLightingBuiltinPreset kind)
+    private SceneLightingPreset BuiltinPreset(SceneLightingBuiltinPreset kind) =>
+        this.FindControl<ComboBox>("LightPresetChoice")!.Items.OfType<EditorLightPresetChoice>().Single(option => option.Builtin == kind).Preset;
+
+    internal bool CanAddBuiltinLighting(SceneLightingBuiltinPreset kind)
     {
-        var choices = this.FindControl<ComboBox>("LightPresetChoice")!;
-        var choice = choices.Items.OfType<EditorLightPresetChoice>().Single(option => option.Builtin == kind);
-        return ApplyLightingPreset(SceneLightingPresetApplyMode.Add, choice.Preset);
+        if (!modernParameters || ViewModel is not { } model) return false;
+        var preset = BuiltinPreset(kind).Lighting;
+        return model.Lights.Count + preset.Lights.Count <= SceneLightingSnapshot.MaxLights
+            && model.EnabledLightCount + preset.EffectiveLights.Count(light => light.Enabled) <= SceneLightingSnapshot.MaxActiveLights;
     }
+
+    internal bool AddBuiltinLighting(SceneLightingBuiltinPreset kind) =>
+        ApplyLightingPreset(SceneLightingPresetApplyMode.Add, BuiltinPreset(kind));
     private void ReplaceLightPreset(object? sender, RoutedEventArgs args) => ApplyLightingPreset(SceneLightingPresetApplyMode.ReplaceSelected);
 
     internal bool ApplyLightingPreset(SceneLightingPresetApplyMode mode, SceneLightingPreset? supplied = null)

@@ -116,11 +116,11 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
         CopyKeyframesCommand = new AnimationCommand(() => { CopyKeyframes(); return Task.CompletedTask; }, () => CanEditSelection);
         PasteKeyframesCommand = new AnimationCommand(PasteKeyframesAsync, () => CanPaste);
         MoveKeyframesCommand = new AnimationCommand(MoveKeyframesAsync, () => CanModifySelection);
-        ResetPoseCommand = new AnimationCommand(() => { ResetPose(); return Task.CompletedTask; }, () => HasEditableSelection && !IsProjectBusy);
+        ResetPoseCommand = new AnimationCommand(() => { ResetPose(); return Task.CompletedTask; }, () => CanTranslate || CanRotate || CanEditMorph);
         CopyPoseCommand = new AnimationCommand(() => { CopyPose(); return Task.CompletedTask; }, () => CanCopyPose);
         PasteMirroredPoseCommand = new AnimationCommand(() => { PasteMirroredPose(); return Task.CompletedTask; }, () => CanPastePose);
         SelectTimelineRangeCommand = new AnimationCommand(() => { SelectTimelineRange(); return Task.CompletedTask; }, () => CanSelectTimelineRange);
-        ClearTimelineSelectionCommand = new AnimationCommand(() => { ClearTimelineSelection(); return Task.CompletedTask; }, () => CanSelectTimelineRange);
+        ClearTimelineSelectionCommand = new AnimationCommand(() => { ClearTimelineSelection(); return Task.CompletedTask; }, () => CanSelectTimelineRange && SelectedKeyframes.Count > 0);
         Observe(this, static model => model.RefreshLocalization());
     }
 
@@ -396,7 +396,10 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
 
     public Task RegisterKeyframeAsync() => RegisterAsync(bonesOnly: false);
 
-    private async Task RegisterAsync(bool bonesOnly)
+    internal Task ZeroMorphAtCurrentFrameAsync() => CanEditMorph && MorphWeight != 0
+        ? RegisterAsync(bonesOnly: false, morphWeightOverride: 0) : Task.CompletedTask;
+
+    private async Task RegisterAsync(bool bonesOnly, float? morphWeightOverride = null)
     {
         if (!animationContextActive)
         { SetStatus("Mda.Text.Context.Timeline.RegisterBlocked"); return; }
@@ -425,7 +428,7 @@ public sealed partial class EditorAnimationViewModel : INotifyPropertyChanged
             else
             {
                 var name = model!.Morphs[morphIndex!.Value].Name;
-                records = new() { MorphKeyframes = [new() { MorphName = name, Frame = frame, Weight = (float)MorphWeight!.Value }] };
+                records = new() { MorphKeyframes = [new() { MorphName = name, Frame = frame, Weight = morphWeightOverride ?? (float)MorphWeight!.Value }] };
                 addresses = [KeyframeAddress.Morph(name, frame)];
             }
             await ApplyAsync(editor => editor.PrepareRegister(records), "已登记关键帧", addresses, registerBones: bonesOnly || IsBoneSelected);

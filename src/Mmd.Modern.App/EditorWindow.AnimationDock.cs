@@ -96,6 +96,8 @@ public partial class EditorWindow
         if (!dockReady) return;
         bool hasAnimationContext = _shell is not { IsLightInspector: true } || _shell.SceneInspector.ShowsPrimaryLightTrack;
         AnimationDockToggle.IsVisible = hasAnimationContext;
+        ShowLeftRailMenuItem.IsEnabled = hasAnimationContext;
+        ShowLeftRailMenuItem.IsChecked = hasAnimationContext && animationDockExpanded;
         AnimationDock.IsVisible = hasAnimationContext && animationDockExpanded;
         bool modelContext = (_shell?.SceneSelectionIndex ?? -1) < 0;
         double available = AnimationDock.Bounds.Width;
@@ -156,7 +158,7 @@ public partial class EditorWindow
         Guid? actorId = null;
         uint? cameraFrame = null;
         KeyframeAddress[] keys = [];
-        if (AnimationDock.IsVisible && _shell is { IsBusy: false, IsPlaying: false } shell)
+        if (_shell is { IsBusy: false, IsPlaying: false } shell)
         {
             if (shell.SceneSelectionIndex == 1 && shell.Workspace.Session?.CaptureAuthoredContent().SceneMotion is { } scene)
             {

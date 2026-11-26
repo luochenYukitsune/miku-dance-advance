@@ -70,7 +70,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         NotifyActivityChanged();
     }
     public bool CanEditWorkspace => !IsBusy;
-    public bool IsPlaying { get => playing; private set { playing = value; if (!value) FlushPanelPresentation(force: true); OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); } }
+    public bool IsPlaying { get => playing; private set { playing = value; if (!value) FlushPanelPresentation(force: true); OnPropertyChanged(); OnPropertyChanged(nameof(PlayLabel)); SceneInspector.RefreshInputValidation(); } }
     public string PlayLabel => EditorLocalization.Text(IsPlaying ? "暂停" : "播放");
     public string OperationStatus
     {
@@ -100,9 +100,14 @@ public sealed partial class EditorShellViewModel : IDisposable
         Browser.ReplaceModelCommand = new WorkspaceCommand(() => Request(ReplaceModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         Browser.RemoveModelCommand = new WorkspaceCommand(() => Request(RemoveModelRequested), () => !IsBusy && Browser.SelectedModel is not null);
         PlayCommand = new WorkspaceCommand(TogglePlayback, () => !IsBusy && HasProject);
-        GoToEndCommand = new WorkspaceCommand(() => CurrentFrame = (int)Math.Min(int.MaxValue, Workspace.Session?.DurationFrames ?? 0), () => !IsBusy && HasProject);
+        GoToEndCommand = new WorkspaceCommand(() => CurrentFrame = LastFrame, () => !IsBusy && HasProject && CurrentFrame != LastFrame);
+        Workspace.NumberHistoryChanged += RefreshHistoryCommands;
         Browser.ImportModelCommand = ImportModelCommand;
-        Browser.SelectionChanged += (_, _) => RefreshSelection();
+        Browser.SelectionChanged += (_, _) =>
+        {
+            if (!refreshing) ViewportPickedLightId = null;
+            RefreshSelection();
+        };
         Animation.CommitMotion = (id, motion) => { SynchronizePendingScrub(); Workspace.CommitMotion(id, motion, Animation.RegistrationHistory); };
         Animation.CanMutateProject = () => !IsBusy && !IsPlaying;
         Animation.IsHostBusy = () => IsBusy;
@@ -121,7 +126,14 @@ public sealed partial class EditorShellViewModel : IDisposable
         };
         Animation.PropertyChanged += (_, args) =>
         { if (args.PropertyName is null or nameof(EditorAnimationViewModel.SelectionLabel)) OnPropertyChanged(nameof(AnimationSelectionLabel)); };
+        Animation.DraftContentEdited += (_, _) => { if (Workspace.HasNumberHistory) RefreshHistoryCommands(); };
+        SceneInspector.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(EditorSceneInspectorViewModel.HasDraft) && Workspace.HasNumberHistory)
+                RefreshHistoryCommands();
+        };
         SceneInspector.ReportStatus = message => { OperationStatus = message; operationStatusSource = () => SceneInspector.Status; };
+        SceneInspector.CanMutateProject = () => HasProject && !IsBusy && !IsPlaying;
         SceneInspector.CommitSceneMotion = motion => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion); };
         SceneInspector.CommitSceneMotionWithCameraParent = (motion, frame, camera) => { SynchronizePendingScrub(); Workspace.CommitSceneMotion(motion, frame, camera); };
         Workspace.Changed += (_, args) =>
@@ -176,6 +188,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         bool sameDocument = draftDocument == Workspace.DocumentId;
         if (!sameDocument)
         {
+            ViewportPickedLightId = null;
             draftDocument = Workspace.DocumentId;
             Animation.RestoreNativeDrafts(Workspace.OpenedPoseDrafts.Actors, Workspace.Motions);
         }
@@ -187,6 +200,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         finally { refreshing = false; }
         RefreshSelection(preserveSceneContext: sameDocument && preferredId is null && SceneSelectionIndex >= 0);
         SceneInspector.SetPmmCameraContext(Workspace.Session);
+        SceneInspector.RefreshInputValidation();
         SceneInspector.SetSceneMotion(Workspace.Session?.CaptureAuthoredContent().SceneMotion);
         SceneInspector.CurrentFrame = CurrentFrame;
         OnPropertyChanged(nameof(ProjectTitle)); OnPropertyChanged(nameof(HasProject)); OnPropertyChanged(nameof(MotionLabel));
@@ -322,6 +336,7 @@ public sealed partial class EditorShellViewModel : IDisposable
         try { Animation.CurrentFrame = frame; SceneInspector.CurrentFrame = frame; }
         finally { refreshingFrame = false; }
         FlushPanelPresentation(force: true);
+        RefreshTransportCommands();
         OnPropertyChanged(nameof(CurrentFrame)); ViewStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -391,10 +406,16 @@ public sealed partial class EditorShellViewModel : IDisposable
         catch (Exception error) { StopPlayback(); ReportActivityFailure(error, previewUnavailable: true); }
         finally { advancing = false; }
     }
+    private void RefreshHistoryCommands()
+    {
+        ((WorkspaceCommand)UndoCommand).RaiseCanExecuteChanged();
+        ((WorkspaceCommand)RedoCommand).RaiseCanExecuteChanged();
+    }
     private void RefreshCommands()
     {
+        RefreshTransportCommands();
         foreach (var command in new[] { ImportModelCommand, ImportMotionCommand, OpenProjectCommand, SaveProjectCommand,
-            SaveAsCommand, ConvertProjectCommand, NewProjectCommand, UndoCommand, RedoCommand, PlayCommand, GoToEndCommand, Browser.RemoveModelCommand, Browser.ReplaceModelCommand })
+            SaveAsCommand, ConvertProjectCommand, NewProjectCommand, UndoCommand, RedoCommand, PlayCommand, Browser.RemoveModelCommand, Browser.ReplaceModelCommand })
             (command as WorkspaceCommand)?.RaiseCanExecuteChanged();
     }
     private sealed class WorkspaceCommand(Action execute, Func<bool>? canExecute = null) : ICommand

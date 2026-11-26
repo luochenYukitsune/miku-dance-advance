@@ -20,10 +20,17 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
     private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
 
     [Theory]
+    [InlineData(0x20, Key.Space)]
+    [InlineData(0x23, Key.End)]
+    [InlineData(0x24, Key.Home)]
+    [InlineData(0x25, Key.Left)]
+    [InlineData(0x27, Key.Right)]
+    [InlineData(0x43, Key.C)]
+    [InlineData(0x56, Key.V)]
     [InlineData(0x51, Key.Q)]
     [InlineData(0x57, Key.W)]
     [InlineData(0x45, Key.E)]
-    public void NativeViewportForwardsTransformModeKeys(int virtualKey, Key expected)
+    public void NativeViewportForwardsEditorShortcuts(int virtualKey, Key expected)
     {
         Assert.True(EditorViewportHost.TryMapEditorKey(virtualKey, out var actual));
         Assert.Equal(expected, actual);
@@ -113,6 +120,9 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
                 Assert.True(window.FindControl<ScrollViewer>("NativeLightInspectorArea")!.IsEffectivelyVisible);
                 Assert.False(window.FindControl<Border>("BoneToolsContainer")!.IsVisible);
                 Assert.False(window.FindControl<Grid>("AnimationDock")!.IsVisible);
+                var dockMenu = window.FindControl<MenuItem>("ShowLeftRailMenuItem")!;
+                Assert.False(dockMenu.IsEnabled);
+                Assert.False(dockMenu.IsChecked);
             }
 
             // Switching back to Style (or camera) restores the outline filter and bone browser cleanly.
@@ -125,6 +135,8 @@ public sealed class EditorLightingWorkspaceTests : IAsyncDisposable
             Assert.True(worldItem.IsEffectivelyVisible);
             Assert.True(cameraItem.IsEffectivelyVisible);
             Assert.True(window.FindControl<Grid>("AnimationDock")!.IsEffectivelyVisible);
+            Assert.True(window.FindControl<MenuItem>("ShowLeftRailMenuItem")!.IsEnabled);
+            Assert.True(window.FindControl<MenuItem>("ShowLeftRailMenuItem")!.IsChecked);
 
             // An explicit prior filter (Models) is also remembered across lighting adjustment.
             filter.SelectedIndex = 1;

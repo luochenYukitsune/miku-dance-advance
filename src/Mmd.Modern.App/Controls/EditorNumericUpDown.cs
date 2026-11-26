@@ -17,6 +17,25 @@ public sealed class EditorNumericUpDown : NumericUpDown
     public static readonly RoutedEvent<RoutedEventArgs> InputValidityChangedEvent =
         RoutedEvent.Register<EditorNumericUpDown, RoutedEventArgs>(nameof(InputValidityChanged), RoutingStrategies.Bubble);
 
+    public static readonly StyledProperty<decimal?> MenuDefaultValueProperty =
+        AvaloniaProperty.Register<EditorNumericUpDown, decimal?>(nameof(MenuDefaultValue));
+
+    public decimal? MenuDefaultValue { get => GetValue(MenuDefaultValueProperty); set => SetValue(MenuDefaultValueProperty, value); }
+    public event EventHandler<RoutedEventArgs>? MenuValueCommitted;
+
+    public EditorNumericUpDown() => EditorNumberMenu.Attach(this, () => IsInputValid ? Value : null,
+        () => MenuDefaultValue, CommitMenuValue, () => !IsReadOnly);
+
+    private void CommitMenuValue(decimal value)
+    {
+        if (IsReadOnly || !IsEffectivelyEnabled) return;
+        if (ParsingNumberStyle == NumberStyles.Integer) value = decimal.Truncate(value);
+        SetCurrentValue(ValueProperty, Math.Clamp(value, Minimum, Maximum));
+        // Repair invalid text even when the pasted number equals the last accepted Value.
+        if (!IsInputValid) SetCurrentValue(TextProperty, Value?.ToString(NumberFormat));
+        MenuValueCommitted?.Invoke(this, new RoutedEventArgs());
+    }
+
     private bool textIsValid = true, preservingInvalidText;
     private Exception? bindingError;
 

@@ -324,6 +324,29 @@ public sealed class WorkbenchAnimationDockTests : IAsyncDisposable
     }, Token);
 
     [Fact]
+    public async Task MorphRegisterButtonsFollowInvalidNumericInputsAcrossTheWindow() => await session.Dispatch(() =>
+    {
+        var (window, shell, _) = Editor();
+        try
+        {
+            var dock = window.FindControl<EditorMorphDock>("MorphDockPanel")!;
+            var register = dock.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("action")).ToArray();
+            Assert.Equal(4, register.Length);
+            Assert.All(register, button => Assert.True(button.IsEffectivelyEnabled));
+            var frame = window.FindControl<EditorNumericUpDown>("CurrentFrameInput")!;
+            frame.Text = "unfinished";
+            Flush(window);
+            Assert.False(frame.IsInputValid);
+            Assert.All(register, button => Assert.False(button.IsEffectivelyEnabled));
+            frame.Text = "0";
+            Flush(window);
+            Assert.All(register, button => Assert.True(button.IsEffectivelyEnabled));
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
+    [Fact]
     public async Task FilteringDoesNotRetargetAnActiveMorphDragWhenItCrossesZero() => await session.Dispatch(() =>
     {
         var (window, shell, _) = Editor();

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Mmd.Modern.App;
 using Mmd.Modern.App.Controls;
 using Mmd.Modern.Rendering.D3D12;
@@ -184,16 +185,27 @@ public sealed class QualityLoadingTests : IAsyncDisposable
         return true;
     }, TestContext.Current.CancellationToken);
 
-    [Fact]
-    public async Task OpeningOutputSettingsDoesNotSuspendThePreview() => await session.Dispatch(async () =>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(OutputMediaKind.PngImage)]
+    [InlineData(OutputMediaKind.Video)]
+    public async Task OutputEntryOpensItsRequestedFormatWithoutSuspendingPreview(OutputMediaKind? kind) => await session.Dispatch(async () =>
     {
         var (window, _, viewport) = CreateEditor();
         try
         {
             var revision = Field(viewport, "revision");
-            typeof(EditorWindow).GetMethod("OpenOutputSettings", Instance)!.Invoke(window, [null, new RoutedEventArgs()]);
+            if (kind is { } requested)
+            {
+                var entry = window.GetVisualDescendants().OfType<Menu>().SelectMany(menu => menu.Items.OfType<MenuItem>())
+                    .SelectMany(top => top.Items.OfType<MenuItem>()).Single(item => Equals(item.Tag, requested));
+                entry.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            }
+            else
+                window.FindControl<Button>("OutputSettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var dialog = Assert.IsType<OutputSettingsWindow>(await WaitForOwnedDialogAsync(window));
             Assert.True(dialog.IsVisible);
+            Assert.Equal(kind ?? OutputMediaKind.Video, (OutputMediaKind)dialog.ViewModel.MediaKindIndex);
             Assert.False(viewport.IsSuspended);
             Assert.Equal(revision, Field(viewport, "revision"));
             dialog.Close(null);

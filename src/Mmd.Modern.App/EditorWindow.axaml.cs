@@ -59,12 +59,7 @@ public partial class EditorWindow : Window
         InitializeClassicEffects();
         var modelBrowser = this.FindControl<EditorModelBrowser>("ModelBrowserSurface")!;
         modelBrowser.OpenModelPropertiesRequested += (_, _) => OpenModelProperties(this, new Avalonia.Interactivity.RoutedEventArgs());
-        modelBrowser.OpenRigSettingsRequested += (_, _) => OpenRigSettings(this, new Avalonia.Interactivity.RoutedEventArgs());
-        modelBrowser.ImportMotionRequested += (_, _) =>
-        {
-            if (_shell?.ImportMotionCommand.CanExecute(null) == true)
-                _shell.ImportMotionCommand.Execute(null);
-        };
+        InitializeOutlineContextMenus();
         this.FindControl<MenuItem>("PluginsMenuItem")!.IsEnabled = persistPreferences;
         InitializeRecovery();
         DataContextChanged += (_, _) => AttachShell(DataContext as EditorShellViewModel);
@@ -89,6 +84,7 @@ public partial class EditorWindow : Window
         };
         this.FindControl<EditorViewportHost>("SceneViewport")!.CameraPoseChanged += pose => _shell?.SceneInspector.SetCameraDraft(pose);
         this.FindControl<EditorViewportHost>("SceneViewport")!.EditorKeyPressed += OnViewportKeyPressed;
+        this.FindControl<EditorViewportHost>("SceneViewport")!.ContextClick += OpenViewportContextMenu;
     }
 
     private void AttachShell(EditorShellViewModel? shell)
@@ -176,6 +172,7 @@ public partial class EditorWindow : Window
         if (args.PropertyName == nameof(EditorShellViewModel.RightInspectorPageIndex)
             && sender is EditorShellViewModel pageShell) OnInspectorPageChanged(pageShell);
         if (args.PropertyName == nameof(EditorShellViewModel.SceneSelectionIndex)) OnSceneSelectionIndexChanged();
+        if (args.PropertyName == nameof(EditorShellViewModel.ViewportPickedLightId)) RefreshLightSelectionHandles();
         if (args.PropertyName is nameof(EditorShellViewModel.SceneSelectionIndex) or nameof(EditorShellViewModel.IsPlaying) or nameof(EditorShellViewModel.IsBusy)
             || (args.PropertyName == nameof(EditorShellViewModel.CurrentFrame) && _shell is { IsCameraInspector: true, IsPlaying: false }))
             ScheduleDockRefresh();
@@ -289,7 +286,7 @@ public partial class EditorWindow : Window
         if (_shell is not { } shell) return;
         double currentZoom = Math.Clamp(shell.PixelsPerFrame, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
         double nextZoom = Math.Clamp(currentZoom * factor, EditorTimeline.MinimumPixelsPerFrame, EditorTimeline.MaximumPixelsPerFrame);
-        if (Math.Abs(nextZoom - currentZoom) < 1e-6) return;
+        if (nextZoom == currentZoom) return;
         var timeline = this.FindControl<EditorTimeline>(shell.IsSceneInspector ? "SceneFrameTimeline" : "FrameTimeline");
         if (timeline is not null && timeline.Bounds.Width > timeline.TrackHeaderWidth + 16)
         {
@@ -325,7 +322,9 @@ public partial class EditorWindow : Window
         _outputSettingsOpen = true;
         try
         {
-            var dialog = new OutputSettingsWindow(shell.CreateOutputSettingsViewModel(), shell.HasProject);
+            var settings = shell.CreateOutputSettingsViewModel();
+            if (sender is MenuItem { Tag: OutputMediaKind kind }) settings.MediaKindIndex = (int)kind;
+            var dialog = new OutputSettingsWindow(settings, shell.HasProject);
             var result = await dialog.ShowDialog<OutputSettingsDraft?>(this);
             if (result is not null && ReferenceEquals(shell, _shell))
             {
@@ -705,7 +704,7 @@ public partial class EditorWindow : Window
     }
     private void OnEditorKeyDown(object? sender, KeyEventArgs args)
     {
-        if (!args.Handled && ExecuteEditorKey(args.Key, args.KeyModifiers, false)) args.Handled = true;
+        if (!args.Handled && ExecuteEditorKey(args.Key, args.KeyModifiers, args.Source is EditorViewportHost)) args.Handled = true;
     }
     private void OnViewportKeyPressed(object? sender, EditorViewportKeyEventArgs args)
     {
@@ -739,6 +738,7 @@ public partial class EditorWindow : Window
             }
         }
         if (boneController is null) return false;
+        shell.ViewportPickedLightId = null;
         switch (key)
         {
             case Key.Q:
@@ -763,7 +763,7 @@ public partial class EditorWindow : Window
     {
         if (_shell is not { } shell || shell.IsBusy || modifiers.HasFlag(KeyModifiers.Alt)) return false;
         if (fromViewport && (boneController?.IsDragging == true || lightController?.IsDragging == true || _mainLightViewport?.IsDragging == true)) return false;
-        if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && lightController?.SelectedLightId is not null)
+        if (fromViewport && key == Key.Delete && modifiers == KeyModifiers.None && HasViewportLightTarget(shell))
         { DeleteViewportLight(this, new Avalonia.Interactivity.RoutedEventArgs()); return true; }
         bool control = modifiers.HasFlag(KeyModifiers.Control);
         bool shift = modifiers.HasFlag(KeyModifiers.Shift);
@@ -778,8 +778,10 @@ public partial class EditorWindow : Window
         if (modifiers == KeyModifiers.None && shell.HasProject && (fromViewport || !IsEditableTextFocused())
             && TryExecuteGizmoModeShortcut(key, shell))
             return true;
+        // A key forwarded by the child HWND belongs to the viewport even when Avalonia
+        // still remembers the last textbox or button used before native focus moved.
         bool allowFrameNavigation = (modifiers & ~KeyModifiers.Shift) == KeyModifiers.None
-            && !IsEditableTextFocused() && !IsSliderFocused() && shell.HasProject;
+            && (fromViewport || !IsEditableTextFocused() && !IsSliderFocused()) && shell.HasProject;
         System.Windows.Input.ICommand? command = (key, control, shift) switch
         {
             (Key.O, true, _) => shell.OpenProjectCommand, (Key.N, true, _) => shell.NewProjectCommand,
@@ -792,7 +794,7 @@ public partial class EditorWindow : Window
                 && (fromViewport || FocusManager?.GetFocusedElement() == SceneFrameTimeline) => shell.SceneInspector.RegisterLightKeyframeCommand,
             (Key.Enter or Key.K, false, false) when shell.IsAnimationInspector && (fromViewport || FocusManager?.GetFocusedElement() == FrameTimeline)
                 => shell.Animation.IsMorphSelected ? shell.Animation.RegisterKeyframeCommand : shell.Animation.RegisterPoseCommand,
-            (Key.Space, false, false) when modifiers == KeyModifiers.None && !IsEditableTextFocused() && !IsButtonActionFocused() => shell.PlayCommand,
+            (Key.Space, false, false) when modifiers == KeyModifiers.None && (fromViewport || !IsEditableTextFocused() && !IsButtonActionFocused()) => shell.PlayCommand,
             (Key.Left, false, false) when allowFrameNavigation => shell.PreviousFrameCommand,
             (Key.Right, false, false) when allowFrameNavigation => shell.NextFrameCommand,
             (Key.Left, false, true) when allowFrameNavigation => shell.StepBackCommand,
@@ -800,9 +802,9 @@ public partial class EditorWindow : Window
             (Key.Home, false, false) when allowFrameNavigation => shell.GoToStartCommand,
             (Key.End, false, false) when allowFrameNavigation => shell.GoToEndCommand,
             // Editing keys never act while a text field or list owns the keyboard (they keep their own copy/paste/space).
-            (Key.C, true, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.CopyKeyframesCommand,
-            (Key.V, true, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.PasteKeyframesCommand,
-            (Key.Delete, false, false) when shell.IsAnimationInspector && !TextInputHasFocus() => shell.Animation.DeleteKeyframesCommand,
+            (Key.C, true, false) when shell.IsAnimationInspector && (fromViewport || !TextInputHasFocus()) => shell.Animation.CopyKeyframesCommand,
+            (Key.V, true, false) when shell.IsAnimationInspector && (fromViewport || !TextInputHasFocus()) => shell.Animation.PasteKeyframesCommand,
+            (Key.Delete, false, false) when shell.IsAnimationInspector && (fromViewport || !TextInputHasFocus()) => shell.Animation.DeleteKeyframesCommand,
             _ => null
         };
         if (command?.CanExecute(null) != true) return false;

@@ -15,7 +15,7 @@ public sealed class EditorLightViewportController
     private SceneLightingEditor editor = new();
     private SceneProjectSession? sourceSession;
     private SceneLightingSnapshot? sourceSnapshot;
-    private bool enabled = true, rotateHandle, helpersVisible = true;
+    private bool enabled = true, rotateHandle, helpersVisible = true, showSelectionHandles = true;
     private CapturedLights? captured;
     // Other decorators may replace PreviewFrame/EditorOverlay while retaining the emitted
     // primitive objects. Tag a light primitive so presentation still identifies this geometry.
@@ -40,6 +40,7 @@ public sealed class EditorLightViewportController
         this.modernLightingWorkspace = modernLightingWorkspace;
     }
     public event EventHandler? Changed;
+    internal Action<Guid?>? SelectionActivated { get; set; }
     /// <summary>The window commits pending light input before a gesture. Unregistered animation poses
     /// remain independent; native-light edits and their history do not discard or register them.</summary>
     public Func<bool>? CanBeginEdit { get; set; }
@@ -53,6 +54,19 @@ public sealed class EditorLightViewportController
         get => rotateHandle;
         set { if (rotateHandle == value) return; CancelDrag(); parameterPreview = null; rotateHandle = value; Notify(); }
     }
+    // The lighting page retains its selected rows while another tool owns viewport input.
+    internal bool ShowSelectionHandles
+    {
+        get => showSelectionHandles;
+        set
+        {
+            if (showSelectionHandles == value) return;
+            showSelectionHandles = value;
+            if (!value) CancelDrag();
+            requestRender();
+        }
+    }
+    private Guid? ActiveSelection => showSelectionHandles ? editor.SelectedId : null;
     public bool IsDragging => drag is not null;
     /// <summary>View-local presentation only. Hidden helpers never disable the real lights.</summary>
     public bool HelpersVisible
@@ -69,7 +83,7 @@ public sealed class EditorLightViewportController
         return modernLightingWorkspace && IsInteracting && quality.EffectiveGi.Enabled ? quality with { Gi = RayGiOptions.Off } : quality;
     }
     internal object PresentationIdentity => new PresentationKey(new(workspace.Session), new(sourceSnapshot),
-        enabled, helpersVisible, rotateHandle, editor.SelectedId, new(selectionIdentity), new(drag), new(parameterPreview ?? (drag is null ? null : editor.Snapshot)));
+        enabled, helpersVisible, rotateHandle, ActiveSelection, new(selectionIdentity), new(drag), new(parameterPreview ?? (drag is null ? null : editor.Snapshot)));
     private readonly record struct PresentationKey(EditorPresentationReference Session, EditorPresentationReference Source,
         bool Enabled, bool Helpers, bool Rotate, Guid? Selected, EditorPresentationReference Selection,
         EditorPresentationReference Gesture, EditorPresentationReference Parameters);
@@ -94,6 +108,7 @@ public sealed class EditorLightViewportController
     public void Select(Guid? id)
     {
         SelectMany(id is { } selected ? [selected] : [], id);
+        SelectionActivated?.Invoke(id);
     }
 
     public void SelectMany(IEnumerable<Guid> ids, Guid? primary = null)
@@ -127,14 +142,15 @@ public sealed class EditorLightViewportController
                 || !sampled.AuthoredLighting.Groups.SequenceEqual(sourceSnapshot.Groups)))
         { captured = null; return frame; }
         var lights = authored.ResolveParents(parent => sampled!.ParentTransforms[parent]);
-        var pivot = SelectionPivot(lights);
+        var selected = ActiveSelection;
+        var pivot = selected.HasValue ? SelectionPivot(lights) : null;
         float size = GizmoSize(pivot ?? camera.Target, camera, frame.Width, frame.Height);
-        var handles = helpersVisible ? LightViewportInteraction.CreateOverlay(lights, editor.SelectedId, camera, frame.Width, frame.Height,
-            size, rotateHandle, selectedIds, pivot, showDetails: modernLightingWorkspace) : new ViewportOverlaySnapshot([]);
+        var handles = helpersVisible ? LightViewportInteraction.CreateOverlay(lights, selected, camera, frame.Width, frame.Height,
+            size, rotateHandle, selected.HasValue ? selectedIds : null, pivot, showDetails: modernLightingWorkspace) : new ViewportOverlaySnapshot([]);
         var existing = frame.Scene.EditorOverlay?.Lines ?? [];
         var overlay = new ViewportOverlaySnapshot(existing.Take(ViewportOverlaySnapshot.MaxLines - handles.Lines.Count).Concat(handles.Lines));
         if (handles.Lines.Count > 0 && sourceSnapshot is { } source)
-            awaitingPresentation.Add(handles.Lines[0], new(session, source, lights, frame.SourceFrame, editor.SelectedId, selectedIds,
+            awaitingPresentation.Add(handles.Lines[0], new(session, source, lights, frame.SourceFrame, selected, selectedIds,
                 rotateHandle, camera, frame.Width, frame.Height, size));
         var scene = frame.Scene;
         bool interacting = modernLightingWorkspace && (drag is not null || parameterPreview is not null);
@@ -173,8 +189,8 @@ public sealed class EditorLightViewportController
         if (camera != pose.Camera || !SourceCurrent(pose))
         { requestRender(); return false; }
         bool rotating = rotate || rotateHandle;
-        var selected = pose.Selected == editor.SelectedId && pose.SelectedIds.SequenceEqual(selectedIds)
-            && pose.Rotate == rotating ? editor.SelectedId : null;
+        var selected = pose.Selected == ActiveSelection && pose.SelectedIds.SequenceEqual(selectedIds)
+            && pose.Rotate == rotating ? pose.Selected : null;
         var hit = LightViewportInteraction.HitTest(pose.Lights, selected, new(x, y), pose.Camera, width, height,
             pose.Size, rotating, SelectionPivot(pose.Lights), selected is null ? null : pose.SelectedIds);
         if (hit is null) return false;
@@ -188,7 +204,8 @@ public sealed class EditorLightViewportController
             || !pose.Lights.AuthoredLighting.Lights.SequenceEqual(editor.Snapshot.Lights)
             || !pose.Lights.AuthoredLighting.Groups.SequenceEqual(editor.Snapshot.Groups))
         { requestRender(); return true; }
-        if (!selectedIds.Contains(hit.LightId)) Select(hit.LightId);
+        if (!showSelectionHandles || !selectedIds.Contains(hit.LightId)) Select(hit.LightId);
+        else SelectionActivated?.Invoke(hit.LightId);
         var authored = editor.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         var originals = pose.Lights.Lights.Where(light => selectedIds.Contains(light.Id)).ToArray();
         // A first click can switch from a rotating spot to an unselected point light.

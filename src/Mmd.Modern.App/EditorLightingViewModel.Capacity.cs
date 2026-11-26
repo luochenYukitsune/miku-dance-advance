@@ -31,5 +31,6 @@ public sealed partial class EditorLightingViewModel
     private void RefreshCapacity()
     {
         Changed(nameof(EnabledLightCount)); Changed(nameof(LightCountSummary)); Changed(nameof(CanAddLight));
+        Changed(nameof(CanDuplicateSelection)); Changed(nameof(CanEnableSelection)); Changed(nameof(CanDisableSelection));
     }
 }

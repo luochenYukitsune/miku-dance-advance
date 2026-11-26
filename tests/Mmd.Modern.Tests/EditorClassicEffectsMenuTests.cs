@@ -48,7 +48,10 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 Assert.Equal(language, EditorLocalization.CurrentLanguage);
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectsMenu")!.IsVisible);
                 Assert.True(window.FindControl<MenuItem>("ModelMaterialStyleMenuItem")!.IsVisible);
+                var addLight = EditorLocalization.Text("Mda.Text.0bb6877c08de");
+                Assert.Contains(window.ViewportMenuItems().OfType<MenuItem>(), item => Equals(item.Header, addLight));
                 window.DataContext = classic;
+                Assert.DoesNotContain(window.ViewportMenuItems().OfType<MenuItem>(), item => Equals(item.Header, addLight));
                 Assert.False(window.FindControl<MenuItem>("ModelMaterialStyleMenuItem")!.IsVisible);
                 var menu = window.FindControl<MenuItem>("ClassicEffectsMenu")!;
                 Assert.True(menu.IsVisible);
@@ -64,6 +67,7 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 Assert.True(window.FindControl<MenuItem>("ClassicEffectsEnabled")!.IsChecked);
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectsAutoReload")!.IsChecked);
                 Assert.False(window.FindControl<MenuItem>("ClassicMappingAutoSave")!.IsChecked);
+                Assert.False(window.FindControl<MenuItem>("ClassicMappingAutoSave")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectAssignment")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicEffectsReload")!.IsEnabled);
                 Assert.False(window.FindControl<MenuItem>("ClassicToonSettings")!.IsEnabled);
@@ -86,6 +90,28 @@ public sealed class EditorClassicEffectsMenuTests : IAsyncDisposable
                 Assert.Contains(menu, menus);
                 foreach (var top in menus)
                     AssertMenuTextFits(top);
+
+                // A Classic project can carry Toon settings without an EMM assignment document.
+                var model = MorphApplicationTests.Model([]);
+                string path = Path.Combine(directory, "toon-only.pmx");
+                var composition = new SceneCompositionEditor();
+                var asset = EditorProjectWorkspace.CreateModelAsset(model, path);
+                Guid actorId = composition.Add("Actor", path, ModelRole.Character, asset.Source).Id;
+                var noMapping = new SceneProjectSession(composition, new(),
+                    [new(actorId, model, new VmdMotion(), PhysicsEnabled: false)], new NoPhysics());
+                var constructor = typeof(EditorClassicDocumentState).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
+                    .Single(value => value.GetParameters()[0].ParameterType == typeof(SceneProjectSession));
+                var metadata = constructor.Invoke([noMapping, null, null, null, null, null, false]);
+                typeof(EditorProjectWorkspace).GetProperty("Session")!.SetValue(classic.Workspace, noMapping);
+                typeof(EditorProjectWorkspace).GetProperty("ProjectMetadata", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(classic.Workspace, metadata);
+                typeof(EditorWindow).GetMethod("RefreshClassicEffectsMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
+                Assert.True(window.FindControl<MenuItem>("ClassicToonSettings")!.IsEnabled);
+                Assert.True(window.FindControl<MenuItem>("ClassicToonSlots")!.IsEnabled);
+                Assert.False(window.FindControl<MenuItem>("ClassicEffectsAutoReload")!.IsEnabled);
+                Assert.False(window.FindControl<MenuItem>("ClassicEffectAssignment")!.IsEnabled);
+                Assert.False(window.FindControl<MenuItem>("ClassicEffectsReload")!.IsEnabled);
+                Assert.False(window.FindControl<MenuItem>("ClassicMappingAutoSave")!.IsEnabled);
                 window.DataContext = modern;
                 Assert.False(menu.IsVisible);
             }

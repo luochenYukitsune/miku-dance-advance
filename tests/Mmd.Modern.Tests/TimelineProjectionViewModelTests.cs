@@ -165,6 +165,20 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         return true;
     }, TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task ResetPoseCommandRequiresAMovableBoneOrEditableMorph() => await session.Dispatch(() =>
+    {
+        var viewModel = new EditorAnimationViewModel();
+        viewModel.SetActor(Guid.NewGuid(), Model("A", emptyBoneFlags: 0), Motion("A"));
+        viewModel.SelectBone(2);
+        Assert.False(viewModel.ResetPoseCommand.CanExecute(null));
+        viewModel.SelectBone(0);
+        Assert.True(viewModel.ResetPoseCommand.CanExecute(null));
+        viewModel.SelectMorph(0);
+        Assert.True(viewModel.ResetPoseCommand.CanExecute(null));
+        return true;
+    }, TestContext.Current.CancellationToken);
+
     private static VmdMotion Motion(string name) => new()
     {
         BoneKeyframes = [new() { BoneName = name + ".Root" }, new() { BoneName = name + ".Root", Frame = 10 }, new() { BoneName = name + ".Hand", Frame = 15 }],
@@ -172,13 +186,13 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
         IkKeyframes = [new() { Frame = 30 }],
         CameraKeyframes = [new() { Frame = 99 }], LightKeyframes = [new() { Frame = 99 }]
     };
-    private static PmxModel Model(string name) => new()
+    private static PmxModel Model(string name, PmxBoneFlags emptyBoneFlags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate) => new()
     {
         Header = new() { Version = 2, HeaderDataSize = 8, TextEncoding = PmxTextEncoding.Utf8, AdditionalUvCount = 0,
             VertexIndexSize = 1, TextureIndexSize = 1, MaterialIndexSize = 1, BoneIndexSize = 1, MorphIndexSize = 1, RigidBodyIndexSize = 1 },
         Name = name, EnglishName = "", Comment = "", EnglishComment = "", Vertices = [], Faces = [], Textures = [], Materials = [],
         RigidBodies = [], Joints = [], SoftBodies = [],
-        Bones = new[] { Bone(name + ".Root"), Bone(name + ".Hand"), Bone(name + ".Empty") },
+        Bones = new[] { Bone(name + ".Root"), Bone(name + ".Hand"), Bone(name + ".Empty", emptyBoneFlags) },
         Morphs = new[] { new PmxMorph { Name = name + ".Smile", EnglishName = "", Type = PmxMorphType.Position, ControlPanel = 0 } },
         DisplayFrames = new[]
         {
@@ -187,7 +201,7 @@ public sealed class TimelineProjectionViewModelTests : IAsyncDisposable
             new PmxDisplayFrame { Name = "Expressions", EnglishName = "", Type = PmxDisplayFrameType.Special, Targets = [new(PmxDisplayTargetType.Morph, 0)] }
         }
     };
-    private static PmxBone Bone(string name) => new()
-    { Name = name, EnglishName = "", Position = Vector3.Zero, ParentIndex = -1, DeformDepth = 0, Flags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate };
+    private static PmxBone Bone(string name, PmxBoneFlags flags = PmxBoneFlags.AllowRotate | PmxBoneFlags.AllowTranslate) => new()
+    { Name = name, EnglishName = "", Position = Vector3.Zero, ParentIndex = -1, DeformDepth = 0, Flags = flags };
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }

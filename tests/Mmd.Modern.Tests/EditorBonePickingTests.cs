@@ -47,6 +47,54 @@ public sealed class EditorBonePickingTests : IAsyncDisposable
         finally { shell.Dispose(); }
     }, TestContext.Current.CancellationToken);
 
+    [Fact]
+    public async Task RetainedLightAxisYieldsToTheOverlappingBoneWhileItsBodyRemainsPickable() => await session.Dispatch(() =>
+    {
+        var (shell, bones, frame) = Fixture();
+        try
+        {
+            // The positive X handle crosses the bone at the viewport center, well outside the lamp icon.
+            var size = LightViewportInteraction.Translate(Vector3.Zero, new(70, 0), Camera, 800, 600).Length();
+            var lamp = new NativeSceneLight(Guid.NewGuid(), "fill", SceneLightKind.Point,
+                new(-.6f * size, 0, 0), Quaternion.Identity, Vector3.One);
+            shell.Workspace.EditLighting(new(new([lamp])));
+            var lights = new EditorLightViewportController(shell.Workspace, shell.Workspace.EditLighting, () => { });
+            lights.Select(lamp.Id);
+            var active = lights.DecorateFrame(frame);
+            lights.FramePresented(active);
+            Assert.True(lights.TryBeginDrag(400, 300, 800, 600, Camera));
+            lights.CancelDrag();
+
+            var pending = lights.DecorateFrame(frame);
+            var editingIdentity = lights.PresentationIdentity;
+            lights.ShowSelectionHandles = false;
+            Assert.NotEqual(editingIdentity, lights.PresentationIdentity);
+            lights.FramePresented(pending);
+            Assert.False(lights.TryBeginDrag(400, 300, 800, 600, Camera));
+
+            var passive = lights.DecorateFrame(frame);
+            lights.FramePresented(passive);
+            Assert.Equal(2, passive.Scene.EditorOverlay!.Lines.Count);
+            Assert.All(passive.Scene.EditorOverlay.Lines, line => Assert.Equal(ViewportOverlayShape.Circle, line.Shape));
+            Assert.Equal(lamp.Id, lights.SelectedLightId);
+            Assert.False(lights.TryBeginDrag(400, 300, 800, 600, Camera));
+            bones.DecorateFrame(passive);
+            Assert.True(bones.TryBeginDrag(400, 300, 800, 600, Camera));
+            bones.EndPointerGesture(400, 300);
+            Assert.NotNull(shell.Animation.SelectedBoneIndex);
+
+            Assert.True(LightViewportInteraction.TryProject(lamp.Position, Camera, 800, 600, out var icon));
+            Guid? picked = null;
+            lights.SelectionActivated = id => picked = id;
+            Assert.True(lights.TryBeginDrag((int)MathF.Round(icon.X), (int)MathF.Round(icon.Y), 800, 600, Camera));
+            Assert.Equal(lamp.Id, picked);
+            lights.CancelDrag();
+            Assert.Equal(lamp, Assert.Single(shell.Workspace.Session!.Lighting.Lights));
+            return true;
+        }
+        finally { shell.Dispose(); }
+    }, TestContext.Current.CancellationToken);
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
