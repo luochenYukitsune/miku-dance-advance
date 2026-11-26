@@ -109,7 +109,8 @@ public partial class EditorWindow
     private void InitializeLightController(EditorShellViewModel shell)
     {
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
-        lightController = new(shell.Workspace, CommitViewportLighting, viewport.RequestRender, shell.SupportsModernLightingWorkspace);
+        lightController = new(shell.Workspace, CommitViewportLighting, viewport.RequestRender, shell.SupportsModernLightingWorkspace)
+        { SelectionActivated = id => shell.ViewportPickedLightId = id };
         InitializeLightHelperTools(shell);
         if (boneController is not null) boneController.Changed -= BoneToolsChanged;
         boneController = new(shell, viewport.RequestRender)
@@ -149,8 +150,7 @@ public partial class EditorWindow
 
     private async void OpenInterpolation(object? sender, RoutedEventArgs args)
     {
-        if (_shell is not { IsBusy: false } shell) return;
-        shell.StopPlayback();
+        if (_shell is not { IsBusy: false, IsPlaying: false } shell) return;
         try
         {
             if (shell.SceneSelectionIndex == 1 && shell.Workspace.Session?.CaptureAuthoredContent().SceneMotion is { } scene)
@@ -162,7 +162,7 @@ public partial class EditorWindow
                     shell.Workspace.CommitSceneMotion(draft.ApplyTo(scene.Motion));
                 return;
             }
-            if (shell.Browser.SelectedModel is not { } selected) return;
+            if (!shell.IsAnimationInspector || shell.Browser.SelectedModel is not { } selected) return;
             var actor = shell.Workspace.Motions.Single(item => item.ObjectId == selected.ObjectId);
             var selection = shell.Animation.SelectedKeyframes.Where(key => key.Kind == KeyframeTrackKind.Bone).ToArray();
             if (selection.Length == 0) { shell.OperationStatus = Text("请选择一个骨骼关键帧。"); return; }

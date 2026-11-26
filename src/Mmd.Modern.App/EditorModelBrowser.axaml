@@ -101,7 +101,7 @@
                 ToolTip.Tip="{DynamicResource Mda.Text.Context.ReplaceModel.Help}" />
       </Grid>
     </Border>
-    <Grid Grid.Row="1" MinHeight="30" MaxHeight="150">
+    <Grid Name="ModelListArea" Background="Transparent" Grid.Row="1" MinHeight="30" MaxHeight="150">
       <TextBlock Text="{DynamicResource Mda.Text.3c8827b3336c}" Classes="caption" Margin="12,6"
                  IsVisible="{Binding NoModels}" />
       <ListBox Name="ModelList" Classes="scene models" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
@@ -109,19 +109,6 @@
                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
         <ListBox.ItemTemplate><DataTemplate x:DataType="local:EditorModelItem">
           <Grid ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding SourcePath}">
-            <Grid.ContextMenu><ContextMenu>
-              <MenuItem Header="{DynamicResource Mda.Text.814c34f6f2d1}"
-                        CommandParameter="{Binding}" Click="OpenModelPropertiesFromContext" />
-              <MenuItem Header="{DynamicResource Mda.Text.Ux.ModelBrowser.RigSettings}"
-                        CommandParameter="{Binding}" Click="OpenRigSettingsFromContext" />
-              <MenuItem Header="{DynamicResource Mda.Text.25aed4b73b5c}"
-                        CommandParameter="{Binding}" Click="ImportMotionFromContext" />
-              <Separator />
-              <MenuItem Header="{DynamicResource Mda.Text.Context.ReplaceModel.Action}"
-                        CommandParameter="{Binding}" Click="ReplaceModelFromContext" />
-              <MenuItem Header="{DynamicResource Mda.Text.6135d4159e89}" InputGesture="Delete"
-                        CommandParameter="{Binding}" Click="RemoveModelFromContext" />
-            </ContextMenu></Grid.ContextMenu>
             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             <TextBlock Grid.Column="1" Text="{Binding RoleLabel}" Classes="caption" Margin="8,0,0,0" VerticalAlignment="Center" />
           </Grid>

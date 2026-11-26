@@ -67,6 +67,26 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     private IEditorRenderEngine renderEngine = EditorModernRenderEngine.Instance;
     private IEditorRenderBinding renderBinding = EditorModernRenderEngine.Instance.EmptyBinding;
     private uint dragButton;
+    private readonly ViewportContextGesture rightClick;
+    internal event Action<Avalonia.Point>? ContextClick;
+    internal void ResetView() => ChangeCamera(OriginalCameraPose);
+    internal void FocusOn(Vector3 target)
+    {
+        var pose = ActiveNavigationCamera();
+        if (pose.ParentModelIndex < 0)
+        {
+            ChangeCamera(pose with { LookAt = target, ViewOffset = Vector2.Zero });
+            return;
+        }
+        var parent = project!.ResolveCameraParentTransform(pose)!.Value;
+        if (pose.IgnoreParentRotation) target -= parent.Translation;
+        else if (Matrix4x4.Invert(parent, out var inverse)) target = Vector3.Transform(target, inverse);
+        else return;
+        var toCamera = Matrix4x4.CreateRotationY(pose.Angle.Y) * Matrix4x4.CreateRotationX(pose.Angle.X)
+            * Matrix4x4.CreateRotationZ(pose.Angle.Z);
+        ChangeCamera(pose with { LookAt = Vector3.Transform(target, toCamera) + Vector3.UnitZ * pose.CameraDepth });
+    }
+
     private int pointerX, pointerY;
     private PmmCameraPose dragCamera;
     private PmmCameraPose? cameraBeforeDrag;
@@ -74,6 +94,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     public EditorViewportHost()
     {
         Focusable = true;
+        rightClick = new(this, BeginCameraDrag, PanViewport, point => ContextClick?.Invoke(point), RevertCameraDrag);
         SizeChanged += (_, _) => { lock (workerGate) InvalidateRecordingAheadLocked(); RequestRender(); };
     }
 
@@ -1103,7 +1124,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             Distance = -depth, ParentModelIndex = -1, ParentBoneIndex = 0, IgnoreParentRotation = false, ViewOffset = Vector2.Zero };
     }
 
-    private static PmmCameraPose PanCamera(PmmCameraPose pose, float dx, float dy, int height)
+    private static PmmCameraPose PanCamera(PmmCameraPose pose, float dx, float dy, float height)
     {
         var camera = pose.CreateCamera();
         float unitsPerPixel = camera.OrthographicHeight / height;
@@ -1166,6 +1187,49 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         return pose.CreateCamera(parent);
     }
 
+    private Avalonia.Point ViewportPoint(int x, int y)
+    {
+        double scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+        return new(x / scale, y / scale);
+    }
+
+    private void BeginCameraDrag()
+    {
+        cameraBeforeDrag = isPilotingCamera ? manualCameraPose : freeEditorCameraPose;
+        dragCamera = ActiveNavigationCamera();
+    }
+
+    private void PanViewport(Avalonia.Vector delta)
+    {
+        if (Bounds.Height <= 0 || IsSuspended) return;
+        float dx = (float)(InvertCameraMouseX ? -delta.X : delta.X);
+        float dy = (float)(InvertCameraMouseY ? -delta.Y : delta.Y);
+        ChangeCamera(PanCamera(dragCamera, dx, dy, (float)Bounds.Height));
+    }
+
+    private void RevertCameraDrag()
+    {
+        lock (workerGate) InvalidateRecordingAheadLocked();
+        if (isPilotingCamera)
+        {
+            manualCameraPose = cameraBeforeDrag;
+            if (manualCameraPose is { } restored) ChangeCamera(restored);
+            else
+            {
+                currentCamera = ResolveCamera(dragCamera);
+                CameraPoseChanged?.Invoke(dragCamera); CameraChanged?.Invoke(currentCamera);
+                RequestRender();
+            }
+        }
+        else
+        {
+            freeEditorCameraPose = cameraBeforeDrag ?? dragCamera;
+            currentCamera = ResolveCamera(freeEditorCameraPose.Value);
+            CameraChanged?.Invoke(currentCamera);
+            RequestRender();
+        }
+    }
+
     private nint OnWindowMessage(nint window, uint message, nint wParam, nint lParam)
     {
         var previous = previousWindowProcedure;
@@ -1185,6 +1249,12 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 ValidateRect(window, nint.Zero); RequestRender(); return nint.Zero;
             }
             if (message == 0x14) return new nint(1); // Renderer owns background erasure.
+            if (dragButton == 0x204 && (message is 0x8 or 0x1f or 0x215 || !IsEffectivelyEnabled || IsSuspended))
+            {
+                dragButton = 0;
+                rightClick.Cancel();
+                if (GetCapture() == window) ReleaseCapture();
+            }
             if (MainLightViewport?.IsDragging == true)
             {
                 if (message is 0x8 or 0x1f or 0x215 || message == 0x100 && wParam.ToInt64() == 27)
@@ -1215,6 +1285,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 return CallWindowProcW(previous, window, message, wParam, lParam);
             if (message is 0x201 or 0x204 or 0x207)
             {
+                if (dragButton == 0x204) rightClick.SuppressMenu();
                 if (dragButton != 0 || LightController?.IsDragging == true || BoneController?.HasPointerGesture == true || CameraController?.IsDragging == true) return nint.Zero;
                 if (message == 0x201 && MainLightViewport is { } main && GetClientRect(window, out var mainBounds) &&
                     main.TryBegin(new(x, y), currentCamera, mainBounds.Right, mainBounds.Bottom))
@@ -1249,7 +1320,9 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     && BoneController?.TryBeginDrag(x, y, boneBounds.Right, boneBounds.Bottom, currentCamera,
                         extendSelection: (wParam.ToInt64() & (0x4 | 0x8)) != 0) == true)
                 { SetFocus(window); if (BoneController.HasPointerGesture) SetCapture(window); return nint.Zero; }
-                SetFocus(window); cameraBeforeDrag = isPilotingCamera ? manualCameraPose : freeEditorCameraPose; dragCamera = ActiveNavigationCamera();
+                SetFocus(window);
+                if (message == 0x204) rightClick.Begin(ViewportPoint(x, y), unchecked((uint)GetMessageTime()));
+                else BeginCameraDrag();
                 dragButton = message; pointerX = x; pointerY = y; SetCapture(window); return nint.Zero;
             }
             if (message == 0x200 && LightController?.IsDragging == true)
@@ -1275,6 +1348,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             { BoneController.CancelDrag(); ReleaseCapture(); return nint.Zero; }
             if (message == 0x200 && dragButton != 0)
             {
+                if (dragButton == 0x204) { rightClick.Move(ViewportPoint(x, y)); return nint.Zero; }
                 float dx = x - pointerX, dy = y - pointerY;
                 if (InvertCameraMouseX) dx = -dx;
                 if (InvertCameraMouseY) dy = -dy;
@@ -1291,36 +1365,26 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             }
             if (message is 0x202 or 0x205 or 0x208)
             {
-                if (dragButton != 0 && message == dragButton + 1) { dragButton = 0; ReleaseCapture(); }
+                if (dragButton != 0 && message == dragButton + 1)
+                {
+                    dragButton = 0;
+                    ReleaseCapture();
+                    if (message == 0x205) rightClick.End(ViewportPoint(x, y), unchecked((uint)GetMessageTime()));
+                }
                 return nint.Zero;
             }
             if (message == 0x215) dragButton = 0;
             if (message == 0x100 && wParam.ToInt64() == 27 && dragButton != 0)
             {
-                lock (workerGate) InvalidateRecordingAheadLocked();
-                dragButton = 0; ReleaseCapture();
-                if (isPilotingCamera)
-                {
-                    manualCameraPose = cameraBeforeDrag;
-                    if (manualCameraPose is { } restored) ChangeCamera(restored);
-                    else
-                    {
-                        currentCamera = ResolveCamera(dragCamera);
-                        CameraPoseChanged?.Invoke(dragCamera); CameraChanged?.Invoke(currentCamera);
-                        RequestRender();
-                    }
-                }
-                else
-                {
-                    freeEditorCameraPose = cameraBeforeDrag ?? dragCamera;
-                    currentCamera = ResolveCamera(freeEditorCameraPose.Value);
-                    CameraChanged?.Invoke(currentCamera);
-                    RequestRender();
-                }
+                var button = dragButton;
+                dragButton = 0;
+                ReleaseCapture();
+                if (button == 0x204) rightClick.Revert();
+                else RevertCameraDrag();
                 return nint.Zero;
             }
             if (message == 0x100 && TryMapEditorKey(wParam, out var key)
-                && !((key is Key.Enter or Key.K) && (lParam.ToInt64() & (1L << 30)) != 0))
+                && !((key is Key.Enter or Key.K or Key.Space) && (lParam.ToInt64() & (1L << 30)) != 0))
             {
                 var args = new EditorViewportKeyEventArgs(key, ReadKeyModifiers());
                 EditorKeyPressed?.Invoke(this, args);
@@ -1329,6 +1393,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             if (message == 0x20a)
             {
                 if (LightController?.IsDragging == true || CameraController?.IsDragging == true) return nint.Zero;
+                if (dragButton == 0x204) rightClick.SuppressMenu();
                 int delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xffff));
                 var camera = ActiveNavigationCamera();
                 ChangeCamera(ZoomCamera(camera, delta));
@@ -1345,13 +1410,20 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         {
             0x0d => Key.Enter,
             0x1b => Key.Escape,
+            0x20 => Key.Space,
+            0x23 => Key.End,
+            0x24 => Key.Home,
+            0x25 => Key.Left,
+            0x27 => Key.Right,
             0x2e => Key.Delete,
+            0x43 => Key.C,
             0x45 => Key.E,
             0x4b => Key.K,
             0x4e => Key.N,
             0x4f => Key.O,
             0x51 => Key.Q,
             0x53 => Key.S,
+            0x56 => Key.V,
             0x57 => Key.W,
             0x59 => Key.Y,
             0x5a => Key.Z,
@@ -1373,6 +1445,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     {
         CancelMainLightDrag();
         CancelCameraGizmoDrag();
+        rightClick.Cancel();
         if (dragButton != 0) { dragButton = 0; ReleaseCapture(); }
         if (childWindow != nint.Zero && previousWindowProcedure != nint.Zero)
             SetWindowLongPtrW(childWindow, -4, previousWindowProcedure);

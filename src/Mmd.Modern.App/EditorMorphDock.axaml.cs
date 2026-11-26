@@ -44,16 +44,29 @@ public partial class EditorMorphDock : UserControl
     private void Attach(EditorShellViewModel? value)
     {
         if (ReferenceEquals(value, shell)) return;
-        if (shell is not null) { shell.Animation.PropertyChanged -= AnimationChanged; shell.PropertyChanged -= ShellChanged; }
+        if (shell is not null)
+        {
+            shell.Animation.PropertyChanged -= AnimationChanged;
+            shell.Animation.DraftContentEdited -= DraftContentChanged;
+            shell.PropertyChanged -= ShellChanged;
+        }
         shell = value;
-        if (shell is not null) { shell.Animation.PropertyChanged += AnimationChanged; shell.PropertyChanged += ShellChanged; }
+        if (shell is not null)
+        {
+            shell.Animation.PropertyChanged += AnimationChanged;
+            shell.Animation.DraftContentEdited += DraftContentChanged;
+            shell.PropertyChanged += ShellChanged;
+        }
         RefreshGroups();
     }
+
+    private void DraftContentChanged(object? sender, EventArgs args) => ScheduleRefresh();
 
     private void AnimationChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName is null or nameof(EditorAnimationViewModel.FrameSummary) or nameof(EditorAnimationViewModel.ObjectId)
-            or nameof(EditorAnimationViewModel.SelectedMorphIndex) or nameof(EditorAnimationViewModel.MorphWeight)) ScheduleRefresh();
+            or nameof(EditorAnimationViewModel.SelectedMorphIndex) or nameof(EditorAnimationViewModel.MorphWeight)
+            or nameof(EditorAnimationViewModel.CanRegister)) ScheduleRefresh();
     }
 
     private void ShellChanged(object? sender, PropertyChangedEventArgs args)
@@ -108,11 +121,13 @@ public partial class EditorMorphDock : UserControl
         }
         var weights = sampler?.Evaluate(animation!.CurrentFrame);
         bool filtered = NonzeroMorphs.IsChecked == true;
+        bool canRegister = shell is { IsPlaying: false, IsBusy: false, IsAnimationInspector: true }
+            && animation is { IsBusy: false, HasActor: true } && animation.ValidateInput?.Invoke() != false;
         for (int i = 0; i < Groups.Count; i++)
         {
             var panel = panelChoices[i];
             var items = filtered ? panel.Where(item => item == editingChoice || Weight(item) != 0).ToArray() : panel;
-            Groups[i].Refresh(items, changedModel, animation?.SelectedMorphIndex, Weight);
+            Groups[i].Refresh(items, changedModel, animation?.SelectedMorphIndex, Weight, canRegister);
         }
         decimal Weight(EditorMorphDockChoice item) => animation?.CurrentMorphDraft(item.Index)
             ?? EditorAnimationViewModel.SampleMorphWeight(weights?.GetValueOrDefault(item.Index) ?? 0);
@@ -137,7 +152,7 @@ public partial class EditorMorphDock : UserControl
 
     private void RegisterMorph(object? sender, RoutedEventArgs args)
     {
-        if (sender is not Button { DataContext: EditorMorphDockGroup { Selected: { } choice } } || !Activate(choice)) return;
+        if (sender is not Button { DataContext: EditorMorphDockGroup { CanRegister: true, Selected: { } choice } } || !Activate(choice)) return;
         var command = shell!.Animation.RegisterKeyframeCommand;
         if (command.CanExecute(null)) command.Execute(null);
     }
@@ -147,7 +162,7 @@ public sealed class EditorMorphDockGroup(EditorMorphDock owner, string key) : IN
 {
     private EditorMorphDockChoice? selected;
     private decimal? weight;
-    private bool updating, editable;
+    private bool updating, editable, canRegister;
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Label => EditorLocalization.Text("Mda.Text.Layout.Morph." + key);
     public IReadOnlyList<EditorMorphDockChoice> Choices { get; private set; } = [];
@@ -172,8 +187,9 @@ public sealed class EditorMorphDockGroup(EditorMorphDock owner, string key) : IN
         }
     }
     public bool CanEdit => editable;
+    public bool CanRegister => canRegister;
 
-    internal void Refresh(EditorMorphDockChoice[] items, bool newModel, int? active, Func<EditorMorphDockChoice, decimal> getWeight)
+    internal void Refresh(EditorMorphDockChoice[] items, bool newModel, int? active, Func<EditorMorphDockChoice, decimal> getWeight, bool validRegistration)
     {
         updating = true;
         try
@@ -187,6 +203,8 @@ public sealed class EditorMorphDockGroup(EditorMorphDock owner, string key) : IN
             if (weight != nextWeight) { weight = nextWeight; Changed(nameof(Weight)); }
             bool canEdit = owner.CanEdit(selected);
             if (editable != canEdit) { editable = canEdit; Changed(nameof(CanEdit)); }
+            bool nextCanRegister = canEdit && validRegistration;
+            if (canRegister != nextCanRegister) { canRegister = nextCanRegister; Changed(nameof(CanRegister)); }
         }
         finally { updating = false; }
     }

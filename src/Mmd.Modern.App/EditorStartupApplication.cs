@@ -79,7 +79,7 @@ internal sealed partial class EditorStartupApplication
             EditorLocalization.SetLanguage(preferences.Language);
             await YieldToStartupFrameAsync();
 
-            if (!await ReviewStartupUpdateAsync()) return;
+            if (!await ReviewStartupUpdateAsync(preferences)) return;
 
             // Explicit test/embedding configurations never scan the user's plugin folders.
             // Ownership transfers only after the editor and its first frame are ready.

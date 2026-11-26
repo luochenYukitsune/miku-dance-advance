@@ -39,6 +39,8 @@ public sealed class EditorValueSlider : Slider
 
     public EditorValueSlider()
     {
+        EditorNumberMenu.Attach(this, () => Number, () => double.IsFinite(DefaultValue) ? (decimal)DefaultValue : null,
+            value => Write(Math.Clamp((double)value, Minimum, Maximum)));
         Focusable = true; // Avalonia's slider already jumps to the pressed point and keeps dragging.
         AddHandler(PointerPressedEvent, (_, args) =>
         {
@@ -106,7 +108,7 @@ public sealed class EditorValueSlider : Slider
     private void Write(double value)
     {
         if (!double.IsFinite(value)) return;
-        if (Step > 0) value = Math.Round(value / Step) * Step;
+        if (Step > 0) value = Math.Clamp(Math.Round(value / Step) * Step, Minimum, Maximum);
         decimal written = Math.Round((decimal)value, 6);
         if (Number == written) { Sync(); return; }
         SetCurrentValue(NumberProperty, written);

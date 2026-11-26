@@ -15,9 +15,9 @@
               <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
             </DataTemplate></ComboBox.ItemTemplate>
           </ComboBox>
-          <controls:EditorValueSlider Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" DefaultValue="0" Step="0.01"
+          <controls:EditorValueSlider controls:EditorNumberMenu.Draft="MorphWeight" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" DefaultValue="0" Step="0.01"
                                       Number="{Binding Weight, Mode=TwoWay}" IsEnabled="{Binding CanEdit}" AutomationProperties.Name="{Binding Label}" />
-          <Button Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" Click="RegisterMorph" IsEnabled="{Binding CanEdit}" HorizontalAlignment="Stretch" />
+          <Button Classes="action" Height="25" MinHeight="24" Content="{DynamicResource Mda.Text.Layout.Register}" ToolTip.Tip="{DynamicResource Mda.Text.3cf1e4dc9adc}" Click="RegisterMorph" IsEnabled="{Binding CanRegister}" HorizontalAlignment="Stretch" />
         </StackPanel>
       </DataTemplate></ItemsControl.ItemTemplate>
     </ItemsControl>

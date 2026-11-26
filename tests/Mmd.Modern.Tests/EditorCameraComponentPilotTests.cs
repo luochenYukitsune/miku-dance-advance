@@ -235,6 +235,7 @@ public sealed class EditorCameraComponentPilotTests : IAsyncDisposable
 
             // While piloting, switching inspector context away from camera still routes viewport Enter/K to camera keyframing.
             int cameraRegisterCalls = 0;
+            shell.SceneInspector.CanMutateProject = () => true;
             shell.SceneInspector.CommitSceneMotionWithCameraParent = (_, _, camera) => { if (camera.HasValue) cameraRegisterCalls++; };
             shell.SceneSelectionIndex = -1;
             Assert.False(shell.IsCameraInspector);

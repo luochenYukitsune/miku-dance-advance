@@ -80,6 +80,7 @@ public partial class EditorWindow
             }
             else if (leavingLighting)
             {
+                shell.ViewportPickedLightId = null;
                 lightController?.CancelDrag();
                 lightController?.SetParameterPreview(null);
                 if (shell.SceneSelectionIndex == 2) shell.SceneSelectionIndex = -1;

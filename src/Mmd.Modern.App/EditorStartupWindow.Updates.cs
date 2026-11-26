@@ -28,6 +28,14 @@ public sealed partial class EditorStartupWindow
     internal Task<bool> ConfirmUpdateInstallationAsync(StartupUpdateRelease release, CancellationToken cancellationToken) =>
         AwaitInstallationConsentAsync(BeginUpdateReview(release, true, true, cancellationToken), cancellationToken);
 
+    /// <summary>Display a localized update failure message until the user acknowledges continuing.</summary>
+    internal Task ShowUpdateFailureAsync(StartupUpdateRelease release, string failureMessage, CancellationToken cancellationToken)
+    {
+        var review = BeginUpdateReview(release, canUpgrade: false, installConfirmation: false, cancellationToken);
+        SetUpdateMessage(failureMessage);
+        return review;
+    }
+
     private async Task<bool> AwaitInstallationConsentAsync(Task<EditorStartupUpdateDecision> review, CancellationToken cancellationToken)
     {
         var decision = await review;

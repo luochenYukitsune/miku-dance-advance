@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Mmd.Modern.App;
 using Mmd.Modern.App.Controls;
@@ -241,6 +242,9 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
 
             shell.CurrentFrame = 0;
             Dispatcher.UIThread.RunJobs();
+            var draftTarget = timeline.PrepareContextTarget(new Point(lowZoomX + 2, y));
+            Assert.Equal(25u, draftTarget?.Frame);
+            Assert.Equal(TimelineContextArea.Blank, draftTarget?.Area);
             PressTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
             Assert.Equal(25, shell.CurrentFrame);
             ReleaseTimeline(window, timeline, pointer, new(lowZoomX + 2, y));
@@ -249,6 +253,141 @@ public sealed class TimelineBatchToolTests : IAsyncDisposable
         }
         finally { Close(window, shell); }
     }, Token);
+
+    [Fact]
+    public async Task RightClickTargetsKeysKeepsMultiselectionAndPastesAtTheClickedFrame() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, actor) = CreateEditor();
+        try
+        {
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            var root = KeyframeAddress.Bone("root", 10);
+            var hand = KeyframeAddress.Bone("hand", 15);
+            var groupMenu = RightClick(window, timeline, new Point(4, EditorTimeline.RulerHeight + EditorTimeline.TrackRowHeight / 2));
+            InvokeItem(groupMenu, "Mda.Text.Menu.ExpandAll");
+            int Row(KeyframeAddress key) => timeline.DisplayRows.Select((row, index) => (row, index))
+                .First(pair => !pair.row.IsGroup && pair.row.ContainsChannel(key)).index;
+            Point At(int row, int frame) => new(timeline.TrackHeaderWidth + (frame - timeline.FirstVisibleFrame) * timeline.PixelsPerFrame,
+                EditorTimeline.RulerHeight + (row - timeline.FirstVisibleTrack + .5) * EditorTimeline.TrackRowHeight);
+
+            var keyMenu = RightClick(window, timeline, At(Row(root), 10));
+            Assert.Equal(root, Assert.Single(shell.Animation.SelectedKeyframes));
+            Assert.Equal(10, shell.CurrentFrame);
+            Assert.False(MenuEntry(keyMenu, "Mda.Text.c2449cd74350").IsEffectivelyEnabled);
+            keyMenu.Close();
+            shell.Animation.TimelineRangeStartText = "10"; shell.Animation.TimelineRangeEndText = "15";
+            shell.Animation.SelectTimelineRangeCommand.Execute(null);
+            keyMenu = RightClick(window, timeline, At(Row(root), 10));
+            Assert.Equal(new[] { root, hand }, shell.Animation.SelectedKeyframes);
+            InvokeItem(keyMenu, "Mda.Text.c61bade89d5a");
+            Assert.True(shell.Animation.CanPaste);
+
+            var emptyMenu = RightClick(window, timeline, At(Row(root), 40));
+            Assert.Equal(new[] { root, hand }, shell.Animation.SelectedKeyframes);
+            Assert.True(MenuEntry(emptyMenu, "Mda.Text.c2449cd74350").IsEffectivelyEnabled);
+            Assert.DoesNotContain(emptyMenu.Items.OfType<MenuItem>(), item => item.Command == shell.Animation.DeleteKeyframesCommand);
+            InvokeItem(emptyMenu, "Mda.Text.c2449cd74350");
+            var motion = shell.Workspace.Motions.Single(m => m.ObjectId == actor).Motion;
+            Assert.Contains(motion.BoneKeyframes, key => key.BoneName == "root" && key.Frame == 40);
+            Assert.Contains(motion.BoneKeyframes, key => key.BoneName == "hand" && key.Frame == 45);
+
+            var header = At(Row(hand), 0).WithX(4);
+            var headerMenu = RightClick(window, timeline, header);
+            Assert.Equal("hand", shell.Animation.SelectionName);
+            InvokeItem(headerMenu, "Mda.Text.Menu.SelectTrackKeys");
+            Assert.Equal(new[] { hand, KeyframeAddress.Bone("hand", 45) }, shell.Animation.SelectedKeyframes);
+            timeline.Focus();
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.None, null);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Empty(shell.Animation.SelectedKeyframes);
+            Assert.False(window.FindControl<Button>("ClearTimelineSelectionButton")!.IsEffectivelyEnabled);
+
+            shell.SceneSelectionIndex = 1;
+            var scene = window.FindControl<EditorTimeline>("SceneFrameTimeline")!;
+            var cameraMenu = RightClick(window, scene, new Point(scene.TrackHeaderWidth + 20 * scene.PixelsPerFrame,
+                EditorTimeline.RulerHeight + EditorTimeline.TrackRowHeight / 2));
+            Assert.True(MenuEntry(cameraMenu, "Mda.Text.a619bd96a115").IsEffectivelyEnabled);
+            Assert.DoesNotContain(cameraMenu.Items.OfType<MenuItem>(), item => Equals(item.Header, EditorLocalization.Text("Mda.Text.e4b84a93325e")));
+            InvokeItem(cameraMenu, "Mda.Text.Menu.JumpToFrame");
+            Assert.Equal(20, shell.CurrentFrame);
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
+    [Fact]
+    public async Task GroupKeyInterpolationMenuIsDisabledDuringPlayback() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, _) = CreateEditor();
+        try
+        {
+            var timeline = window.FindControl<EditorTimeline>("FrameTimeline")!;
+            var root = KeyframeAddress.Bone("root", 10);
+            int row = timeline.DisplayRows.Select((track, index) => (track, index))
+                .Single(pair => pair.track.IsGroup && pair.track.ContainsChannel(root)).index;
+            var keyPoint = new Point(timeline.TrackHeaderWidth + 10 * timeline.PixelsPerFrame,
+                EditorTimeline.RulerHeight + (row - timeline.FirstVisibleTrack + .5) * EditorTimeline.TrackRowHeight);
+            var menu = RightClick(window, timeline, keyPoint);
+            Assert.True(MenuEntry(menu, "Mda.Text.d20383c88bb0").IsEffectivelyEnabled);
+            menu.Close();
+
+            shell.PlaybackClock = () => 0;
+            shell.PlayCommand.Execute(null);
+            menu = RightClick(window, timeline, keyPoint);
+            Assert.True(shell.IsPlaying);
+            Assert.False(MenuEntry(menu, "Mda.Text.d20383c88bb0").IsEffectivelyEnabled);
+            menu.Close();
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
+    [Fact]
+    public async Task TimelineZoomButtonsFollowBothLimits() => await session.Dispatch(() =>
+    {
+        var (window, shell, _, _) = CreateEditor();
+        try
+        {
+            var zoomIn = window.FindControl<Button>("TimelineZoomInButton")!;
+            var zoomOut = window.FindControl<Button>("TimelineZoomOutButton")!;
+            shell.PixelsPerFrame = EditorTimeline.MaximumPixelsPerFrame;
+            Assert.False(zoomIn.IsEffectivelyEnabled); Assert.True(zoomOut.IsEffectivelyEnabled);
+            shell.PixelsPerFrame = EditorTimeline.MinimumPixelsPerFrame;
+            Assert.True(zoomIn.IsEffectivelyEnabled); Assert.False(zoomOut.IsEffectivelyEnabled);
+            Click(window, "TimelineZoomInButton");
+            Assert.True(zoomIn.IsEffectivelyEnabled); Assert.True(zoomOut.IsEffectivelyEnabled);
+        }
+        finally { Close(window, shell); }
+        return true;
+    }, Token);
+
+    private static ContextMenu RightClick(EditorWindow window, EditorTimeline timeline, Point position)
+    {
+        ContextMenu? opened = null;
+        using var subscription = ContextMenu.OpenedEvent.AddClassHandler<ContextMenu>((menu, _) => opened = menu);
+        window.UpdateLayout();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        var location = timeline.TranslatePoint(position, window)!.Value;
+        window.MouseMove(location);
+        window.MouseDown(location, MouseButton.Right);
+        window.MouseUp(location, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        return Assert.IsType<ContextMenu>(opened);
+    }
+
+    private static MenuItem MenuEntry(ContextMenu menu, string key) =>
+        menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, EditorLocalization.Text(key)));
+
+    private static void InvokeItem(ContextMenu menu, string key)
+    {
+        var item = MenuEntry(menu, key);
+        Assert.True(item.IsEffectivelyEnabled);
+        item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        menu.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
 
     private static void PressTimeline(EditorWindow window, EditorTimeline timeline, Pointer pointer, Point position)
     {

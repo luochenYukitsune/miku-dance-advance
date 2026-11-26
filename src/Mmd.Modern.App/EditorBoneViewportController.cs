@@ -316,6 +316,7 @@ public sealed partial class EditorBoneViewportController
         if (hit is not { } boneIndex) { lastPick = null; return false; }
         if (CanBeginInteraction?.Invoke() == false) return true;
         if (!Current(pose)) { requestRender(); return true; }
+        shell.ViewportPickedLightId = null;
         shell.StopPlayback();
         if (candidates.Length > 1 && !extendSelection)
         {

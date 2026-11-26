@@ -226,12 +226,14 @@ public sealed class EditorNativeLightItem : INotifyPropertyChanged
     public string Label => Format("{0} · {1}", Name, KindName((SceneLightKind)KindIndex));
     public string TypeLabel => KindName((SceneLightKind)KindIndex);
     public string Name { get => name; set { if (Set(ref name, value)) Changed(nameof(Label)); } }
+    public decimal DefaultBrightness => (decimal)EditorLightPlacement.DefaultIntensity((SceneLightKind)KindIndex);
     public int KindIndex
     {
         get => kindIndex;
         set
         {
             if (!Set(ref kindIndex, value)) return;
+            Changed(nameof(DefaultBrightness));
             if (value == (int)SceneLightKind.Area && !areaSizeSpecified)
             {
                 areaSizeSpecified = true;
