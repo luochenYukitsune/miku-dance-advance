@@ -108,7 +108,9 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         Vector4 ToonShadowColor,
         Vector4 SpecularPower,
         Vector4 Flags,
-        Vector4 RoughnessMetallic);
+        Vector4 RoughnessMetallic,
+        Vector4 SphereMultiply,
+        Vector4 SphereAdd);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct PtConstantsGpu(
@@ -627,7 +629,9 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
                 ToonShadowColor: new(toon, 1f),
                 SpecularPower: host.SpecularPower,
                 Flags: new(flags.UseSceneLighting ? 1f : 0f, sphereMode, flags.ReceiveSelfShadow ? 1f : 0f, mat.DiffuseTexture >= 0 ? 1f : 0f),
-                RoughnessMetallic: new(roughness, metallic, 0f, 0f));
+                RoughnessMetallic: new(roughness, metallic, 0f, 0f),
+                SphereMultiply: binding.TextureFactors.Sphere.Multiply,
+                SphereAdd: binding.TextureFactors.Sphere.Add);
         }
         return extras;
     }

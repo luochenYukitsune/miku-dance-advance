@@ -644,6 +644,164 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         Assert.True(openLuma > 30, $"Open physical wall should still receive occluded sky bounce from EnvironmentStrength; center luma was {openLuma}.");
     }
 
+    [Fact]
+    public void PathTracingToonHybridAppliesSphereTextureMorphMatchingForward()
+    {
+        using var session = new D3D12FrameSession();
+        var caps = session.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            Assert.Skip(caps.UnavailableReason ?? "Path tracing requires Shader Model 6.0 compute and DXC.");
+
+        SceneVertex[] vertices =
+        [
+            new(new(-4f, -4f, 2f), -Vector3.UnitZ, new(0, 1)),
+            new(new(4f, -4f, 2f), -Vector3.UnitZ, new(1, 1)),
+            new(new(4f, 4f, 2f), -Vector3.UnitZ, new(1, 0)),
+            new(new(-4f, 4f, 2f), -Vector3.UnitZ, new(0, 0)),
+        ];
+        uint[] indices = [0u, 1u, 2u, 0u, 2u, 3u];
+        SceneMaterial[] materials =
+        [
+            new("sphere-morph-quad", 0, 6, new Vector4(0.8f, 0.7f, 0.6f, 1f),
+                Vector3.Zero, new Vector3(0.3f, 0.3f, 0.3f), 4f),
+        ];
+        var whiteTex = new SceneTexture("white-sphere", 1, 1, [255, 255, 255, 255]);
+        var camera = new SceneCamera(
+            Eye: new Vector3(0f, 0f, -6.5f),
+            Target: new Vector3(0f, 0f, 2f),
+            Up: Vector3.UnitY,
+            OrthographicHeight: 7f,
+            Near: 0.1f,
+            Far: 50f,
+            VerticalFovDegrees: 50f);
+        var snapshot = new SceneSnapshot(vertices, indices, materials, textures: [whiteTex],
+            camera: camera, lightDirection: -Vector3.UnitZ);
+
+        var zeroSphereMorph = new OriginalMaterialTextureFactors(
+            OriginalTextureFactor.Identity,
+            new OriginalTextureFactor(new Vector4(0f, 0f, 0f, 1f), Vector4.Zero),
+            OriginalTextureFactor.Identity);
+
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.ToonHybrid,
+            SamplesPerFrame: 1,
+            MaxBounces: 1,
+            ProgressiveAccumulation: false,
+            FireflyClamp: 10f,
+            Denoiser: RayGiDenoiser.Off,
+            UseHardwareRayTracing: false);
+        OriginalFrameMaterialFlags[] flags = [new(false, false, false)];
+
+        // 1. Multiply sphere morphed to (0,0,0,1): baseColor *= 0 must match Forward black surface.
+        var mulBinding = new OriginalStyleMaterialBinding(
+            ToonShadowColor: new Vector3(0.4f, 0.4f, 0.4f),
+            SphereTexture: 0,
+            SphereMode: OriginalSphereMode.Multiply,
+            DoubleSided: true) { TextureFactors = zeroSphereMorph };
+        var mulStyle = new OriginalStyleScene(snapshot, [mulBinding], OriginalStyleProfile.SelectedReference);
+        var mulFwd = session.Capture(new OriginalFrameScene(mulStyle,
+            options: new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0, 0, 0, 1)),
+            materials: flags), 64, 48);
+        var mulPt = session.Capture(new OriginalFrameScene(mulStyle,
+            options: new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0, 0, 0, 1),
+                PipelineMode: RenderPipelineMode.PathTracing, PathTracing: ptOptions),
+            materials: flags), 64, 48);
+        int center = (24 * 64 + 32) * 4;
+        for (int c = 0; c < 3; c++)
+        {
+            Assert.InRange(mulFwd.Rgba[center + c], 0, 1);
+            Assert.InRange(Math.Abs(mulPt.Rgba[center + c] - mulFwd.Rgba[center + c]), 0, 1);
+        }
+
+        // 2. Additive sphere morphed to (0,0,0,1) vs identity: morphed additive must match Forward and stay darker than unmorphed white add.
+        var addMorphedBinding = new OriginalStyleMaterialBinding(
+            ToonShadowColor: new Vector3(0.4f, 0.4f, 0.4f),
+            SphereTexture: 0,
+            SphereMode: OriginalSphereMode.Add,
+            DoubleSided: true) { TextureFactors = zeroSphereMorph };
+        var addIdentityBinding = addMorphedBinding with { TextureFactors = OriginalMaterialTextureFactors.Identity };
+        var addMorphedStyle = new OriginalStyleScene(snapshot, [addMorphedBinding], OriginalStyleProfile.SelectedReference);
+        var addIdentityStyle = new OriginalStyleScene(snapshot, [addIdentityBinding], OriginalStyleProfile.SelectedReference);
+
+        var addMorphedFwd = session.Capture(new OriginalFrameScene(addMorphedStyle,
+            options: new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0, 0, 0, 1)),
+            materials: flags), 64, 48);
+        var addMorphedPt = session.Capture(new OriginalFrameScene(addMorphedStyle,
+            options: new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0, 0, 0, 1),
+                PipelineMode: RenderPipelineMode.PathTracing, PathTracing: ptOptions),
+            materials: flags), 64, 48);
+        var addIdentityPt = session.Capture(new OriginalFrameScene(addIdentityStyle,
+            options: new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0, 0, 0, 1),
+                PipelineMode: RenderPipelineMode.PathTracing, PathTracing: ptOptions),
+            materials: flags), 64, 48);
+
+        for (int c = 0; c < 3; c++)
+            Assert.InRange(Math.Abs(addMorphedPt.Rgba[center + c] - addMorphedFwd.Rgba[center + c]), 0, 2);
+        Assert.True(addIdentityPt.Rgba[center] > addMorphedPt.Rgba[center] + 30,
+            $"Unmorphed white additive sphere ({addIdentityPt.Rgba[center]}) should exceed zero-morphed sphere ({addMorphedPt.Rgba[center]}).");
+    }
+
+    [Fact]
+    public void PathTracingPhysicalGrazingIndirectDiffuseReceivesSkyBounce()
+    {
+        using var session = new D3D12FrameSession();
+        var caps = session.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            Assert.Skip(caps.UnavailableReason ?? "Path tracing requires Shader Model 6.0 compute and DXC.");
+
+        // Large horizontal floor plane viewed at a steep grazing angle (~82 degrees from +Y normal).
+        const float half = 40f;
+        SceneVertex[] vertices =
+        [
+            new(new(-half, 0f, -half), Vector3.UnitY, new(0, 1)),
+            new(new(half, 0f, -half), Vector3.UnitY, new(1, 1)),
+            new(new(half, 0f, half), Vector3.UnitY, new(1, 0)),
+            new(new(-half, 0f, half), Vector3.UnitY, new(0, 0)),
+        ];
+        uint[] indices = [0u, 1u, 2u, 0u, 2u, 3u];
+        SceneMaterial[] materials =
+        [
+            new("matte-floor", 0, 6, new Vector4(0.95f, 0.95f, 0.95f, 1f),
+                Vector3.Zero, Vector3.Zero, 0f),
+        ];
+        OriginalStyleMaterialBinding[] bindings = [new(ToonShadowColor: Vector3.Zero, DoubleSided: true)];
+        OriginalFrameMaterialFlags[] flags = [new(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false)];
+        var camera = new SceneCamera(
+            Eye: new Vector3(0f, 1.0f, -7.2f),
+            Target: new Vector3(0f, 0f, 0f),
+            Up: Vector3.UnitY,
+            OrthographicHeight: 6f,
+            Near: 0.1f,
+            Far: 100f,
+            VerticalFovDegrees: 40f);
+        // Primary directional light points downward (-Y, from beneath the floor) so direct NEE sun = 0,
+        // isolating grazing-angle indirect sky bounce using half-vector Fresnel (FDiff).
+        var snapshot = new SceneSnapshot(vertices, indices, materials, camera: camera, lightDirection: -Vector3.UnitY);
+        var style = new OriginalStyleScene(snapshot, bindings, OriginalStyleProfile.SelectedReference);
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.Physical,
+            SamplesPerFrame: 8,
+            MaxBounces: 2,
+            ProgressiveAccumulation: false,
+            FireflyClamp: 10f,
+            Denoiser: RayGiDenoiser.Off,
+            UseHardwareRayTracing: false);
+        var options = new OriginalFrameOptions(
+            OriginalAlphaBlendMode.Normal,
+            WriteDepth: true,
+            Transp: false,
+            BackgroundColor: new Vector4(0f, 0f, 0f, 1f),
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: ptOptions);
+        var lighting = new SceneLightingSnapshot([], settings: new SceneLightingSettings(EnvironmentStrength: 2.0f));
+        var frame = new OriginalFrameScene(style, options: options, materials: flags, lighting: lighting);
+
+        var img = session.Capture(frame, 64, 48);
+        int center = (24 * 64 + 32) * 4;
+        int luma = img.Rgba[center] + img.Rgba[center + 1] + img.Rgba[center + 2];
+        Assert.True(luma > 30, $"Expected grazing-angle matte dielectric to receive bright indirect sky bounce via half-vector Fresnel; center luma={luma}.");
+    }
+
     private static OriginalFrameScene CreateLitBoxScene(bool withOccluder = false, bool orthographic = false)
     {
         static SceneVertex[] Quad(float z, float half, Vector3 normal) =>

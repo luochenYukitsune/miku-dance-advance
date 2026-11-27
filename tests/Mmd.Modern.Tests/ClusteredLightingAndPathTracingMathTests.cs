@@ -306,6 +306,9 @@ public sealed class ClusteredLightingAndPathTracingMathTests
         Assert.Contains("max(PT_PI * d * d, 1e-12)", traceSrc, StringComparison.Ordinal);
         Assert.Contains("float pSpec = clamp(max(F.x, max(F.y, F.z)), 0.05, 0.95);", traceSrc, StringComparison.Ordinal);
         Assert.DoesNotContain("roughness < 0.95", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("PtMorphSphere(sp, !isMultiply, extra0.SphereMultiply, extra0.SphereAdd)", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("float3 FDiff = PtFresnelSchlick(max(dot(hv, hDiff), 0.0), f0);", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("float3 kD = (1.0 - FDiff) * (1.0 - metallic);", traceSrc, StringComparison.Ordinal);
         Assert.Contains("float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
         Assert.Contains("straightAlpha ? (filteredRgb * center.a) : filteredRgb", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
         Assert.Contains("1e-30", OriginalClusteredLightShader.HlslHeader, StringComparison.Ordinal);

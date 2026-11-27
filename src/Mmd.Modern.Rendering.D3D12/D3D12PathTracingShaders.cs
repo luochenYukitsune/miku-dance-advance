@@ -54,6 +54,8 @@ internal static class D3D12PathTracingShaders
             float4 SpecularPower;
             float4 Flags;             // x=useSceneLighting, y=sphereMode, z=receiveSelfShadow, w=hasDiffuseTex
             float4 RoughnessMetallic; // x=roughness, y=metallic, z=reserved, w=reserved
+            float4 SphereMultiply;
+            float4 SphereAdd;
         };
         struct PtNativeLight { float4 PositionKind; float4 DirectionRange; float4 ColorIntensity; float4 ConeShadow; float4 AreaRightTile; };
         struct PtDiffuseTextureFactor { float4 Multiply; float4 Add; };
@@ -283,6 +285,15 @@ internal static class D3D12PathTracingShaders
             return normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + n * cosTheta);
         }
 
+        float3 PtMorphSphere(float3 sampleColor, bool additive, float4 sphereMultiply, float4 sphereAdd) {
+            precise float alpha = sphereMultiply.w + sphereAdd.w;
+            precise float3 scaled = sampleColor * sphereMultiply.rgb;
+            precise float3 biased = scaled + sphereAdd.rgb;
+            precise float3 weighted = biased * alpha;
+            if (additive) return weighted;
+            return weighted + (1.0 - alpha);
+        }
+
         float3 PtSkyRadiance(float3 dir) {
             float env = PtLightColorEnv.w;
             if (env <= 0.0) return 0.0;
@@ -460,7 +471,9 @@ internal static class D3D12PathTracingShaders
                     if (sphereMode > 0.5) {
                         float2 sUv = sphereMode >= 2.5 ? PtSubTextureUvAt(primaryHit.TriangleIndex, primaryHit.Barycentrics) : PtSphereUv(tri0, primaryHit.Barycentrics);
                         float3 sp = PtSampleTexture(mat0.SphereTexture, sUv, mat0.DiffuseTexture.w).rgb;
-                        if (sphereMode == 1.0 || (sphereMode >= 3.0 && (sphereMode != 4.0 || extra0.Flags.w < 0.5)))
+                        bool isMultiply = sphereMode == 1.0 || (sphereMode >= 3.0 && (sphereMode != 4.0 || extra0.Flags.w < 0.5));
+                        sp = PtMorphSphere(sp, !isMultiply, extra0.SphereMultiply, extra0.SphereAdd);
+                        if (isMultiply)
                             baseColor *= sp;
                         else
                             baseColor += sp;
@@ -642,7 +655,10 @@ internal static class D3D12PathTracingShaders
                             throughput *= (Fh * G * vDotH) / max(nDotV * nDotH * pSpec, 1e-4);
                         } else {
                             nextDir = PtSampleCosineHemisphere(hn, PtRand(rng), PtRand(rng));
-                            float3 kD = (1.0 - F) * (1.0 - metallic);
+                            float3 hSum = hv + nextDir;
+                            float3 hDiff = dot(hSum, hSum) > 1e-12 ? normalize(hSum) : hn;
+                            float3 FDiff = PtFresnelSchlick(max(dot(hv, hDiff), 0.0), f0);
+                            float3 kD = (1.0 - FDiff) * (1.0 - metallic);
                             throughput *= (kD * halbedo) / max(1.0 - pSpec, 1e-4);
                         }
 
