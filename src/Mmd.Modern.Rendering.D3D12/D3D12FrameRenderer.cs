@@ -38,6 +38,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private D3D12Fsr1Pass? fsr1Pass;
     private D3D12RcasPass? rcasPass;
     private D3D12ScreenSpaceAoPass? ssaoPass;
+    private D3D12RenderScalePass? renderScalePass;
     private D3D12DiffusionPass? diffusionPass;
     private D3D12ExposurePass? exposurePass;
     private D3D12SpatialAccumulationPass? spatialPass;
@@ -193,11 +194,20 @@ public sealed class D3D12FrameRenderer : IDisposable
             ? new D3D12SpatialUpscalingDimensions(width,height,width,height) : temporalUpscaling.GetDimensions(width,height);
         bool temporal=temporalUpscaling.Mode!=D3D12TemporalUpscalingMode.Off;
         bool straightAlpha=frame.Options?.AlphaOutput==FrameAlphaOutput.Straight;
-        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode, rayGiOptions);
+        float renderScale=frame.Options?.RenderScale??1f;
+        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode, rayGiOptions, renderScale);
         if (temporal) dimensions = temporalDimensions;
         bool upscale=upscaling.Mode==D3D12SpatialUpscalingMode.Fsr1;
+        bool useRenderScale=!upscale&&!temporal&&renderScale!=1f;
+        if(useRenderScale)
+        {
+            float clampedScale=Math.Min(renderScale,4096f/Math.Max(width,height));
+            dimensions=new(Math.Clamp((int)MathF.Round(width*clampedScale),1,4096),
+                Math.Clamp((int)MathF.Round(height*clampedScale),1,4096),width,height);
+        }
         int displayWidth=width,displayHeight=height;
         width=dimensions.RenderWidth;height=dimensions.RenderHeight;
+        bool hasRenderScaleTarget=useRenderScale&&(width!=displayWidth||height!=displayHeight);
         int spatialSamples=frame.Options?.SpatialSamples??1;
         var smaaQuality=frame.Options?.SmaaQuality??SmaaQuality.High;
         D3D12TemporalGiMemoryBudget.Admission? temporalGiAdmission=null;
@@ -217,14 +227,15 @@ public sealed class D3D12FrameRenderer : IDisposable
                 {
                     var estimate=D3D12TemporalGiMemoryBudget.WithAdditionalReservation(
                         D3D12TemporalGiMemoryBudget.Measure(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
-                            straightAlpha,frame,temporal,spatialSamples,reuseReceiverWorkspace:lowMemory),additionalReservation);
+                            straightAlpha,frame,temporal,spatialSamples,reuseReceiverWorkspace:lowMemory,
+                            spatialUpscaling:upscale,renderScalePass:hasRenderScaleTarget),additionalReservation);
                     return lowMemory?D3D12TemporalGiMemoryBudget.ForBoundedFlight(estimate).InFlightBytes:estimate.InFlightBytes;
                 }
                 return D3D12SsaaGiMemoryBudget.WithAdditionalReservation(
                     D3D12SsaaGiMemoryBudget.Measure(runtime,width,height,displayWidth,displayHeight,spatialSamples,rayGiOptions!,capture,
                         frame.Options?.Antialiasing==FrameAntialiasing.Smaa1X,upscale,straightAlpha,frame,
                         reuseReceiverWorkspace:lowMemory,inFlightFrames:lowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames,
-                        temporalUpscaling:temporal),
+                        temporalUpscaling:temporal,renderScalePass:hasRenderScaleTarget),
                     additionalReservation).InFlightBytes;
             }
             ulong? ordinary=MeasureGi(false);
@@ -259,13 +270,15 @@ public sealed class D3D12FrameRenderer : IDisposable
         if((spatialSamples>1||captureLowMemory) && rayGiOptions?.Enabled==true&&!D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             D3D12SsaaGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,spatialSamples,rayGiOptions,capture,
                 frame.Options?.Antialiasing==FrameAntialiasing.Smaa1X,upscale,straightAlpha,frame,additionalInFlightBytes:additionalReservation,
-                reuseReceiverWorkspace:captureLowMemory,inFlightFrames:captureLowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
+                reuseReceiverWorkspace:captureLowMemory,inFlightFrames:captureLowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames,
+                renderScalePass:hasRenderScaleTarget);
         // In the SSAA/GI-only path the render dimensions are already authoritative. Reject
         // the complete reservation before changing any retained temporal-AA SDK owner.
         if(!temporal&&D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             temporalGiAdmission=D3D12TemporalGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
                 straightAlpha,frame,spatialSamples:spatialSamples,additionalInFlightBytes:additionalReservation,
-                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory);
+                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory,
+                spatialUpscaling:upscale,renderScalePass:hasRenderScaleTarget);
         if(!temporal)RecordTemporalCaptureMemory();
         bool temporalReset=false;string temporalResetReason="None";int temporalPhase=0,temporalPhaseCount=1;Vector2 temporalJitter=default;
         if(temporal)
@@ -355,7 +368,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         if(temporal&&D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             temporalGiAdmission=D3D12TemporalGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
                 straightAlpha,frame,temporalUpscaling:temporal,spatialSamples:spatialSamples,additionalInFlightBytes:additionalReservation,
-                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory);
+                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory,
+                spatialUpscaling:false,renderScalePass:false);
         if(temporal)RecordTemporalCaptureMemory();
         if(additionalReservation>0&&!additionalValidatedEarly)
             D3D12SsaaGiMemoryBudget.RequireFits(new(0,0,additionalReservation),D3D12SsaaGiMemoryBudget.Query(runtime),width,height,1);
@@ -726,6 +740,13 @@ public sealed class D3D12FrameRenderer : IDisposable
                 targetRecorder.Add(output);
                 upscalingDrawCalls=2;
             }
+            if(useRenderScale&&(output.Width!=displayWidth||output.Height!=displayHeight))
+            {
+                output=(renderScalePass??=new(runtime,cache)).Record(context,output,displayWidth,displayHeight);
+                Recorded("render-scale",output,defaultDepth);
+                targetRecorder.Add(output);
+                upscalingDrawCalls=1;
+            }
             if(diffusionActive)
             {
                 var filtered=(diffusionPass??=new(runtime,cache)).Record(context,output,diffusion!);
@@ -739,7 +760,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             {
                 output=(alphaResolvePass??=new(runtime,cache)).Record(context,output);
                 LastPassDrawCalls++;Recorded("alpha:straight",output,defaultDepth);
-                targetRecorder.Add(output.Name,width,height,output.Format);
+                targetRecorder.Add(output);
             }
             if(sharpening is { IsActive: true })
             {
@@ -877,9 +898,14 @@ public sealed class D3D12FrameRenderer : IDisposable
     }
 
     private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
-        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode, RayGiOptions? rayGiOptions = null)
+        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode,
+        RayGiOptions? rayGiOptions = null, float renderScale = 1f)
     {
         var antialiasing = frame.Options?.Antialiasing ?? FrameAntialiasing.Off;
+        if (!float.IsFinite(renderScale) || renderScale is < 0.5f or > 1.5f)
+            throw new ArgumentOutOfRangeException(nameof(renderScale), "Render scale must be finite and between 0.5 and 1.5.");
+        if (renderScale != 1f && (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) > 1))
+            throw new NotSupportedException("Render scale requires spatial upscaling, temporal reconstruction and spatial supersampling (>1x) to be disabled.");
         if (frame.Options?.ScreenSpaceAo is { Enabled: true } && !(frame.Options?.WriteDepth ?? true))
             throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
         if (frame.Options?.ScreenSpaceAo is { Enabled: true } && rayGiOptions is { Enabled: true, OcclusionStrength: > 0f })

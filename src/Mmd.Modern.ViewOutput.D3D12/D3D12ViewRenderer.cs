@@ -116,7 +116,7 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
                 styleCatalog,
                 styleGlobalParameters,
                 boneIndicesByObject: boneIndicesByObject);
-            scene = style.Scene;
+            scene = D3D12ViewScene.ApplyPostStyleOutlineOverrides(style.Scene, request.EffectiveQuality, frame.RenderingStyles, outlineWidths);
             scene = NormalizeCaptureAlpha(scene);
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             // Resolve discontinuities once for both independent histories; capture itself does not reset GI.

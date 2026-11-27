@@ -35,6 +35,7 @@ public sealed record D3D12ShaderWarmupSpec
     public bool IncludeStandaloneRcas { get; init; }
     public bool IncludeScreenSpaceAo { get; init; }
     public bool IncludeFsr1 { get; init; }
+    public bool IncludeRenderScale { get; init; }
     public bool IncludeTemporalInputs { get; init; }
     public bool IncludeTemporalCharacter { get; init; }
     public bool IncludeTemporalReactive { get; init; }
@@ -87,6 +88,8 @@ public static class D3D12ShaderPrewarmer
             fxcRequests.AddRange(D3D12ScreenSpaceAoPass.GetPrewarmRequests());
         if (spec.IncludeFsr1)
             fxcRequests.AddRange(D3D12Fsr1Pass.GetPrewarmRequests());
+        if (spec.IncludeRenderScale)
+            fxcRequests.AddRange(D3D12RenderScalePass.GetPrewarmRequests());
         if (spec.IncludeDiffusion)
             fxcRequests.AddRange(D3D12DiffusionPass.GetPrewarmRequests(spec.IncludeDiffusionAlphaCoverage));
         if (spec.IncludeExposure)
@@ -241,6 +244,7 @@ public static class D3D12ShaderPrewarmer
             IncludeStandaloneRcas = sharpening is { IsActive: true },
             IncludeScreenSpaceAo = o?.ScreenSpaceAo is { IsActive: true },
             IncludeFsr1 = spatialUpscaling is { Mode: not D3D12SpatialUpscalingMode.Off },
+            IncludeRenderScale = (o?.RenderScale ?? 1f) != 1f,
             IncludeTemporalInputs = temporal || o?.Antialiasing == FrameAntialiasing.Taa || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
             IncludeTemporalCharacter = o?.Antialiasing == FrameAntialiasing.Taa || (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
             IncludeTemporalReactive = temporal && temporalUpscaling?.Mode == D3D12TemporalUpscalingMode.XeSs,

@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T06:33:04.7006373Z",
+    "generatedAtUtc":  "2026-11-27T14:41:30.0350742Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -60,16 +60,16 @@
                      "cache":  "D:/desktop/mmopensource/.dev-cache"
                  },
     "coverage":  {
-                     "expectedCsharpAndProjectFiles":  1591,
-                     "indexedCsharpAndProjectFiles":  1591,
+                     "expectedCsharpAndProjectFiles":  1597,
+                     "indexedCsharpAndProjectFiles":  1597,
                      "missing":  [
 
                                  ],
                      "extra":  [
 
                                ],
-                     "srcCsharpAndProjectFiles":  775,
-                     "testCsharpAndProjectFiles":  804,
+                     "srcCsharpAndProjectFiles":  779,
+                     "testCsharpAndProjectFiles":  806,
                      "sourceProjectCount":  26,
                      "testProjectCount":  11,
                      "toolProjectCount":  3,
@@ -254,7 +254,7 @@
                                                    ],
                          "purpose":  "D3D12完整基础帧、DXR/软BVH、可选GI/空间降噪/SMAA、GPU资源/展示",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  120,
+                         "sourceAndProjectFileCount":  121,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj"
                                                ],
@@ -416,7 +416,7 @@
                                                    ],
                          "purpose":  "跨模块核心、物理、效果、D3D12 GPU、App和集成测试",
                          "status":  "partial-implementation; evidence-is-scoped",
-                         "sourceAndProjectFileCount":  529,
+                         "sourceAndProjectFileCount":  530,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Core/Mmd.Modern.Core.csproj",
                                                    "src/Mmd.Modern.Animation/Mmd.Modern.Animation.csproj",
@@ -561,7 +561,7 @@
                                                    ],
                          "purpose":  "中立视图合同、独占预览与导出协调、帧lease和PNG输出",
                          "status":  "first-milestone-verified; limited scope",
-                         "sourceAndProjectFileCount":  26,
+                         "sourceAndProjectFileCount":  29,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.Application/Mmd.Modern.Application.csproj"
                                                ],
@@ -629,7 +629,7 @@
                                                    ],
                          "purpose":  "视图生命周期、背压、时间与PNG事务验证",
                          "status":  "first-milestone-verified; limited scope",
-                         "sourceAndProjectFileCount":  19,
+                         "sourceAndProjectFileCount":  20,
                          "projectReferences":  [
                                                    "src/Mmd.Modern.ViewOutput/Mmd.Modern.ViewOutput.csproj"
                                                ],
@@ -2933,8 +2933,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  18735,
-                      "sha256":  "c657d205500fead824503cfcc77a0c0180cd6e1245f699c5edceac3f30576ecc",
+                      "bytes":  25249,
+                      "sha256":  "aed4cea8f653a96ab087e34f88e30b0b1ef1c59645d28cbd43d160a79f81ed41",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2985,8 +2985,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  42544,
-                      "sha256":  "3b9439fd86f7b5b9234b849a1ea77f267996056705c66ee239e3a30edff64a64",
+                      "bytes":  79811,
+                      "sha256":  "9973678d9d519bd83ba212c4cdecb1081a2a1eb9bca11ea9131f195239890855",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2998,8 +2998,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  4895,
-                      "sha256":  "dc5d03930ace40058c49419d507a0ff28246078516705193ac2f05fbc47189da",
+                      "bytes":  8160,
+                      "sha256":  "75c2a97e3d9202932d934bff2689ae90290af275d3e644906bb01cf4252cc8f7",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3596,8 +3596,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15976,
-                      "sha256":  "e39e5b60177b1f87bc7b12fcd858d052b6e165e9dcb44af5aa71483092363f7a",
+                      "bytes":  16007,
+                      "sha256":  "2aebb7f0960e7a9801e01d493008094b2f0faa21941a8bbc3716d90c774fe5bb",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3700,8 +3700,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11416,
-                      "sha256":  "28d3a3ea0f3bb947ad762f38fb6f247167ec94ac04ed6e1605941700a8f065e2",
+                      "bytes":  14094,
+                      "sha256":  "34d9fc5434002b9a5402a3de84b792459df3284796f51d118bbfbd67967d077c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -6040,8 +6040,8 @@
                                                     "MMD核心"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15362,
-                      "sha256":  "634249356e5123376eb4417084fd215195491e7080100c503bc92c364d9cbf90",
+                      "bytes":  15583,
+                      "sha256":  "e6622740dad395a94cf5b54632da12aba34b2d95376937b764493c7bc59cfcde",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8211,8 +8211,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  89954,
-                      "sha256":  "f4b925b4be660f36f81255ba89ca3f50a99bb05e795f5ab5ae82a3b3b489678d",
+                      "bytes":  91806,
+                      "sha256":  "a940cfa5fa36bac95749d285f4d709a64a21818623184f26d6266ee160fe669d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8697,6 +8697,19 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "src/Mmd.Modern.Rendering.D3D12/D3D12RenderScalePass.cs",
+                      "project":  "Mmd.Modern.Rendering.D3D12",
+                      "role":  "product",
+                      "productModule":  "现代渲染引擎",
+                      "relatedProductModules":  [
+                                                    "现代渲染引擎"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  5786,
+                      "sha256":  "a214b70b8c2701cbddfd210406dc314d9b21365839551edb5bec5d2631c2e8e7",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "src/Mmd.Modern.Rendering.D3D12/D3D12RetainedResource.cs",
                       "project":  "Mmd.Modern.Rendering.D3D12",
                       "role":  "product",
@@ -8757,8 +8770,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  21142,
-                      "sha256":  "732a32c59023e08ee418610ca34164182afefd30ae73e18618c224fb1d70a90b",
+                      "bytes":  21369,
+                      "sha256":  "a44193e4e59e36e9957c55858681a4fed2820805cf682f8be81aa91a3b8a8988",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8861,8 +8874,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14527,
-                      "sha256":  "697d6b6b7ac354ec97f5782620b95e4312e046c4f11f4e8742efa8272fd0be23",
+                      "bytes":  14759,
+                      "sha256":  "47d512d61d90e642b12c9dd1edf26757a832c01afdc7068ba883aecc523c336e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8926,8 +8939,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  13711,
-                      "sha256":  "6a8b610018f161ba45367b360eb4333c8cd6c47ca9aec98df79a32c80d1d4e31",
+                      "bytes":  13970,
+                      "sha256":  "560426ec3d0ecf3842120ec0afd4e975a7da47a19278747cbf441e80def7ab1d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -9993,8 +10006,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11255,
-                      "sha256":  "8ef3937ff23b521f4653fede5317e5718d149eead3a9a5ec085737d5e1d5a294",
+                      "bytes":  11455,
+                      "sha256":  "38630f6aa96fc7c94eb74835e49472f109887ac590ba8ce8f273477959c74dff",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -10006,8 +10019,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15233,
-                      "sha256":  "98c5677368f53f7d14855e45f4206cc8bf6ed0b3a9f870ad692a2f91cf5448fd",
+                      "bytes":  15344,
+                      "sha256":  "444adbf3090282a50ab0f206c2cc5e9eeb5236fd6be5e38140c751c3ddd4a446",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -10110,8 +10123,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  11423,
-                      "sha256":  "14f8bb263556dcb24397ca800a1167a3131ee2cceed87e5f5501753a302fec40",
+                      "bytes":  11534,
+                      "sha256":  "4e3021ea51f6cf54c26ce39acbc9ef925e72923670a05f6e6988e20909dabf0a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -10162,8 +10175,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  7780,
-                      "sha256":  "46f41f2fb7921042c869d482c169bb03625da7e460cd40e11f738c22b35961b7",
+                      "bytes":  12542,
+                      "sha256":  "80fc71c8592bd30f01579c657274de13865e029251ae73d603cf5867f860b801",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -10175,8 +10188,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  8348,
-                      "sha256":  "b0a8c3fb528d0932191f251cae4e318ae7f202fed417c7cd7866f9c138105c33",
+                      "bytes":  8409,
+                      "sha256":  "6195f23b44420d52e090073f3ee7222903b6362e050cfd2c80204c18e8fb4900",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -11051,8 +11064,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  14142,
-                      "sha256":  "69f7d0e060417738fcfad0efc58efab8f33007977b555345eaa9d20aca881593",
+                      "bytes":  15425,
+                      "sha256":  "95a15392b5f8d0142455f23fdc6eb707ed09215f0382763dd8efa5f960a8f3a8",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -11155,8 +11168,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  10835,
-                      "sha256":  "f9cff4587ad2c654ef1f57696e1ed5bd59431c1c253c4b3060c49f3f74b25fdc",
+                      "bytes":  12466,
+                      "sha256":  "c444e7751be6eb719ec0918f9620a7601b6e3aa40c409dfe9f1de6c7f03880fc",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -11186,6 +11199,32 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "src/Mmd.Modern.ViewOutput/ViewQualityCompatibility.cs",
+                      "project":  "Mmd.Modern.ViewOutput",
+                      "role":  "product",
+                      "productModule":  "视图模块",
+                      "relatedProductModules":  [
+                                                    "视图模块"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  5438,
+                      "sha256":  "f4de0d9729a771a0496d6d2af61c8bbf52c8a390bdebc9f400adb3513b2f75a1",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.ViewOutput/ViewQualityPresets.cs",
+                      "project":  "Mmd.Modern.ViewOutput",
+                      "role":  "product",
+                      "productModule":  "视图模块",
+                      "relatedProductModules":  [
+                                                    "视图模块"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  6877,
+                      "sha256":  "8fa716f582b57c2b379ae70fa8bab59343b0db5badd198e884a001ed105681fd",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "src/Mmd.Modern.ViewOutput/ViewRendererDeviceInfo.cs",
                       "project":  "Mmd.Modern.ViewOutput",
                       "role":  "product",
@@ -11209,6 +11248,19 @@
                       "kind":  "csharp",
                       "bytes":  566,
                       "sha256":  "ef47647058b9084d6272255d97a43b02670943586a96780783c2636f35534bd3",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "src/Mmd.Modern.ViewOutput/ViewShadowOptions.cs",
+                      "project":  "Mmd.Modern.ViewOutput",
+                      "role":  "product",
+                      "productModule":  "视图模块",
+                      "relatedProductModules":  [
+                                                    "视图模块"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  1048,
+                      "sha256":  "697c3d0832a19c134cbd7366d58f4ae4c5ead7aabd222252de51cb92024feae4",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17463,8 +17515,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  6265,
-                      "sha256":  "c3c21d467015047e78aee65795db6c1c5826f298c536508e03bdb22b3954a3a8",
+                      "bytes":  7172,
+                      "sha256":  "c326f1d5d0df568ffbc9efa51845df9450b437ea2438c1152698053c642c04f6",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21228,6 +21280,22 @@
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
+                      "path":  "tests/Mmd.Modern.Tests/PreviewQualitySettingsAndWiringTests.cs",
+                      "project":  "Mmd.Modern.Tests",
+                      "role":  "test",
+                      "productModule":  null,
+                      "relatedProductModules":  [
+                                                    "MMD核心",
+                                                    "现代渲染引擎",
+                                                    "传统渲染引擎",
+                                                    "GUI"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  38568,
+                      "sha256":  "18851ed8134b9263f3ad97a7b5d246167c123154d2f3a36bdce82b61de0d02cc",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
                       "path":  "tests/Mmd.Modern.Tests/ProjectPhysicsRuntimeTests.cs",
                       "project":  "Mmd.Modern.Tests",
                       "role":  "test",
@@ -23290,8 +23358,21 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20366,
-                      "sha256":  "554dc41bdd4c4edd60f93186810cc4d380cc043c1012a0e836863d3b245621cd",
+                      "bytes":  23770,
+                      "sha256":  "ce922f191806efdea743f895ff72fc57c77e3a139462530446f1f4e4aab22ef5",
+                      "verificationStatus":  "evidence-is-scoped-see-current-stage"
+                  },
+                  {
+                      "path":  "tests/Mmd.Modern.ViewOutput.Tests/ViewQualityPresetsAndCompatibilityTests.cs",
+                      "project":  "Mmd.Modern.ViewOutput.Tests",
+                      "role":  "test",
+                      "productModule":  "视图模块",
+                      "relatedProductModules":  [
+                                                    "视图模块"
+                                                ],
+                      "kind":  "csharp",
+                      "bytes":  10640,
+                      "sha256":  "07a4b4088fd03d030fda60e4dd2eb9991f12986594d92fbf0d3bce79d17cc6ed",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -24334,24 +24415,24 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  136832,
-                                "sha256":  "adf5e9c358ea4939bbec22b70d355aa5840b50d7c63c4c223846687d941b729e"
+                                "bytes":  145090,
+                                "sha256":  "e745e536ce837094d45e408e1b12939655ef69dd5499c8110fea38f428f0f2fe"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  172593,
-                                "sha256":  "ad6c062093de98c98b815cb9dba9cc377d36f7a892d292b9588e727633e59f93"
+                                "bytes":  182850,
+                                "sha256":  "efba70dd34e9cfc92ca73ad0e568b39058ba653f3a77469812b3013e92ee984e"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  84948,
-                                "sha256":  "ada03301c9031f53275bc962af0deeaaa4351c5c2625f122deee2e642f3b8793"
+                                "bytes":  85903,
+                                "sha256":  "18b895483cb7ec0bfea4c06a396c26a28511b9232a9d9a4e3010b117cb5f6da0"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/README.md",
@@ -24366,8 +24447,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  131938,
-                                "sha256":  "ac61984b562094f60817f6eeb805fd81f7f2e2fdafc94ca9e717e6debd9a4954"
+                                "bytes":  140411,
+                                "sha256":  "c2d14cf8fb1ac4674e9fe990c1f8fe5f8dffc57ae2800f4c45abdcf1195cb31b"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -24478,8 +24559,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  42296,
-                                "sha256":  "5db74e2e522c6a0dca3bb35eaab237bea1562782c0941ce4cab137ba36823764"
+                                "bytes":  59766,
+                                "sha256":  "76d092ec03ea3403744125eb715bc800f0460162ea407036222ae840d203b4e1"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorRenderEngineSelectionWindow.axaml",

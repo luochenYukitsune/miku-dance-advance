@@ -118,7 +118,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             if (frame.Width != request.Width || frame.Height != request.Height) throw new InvalidOperationException("Resize the realtime renderer before presenting new dimensions.");
             var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow, frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
             var style = styleCache.Resolve(scene, frame.RenderingStyles, frame.SceneInputs);
-            scene = style.Scene;
+            scene = D3D12ViewScene.ApplyPostStyleOutlineOverrides(style.Scene, request.EffectiveQuality, frame.RenderingStyles, outlineWidths);
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             previewSampling.Prepare(frame.Width, frame.Height, request.EffectiveQuality, scene, style.SurfaceStyles);
             while (true)

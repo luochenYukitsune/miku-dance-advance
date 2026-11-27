@@ -379,4 +379,60 @@ public sealed class ViewQualityPr2Tests
         var error = Assert.Throws<InvalidDataException>(() => ViewOutputPresetJson.Deserialize(Encoding.UTF8.GetBytes(conflict.ToJsonString())));
         Assert.IsType<NotSupportedException>(error.InnerException);
     }
+
+    [Fact]
+    public void MergedPr1AndPr2QualityOptionsComposeAndRoundTripCleanly()
+    {
+        var combined = new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa)
+        {
+            Shadow = new(4096, OriginalTextureSampling.PointClamp),
+            UseEnvironmentMipmaps = true,
+            AdaptiveVramSampling = false,
+            RenderScale = 0.85f,
+            PreviewOutlineEnabled = false,
+            PreviewOutlineWidthScale = 0.5f,
+            Sharpening = new(true, 0.35f),
+            AnisotropicFiltering = 8,
+            ShadowFilter = ShadowFilterMode.PcfSoft,
+            ShadowSoftness = 2.2f,
+            ScreenSpaceAo = new(true, 0.55f, 2.0f, 8),
+        };
+        combined.Validate();
+
+        // Preset JSON round-trips both PR1 and PR2 properties together.
+        var preset = new ViewOutputPresetDefinition("merged.pr1.pr2", "Merged PR1+PR2",
+            new(1280, 720, combined), new(1920, 1080, new(60), combined));
+        var restored = ViewOutputPresetJson.Deserialize(ViewOutputPresetJson.Serialize(preset));
+        Assert.Equal(combined, restored.Preview.Quality);
+        Assert.Equal(combined, restored.Export.Quality);
+
+        // ApplyTo merges ViewShadowOptions resolution with ShadowFilterMode.PcfSoft + ShadowSoftness + RenderScale.
+        var sceneShadow = new OriginalSelfShadowOptions(Matrix4x4.Identity, 1024, 1024, true, false,
+            OriginalTextureSampling.PointClamp, OriginalDepthComparison.LessEqual);
+        var sceneOptions = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: sceneShadow);
+        var applied = combined.ApplyTo(sceneOptions);
+        OriginalFrameMath.Validate(applied);
+        Assert.Equal(0.85f, applied.RenderScale);
+        Assert.Equal(FrameAntialiasing.Taa, applied.Antialiasing);
+        Assert.Equal(8, applied.AnisotropicFiltering);
+        Assert.NotNull(applied.SelfShadow);
+        Assert.Equal(4096, applied.SelfShadow!.Width);
+        Assert.Equal(4096, applied.SelfShadow.Height);
+        Assert.Equal(ShadowFilterMode.PcfSoft, applied.SelfShadow.FilterMode);
+        Assert.Equal(OriginalTextureSampling.LinearClamp, applied.SelfShadow.Sampling);
+        Assert.Equal(2.2f, applied.SelfShadow.ShadowSoftness);
+        Assert.Equal(2.2f, applied.ResolveShadowSoftness(applied.SelfShadow));
+
+        // Shadow Resolution = 0 disables SelfShadow even when ShadowFilter is set.
+        var disabledShadow = combined with { Shadow = new(0, OriginalTextureSampling.LinearClamp) };
+        var appliedDisabled = disabledShadow.ApplyTo(sceneOptions);
+        Assert.Null(appliedDisabled.SelfShadow);
+
+        // RenderScale != 1f works with MSAA and FXAA, and still rejects SSAA/FSR1/TemporalUpscaling.
+        (combined with { Antialiasing = FrameAntialiasing.Msaa4X }).Validate();
+        (combined with { Antialiasing = FrameAntialiasing.Fxaa }).Validate();
+        Assert.Throws<NotSupportedException>(() => (combined with { Antialiasing = FrameAntialiasing.Off, SpatialSamples = 2 }).Validate());
+        Assert.Throws<NotSupportedException>(() => (combined with { Antialiasing = FrameAntialiasing.Off, Upscaling = new() { Mode = ViewUpscalingMode.Fsr1 } }).Validate());
+        Assert.Throws<NotSupportedException>(() => (combined with { Antialiasing = FrameAntialiasing.Off, TemporalUpscaling = new() { Mode = ViewTemporalUpscalingMode.Fsr } }).Validate());
+    }
 }

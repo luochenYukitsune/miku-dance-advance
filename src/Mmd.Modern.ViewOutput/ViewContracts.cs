@@ -9,6 +9,12 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     ViewTemporalUpscalingOptions? TemporalUpscaling = null, ViewDiffusionOptions? Diffusion = null,
     SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
 {
+    public ViewShadowOptions? Shadow { get; init; }
+    public bool UseEnvironmentMipmaps { get; init; }
+    public bool AdaptiveVramSampling { get; init; } = true;
+    public float RenderScale { get; init; } = 1f;
+    public bool PreviewOutlineEnabled { get; init; } = true;
+    public float PreviewOutlineWidthScale { get; init; } = 1f;
     public ViewSharpeningOptions? Sharpening { get; init; }
     public int? AnisotropicFiltering { get; init; }
     public ShadowFilterMode? ShadowFilter { get; init; }
@@ -19,6 +25,7 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     public RayGiOptions EffectiveGi => Gi ?? RayGiOptions.Off;
     public ViewUpscalingOptions EffectiveUpscaling => Upscaling ?? ViewUpscalingOptions.Off;
     public ViewTemporalUpscalingOptions EffectiveTemporalUpscaling => TemporalUpscaling ?? ViewTemporalUpscalingOptions.Off;
+    public ViewShadowOptions EffectiveShadow => Shadow ?? ViewShadowOptions.Default;
     public ViewSharpeningOptions EffectiveSharpening => Sharpening ?? ViewSharpeningOptions.Off;
     public int EffectiveAnisotropicFiltering => AnisotropicFiltering ?? 1;
     public float EffectiveShadowSoftness => ShadowSoftness ?? 1f;
@@ -27,11 +34,13 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     public void Validate()
     {
         EffectiveDiffusion.Validate(); EffectiveGi.Validate(); EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
-        EffectiveSharpening.Validate(); EffectiveScreenSpaceAo.Validate();
+        EffectiveShadow.Validate(); EffectiveSharpening.Validate(); EffectiveScreenSpaceAo.Validate();
         if (!Enum.IsDefined(SurfaceOrder)) throw new ArgumentOutOfRangeException(nameof(SurfaceOrder));
         if (Antialiasing is { } antialiasing && !Enum.IsDefined(antialiasing)) throw new ArgumentOutOfRangeException(nameof(Antialiasing));
         if (SmaaQuality is { } smaa && !Enum.IsDefined(smaa)) throw new ArgumentOutOfRangeException(nameof(SmaaQuality));
         if (SpatialSamples is { } samples && samples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentOutOfRangeException(nameof(SpatialSamples));
+        if (!float.IsFinite(RenderScale) || RenderScale is < 0.5f or > 1.5f) throw new ArgumentOutOfRangeException(nameof(RenderScale));
+        if (!float.IsFinite(PreviewOutlineWidthScale) || PreviewOutlineWidthScale is < 0f or > 4f) throw new ArgumentOutOfRangeException(nameof(PreviewOutlineWidthScale));
         if (AnisotropicFiltering is { } aniso && !OriginalFrameMath.IsValidAnisotropicFiltering(aniso))
             throw new ArgumentOutOfRangeException(nameof(AnisotropicFiltering), "Anisotropic filtering must be 1, 2, 4, 8, or 16.");
         if (ShadowFilter is { } shadowFilter && !Enum.IsDefined(shadowFilter))
@@ -42,6 +51,9 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off || Antialiasing is not (null or FrameAntialiasing.Off)
                 || SpatialSamples is > 1))
             throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, frame antialiasing and supersampling to be disabled.");
+        if (RenderScale != 1f && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off
+            || EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off || SpatialSamples is > 1))
+            throw new NotSupportedException("Render scale must be 1.0 when spatial upscaling, temporal reconstruction, or spatial supersampling (>1x) is enabled.");
         if (Antialiasing == FrameAntialiasing.Taa
             && (SpatialSamples is > 1 || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
             throw new NotSupportedException("TAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
@@ -57,10 +69,27 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     {
         Validate();
         var options = sceneOptions ?? new(OriginalAlphaBlendMode.Normal, true, false);
+        var selfShadow = options.SelfShadow;
+        if (Shadow is { Resolution: 0 })
+            selfShadow = null;
+        else if (Shadow is { } shadowOverride && selfShadow is { } existingShadow)
+            selfShadow = existingShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
         float resolvedShadowSoftness = ShadowSoftness
-            ?? (ShadowFilter is not null && options.SelfShadow is { } existingShadow
-                ? options.ResolveShadowSoftness(existingShadow)
+            ?? (ShadowFilter is not null && selfShadow is { } activeShadow
+                ? options.ResolveShadowSoftness(activeShadow)
                 : options.ShadowSoftness);
+        if (selfShadow is not null && (ShadowFilter is not null || ShadowSoftness is not null))
+        {
+            var effectiveMode = ShadowFilter ?? selfShadow.EffectiveFilterMode;
+            selfShadow = selfShadow with
+            {
+                FilterMode = ShadowFilter ?? selfShadow.FilterMode,
+                Sampling = effectiveMode == ShadowFilterMode.Point
+                    ? OriginalTextureSampling.PointClamp
+                    : OriginalTextureSampling.LinearClamp,
+                ShadowSoftness = ShadowSoftness ?? selfShadow.ShadowSoftness,
+            };
+        }
         var resolved = options with
         {
             RayGi = EffectiveGi,
@@ -68,29 +97,18 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             SmaaQuality = SmaaQuality ?? options.SmaaQuality,
             SpatialSamples = SpatialSamples ?? options.SpatialSamples,
             SurfaceOrder = SurfaceOrder,
+            SelfShadow = selfShadow,
+            RenderScale = RenderScale,
             AnisotropicFiltering = AnisotropicFiltering ?? options.AnisotropicFiltering,
             ShadowFilter = ShadowFilter ?? options.ShadowFilter,
             ShadowSoftness = resolvedShadowSoftness,
             ScreenSpaceAo = ScreenSpaceAo ?? options.ScreenSpaceAo,
         };
-        if (resolved.SelfShadow is { } selfShadow && (ShadowFilter is not null || ShadowSoftness is not null))
-        {
-            var effectiveMode = ShadowFilter ?? selfShadow.EffectiveFilterMode;
-            resolved = resolved with
-            {
-                SelfShadow = selfShadow with
-                {
-                    FilterMode = ShadowFilter ?? selfShadow.FilterMode,
-                    Sampling = effectiveMode == ShadowFilterMode.Point
-                        ? OriginalTextureSampling.PointClamp
-                        : OriginalTextureSampling.LinearClamp,
-                    ShadowSoftness = ShadowSoftness ?? selfShadow.ShadowSoftness,
-                },
-            };
-        }
         if (EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off
             && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
             throw new NotSupportedException("Inherited scene antialiasing/supersampling must be explicitly disabled for temporal reconstruction.");
+        if (resolved.RenderScale != 1f && resolved.SpatialSamples != 1)
+            throw new NotSupportedException("Inherited scene supersampling must be explicitly disabled when render scale is not 1.0.");
         if (resolved.Antialiasing == FrameAntialiasing.Taa
             && (resolved.SpatialSamples > 1 || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
             throw new NotSupportedException("TAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
