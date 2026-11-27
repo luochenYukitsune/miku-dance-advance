@@ -137,19 +137,19 @@ public sealed record EditorPreferences
             foreach (var entry in snapshot.Presets)
             {
                 if (entry is null || string.IsNullOrWhiteSpace(entry.Id) || string.IsNullOrWhiteSpace(entry.Name))
-                    throw new InvalidDataException(EditorLocalization.Text("自定义预设数据无效。"));
+                    throw new InvalidDataException(EditorLocalization.Text("Mda.Text.Preview.CustomPresetInvalidData"));
                 var decoded = DecodePreset(entry.PresetJson);
                 var quality = decoded.Preview.EffectiveQuality;
                 quality.Validate();
                 if (!seenIds.Add(entry.Id))
-                    throw new InvalidDataException(EditorLocalization.Text("自定义预设标识重复。"));
+                    throw new InvalidDataException(EditorLocalization.Text("Mda.Text.Preview.CustomPresetDuplicateId"));
                 result.Add(new(entry.Id, ValidateCustomPresetName(entry.Name), quality));
             }
             return result;
         }
         catch (Exception error) when (IsStorageFailure(error))
         {
-            diagnostic = EditorLocalization.Text("无法读取自定义画质预设，已使用空列表；原文件未改动。") + error.Message;
+            diagnostic = EditorLocalization.Text("Mda.Text.Preview.CustomPresetReadFailed") + error.Message;
             return [];
         }
     }
@@ -166,12 +166,12 @@ public sealed record EditorPreferences
             string name = ValidateCustomPresetName(preset.Name);
             string id = string.IsNullOrWhiteSpace(preset.Id) ? "custom-" + Guid.NewGuid().ToString("N") : preset.Id.Trim();
             if (!seenIds.Add(id))
-                throw new ArgumentException(EditorLocalization.Text("自定义预设标识重复。"), nameof(presets));
+                throw EditorLocalization.Error("Mda.Text.Preview.CustomPresetDuplicateId");
             var definition = new ViewOutputPresetDefinition(id, name,
                 new ViewRenderRequest(1280, 720, preset.Quality), new(1920, 1080, new(30, 1)));
             entries.Add(new(id, name, EncodePreset(definition)));
             if (entries.Count > 128)
-                throw new ArgumentException(EditorLocalization.Text("自定义预设数量已达上限（128）。"), nameof(presets));
+                throw EditorLocalization.Error("Mda.Text.Preview.CustomPresetLimitExceeded");
         }
         var snapshot = new LocalCustomPreviewPresetsSnapshot(CurrentSchemaVersion, entries);
         WriteAtomic(path ?? DefaultPreviewPresetsPath, JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions));
@@ -197,14 +197,14 @@ public sealed record EditorPreferences
     public static IReadOnlyList<EditorPreviewCustomPreset> RenameCustomPreviewPreset(string id, string newName, string? path = null)
     {
         if (string.IsNullOrWhiteSpace(id))
-            throw new ArgumentException(EditorLocalization.Text("请选择要重命名的自定义预设。"), nameof(id));
+            throw EditorLocalization.Error("Mda.Text.Preview.CustomPresetSelectRename");
         string validatedName = ValidateCustomPresetName(newName);
         var current = LoadCustomPreviewPresets(out string? diagnostic, path).ToList();
         if (diagnostic is not null)
             throw new InvalidDataException(diagnostic);
         int index = current.FindIndex(item => StringComparer.Ordinal.Equals(item.Id, id));
         if (index < 0)
-            throw new KeyNotFoundException(EditorLocalization.Text("找不到指定的自定义预设。"));
+            throw new KeyNotFoundException(EditorLocalization.Text("Mda.Text.Preview.CustomPresetNotFound"));
         current[index] = current[index] with { Name = validatedName };
         SaveCustomPreviewPresets(current, path);
         return current;
@@ -213,7 +213,7 @@ public sealed record EditorPreferences
     public static IReadOnlyList<EditorPreviewCustomPreset> DeleteCustomPreviewPreset(string id, string? path = null)
     {
         if (string.IsNullOrWhiteSpace(id))
-            throw new ArgumentException(EditorLocalization.Text("请选择要删除的自定义预设。"), nameof(id));
+            throw EditorLocalization.Error("Mda.Text.Preview.CustomPresetSelectDelete");
         var current = LoadCustomPreviewPresets(out string? diagnostic, path).ToList();
         if (diagnostic is not null)
             throw new InvalidDataException(diagnostic);

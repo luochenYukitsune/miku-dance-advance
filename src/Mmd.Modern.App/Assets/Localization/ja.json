@@ -1795,5 +1795,12 @@
   "Mda.Text.Preview.Conflict.ShadowSampling": "シャドウフィルタリングは LinearClamp または PointClamp である必要があります。",
   "Mda.Text.Preview.VramSection": "VRAM とサンプリング保護",
   "Mda.Text.Preview.AdaptiveVramSamplingLabel": "VRAM 不足時に空間サンプリングを自動低下",
-  "Mda.Text.Preview.AdaptiveVramSamplingHint": "標準では有効です。VRAM 予算を超えた際に自動で SSAA 倍率を下げます。無効にすると厳密に設定値を維持します。"
+  "Mda.Text.Preview.AdaptiveVramSamplingHint": "標準では有効です。VRAM 予算を超えた際に自動で SSAA 倍率を下げます。無効にすると厳密に設定値を維持します。",
+  "Mda.Text.Preview.CustomPresetInvalidData": "カスタムプリセットのデータが無効です。",
+  "Mda.Text.Preview.CustomPresetDuplicateId": "カスタムプリセットの ID が重複しています。",
+  "Mda.Text.Preview.CustomPresetReadFailed": "カスタムプレビュー画質プリセットを読み込めませんでした。元のファイルを変更せず空の一覧を使用します。",
+  "Mda.Text.Preview.CustomPresetLimitExceeded": "カスタムプリセットの上限（128）に達しました。",
+  "Mda.Text.Preview.CustomPresetSelectRename": "名前を変更するカスタムプリセットを選択してください。",
+  "Mda.Text.Preview.CustomPresetNotFound": "指定されたカスタムプリセットが見つかりません。",
+  "Mda.Text.Preview.CustomPresetSelectDelete": "削除するカスタムプリセットを選択してください。"
 }

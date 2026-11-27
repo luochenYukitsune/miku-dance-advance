@@ -1795,5 +1795,12 @@
   "Mda.Text.Preview.Conflict.ShadowSampling": "Shadow filtering must be LinearClamp or PointClamp.",
   "Mda.Text.Preview.VramSection": "VRAM & Sampling Protection",
   "Mda.Text.Preview.AdaptiveVramSamplingLabel": "Adaptive VRAM Sampling",
-  "Mda.Text.Preview.AdaptiveVramSamplingHint": "Enabled by default to lower SSAA automatically when VRAM budget is exceeded; disable for strict sampling."
+  "Mda.Text.Preview.AdaptiveVramSamplingHint": "Enabled by default to lower SSAA automatically when VRAM budget is exceeded; disable for strict sampling.",
+  "Mda.Text.Preview.CustomPresetInvalidData": "Custom preset data is invalid.",
+  "Mda.Text.Preview.CustomPresetDuplicateId": "Duplicate custom preset ID.",
+  "Mda.Text.Preview.CustomPresetReadFailed": "Could not read custom preview quality presets; using an empty list without modifying the file. ",
+  "Mda.Text.Preview.CustomPresetLimitExceeded": "Custom preset limit (128) reached.",
+  "Mda.Text.Preview.CustomPresetSelectRename": "Select a custom preset to rename.",
+  "Mda.Text.Preview.CustomPresetNotFound": "The specified custom preset could not be found.",
+  "Mda.Text.Preview.CustomPresetSelectDelete": "Select a custom preset to delete."
 }

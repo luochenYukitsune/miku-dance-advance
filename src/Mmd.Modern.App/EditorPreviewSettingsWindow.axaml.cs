@@ -1,7 +1,10 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 using Mmd.Modern.App.Controls;
 using Mmd.Modern.ViewOutput;
 
@@ -115,9 +118,54 @@ public partial class EditorPreviewSettingsWindow : Window
 
     private bool RejectInvalidInputs()
     {
-        if (!EditorNumericUpDown.HasInvalidInputs(this)) return false;
+        Control? firstInvalid = null;
+        foreach (var control in this.GetLogicalDescendants().OfType<Control>()
+            .Concat(this.GetVisualDescendants().OfType<Control>()))
+        {
+            if (!control.IsEffectivelyEnabled) continue;
+            bool invalid = (control is EditorNumericUpDown numeric && !numeric.IsInputValid)
+                || DataValidationErrors.GetHasErrors(control);
+            if (!invalid) continue;
+            firstInvalid = control;
+            break;
+        }
+        if (firstInvalid is null) return false;
+
+        RevealInvalidControl(firstInvalid);
         ViewModel.SetValidationMessage("请先修正标出的输入值，再应用设置。");
         return true;
+    }
+
+    private void RevealInvalidControl(Control control)
+    {
+        for (ILogical? ancestor = control; ancestor is not null; ancestor = ancestor.GetLogicalParent())
+            ApplyRevealToAncestor(ancestor);
+        for (Visual? ancestor = control; ancestor is not null; ancestor = ancestor.GetVisualParent())
+            ApplyRevealToAncestor(ancestor);
+        control.Focus();
+    }
+
+    private void ApplyRevealToAncestor(object ancestor)
+    {
+        if (ancestor is Expander expander && !expander.IsExpanded)
+            expander.IsExpanded = true;
+        if (ancestor is Control panel && TryCategoryIndex(panel.Name, out int categoryIndex))
+            ViewModel.SelectedCategoryIndex = categoryIndex;
+    }
+
+    private static bool TryCategoryIndex(string? panelName, out int categoryIndex)
+    {
+        categoryIndex = panelName switch
+        {
+            "CategoryOverviewPanel" => 0,
+            "CategoryAntialiasingPanel" => 1,
+            "CategoryShadowsPanel" => 2,
+            "CategoryGiPanel" => 3,
+            "CategoryPostPanel" => 4,
+            "CategoryDiagnosticsPanel" => 5,
+            _ => -1
+        };
+        return categoryIndex >= 0;
     }
 
     private void SaveNewCustomPresetClick(object? sender, RoutedEventArgs args)

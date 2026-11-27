@@ -1795,5 +1795,12 @@
   "Mda.Text.Preview.Conflict.ShadowSampling": "自阴影过滤方式必须为平滑过滤或像素硬边。",
   "Mda.Text.Preview.VramSection": "显存与采样保护",
   "Mda.Text.Preview.AdaptiveVramSamplingLabel": "显存不足时自动降低空间采样率",
-  "Mda.Text.Preview.AdaptiveVramSamplingHint": "默认开启：显存不足时自动降低 SSAA 倍率以避免崩溃；关闭后将严格按设定执行。"
+  "Mda.Text.Preview.AdaptiveVramSamplingHint": "默认开启：显存不足时自动降低 SSAA 倍率以避免崩溃；关闭后将严格按设定执行。",
+  "Mda.Text.Preview.CustomPresetInvalidData": "自定义预设数据无效。",
+  "Mda.Text.Preview.CustomPresetDuplicateId": "自定义预设标识重复。",
+  "Mda.Text.Preview.CustomPresetReadFailed": "无法读取自定义画质预设，已使用空列表；原文件未改动。",
+  "Mda.Text.Preview.CustomPresetLimitExceeded": "自定义预设数量已达上限（128）。",
+  "Mda.Text.Preview.CustomPresetSelectRename": "请选择要重命名的自定义预设。",
+  "Mda.Text.Preview.CustomPresetNotFound": "找不到指定的自定义预设。",
+  "Mda.Text.Preview.CustomPresetSelectDelete": "请选择要删除的自定义预设。"
 }

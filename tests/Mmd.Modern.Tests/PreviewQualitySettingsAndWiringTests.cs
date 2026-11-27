@@ -13,8 +13,17 @@ using Xunit;
 
 namespace Mmd.Modern.Tests;
 
-public sealed class PreviewQualityWiringAndPreferencesTests
+[Collection(QualityLoadingCollection.Name)]
+public sealed class PreviewQualityWiringAndPreferencesTests : IAsyncDisposable
 {
+    private readonly HeadlessUnitTestSession session = HeadlessTestHost.Start(QualityLoadingAppBuilder.BuildAvaloniaApp);
+
+    public PreviewQualityWiringAndPreferencesTests() => session.Dispatch(
+        () => EditorLocalization.Text("Mda.Text.Preview.CustomPresetReadFailed"),
+        TestContext.Current.CancellationToken).GetAwaiter().GetResult();
+
+    public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
+
     [Fact]
     public void ViewSceneWiresShadowMipmapsOutlineAndRenderScaleCorrectly()
     {
@@ -418,6 +427,186 @@ public sealed class EditorPreviewSettingsUiRedesignTests : IAsyncDisposable
         return true;
     }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
 
+    [Fact]
+    public async Task InactiveCategoryAndCollapsedExpanderInvalidNumericIsRejectedAndRevealed() => await session.Dispatch(() =>
+    {
+        var capabilities = new EditorPreviewCapabilities(
+            Gi: new D3D12RayGiCapabilities(false, true, 66, 0, false, false, true, true, false, null));
+        var initial = new ViewQualityOptions(
+            Gi: new RayGiOptions(LightingMode.SoftwareRayTracing));
+        bool copyCalled = false;
+        var vm = new EditorPreviewSettingsViewModel(
+            initial,
+            capabilities,
+            persistCustomPresets: false,
+            copyToExportQuality: _ => copyCalled = true);
+        var dialog = new EditorPreviewSettingsWindow(vm);
+        bool closed = false;
+        dialog.Closed += (_, _) => closed = true;
+        dialog.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0, vm.SelectedCategoryIndex); // CategoryOverviewPanel active
+            var lightingExpander = dialog.FindControl<Expander>("PreviewAdvancedLighting")!;
+            Assert.False(lightingExpander.IsExpanded);
+
+            var giSamplesBox = dialog.FindControl<Mmd.Modern.App.Controls.EditorNumericUpDown>("PreviewGiSamplesBox")!;
+            giSamplesBox.Text = "abc";
+            vm.CustomPresetName = "ShouldFail";
+            Dispatcher.UIThread.RunJobs();
+
+            void AssertRejected(string buttonName)
+            {
+                vm.SelectedCategoryIndex = 0;
+                lightingExpander.IsExpanded = false;
+                vm.SetValidationMessage("");
+                Dispatcher.UIThread.RunJobs();
+
+                dialog.FindControl<Button>(buttonName)!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.False(closed);
+                Assert.False(copyCalled);
+                Assert.True(vm.HasValidationMessage);
+                Assert.Equal(3, vm.SelectedCategoryIndex); // CategoryGiPanel revealed
+                Assert.True(lightingExpander.IsExpanded);
+            }
+
+            AssertRejected("ApplyPreviewSettingsButton");
+            AssertRejected("SaveNewCustomPresetButton");
+            AssertRejected("CopyToExportButton");
+        }
+        finally { dialog.Close(); Dispatcher.UIThread.RunJobs(); }
+
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task LoadingFromExportOrPresetReplacesBaselineInsteadOfLeakingConstructorSource() => await session.Dispatch(() =>
+    {
+        var constructorSource = new ViewQualityOptions(
+            Gi: new RayGiOptions(LightingMode.SoftwareRayTracing, Seed: 77, Strength: 2.5f),
+            TemporalUpscaling: new ViewTemporalUpscalingOptions
+            {
+                Mode = ViewTemporalUpscalingMode.XeSs,
+                XeSsQuality = ViewXeSsQuality.Performance
+            },
+            Diffusion: new ViewDiffusionOptions(false, 0.25f, 0.002f))
+        {
+            Shadow = new ViewShadowOptions(512, OriginalTextureSampling.PointClamp)
+        };
+
+        var exportOptions = new ViewQualityOptions { RenderScale = 0.8f };
+        var vm = new EditorPreviewSettingsViewModel(
+            constructorSource,
+            new EditorPreviewCapabilities(
+                Gi: new D3D12RayGiCapabilities(false, true, 66, 0, false, false, true, true, false, null),
+                XeSsQueries: [new D3D12XeSsDeviceQuery("Mock", D3D12XeSsQuality.Quality) { Initialized = true }]),
+            persistCustomPresets: false,
+            getExportQuality: () => exportOptions);
+
+        Assert.True(vm.LoadFromExport());
+        Assert.True(vm.TryCreate(out var result));
+        Assert.NotNull(result);
+        Assert.Null(result!.Shadow);
+        Assert.Equal(new RayGiOptions().Seed, result.EffectiveGi.Seed);
+        Assert.Equal(new ViewTemporalUpscalingOptions().XeSsQuality, result.EffectiveTemporalUpscaling.XeSsQuality);
+        Assert.Equal(0.8f, result.RenderScale);
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task CustomPresetCrudErrorsContainingBracesDoNotThrowFormatException() => await session.Dispatch(() =>
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "mda-brace-" + Guid.NewGuid().ToString("N"));
+        string dirWithBraces = Path.Combine(tempRoot, "dir-{bad}");
+        string presetsPath = Path.Combine(dirWithBraces, "presets.json");
+        Directory.CreateDirectory(dirWithBraces);
+        try
+        {
+            var vm = new EditorPreviewSettingsViewModel(
+                EditorPreferences.DefaultPreviewQuality,
+                customPresetsPath: presetsPath,
+                persistCustomPresets: true);
+            vm.CustomPresetName = "First";
+            Assert.True(vm.SaveNewCustomPreset());
+            vm.CustomPresetIndex = 0;
+
+            // Replace the file with a directory so storage reads throw UnauthorizedAccessException with "{bad}" in the path.
+            File.Delete(presetsPath);
+            Directory.CreateDirectory(presetsPath);
+
+            vm.CustomPresetName = "Renamed";
+            Assert.False(vm.OverwriteSelectedCustomPreset());
+            Assert.True(vm.HasValidationMessage);
+            Assert.Contains("{bad}", vm.ValidationMessage, StringComparison.Ordinal);
+
+            Assert.False(vm.RenameSelectedCustomPreset());
+            Assert.True(vm.HasValidationMessage);
+            Assert.Contains("{bad}", vm.ValidationMessage, StringComparison.Ordinal);
+
+            Assert.False(vm.DeleteSelectedCustomPreset());
+            Assert.True(vm.HasValidationMessage);
+            Assert.Contains("{bad}", vm.ValidationMessage, StringComparison.Ordinal);
+
+            vm.CustomPresetName = "Second";
+            Assert.False(vm.SaveNewCustomPreset());
+            Assert.True(vm.HasValidationMessage);
+            Assert.Contains("{bad}", vm.ValidationMessage, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("ja")]
+    public async Task CustomPresetPreferenceErrorsRespectLocalization(string language) => await session.Dispatch(() =>
+    {
+        string languageBefore = EditorLocalization.CurrentLanguage;
+        string tempRoot = Path.Combine(Path.GetTempPath(), "mda-loc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            EditorLocalization.SetLanguage(language);
+
+            var duplicate = new EditorPreviewCustomPreset("dup", "One", EditorPreferences.DefaultPreviewQuality);
+            var dupError = Assert.Throws<EditorLocalizedArgumentException>(() =>
+                EditorPreferences.SaveCustomPreviewPresets([duplicate, duplicate with { Name = "Two" }], Path.Combine(tempRoot, "dup.json")));
+            Assert.Equal(EditorLocalization.Text("Mda.Text.Preview.CustomPresetDuplicateId"), dupError.Message);
+
+            var renameBlank = Assert.Throws<EditorLocalizedArgumentException>(() =>
+                EditorPreferences.RenameCustomPreviewPreset(" ", "Name", Path.Combine(tempRoot, "none.json")));
+            Assert.Equal(EditorLocalization.Text("Mda.Text.Preview.CustomPresetSelectRename"), renameBlank.Message);
+
+            var deleteBlank = Assert.Throws<EditorLocalizedArgumentException>(() =>
+                EditorPreferences.DeleteCustomPreviewPreset("", Path.Combine(tempRoot, "none.json")));
+            Assert.Equal(EditorLocalization.Text("Mda.Text.Preview.CustomPresetSelectDelete"), deleteBlank.Message);
+
+            var notFound = Assert.Throws<KeyNotFoundException>(() =>
+                EditorPreferences.RenameCustomPreviewPreset("missing-id", "Name", Path.Combine(tempRoot, "missing.json")));
+            Assert.Equal(EditorLocalization.Text("Mda.Text.Preview.CustomPresetNotFound"), notFound.Message);
+
+            string badJsonPath = Path.Combine(tempRoot, "bad.json");
+            File.WriteAllText(badJsonPath, "{not valid json");
+            _ = EditorPreferences.LoadCustomPreviewPresets(out string? diagnostic, badJsonPath);
+            Assert.NotNull(diagnostic);
+            Assert.StartsWith(EditorLocalization.Text("Mda.Text.Preview.CustomPresetReadFailed"), diagnostic, StringComparison.Ordinal);
+        }
+        finally
+        {
+            EditorLocalization.SetLanguage(languageBefore);
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }
 
@@ -442,5 +631,24 @@ public sealed class D3D12RenderScaleGpuTests
         Assert.Equal(expectedInputHeight, session.Statistics.UpscalingInputHeight);
         Assert.Equal(128, session.Statistics.UpscalingOutputWidth);
         Assert.Equal(72, session.Statistics.UpscalingOutputHeight);
+    }
+
+    [Fact]
+    public void RenderScaleWithStraightAlphaRecordsStraightAlphaAtDisplayDimensions()
+    {
+        var box = D3D12OriginalOutlineTests.Box();
+        var options = D3D12OriginalFrameTests.Options() with
+        {
+            RenderScale = 0.75f,
+            AlphaOutput = FrameAlphaOutput.Straight
+        };
+        var scene = new OriginalFrameScene(box.Surface, box.Outline, box.OutlineOptions, options, box.Materials);
+        using var session = new D3D12FrameSession();
+        var captured = session.Capture(scene, 128, 72);
+        Assert.Equal(128, captured.Width);
+        Assert.Equal(72, captured.Height);
+        var straightAlphaTarget = Assert.Single(session.LastTargets, target => target.Name == "$straight-alpha");
+        Assert.Equal(128, straightAlphaTarget.Width);
+        Assert.Equal(72, straightAlphaTarget.Height);
     }
 }

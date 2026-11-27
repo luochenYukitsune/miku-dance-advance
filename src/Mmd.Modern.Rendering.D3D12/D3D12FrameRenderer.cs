@@ -218,7 +218,8 @@ public sealed class D3D12FrameRenderer : IDisposable
                 {
                     var estimate=D3D12TemporalGiMemoryBudget.WithAdditionalReservation(
                         D3D12TemporalGiMemoryBudget.Measure(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
-                            straightAlpha,frame,temporal,spatialSamples,reuseReceiverWorkspace:lowMemory),additionalReservation);
+                            straightAlpha,frame,temporal,spatialSamples,reuseReceiverWorkspace:lowMemory,
+                            spatialUpscaling:upscale,renderScalePass:hasRenderScaleTarget),additionalReservation);
                     return lowMemory?D3D12TemporalGiMemoryBudget.ForBoundedFlight(estimate).InFlightBytes:estimate.InFlightBytes;
                 }
                 return D3D12SsaaGiMemoryBudget.WithAdditionalReservation(
@@ -267,7 +268,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         if(!temporal&&D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             temporalGiAdmission=D3D12TemporalGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
                 straightAlpha,frame,spatialSamples:spatialSamples,additionalInFlightBytes:additionalReservation,
-                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory);
+                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory,
+                spatialUpscaling:upscale,renderScalePass:hasRenderScaleTarget);
         if(!temporal)RecordTemporalCaptureMemory();
         bool temporalReset=false;string temporalResetReason="None";int temporalPhase=0,temporalPhaseCount=1;Vector2 temporalJitter=default;
         if(temporal)
@@ -326,7 +328,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         if(temporal&&D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             temporalGiAdmission=D3D12TemporalGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,rayGiOptions!,capture,
                 straightAlpha,frame,temporalUpscaling:temporal,spatialSamples:spatialSamples,additionalInFlightBytes:additionalReservation,
-                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory);
+                allowBoundedFlight:capture,forceBoundedFlight:captureLowMemory,reuseReceiverWorkspace:captureLowMemory,
+                spatialUpscaling:false,renderScalePass:false);
         if(temporal)RecordTemporalCaptureMemory();
         if(additionalReservation>0&&!additionalValidatedEarly)
             D3D12SsaaGiMemoryBudget.RequireFits(new(0,0,additionalReservation),D3D12SsaaGiMemoryBudget.Query(runtime),width,height,1);
@@ -607,7 +610,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             {
                 output=(alphaResolvePass??=new(runtime,cache)).Record(context,output);
                 LastPassDrawCalls++;Recorded("alpha:straight",output,defaultDepth);
-                targetRecorder.Add(output.Name,width,height,output.Format);
+                targetRecorder.Add(output);
             }
             if(exposureEv!=0)
             {
