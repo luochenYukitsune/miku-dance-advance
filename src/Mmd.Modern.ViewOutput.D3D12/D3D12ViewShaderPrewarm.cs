@@ -25,7 +25,7 @@ internal static class D3D12ViewShaderPrewarm
     {
         ArgumentNullException.ThrowIfNull(quality);
         var gi = quality.EffectiveGi;
-        bool giEnabled = gi.Enabled && gi.Strength > 0;
+        bool giEnabled = quality.PipelineMode != RenderPipelineMode.PathTracing && gi.Enabled && gi.Strength > 0;
         bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
 
         bool anyMaterialToon = hasCharacterToon

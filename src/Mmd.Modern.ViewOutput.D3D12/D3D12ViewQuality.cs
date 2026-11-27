@@ -28,6 +28,8 @@ internal static class D3D12ViewQuality
         bool allowPreviewAcceleration = false)
     {
         quality.Validate(); state ??= new(); state.Validate();
+        if (quality.PipelineMode == RenderPipelineMode.PathTracing)
+            return RayGiOptions.Off;
         var options = quality.EffectiveGi;
         bool previewAcceleration = allowPreviewAcceleration && options.PreviewAcceleration;
         if (options.Denoiser != RayGiDenoiser.TemporalSpatial)
@@ -40,6 +42,20 @@ internal static class D3D12ViewQuality
             TemporalCameraCutKey = state.CameraCutKey,
             ResetTemporalHistory = state.ResetHistory,
             PreviewAcceleration = previewAcceleration
+        };
+    }
+
+    internal static PathTracingOptions? PathTracing(ViewQualityOptions quality, ViewTemporalFrameState? state = null,
+        bool interactive = false)
+    {
+        quality.Validate(); state ??= new(); state.Validate();
+        if (quality.PipelineMode != RenderPipelineMode.PathTracing) return null;
+        return quality.EffectivePathTracing with
+        {
+            HistoryGeneration = state.HistoryGeneration,
+            CameraCutKey = state.CameraCutKey,
+            ResetHistory = state.ResetHistory,
+            Interactive = interactive,
         };
     }
 

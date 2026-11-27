@@ -125,6 +125,9 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                 try
                 {
                     var prepared = previewSampling.ApplyTo(scene);
+                    if (D3D12ViewQuality.PathTracing(request.EffectiveQuality, frame.TemporalState, interactive: false) is { } pathTracing && prepared.Options is not null)
+                        prepared = new(prepared.Surface, prepared.Outline, prepared.OutlineOptions, prepared.Options with { PathTracing = pathTracing },
+                            prepared.Materials, prepared.Lighting, prepared.EditorOverlay);
                     var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState, allowPreviewAcceleration: true);
                     var upscaling = D3D12ViewQuality.Upscaling(request.EffectiveQuality);
                     var diffusion = D3D12ViewQuality.Diffusion(request.EffectiveQuality);

@@ -39,6 +39,8 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12RayGiStatistics? RayGiStatistics=>renderer.RayGiStatistics;
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics=>renderer.GpuSkinningStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
+    public D3D12ClusteredLightStatistics? ClusteredLightStatistics=>renderer.ClusteredLightStatistics;
+    public D3D12PathTracingStatistics? PathTracingStatistics=>renderer.PathTracingStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>renderer.TemporalUpscalingStatistics;
     public int EditorOverlayDrawCalls=>renderer.EditorOverlayDrawCalls;

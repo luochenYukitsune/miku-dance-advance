@@ -23,7 +23,7 @@ public sealed partial class D3D12OriginalStyleRenderer
 
     private readonly Dictionary<PluginSurfacePipelineKey, PluginSurfacePipelines> pluginSurfacePipelines = [];
 
-    private readonly Dictionary<(string StyleId, string ModuleId, string ContentHash, D3D12StyleShaderHookMask Hooks, D3D12StyleGeometryRequirements Geom, string Entry, bool Native, bool Gi, bool Morph, bool Sub, bool Toon, bool DirectPalette), byte[]> pluginSurfacePixelShaders = [];
+    private readonly Dictionary<(string StyleId, string ModuleId, string ContentHash, D3D12StyleShaderHookMask Hooks, D3D12StyleGeometryRequirements Geom, string Entry, bool Native, bool Gi, bool Morph, bool Sub, bool Toon, bool DirectPalette, bool Clustered), byte[]> pluginSurfacePixelShaders = [];
     private readonly Dictionary<(D3D12StyleGeometryRequirements Geom, bool Native, bool Gi, bool Sub), byte[]> pluginSurfaceVertexShaders = [];
 
     private byte[] GetPluginSurfaceVertexShader(
@@ -54,12 +54,12 @@ public sealed partial class D3D12OriginalStyleRenderer
         bool preserveDirectLightPalette)
     {
         var shaderKey = (styleId, module.ModuleId, module.EffectiveContentHash, effectiveHooks, effectiveGeometry,
-            entry, key.NativeLights, key.Gi, key.TextureMorph, key.SubTexture, characterToon, preserveDirectLightPalette);
+            entry, key.NativeLights, key.Gi, key.TextureMorph, key.SubTexture, characterToon, preserveDirectLightPalette, key.ClusteredLights);
         if (pluginSurfacePixelShaders.TryGetValue(shaderKey, out var found)) return found;
         var compiled = D3D12StyleShaderAssembler.CompilePixel(
             styleId, entry, module, effectiveHooks, effectiveGeometry,
             key.NativeLights, key.Gi, key.TextureMorph, key.SubTexture,
-            characterToon, preserveDirectLightPalette);
+            characterToon, preserveDirectLightPalette, key.ClusteredLights);
         runtime.ShaderCompilations++;
         pluginSurfacePixelShaders.Add(shaderKey, compiled);
         return compiled;

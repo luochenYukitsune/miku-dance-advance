@@ -328,5 +328,10 @@ internal static partial class OriginalFrameShaders
             float4 color=PSSurfaceGi(v,primitive); color.rgb=NativeAddSoft(color.rgb,NativeDirect(v)); return color;
         }
         """;
-    internal static byte[] CompileNative(string entry,bool vertex)=>D3D12FxcShaderCache.Compile(Source+GiSource+NativeSource,entry,"OriginalFrameNative.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    internal static byte[] CompileNative(string entry,bool vertex,bool clustered=false)
+    {
+        string source=Source+GiSource+NativeSource;
+        if(clustered&&!vertex) source=OriginalClusteredLightShader.Apply(source);
+        return D3D12FxcShaderCache.Compile(source,entry,clustered?"OriginalFrameNativeClustered.hlsl":"OriginalFrameNative.hlsl",vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    }
 }

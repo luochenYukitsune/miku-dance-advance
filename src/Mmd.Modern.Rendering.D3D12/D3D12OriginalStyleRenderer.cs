@@ -93,6 +93,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
     private readonly bool ownsRuntime;
     private ID3D12Device device=>runtime.Device;
     private readonly Dictionary<(OriginalTextureSampling,Format,bool,bool,bool),PipelineSet> pipelines=[];
+    private D3D12ClusteredLightPass? clusteredLightPass;
     private D3D12FrameRenderer? captureRecorder;
     private bool disposed;
     public string AdapterName=>runtime.AdapterName;
@@ -177,6 +178,21 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
                 draws+=RecordCombinedOutline(device,commands,GetOutlinePipeline(depth.Format,frame),frame,width,height,vb,ib,UploadBuffer,resource=>Own(resource),context,
                     srvHeap,srvStride,slotBase,depth.Format,cache,surfaceStyles);
         return draws;
+    }
+    internal int RecordOutlineOnly(D3D12RecordingContext context,D3D12GpuTarget color,D3D12GpuTarget depth,OriginalFrameScene frame,
+        ID3D12Resource vb,ID3D12Resource ib,ID3D12DescriptorHeap srvHeap,int srvStride,int slotBase,D3D12GpuCache cache,D3D12SurfaceStyleMap? surfaceStyles=null)
+    {
+        ObjectDisposedException.ThrowIf(disposed,this);
+        if(frame.Outline is null||frame.OutlineOptions is not {Eligible:true,ModelWidth:>0})return 0;
+        var commands=context.Commands;
+        commands.OMSetRenderTargets(color.Handle,depth.Handle);
+        commands.RSSetViewport(0,0,color.Width,color.Height,0,1);
+        commands.RSSetScissorRect(new RawRect(0,0,color.Width,color.Height));
+        commands.SetDescriptorHeaps(srvHeap);
+        BeginVisibility(frame);
+        ID3D12Resource UploadBuffer(D3D12ExpandedPositions positions)=>cache.ExpandedPositionBuffer("original-edge",positions);
+        return RecordCombinedOutline(device,commands,GetOutlinePipeline(depth.Format,frame),frame,color.Width,color.Height,vb,ib,
+            UploadBuffer,resource=>context.Own(resource),context,srvHeap,srvStride,slotBase,depth.Format,cache,surfaceStyles);
     }
     public void Dispose()
     {

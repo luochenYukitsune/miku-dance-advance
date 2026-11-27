@@ -88,7 +88,9 @@ internal static class D3D12ViewScene
             surface = LightingCache.GetValue(surface.Snapshot, static _ => new()).Get(surface, light);
         bool sceneShadow = scene.UsesSceneLighting && !surface.Snapshot.IsEmpty
             && scene.Materials.Any(flags => flags.UseSceneLighting && flags.ReceiveSelfShadow);
-        if (shadowPose is { Mode: 0 }) options = options with { SelfShadow = null };
+        if (options.PipelineMode == RenderPipelineMode.PathTracing)
+            options = options with { SelfShadow = null };
+        else if (shadowPose is { Mode: 0 }) options = options with { SelfShadow = null };
         else if (sceneShadow)
         {
             // Resolve after the sampled main light above. Fit the complete composed world geometry,

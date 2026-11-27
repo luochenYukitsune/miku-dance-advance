@@ -32,6 +32,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private readonly D3D12FrameDescriptorHeaps frameDescriptors;
     private readonly D3D12OriginalStyleRenderer originalRecorder;
     private D3D12RayGiRenderer? rayGiRenderer;
+    private D3D12PathTracingRenderer? pathTracingRenderer;
     private D3D12SmaaPass? smaaPass;
     private D3D12Fsr1Pass? fsr1Pass;
     private D3D12DiffusionPass? diffusionPass;
@@ -75,6 +76,8 @@ public sealed class D3D12FrameRenderer : IDisposable
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings {get;private set;}=[];
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
+    public D3D12ClusteredLightStatistics? ClusteredLightStatistics => originalRecorder.LastClusteredLightStatistics;
+    public D3D12PathTracingStatistics? PathTracingStatistics => pathTracingRenderer?.LastStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder => originalRecorder;
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics => cache.ExistingGpuSkinning?.Statistics;
     public string? RayGiBackendIdentity => rayGiRenderer?.LastBackendIdentity;
@@ -145,10 +148,20 @@ public sealed class D3D12FrameRenderer : IDisposable
         diffusion?.ValidateFrame(frame); // Before captures, SDK recreation or any recording.
         bool diffusionActive=diffusion?.IsActive==true;
         float exposureEv=frame.Lighting?.Settings.ExposureEv??0;
-        rayGiOptions??=frame.Options?.RayGi;
-        if(capture&&rayGiOptions is {PreviewAcceleration:true})
-            rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
-        rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
+        var pipelineMode=frame.Options?.PipelineMode??RenderPipelineMode.Forward;
+        bool pathTracing=pipelineMode==RenderPipelineMode.PathTracing;
+        if(pathTracing)
+        {
+            frame.Options?.PathTracing?.Validate();
+            rayGiOptions=null;
+        }
+        else
+        {
+            rayGiOptions??=frame.Options?.RayGi;
+            if(capture&&rayGiOptions is {PreviewAcceleration:true})
+                rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
+            rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
+        }
         surfaceStyles?.Validate(frame,rayGiOptions);
         surfaceStyles=surfaceStyles?.CaptureResolvedInputs(frame);
         var scene=frame.Surface.Snapshot;
@@ -168,6 +181,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool emptyScene=scene.Indices.Length==0;
         bool retainTriangleScratch=!emptyScene&&D3D12RayGiRenderer.UsesTriangleScratch(scene,rayGiOptions,capture);
         rayGiRenderer?.BeginFrame(retainTriangleScratch);
+        pathTracingRenderer?.BeginFrame();
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         ulong diffusionReservation=D3D12DiffusionMemoryBudget.Measure(runtime,width,height,diffusionActive,
             alphaCoverage:frame.Options?.AlphaOutput==FrameAlphaOutput.Straight);
@@ -462,6 +476,19 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             void SceneCore(int sampleIndex)
             {
+                if(pathTracing)
+                {
+                    originalRecorder.ResetNativeLightStatistics();
+                    (pathTracingRenderer??=new(runtime,cache)).Record(context,frame,current,currentDepth,vb,ib,capture);
+                    Recorded("path-tracing",current,currentDepth);
+                    var ptOptions=frame.Options?.PathTracing??PathTracingOptions.Default;
+                    if(!emptyScene&&ptOptions.ShadingMode==PathTracingShadingMode.ToonHybrid
+                        &&frame.Outline is not null&&frame.OutlineOptions is {Eligible:true,ModelWidth:>0})
+                    {
+                        LastSceneDrawCalls+=originalRecorder.RecordOutlineOnly(context,current,currentDepth,frame,vb!,ib!,srvHeap,srvStride,textureSlots,cache,surfaceStyles);
+                    }
+                    return;
+                }
                 // All actors may be hidden. Keep the real cleared GPU target and built-in passes,
                 // without allocating empty geometry or tracing hidden surfaces.
                 if(emptyScene){originalRecorder.ResetNativeLightStatistics();return;}
@@ -641,6 +668,8 @@ public sealed class D3D12FrameRenderer : IDisposable
             lastSubmittedSurfaceStyles=surfaceStyles;
             if(D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))rayGiRenderer?.CommitFrame();
             else rayGiRenderer?.InvalidateTemporalHistory("ModeChanged");
+            if(pathTracing)pathTracingRenderer?.CommitFrame();
+            else pathTracingRenderer?.InvalidateHistory("ModeChanged");
             if(temporal)
             {
                 temporalHistory.Commit(frame,temporalUpscaling,temporalPhase,temporalPhaseCount,historyRayGiOptions);
@@ -678,7 +707,10 @@ public sealed class D3D12FrameRenderer : IDisposable
                 TemporalGiRetirementMilliseconds=temporalGiAdmission?.RetirementMilliseconds??0,
                 CaptureLowMemory=captureLowMemory,CaptureInFlightFrames=CaptureMemoryStatistics?.InFlightFrames??0,
                 CaptureRetirementMilliseconds=captureRetirementMilliseconds,
-                TemporalUpscaling=TemporalUpscalingStatistics};
+                TemporalUpscaling=TemporalUpscalingStatistics,
+                PipelineMode=pipelineMode,
+                ClusteredLights=ClusteredLightStatistics,
+                PathTracing=PathTracingStatistics};
             LastTargets=targetRecorder.Commit();
             LastRecordings=recordingRecords;
             // A pooled final image leaves the pool until the lease is disposed, so later frames cannot overwrite it.
@@ -689,7 +721,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         finally
         {
             targetRecorder.ResetStaged();
-            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);if(temporal)temporalHistory.Invalidate("AbortedFrame");}
+            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);pathTracingRenderer?.AbortFrame();if(temporal)temporalHistory.Invalidate("AbortedFrame");}
             runtime.Abort();
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
@@ -699,6 +731,11 @@ public sealed class D3D12FrameRenderer : IDisposable
     private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
         D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode)
     {
+        if (frame.Options?.PipelineMode == RenderPipelineMode.PathTracing)
+        {
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1 || frame.Options?.Antialiasing != FrameAntialiasing.Off)
+                throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing, spatial supersampling and spatial upscaling to be disabled.");
+        }
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
         {
             D3D12AlphaResolvePass.ValidateCoverage(frame);
@@ -903,7 +940,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         // Native upscalers may report a teardown error after device loss. Release
         // independent pools and the owning device before reporting those failures.
         IDisposable?[] resources = [temporalPass, xeSsTemporalPass, dlssTemporalPass, temporalInputs,
-            rayGiRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
+            rayGiRenderer, pathTracingRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
             ownsRuntime ? runtime : null];
         List<Exception>? failures = null;
         foreach (var resource in resources)

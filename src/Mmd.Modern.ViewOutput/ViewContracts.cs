@@ -7,16 +7,21 @@ namespace Mmd.Modern.ViewOutput;
 public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasing? Antialiasing = null,
     SmaaQuality? SmaaQuality = null, int? SpatialSamples = null, ViewUpscalingOptions? Upscaling = null,
     ViewTemporalUpscalingOptions? TemporalUpscaling = null, ViewDiffusionOptions? Diffusion = null,
-    SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
+    SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst,
+    RenderPipelineMode PipelineMode = RenderPipelineMode.Forward,
+    PathTracingOptions? PathTracing = null)
 {
     public ViewDiffusionOptions EffectiveDiffusion => Diffusion ?? ViewDiffusionOptions.Off;
     public RayGiOptions EffectiveGi => Gi ?? RayGiOptions.Off;
     public ViewUpscalingOptions EffectiveUpscaling => Upscaling ?? ViewUpscalingOptions.Off;
     public ViewTemporalUpscalingOptions EffectiveTemporalUpscaling => TemporalUpscaling ?? ViewTemporalUpscalingOptions.Off;
+    public PathTracingOptions EffectivePathTracing => PathTracing ?? PathTracingOptions.Default;
     public void Validate()
     {
         EffectiveDiffusion.Validate(); EffectiveGi.Validate(); EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
         if (!Enum.IsDefined(SurfaceOrder)) throw new ArgumentOutOfRangeException(nameof(SurfaceOrder));
+        if (!Enum.IsDefined(PipelineMode)) throw new ArgumentOutOfRangeException(nameof(PipelineMode));
+        EffectivePathTracing.Validate();
         if (Antialiasing is { } antialiasing && !Enum.IsDefined(antialiasing)) throw new ArgumentOutOfRangeException(nameof(Antialiasing));
         if (SmaaQuality is { } smaa && !Enum.IsDefined(smaa)) throw new ArgumentOutOfRangeException(nameof(SmaaQuality));
         if (SpatialSamples is { } samples && samples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentOutOfRangeException(nameof(SpatialSamples));
@@ -24,6 +29,10 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off || Antialiasing is not (null or FrameAntialiasing.Off)
                 || SpatialSamples is > 1))
             throw new NotSupportedException("Temporal reconstruction currently requires spatial upscaling, SMAA and supersampling to be disabled.");
+        if (PipelineMode == RenderPipelineMode.PathTracing
+            && (Antialiasing is not (null or FrameAntialiasing.Off) || SpatialSamples is > 1
+                || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
+            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing, spatial supersampling and spatial upscaling to be disabled.");
     }
 
     /// <summary>Returns a per-view copy. Scene settings and other views are never modified.</summary>
@@ -31,12 +40,16 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     {
         Validate();
         var options = sceneOptions ?? new(OriginalAlphaBlendMode.Normal, true, false);
-        var resolved = options with { RayGi = EffectiveGi, Antialiasing = Antialiasing ?? options.Antialiasing,
+        var resolved = options with { RayGi = PipelineMode == RenderPipelineMode.PathTracing ? RayGiOptions.Off : EffectiveGi,
+            Antialiasing = Antialiasing ?? options.Antialiasing,
             SmaaQuality = SmaaQuality ?? options.SmaaQuality, SpatialSamples = SpatialSamples ?? options.SpatialSamples,
-            SurfaceOrder = SurfaceOrder };
+            SurfaceOrder = SurfaceOrder, PipelineMode = PipelineMode, PathTracing = PathTracing ?? options.PathTracing };
         if (EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off
             && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
             throw new NotSupportedException("Inherited scene SMAA/supersampling must be explicitly disabled for temporal reconstruction.");
+        if (PipelineMode == RenderPipelineMode.PathTracing
+            && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
+            throw new NotSupportedException("Inherited scene antialiasing/supersampling must be explicitly disabled for path tracing.");
         return resolved;
     }
 }

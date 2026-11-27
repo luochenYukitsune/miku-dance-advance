@@ -32,7 +32,8 @@ internal static class D3D12StyleShaderAssembler
         bool TextureMorph,
         bool SubTexture,
         bool CharacterToon,
-        bool PreserveDirectLightPalette);
+        bool PreserveDirectLightPalette,
+        bool ClusteredLights);
 
     private static readonly ConcurrentDictionary<VertexCacheKey, byte[]> VertexCache = new();
     private static readonly ConcurrentDictionary<PixelCacheKey, byte[]> PixelCache = new();
@@ -114,7 +115,8 @@ internal static class D3D12StyleShaderAssembler
         bool textureMorph,
         bool subTexture,
         bool characterToon,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights = false)
     {
         ArgumentNullException.ThrowIfNull(module);
         if (entryPoint is not ("PSSurface" or "PSSurfaceGi" or "PSSurfaceNative" or "PSSurfaceGiNative"))
@@ -125,6 +127,7 @@ internal static class D3D12StyleShaderAssembler
             textureMorph = true;
         }
         bool directPalette = nativeLights && (preserveDirectLightPalette || effectiveHooks.HasFlag(D3D12StyleShaderHookMask.PreserveDirectLightPalette));
+        bool useClustered = nativeLights && clusteredLights;
         var key = new PixelCacheKey(
             styleId,
             module.ModuleId,
@@ -137,7 +140,8 @@ internal static class D3D12StyleShaderAssembler
             textureMorph,
             subTexture,
             characterToon,
-            directPalette);
+            directPalette,
+            useClustered);
 
         return PixelCache.GetOrAdd(key, k =>
         {
@@ -151,7 +155,8 @@ internal static class D3D12StyleShaderAssembler
                 k.TextureMorph,
                 k.SubTexture,
                 k.CharacterToon,
-                k.PreserveDirectLightPalette);
+                k.PreserveDirectLightPalette,
+                k.ClusteredLights);
             string fileName = $"PluginStyle_{SanitizeFileToken(k.StyleId)}_{SanitizeFileToken(k.ModuleId)}.hlsl";
             return D3D12FxcShaderCache.Compile(source, k.EntryPoint, fileName, "ps_5_1", CompileFlags);
         });
@@ -192,7 +197,8 @@ internal static class D3D12StyleShaderAssembler
         bool textureMorph,
         bool subTexture,
         bool characterToon,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights = false)
     {
         var sb = new StringBuilder(8192);
         sb.AppendLine("#define MDA_STYLE_TARGET_PS 1");
@@ -228,7 +234,10 @@ internal static class D3D12StyleShaderAssembler
         }
 
         AppendPixelHostPostPlugin(sb, entryPoint, hooks, geometry, gi, nativeLights, preserveDirectLightPalette);
-        return PruneInactivePreprocessorBranches(sb.ToString());
+        string assembled = PruneInactivePreprocessorBranches(sb.ToString());
+        if (nativeLights && clusteredLights)
+            assembled = OriginalClusteredLightShader.Apply(assembled);
+        return assembled;
     }
 
     private static string PruneInactivePreprocessorBranches(string source)

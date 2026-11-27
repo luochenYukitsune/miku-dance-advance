@@ -52,7 +52,8 @@ public sealed record OriginalFrameOptions(OriginalAlphaBlendMode BlendMode,bool 
     SceneCamera? CameraOverride=null,Matrix4x4? SphereRotationOverride=null,bool EnableFrustumCulling=true,RayGiOptions? RayGi=null,
     FrameAntialiasing Antialiasing=FrameAntialiasing.Off,Vector4? BackgroundColor=null,
     SmaaQuality SmaaQuality=SmaaQuality.High,int SpatialSamples=1,FrameAlphaOutput AlphaOutput=FrameAlphaOutput.LegacyMax,
-    SurfaceDrawOrder SurfaceOrder=SurfaceDrawOrder.Original);
+    SurfaceDrawOrder SurfaceOrder=SurfaceDrawOrder.Original,
+    RenderPipelineMode PipelineMode=RenderPipelineMode.Forward,PathTracingOptions? PathTracing=null);
 
 public readonly record struct OriginalShadowProjection(bool Inside,Vector2 Uv,float Depth);
 public static class OriginalFrameMath
@@ -113,7 +114,11 @@ public static class OriginalFrameMath
             throw new NotSupportedException("Straight-alpha output requires source-over blending; legacy additive blending is not representable by this output contract.");
         if(!Enum.IsDefined(options.Antialiasing)) throw new ArgumentException("Unknown frame antialiasing mode.");
         if(!Enum.IsDefined(options.SmaaQuality)) throw new ArgumentException("Unknown SMAA quality preset.");
+        if(!Enum.IsDefined(options.PipelineMode)) throw new ArgumentException("Unknown render pipeline mode.");
+        options.PathTracing?.Validate();
         if(options.SpatialSamples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentException("Spatial samples must be 1, 2, 4, 8, 16 or 32.");
+        if(options.PipelineMode==RenderPipelineMode.PathTracing&&(options.Antialiasing!=FrameAntialiasing.Off||options.SpatialSamples>1))
+            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing and spatial supersampling to be disabled.");
         if(options.BackgroundColor is {} background&&!OriginalOutlineMath.Finite(background))throw new ArgumentException("Background color must be finite.");
         if(options.AlphaOutput==FrameAlphaOutput.Straight&&options.BackgroundColor is {} clear
             &&(clear.X<0||clear.X>1||clear.Y<0||clear.Y>1||clear.Z<0||clear.Z>1||clear.W<0||clear.W>1))

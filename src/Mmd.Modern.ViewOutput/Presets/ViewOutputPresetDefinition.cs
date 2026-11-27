@@ -104,6 +104,7 @@ public sealed class ViewOutputPresetDefinition
         Diffusion = quality.Diffusion is { } diffusion ? diffusion with { } : null,
         Gi = quality.Gi is { } gi ? gi with
         { TemporalHistoryGeneration = 0, TemporalCameraCutKey = 0, ResetTemporalHistory = false } : null,
+        PathTracing = quality.PathTracing is { } pathTracing ? pathTracing.StripRuntimeState() : null,
     };
 
     internal static void ValidateIdentifier(string id, string parameter)
