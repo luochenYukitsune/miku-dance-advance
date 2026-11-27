@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T02:21:48.1374276Z",
+    "generatedAtUtc":  "2026-11-27T02:26:57.6603926Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -16695,8 +16695,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  22891,
-                      "sha256":  "1e61d212453f23c00b905f36ad13b8c61043d57a76be12125d005af959069e0a",
+                      "bytes":  22892,
+                      "sha256":  "e51e783be739e5d36a540c998028c5104e5efa3046f0795d2a099b27f3b5b654",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {

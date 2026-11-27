@@ -168,7 +168,7 @@ public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
         uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6];
         var snapshot = new SceneSnapshot(vertices, indices,
             [
-                new("backdrop", 0, 6, new Vector4(0.05f, 0.05f, 0.05f, 1f), Vector3.Zero, Vector3.One, 1),
+                new("backdrop", 0, 6, new Vector4(0.05f, 0.05f, 0.05f, 1f), Vector3.Zero, Vector3.Zero, 1),
                 new("triangle", 6, 3, Vector4.One, Vector3.Zero, Vector3.One, 1),
             ],
             camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f),
