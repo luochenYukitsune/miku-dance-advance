@@ -1250,8 +1250,6 @@
   "Mda.Text.Preferences.Diagnostics.Stopped": "記録を停止しました。レポートを書き出せます。新しく記録を始めると、前回の記録は上書きされます。",
   "Mda.Text.Preferences.Diagnostics.NotStarted": "まだ記録されていません。",
   "Mda.Text.Preferences.CameraMouse.Heading": "カメラのマウス操作",
-  "Mda.Text.Preferences.CameraMouse.InvertX": "X（左右）を反転",
-  "Mda.Text.Preferences.CameraMouse.InvertY": "Y（上下）を反転",
   "Mda.Text.Preferences.CameraMouse.Hint": "左ドラッグで視点を回転、右または中ドラッグで平行移動、ホイールで拡大・縮小します。感度（0.2〜3.0×、既定 1×）が大きいほど速く動きます。反転と感度はカメラ操作にのみ適用され、ボーンやライトのドラッグには影響しません。この PC にのみ保存され、プロジェクトには保存されません。",
   "Mda.Text.Preferences.CameraMouse.OrbitSection": "視点の回転（左ドラッグ）",
   "Mda.Text.Preferences.CameraMouse.InvertOrbitX": "左右の回転を反転",

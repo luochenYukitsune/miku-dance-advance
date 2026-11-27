@@ -1188,7 +1188,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     internal static PmmCameraPose ZoomCameraWithPreferences(PmmCameraPose pose, int delta, bool invertZoom, float sensitivity)
     {
         float scale = EditorPreferences.NormalizeCameraSensitivity(sensitivity);
-        float effectiveDelta = (invertZoom ? -delta : delta) * scale;
+        float effectiveDelta = (invertZoom ? -(float)delta : (float)delta) * scale;
         return ZoomCameraCore(pose, effectiveDelta);
     }
 

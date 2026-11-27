@@ -217,13 +217,17 @@ public partial class EditorPreferencesWindow : Window
 
     private void WireSensitivityPair(EditorNumericUpDown box, EditorValueSlider slider)
     {
-        box.ValueChanged += (_, _) =>
+        void SyncSliderFromBox()
         {
-            if (_syncingSensitivity || !box.IsInputValid || box.Value is not { } value) return;
+            if (_syncingSensitivity || !box.IsInputValid || box.Value is not { } value
+                || value < box.Minimum || value > box.Maximum) return;
             _syncingSensitivity = true;
             try { slider.Number = value; }
             finally { _syncingSensitivity = false; }
-        };
+        }
+
+        box.ValueChanged += (_, _) => SyncSliderFromBox();
+        box.InputValidityChanged += (_, _) => SyncSliderFromBox();
         slider.PropertyChanged += (_, args) =>
         {
             if (_syncingSensitivity || args.Property != EditorValueSlider.NumberProperty || slider.Number is not { } number) return;
@@ -273,7 +277,9 @@ public partial class EditorPreferencesWindow : Window
         SetSensitivity(PreferencesCameraOrbitSensitivityBox, PreferencesCameraOrbitSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
         SetSensitivity(PreferencesCameraPanSensitivityBox, PreferencesCameraPanSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
         SetSensitivity(PreferencesCameraZoomSensitivityBox, PreferencesCameraZoomSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
-        SetValidationMessage("");
+        if (RecoveryIntervalBox.IsInputValid && RecoveryVersionsBox.IsInputValid && RecoveryBudgetBox.IsInputValid
+            && !EditorNumericUpDown.HasInvalidInputs(this))
+            SetValidationMessage("");
     }
 
     private async void AdjustPreviewQuality(object? sender, RoutedEventArgs args)

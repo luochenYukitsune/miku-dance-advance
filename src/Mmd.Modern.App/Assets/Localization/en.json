@@ -1250,8 +1250,6 @@
   "Mda.Text.Preferences.Diagnostics.Stopped": "Recording stopped and ready to export. Starting a new recording will replace the previous one.",
   "Mda.Text.Preferences.Diagnostics.NotStarted": "No recording yet.",
   "Mda.Text.Preferences.CameraMouse.Heading": "Camera Mouse Controls",
-  "Mda.Text.Preferences.CameraMouse.InvertX": "Invert X (left / right)",
-  "Mda.Text.Preferences.CameraMouse.InvertY": "Invert Y (up / down)",
   "Mda.Text.Preferences.CameraMouse.Hint": "Left-drag rotates the view, right- or middle-drag moves (pans) it, and the wheel zooms in or out. Higher sensitivity (0.2×–3.0×, default 1×) moves faster. Applies only to camera controls; dragging bones and lights stays the same. Saved on this computer only, not in the project.",
   "Mda.Text.Preferences.CameraMouse.OrbitSection": "Rotate view (left-drag)",
   "Mda.Text.Preferences.CameraMouse.InvertOrbitX": "Invert left/right rotation",

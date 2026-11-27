@@ -222,6 +222,28 @@ public sealed class CameraMousePreferencesTests : IAsyncDisposable
         Assert.Equal(1.0f, loaded.CameraOrbitSensitivity);
         Assert.Equal(3.0f, loaded.CameraPanSensitivity);
         Assert.Equal(0.2f, loaded.CameraZoomSensitivity);
+
+        File.WriteAllText(path, """
+            {
+              "schemaVersion": 1,
+              "language": "zh-CN",
+              "invertCameraMouseX": null,
+              "invertCameraMouseY": null,
+              "cameraOrbitSensitivity": null,
+              "cameraPanSensitivity": null,
+              "cameraZoomSensitivity": null
+            }
+            """);
+        loaded = EditorPreferences.Load(out diagnostic, path);
+        Assert.Null(diagnostic);
+        Assert.False(loaded.InvertCameraOrbitX);
+        Assert.False(loaded.InvertCameraOrbitY);
+        Assert.False(loaded.InvertCameraPanX);
+        Assert.False(loaded.InvertCameraPanY);
+        Assert.False(loaded.InvertCameraZoom);
+        Assert.Equal(1.0f, loaded.CameraOrbitSensitivity);
+        Assert.Equal(1.0f, loaded.CameraPanSensitivity);
+        Assert.Equal(1.0f, loaded.CameraZoomSensitivity);
     }
 
     [Theory]
@@ -430,6 +452,29 @@ public sealed class CameraMousePreferencesTests : IAsyncDisposable
             Assert.False(result.IsCompleted);
             Assert.True(validation.IsVisible);
 
+            // Recovering from invalid/empty/partial keyboard input keeps slider synchronized.
+            orbitNum.Text = "1.5";
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(orbitNum.IsInputValid);
+            Assert.Equal(1.5m, orbitSlider.Number);
+
+            orbitNum.Text = "";
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(orbitNum.IsInputValid);
+            orbitNum.Text = "0.";
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(orbitNum.IsInputValid);
+            orbitNum.Text = "0.5";
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(orbitNum.IsInputValid);
+            Assert.Equal(0.5m, orbitSlider.Number);
+
+            // Restore invalid input to verify one-click reset also clears invalid mouse input
+            // while leaving unrelated invalid inputs (e.g. on another tab) preserved.
+            orbitNum.Text = "9.5";
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(orbitNum.IsInputValid);
+
             // One-click reset restores defaults in the draft (including clearing invalid text) without mutating _source.
             resetButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
@@ -474,10 +519,17 @@ public sealed class CameraMousePreferencesTests : IAsyncDisposable
             Assert.Equal(1.25f, applied.CameraZoomSensitivity);
             Assert.True(source.InvertCameraOrbitX);
 
-            // Cancel after clicking reset still preserves source.
+            // Cancel after clicking reset still preserves source; reset does not clear unrelated tab validation errors.
             var cancelled = new EditorPreferencesWindow(source);
             var cancelledResult = cancelled.ShowDialog<EditorPreferences?>(owner);
+            var recoveryInterval = cancelled.FindControl<EditorNumericUpDown>("RecoveryIntervalBox")!;
+            recoveryInterval.Text = "999";
+            cancelled.FindControl<Button>("ApplyPreferencesButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(cancelled.FindControl<TextBlock>("PreferencesValidationMessage")!.IsVisible);
             cancelled.FindControl<Button>("PreferencesResetCameraMouseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(cancelled.FindControl<TextBlock>("PreferencesValidationMessage")!.IsVisible);
             cancelled.Close(null);
             Dispatcher.UIThread.RunJobs();
             Assert.True(cancelledResult.IsCompletedSuccessfully);

@@ -1250,8 +1250,6 @@
   "Mda.Text.Preferences.Diagnostics.Stopped": "已停止记录，现在可以导出报告。开始新记录会覆盖上一次的记录。",
   "Mda.Text.Preferences.Diagnostics.NotStarted": "尚未开始记录。",
   "Mda.Text.Preferences.CameraMouse.Heading": "相机鼠标操作",
-  "Mda.Text.Preferences.CameraMouse.InvertX": "反转 X（左右）",
-  "Mda.Text.Preferences.CameraMouse.InvertY": "反转 Y（上下）",
   "Mda.Text.Preferences.CameraMouse.Hint": "左键拖动旋转视角，右键或中键拖动平移画面，滚轮拉近或推远。灵敏度（0.2–3.0×，默认 1×）越高移动越快；反转与灵敏度仅作用于相机，不影响骨骼和灯光拖动。仅保存在本机，不写入工程。",
   "Mda.Text.Preferences.CameraMouse.OrbitSection": "旋转视角（左键拖动）",
   "Mda.Text.Preferences.CameraMouse.InvertOrbitX": "反转左右旋转",
