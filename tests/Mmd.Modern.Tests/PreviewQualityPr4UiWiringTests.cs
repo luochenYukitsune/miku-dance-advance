@@ -525,7 +525,7 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
                     Assert.All(vm.AntialiasingModes, item => Assert.DoesNotContain("Mda.Text.", item));
                     Assert.All(vm.ShadowFilterChoices, item => Assert.DoesNotContain("Mda.Text.", item));
                     Assert.All(vm.PipelineModeChoices, item => Assert.DoesNotContain("Mda.Text.", item));
-                    Assert.DoesNotContain("Bounces", ptVm.OverviewConfigurationSummary, StringComparison.Ordinal);
+                    Assert.Contains(EditorLocalization.Format("Mda.Text.Preview.OverviewPtBounces", 5), ptVm.OverviewConfigurationSummary, StringComparison.Ordinal);
                 }
             }
             finally { EditorLocalization.SetLanguage(langBefore); }
