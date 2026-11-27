@@ -320,7 +320,7 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
 
         // Empty scene (Indices.Length == 0) must match off-screen geometry miss pixel resolved by PSResolve in Physical mode.
         var camera = baseScene.Surface.Snapshot.Camera;
-        var emptySnapshot = new SceneSnapshot([], [], [], camera: camera);
+        var emptySnapshot = SceneSnapshot.CreateEmpty(camera: camera);
         var emptyFrame = new OriginalFrameScene(
             new OriginalStyleScene(emptySnapshot, [], OriginalStyleProfile.SelectedReference),
             options: ptFrame.Options);
