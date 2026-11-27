@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Input;
@@ -5,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.Application;
 using System.Globalization;
 using static Mmd.Modern.App.EditorLocalization;
@@ -18,6 +20,7 @@ public partial class EditorPreferencesWindow : Window
     private readonly EditorPreferences _source;
     private bool _browsing;
     private bool _qualityOpen;
+    private bool _syncingSensitivity;
     private string _validationSource = "";
     private Exception? _validationError;
     private bool _diagnosticsBusy;
@@ -45,8 +48,17 @@ public partial class EditorPreferencesWindow : Window
         PreferencesLanguageBox.SelectedIndex = Array.IndexOf(Languages, _source.Language);
         PreferencesWorldGuidesBox.IsChecked = _source.ShowWorldGuides;
         PreferencesAutoCheckUpdatesBox.IsChecked = _source.AutoCheckUpdates;
-        PreferencesInvertCameraMouseXBox.IsChecked = _source.InvertCameraMouseX;
-        PreferencesInvertCameraMouseYBox.IsChecked = _source.InvertCameraMouseY;
+        PreferencesInvertCameraOrbitXBox.IsChecked = _source.InvertCameraOrbitX;
+        PreferencesInvertCameraOrbitYBox.IsChecked = _source.InvertCameraOrbitY;
+        PreferencesInvertCameraPanXBox.IsChecked = _source.InvertCameraPanX;
+        PreferencesInvertCameraPanYBox.IsChecked = _source.InvertCameraPanY;
+        PreferencesInvertCameraZoomBox.IsChecked = _source.InvertCameraZoom;
+        WireSensitivityPair(PreferencesCameraOrbitSensitivityBox, PreferencesCameraOrbitSensitivitySlider);
+        WireSensitivityPair(PreferencesCameraPanSensitivityBox, PreferencesCameraPanSensitivitySlider);
+        WireSensitivityPair(PreferencesCameraZoomSensitivityBox, PreferencesCameraZoomSensitivitySlider);
+        SetSensitivity(PreferencesCameraOrbitSensitivityBox, PreferencesCameraOrbitSensitivitySlider, _source.CameraOrbitSensitivity);
+        SetSensitivity(PreferencesCameraPanSensitivityBox, PreferencesCameraPanSensitivitySlider, _source.CameraPanSensitivity);
+        SetSensitivity(PreferencesCameraZoomSensitivityBox, PreferencesCameraZoomSensitivitySlider, _source.CameraZoomSensitivity);
         PreferencesFfmpegBox.Text = _source.FfmpegPath;
         PreferencesFfprobeBox.Text = _source.FfprobePath;
         SetBudget(PreferencesPmxBudgetBox, _source.PmxMaxBytes, wholeGibibytes: true);
@@ -155,6 +167,7 @@ public partial class EditorPreferencesWindow : Window
         bool available = !_diagnosticsBusy && !_browsing && !_qualityOpen;
         ApplyPreferencesButton.IsEnabled = available;
         PreferencesQualityButton.IsEnabled = available && OpenPreviewQualityAsync is not null;
+        PreferencesResetCameraMouseButton.IsEnabled = available;
         PreferencesFfmpegBrowse.IsEnabled = available;
         PreferencesFfprobeBrowse.IsEnabled = available;
         RecoveryDirectoryBrowse.IsEnabled = available;
@@ -175,9 +188,98 @@ public partial class EditorPreferencesWindow : Window
     private void RefreshCameraMousePreferences()
     {
         PreferencesCameraMouseHeading.Text = Text("Mda.Text.Preferences.CameraMouse.Heading");
-        PreferencesInvertCameraMouseXBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertX");
-        PreferencesInvertCameraMouseYBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertY");
+        PreferencesResetCameraMouseButton.Content = Text("Mda.Text.Preferences.CameraMouse.ResetDefaults");
+        PreferencesCameraOrbitHeading.Text = Text("Mda.Text.Preferences.CameraMouse.OrbitSection");
+        PreferencesInvertCameraOrbitXBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertOrbitX");
+        PreferencesInvertCameraOrbitYBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertOrbitY");
+        string orbitSensitivityLabel = Text("Mda.Text.Preferences.CameraMouse.OrbitSensitivity");
+        PreferencesCameraOrbitSensitivityLabel.Text = orbitSensitivityLabel;
+        AutomationProperties.SetName(PreferencesCameraOrbitSensitivityBox, orbitSensitivityLabel);
+        AutomationProperties.SetName(PreferencesCameraOrbitSensitivitySlider, orbitSensitivityLabel);
+
+        PreferencesCameraPanHeading.Text = Text("Mda.Text.Preferences.CameraMouse.PanSection");
+        PreferencesInvertCameraPanXBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertPanX");
+        PreferencesInvertCameraPanYBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertPanY");
+        string panSensitivityLabel = Text("Mda.Text.Preferences.CameraMouse.PanSensitivity");
+        PreferencesCameraPanSensitivityLabel.Text = panSensitivityLabel;
+        AutomationProperties.SetName(PreferencesCameraPanSensitivityBox, panSensitivityLabel);
+        AutomationProperties.SetName(PreferencesCameraPanSensitivitySlider, panSensitivityLabel);
+
+        PreferencesCameraZoomHeading.Text = Text("Mda.Text.Preferences.CameraMouse.ZoomSection");
+        PreferencesInvertCameraZoomBox.Content = Text("Mda.Text.Preferences.CameraMouse.InvertZoom");
+        string zoomSensitivityLabel = Text("Mda.Text.Preferences.CameraMouse.ZoomSensitivity");
+        PreferencesCameraZoomSensitivityLabel.Text = zoomSensitivityLabel;
+        AutomationProperties.SetName(PreferencesCameraZoomSensitivityBox, zoomSensitivityLabel);
+        AutomationProperties.SetName(PreferencesCameraZoomSensitivitySlider, zoomSensitivityLabel);
+
         PreferencesCameraMouseHint.Text = Text("Mda.Text.Preferences.CameraMouse.Hint");
+    }
+
+    private void WireSensitivityPair(EditorNumericUpDown box, EditorValueSlider slider)
+    {
+        void SyncSliderFromBox()
+        {
+            if (_syncingSensitivity || !box.IsInputValid || box.Value is not { } value
+                || value < box.Minimum || value > box.Maximum) return;
+            _syncingSensitivity = true;
+            try { slider.Number = value; }
+            finally { _syncingSensitivity = false; }
+        }
+
+        box.ValueChanged += (_, _) => SyncSliderFromBox();
+        box.InputValidityChanged += (_, _) => SyncSliderFromBox();
+        slider.PropertyChanged += (_, args) =>
+        {
+            if (_syncingSensitivity || args.Property != EditorValueSlider.NumberProperty || slider.Number is not { } number) return;
+            _syncingSensitivity = true;
+            try
+            {
+                decimal clamped = Math.Clamp(number, box.Minimum, box.Maximum);
+                box.Value = clamped;
+                if (!box.IsInputValid)
+                    box.Text = clamped.ToString(box.FormatString, box.NumberFormat);
+            }
+            finally { _syncingSensitivity = false; }
+        };
+    }
+
+    private void SetSensitivity(EditorNumericUpDown box, EditorValueSlider slider, float value)
+    {
+        _syncingSensitivity = true;
+        try
+        {
+            decimal clamped = Math.Clamp((decimal)EditorPreferences.NormalizeCameraSensitivity(value), box.Minimum, box.Maximum);
+            box.Value = clamped;
+            if (!box.IsInputValid)
+                box.Text = clamped.ToString(box.FormatString, box.NumberFormat);
+            slider.Number = clamped;
+        }
+        finally { _syncingSensitivity = false; }
+    }
+
+    private static float ReadSensitivity(EditorNumericUpDown control, string labelKey)
+    {
+        if (control.Value is not { } value
+            || value < (decimal)EditorPreferences.MinCameraSensitivity
+            || value > (decimal)EditorPreferences.MaxCameraSensitivity)
+            throw Error("Mda.Text.Preferences.CameraMouse.InvalidSensitivity", Label(labelKey));
+        return (float)value;
+    }
+
+    private void ResetCameraMouseDefaults(object? sender, RoutedEventArgs args)
+    {
+        if (_browsing || _qualityOpen || _diagnosticsBusy) return;
+        PreferencesInvertCameraOrbitXBox.IsChecked = false;
+        PreferencesInvertCameraOrbitYBox.IsChecked = false;
+        PreferencesInvertCameraPanXBox.IsChecked = false;
+        PreferencesInvertCameraPanYBox.IsChecked = false;
+        PreferencesInvertCameraZoomBox.IsChecked = false;
+        SetSensitivity(PreferencesCameraOrbitSensitivityBox, PreferencesCameraOrbitSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
+        SetSensitivity(PreferencesCameraPanSensitivityBox, PreferencesCameraPanSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
+        SetSensitivity(PreferencesCameraZoomSensitivityBox, PreferencesCameraZoomSensitivitySlider, EditorPreferences.DefaultCameraSensitivity);
+        if (RecoveryIntervalBox.IsInputValid && RecoveryVersionsBox.IsInputValid && RecoveryBudgetBox.IsInputValid
+            && !EditorNumericUpDown.HasInvalidInputs(this))
+            SetValidationMessage("");
     }
 
     private async void AdjustPreviewQuality(object? sender, RoutedEventArgs args)
@@ -273,6 +375,9 @@ public partial class EditorPreferencesWindow : Window
     {
         if (_browsing || _qualityOpen || _diagnosticsBusy) return;
         if (!RecoveryIntervalBox.IsInputValid || !RecoveryVersionsBox.IsInputValid || !RecoveryBudgetBox.IsInputValid
+            || !PreferencesCameraOrbitSensitivityBox.IsInputValid
+            || !PreferencesCameraPanSensitivityBox.IsInputValid
+            || !PreferencesCameraZoomSensitivityBox.IsInputValid
             || this.GetVisualDescendants().OfType<Control>().Any(control =>
             control.IsEffectivelyEnabled && DataValidationErrors.GetHasErrors(control)))
         { SetValidationMessage("请先修正标出的输入值，再应用设置。"); return; }
@@ -286,8 +391,14 @@ public partial class EditorPreferencesWindow : Window
                 Language = Languages[PreferencesLanguageBox.SelectedIndex],
                 ShowWorldGuides = PreferencesWorldGuidesBox.IsChecked == true,
                 AutoCheckUpdates = PreferencesAutoCheckUpdatesBox.IsChecked == true,
-                InvertCameraMouseX = PreferencesInvertCameraMouseXBox.IsChecked == true,
-                InvertCameraMouseY = PreferencesInvertCameraMouseYBox.IsChecked == true,
+                InvertCameraOrbitX = PreferencesInvertCameraOrbitXBox.IsChecked == true,
+                InvertCameraOrbitY = PreferencesInvertCameraOrbitYBox.IsChecked == true,
+                InvertCameraPanX = PreferencesInvertCameraPanXBox.IsChecked == true,
+                InvertCameraPanY = PreferencesInvertCameraPanYBox.IsChecked == true,
+                InvertCameraZoom = PreferencesInvertCameraZoomBox.IsChecked == true,
+                CameraOrbitSensitivity = ReadSensitivity(PreferencesCameraOrbitSensitivityBox, "Mda.Text.Preferences.CameraMouse.OrbitSensitivity"),
+                CameraPanSensitivity = ReadSensitivity(PreferencesCameraPanSensitivityBox, "Mda.Text.Preferences.CameraMouse.PanSensitivity"),
+                CameraZoomSensitivity = ReadSensitivity(PreferencesCameraZoomSensitivityBox, "Mda.Text.Preferences.CameraMouse.ZoomSensitivity"),
                 FfmpegPath = (PreferencesFfmpegBox.Text ?? "").Trim(),
                 FfprobePath = (PreferencesFfprobeBox.Text ?? "").Trim(),
                 PmxMaxBytes = ReadBudget(PreferencesPmxBudgetBox, "PMX 上限"),

@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T17:24:37.6792634Z",
+    "generatedAtUtc":  "2026-11-27T19:51:54.6637973Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -2933,8 +2933,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  25249,
-                      "sha256":  "aed4cea8f653a96ab087e34f88e30b0b1ef1c59645d28cbd43d160a79f81ed41",
+                      "bytes":  31925,
+                      "sha256":  "12ae0f7a41683b0f7904e3e89126a30abea1eb20bed55416df84e087a8e275e0",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2946,8 +2946,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  20905,
-                      "sha256":  "7567f0b5dd57c391484366e9bf2718f6bf1c24e6d30d060899b96e538b6a6697",
+                      "bytes":  27934,
+                      "sha256":  "b0f0a0c66809754c6e10e196b3b4e12240950a65c1bb364c802a920133e51bd9",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3609,8 +3609,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  73981,
-                      "sha256":  "d591d8fd6ca13e05f86cecbb7db9574935ab666b46440aa57195427c2bd907b9",
+                      "bytes":  76773,
+                      "sha256":  "f0d4831f22640b9b1e2273f95bdc54a93104ff1f89a211ed9534f420b5167d56",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3713,8 +3713,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  47324,
-                      "sha256":  "5f6e7fac88c200489d4b3d5f6af3a971aa4de31729bd63bb905c03e2a8bdb6c8",
+                      "bytes":  47750,
+                      "sha256":  "5ae04ca74e812868eb3ca64c00394c686a1f03e5949cedba19684fdf6b4742d9",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -14422,8 +14422,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5191,
-                      "sha256":  "3a6f405f3a18ed286afc77dccd17226b3a5fe6237875400b125ba6967292cedc",
+                      "bytes":  31114,
+                      "sha256":  "47cee8ec46a8ac9ed5937425b20fb68b0f47857e3754818bf081d790a8c6b01e",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -24580,16 +24580,16 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  173649,
-                                "sha256":  "3d66245c5b53ce466615b99f16a6381702c636e38ad9a15efe8b533ab53edb71"
+                                "bytes":  174661,
+                                "sha256":  "439ff7ed7495f79244df4a4f038292045c88b450a28d6e034c88e3c80723a4ba"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/ja.json",
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  217260,
-                                "sha256":  "d185c2b1e15150edd52f5a454aab4d390527bb95a485d49cf7796950b57cb014"
+                                "bytes":  218412,
+                                "sha256":  "4be8f861c0dfa22f5ef97b1c6f6229936e1b41d543446d640e50ad36ab2792a8"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/Assets/Localization/manifest.json",
@@ -24612,8 +24612,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  169574,
-                                "sha256":  "99fe0838a9fddac08b84014f134b6401d4c1be8f5338ca21bcab77726c2e310a"
+                                "bytes":  170564,
+                                "sha256":  "3fc1ff0128f4283d0246cd4878d0bd64f32e9e100bd1165a3df1990b31c22c53"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorAboutWindow.axaml",
@@ -24716,8 +24716,8 @@
                                 "project":  "Mmd.Modern.App",
                                 "role":  "product-support",
                                 "productModule":  "GUI",
-                                "bytes":  41512,
-                                "sha256":  "34a687536773fa7358693ec63b3d6f1048d6065b65be776fe3dae353a037ad0e"
+                                "bytes":  44946,
+                                "sha256":  "fca05cfa8b17f6e62a525a16e63a29ee4140c2cee748d627051fd885ae774b4d"
                             },
                             {
                                 "path":  "src/Mmd.Modern.App/EditorPreviewSettingsWindow.axaml",
