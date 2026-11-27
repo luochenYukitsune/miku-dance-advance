@@ -44,6 +44,24 @@ public sealed class D3D12Pr2ShaderCompileTests
         Assert.NotEmpty(OriginalFrameShaders.CompilePcfShadow("PSSurfaceGiNative", true, true, true, true, true, true));
 
         var hostModule = D3D12StyleShaderAssembler.DefaultStylizedHostModule;
+        const string pcfAnchorSample = """
+            struct Input { float4 Position : SV_Position; };
+            void f() {
+                precise float delta=max(q.z-ShadowMap.Sample(ShadowSampler,uv),0);
+                precise float weighted=delta*(ShadowOptions.y>0?8000:1500);
+                if(ShadowOptions.y>0) weighted=weighted*uv.y;
+                precise float visibility=1-saturate(weighted-.3);
+            }
+            """;
+        string pcfOriginalSource = OriginalPcfShadowShader.Apply(pcfAnchorSample);
+        Assert.Contains("maxSlopeBias=min(max(radius.x,radius.y)*2.5,0.15);", pcfOriginalSource, StringComparison.Ordinal);
+        Assert.Contains("saturate(receiverDepth+clamp(dot(receiverGrad,suv-uv),-maxSlopeBias,maxSlopeBias))", pcfOriginalSource, StringComparison.Ordinal);
+        string assembledStyleSource = D3D12StyleShaderAssembler.AssemblePixelSource(
+            "PSSurface", hostModule, hostModule.EffectiveHooks,
+            D3D12StyleGeometryRequirements.None, false, false, true, false, true, false);
+        Assert.Contains("maxSlopeBias = min(max(radius.x, radius.y) * 2.5, 0.15);", assembledStyleSource, StringComparison.Ordinal);
+        Assert.Contains("saturate(receiverDepth + clamp(dot(receiverGrad, suv - uv), -maxSlopeBias, maxSlopeBias))", assembledStyleSource, StringComparison.Ordinal);
+
         foreach (string entry in new[] { "PSSurface", "PSSurfaceGi", "PSSurfaceNative", "PSSurfaceGiNative" })
         {
             bool gi = entry.Contains("Gi", StringComparison.Ordinal);

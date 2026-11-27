@@ -188,11 +188,15 @@ public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
         Assert.True(CountIntermediateGrayPixels(fxaa.Rgba) > CountIntermediateGrayPixels(off.Rgba));
     }
 
-    [Fact]
-    public void PcfSoftShadowDoesNotSelfShadowUnoccludedSlopedSurface()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PcfSoftShadowDoesNotSelfShadowUnoccludedSlopedSurface(bool useStylizedPipeline)
     {
         using var session = new D3D12FrameSession();
-        // Single unoccluded sloped plane casting and receiving self-shadow (no occluder in front).
+        // Single unoccluded sloped plane casting and receiving self-shadow (no occluder in front)
+        // at 128x128 shadow map with max ShadowSoftness = 4.0f (radius ~ 0.047 UV) where a fixed ±0.02
+        // clamp would clip valid slope depth offsets and cause false self-shadowing.
         SceneVertex[] vertices =
         [
             new(new(-2f, -2f, -0.8f), Vector3.Normalize(new(0.5f, 0.2f, -1f)), Vector2.Zero),
@@ -203,13 +207,16 @@ public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
         uint[] indices = [0, 1, 2, 0, 2, 3];
         var lightDir = Vector3.Normalize(new(0.6f, 0.3f, -1f));
         var snapshot = new SceneSnapshot(vertices, indices,
-            [new("slope", 0, 6, Vector4.One, Vector3.Zero, Vector3.One, 1)],
+            [new("slope", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1)],
             camera: new(new(0f, 0f, -5f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 40f),
             lightDirection: lightDir);
         var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+        var surfaceStyles = useStylizedPipeline
+            ? new D3D12SurfaceStyleMap(["genshin"], null, TestStylePlugins.AllPresetCatalog)
+            : null;
         OriginalFrameScene Build(ShadowFilterMode mode, float softness)
         {
-            var shadow = new OriginalSelfShadowOptions(shadowVp, 256, 256, true, false,
+            var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, true, false,
                 OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
             { FilterMode = mode, ShadowSoftness = softness };
             return new(new(snapshot, [new(new Vector3(0.2f), DoubleSided: true)]),
@@ -218,8 +225,8 @@ public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
                 materials: [new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false)]);
         }
 
-        var linear = session.Capture(Build(ShadowFilterMode.Linear, 1.0f), 96, 96);
-        var pcf = session.Capture(Build(ShadowFilterMode.PcfSoft, 3.0f), 96, 96);
+        var linear = session.Capture(Build(ShadowFilterMode.Linear, 1.0f), 96, 96, surfaceStyles: surfaceStyles);
+        var pcf = session.Capture(Build(ShadowFilterMode.PcfSoft, 4.0f), 96, 96, surfaceStyles: surfaceStyles);
 
         // Interior pixels of the unoccluded sloped quad must stay unshadowed under PcfSoft (no slope acne).
         int darkAcnePixels = 0;
@@ -227,10 +234,91 @@ public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
             for (int x = 24; x < 72; x++)
             {
                 int idx = (y * 96 + x) * 4;
-                if (linear.Rgba[idx] >= 200 && pcf.Rgba[idx] + 8 < linear.Rgba[idx])
+                if (linear.Rgba[idx] >= 180 && pcf.Rgba[idx] + 8 < linear.Rgba[idx])
                     darkAcnePixels++;
             }
         Assert.Equal(0, darkAcnePixels);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PcfSoftShadowBoundsExtremeSilhouetteGradientAndPreservesShadowContract(bool useStylizedPipeline)
+    {
+        using var session = new D3D12FrameSession();
+        // Flat receiver with an extreme grazing silhouette fin standing on one side (huge ddx/ddy gradient)
+        // plus an elevated occluder casting a real shadow onto the receiver center.
+        SceneVertex[] vertices =
+        [
+            // Receiver quad at z = 0
+            new(new(-2.2f, -2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2.2f, -2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2.2f, 2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-2.2f, 2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            // Nearly edge-on grazing fin on the right side (extreme light-space depth gradient)
+            new(new(0.85f, -1.2f, -1.4f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.95f, -1.2f, 0.0f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.95f, 1.2f, 0.0f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.85f, 1.2f, -1.4f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            // Elevated occluder casting a solid umbra onto the receiver center-left
+            new(new(-1.1f, -0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.1f, -0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.1f, 0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-1.1f, 0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11];
+        var lightDir = Vector3.Normalize(new(0.25f, 0.15f, -1f));
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [
+                new("receiver", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+                new("grazing-fin", 6, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+                new("occluder", 12, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+            ],
+            camera: new(new(0.15f, 0.05f, -5.2f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 42f),
+            lightDirection: lightDir);
+        var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+        var surfaceStyles = useStylizedPipeline
+            ? new D3D12SurfaceStyleMap(["genshin", "genshin", "genshin"], null, TestStylePlugins.AllPresetCatalog)
+            : null;
+
+        OriginalFrameScene Build(ShadowFilterMode mode, float softness)
+        {
+            var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, true, false,
+                OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
+            { FilterMode = mode, ShadowSoftness = softness };
+            var style = new OriginalStyleScene(snapshot,
+            [
+                new(new Vector3(0.2f), DoubleSided: true),
+                new(new Vector3(0.2f), DoubleSided: true),
+                new(new Vector3(0.2f), DoubleSided: true),
+            ]);
+            return new(style,
+                options: new(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: shadow)
+                { ShadowFilter = mode, ShadowSoftness = softness },
+                materials:
+                [
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false),
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false),
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: false, CastGroundShadow: false),
+                ]);
+        }
+
+        var linear = session.Capture(Build(ShadowFilterMode.Linear, 1.0f), 96, 96, surfaceStyles: surfaceStyles);
+        var pcf = session.Capture(Build(ShadowFilterMode.PcfSoft, 4.0f), 96, 96, surfaceStyles: surfaceStyles);
+
+        // Real cast shadow must remain shadowed (bounded slope bias never punches bright holes in umbra),
+        // and PcfSoft must visibly soften the shadow boundary relative to Linear.
+        Assert.NotEqual(linear.Rgba, pcf.Rgba);
+        int linearShadowed = 0, pcfShadowed = 0;
+        for (int y = 16; y < 80; y++)
+            for (int x = 16; x < 80; x++)
+            {
+                int idx = (y * 96 + x) * 4;
+                if (linear.Rgba[idx] < 120) linearShadowed++;
+                if (pcf.Rgba[idx] < 120) pcfShadowed++;
+            }
+        Assert.True(linearShadowed >= 40, $"Expected baseline cast shadow pixels, got {linearShadowed}.");
+        Assert.True(pcfShadowed >= linearShadowed / 2, $"Expected bounded PCF to retain cast shadow umbra (linear={linearShadowed}, pcf={pcfShadowed}).");
     }
 
     [Fact]

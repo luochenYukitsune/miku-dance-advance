@@ -25,6 +25,7 @@ internal static partial class OriginalPcfShadowShader
             }
             uint sw,sh; ShadowMap.GetDimensions(sw,sh);
             float2 radius=ShadowOptions.x*1.5/max(float2(sw,sh),float2(1,1));
+            float maxSlopeBias=min(max(radius.x,radius.y)*2.5,0.15);
             float angle=frac(52.9829189*frac(dot(screenPos,float2(0.06711056,0.00583715))))*6.2831853;
             float s=sin(angle), cRot=cos(angle);
             static const float2 kPcf[12]={
@@ -39,7 +40,7 @@ internal static partial class OriginalPcfShadowShader
             [unroll] for(int t=0;t<12;t++) {
                 float2 r=float2(kPcf[t].x*cRot-kPcf[t].y*s, kPcf[t].x*s+kPcf[t].y*cRot);
                 float2 suv=saturate(uv+r*radius);
-                float expectedDepth=saturate(receiverDepth+clamp(dot(receiverGrad,suv-uv),-0.02,0.02));
+                float expectedDepth=saturate(receiverDepth+clamp(dot(receiverGrad,suv-uv),-maxSlopeBias,maxSlopeBias));
                 float sd=ShadowMap.SampleLevel(ShadowSampler,suv,0);
                 float d=max(expectedDepth-sd,0);
                 float w=d*(ShadowOptions.y>0?8000:1500);
