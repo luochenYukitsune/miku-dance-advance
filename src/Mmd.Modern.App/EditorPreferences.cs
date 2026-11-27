@@ -14,6 +14,9 @@ public sealed record EditorPreferences
 {
     public const long Gibibyte = 1024L * 1024 * 1024;
     public const int CurrentSchemaVersion = 1;
+    public const float MinCameraSensitivity = 0.2f;
+    public const float MaxCameraSensitivity = 3.0f;
+    public const float DefaultCameraSensitivity = 1.0f;
     private const int MaximumFileBytes = 512 * 1024;
     private static readonly object StorageGate = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -27,12 +30,56 @@ public sealed record EditorPreferences
         MaxDepth = 16
     };
 
+    private readonly float _cameraOrbitSensitivity = DefaultCameraSensitivity;
+    private readonly float _cameraPanSensitivity = DefaultCameraSensitivity;
+    private readonly float _cameraZoomSensitivity = DefaultCameraSensitivity;
+
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public int ThemeIndex { get; init; }
     public bool ShowWorldGuides { get; init; } = true;
     public bool AutoCheckUpdates { get; init; } = true;
-    public bool InvertCameraMouseX { get; init; }
-    public bool InvertCameraMouseY { get; init; }
+    public bool InvertCameraOrbitX { get; init; }
+    public bool InvertCameraOrbitY { get; init; }
+    public bool InvertCameraPanX { get; init; }
+    public bool InvertCameraPanY { get; init; }
+    public bool InvertCameraZoom { get; init; }
+
+    public float CameraOrbitSensitivity
+    {
+        get => _cameraOrbitSensitivity;
+        init => _cameraOrbitSensitivity = NormalizeCameraSensitivity(value);
+    }
+
+    public float CameraPanSensitivity
+    {
+        get => _cameraPanSensitivity;
+        init => _cameraPanSensitivity = NormalizeCameraSensitivity(value);
+    }
+
+    public float CameraZoomSensitivity
+    {
+        get => _cameraZoomSensitivity;
+        init => _cameraZoomSensitivity = NormalizeCameraSensitivity(value);
+    }
+
+    /// <summary>Legacy combined horizontal axis flag retained for backwards-compatible callers and migration tests.</summary>
+    [JsonIgnore]
+    public bool InvertCameraMouseX
+    {
+        get => InvertCameraOrbitX && InvertCameraPanX;
+        init { InvertCameraOrbitX = value; InvertCameraPanX = value; }
+    }
+
+    /// <summary>Legacy combined vertical axis flag retained for backwards-compatible callers and migration tests.</summary>
+    [JsonIgnore]
+    public bool InvertCameraMouseY
+    {
+        get => InvertCameraOrbitY && InvertCameraPanY;
+        init { InvertCameraOrbitY = value; InvertCameraPanY = value; }
+    }
+
+    public static float NormalizeCameraSensitivity(float value) =>
+        float.IsFinite(value) ? Math.Clamp(value, MinCameraSensitivity, MaxCameraSensitivity) : DefaultCameraSensitivity;
     public string Language { get; init; } = "zh-CN";
     public string FfmpegPath { get; init; } = "";
     public string FfprobePath { get; init; } = "";
@@ -237,6 +284,15 @@ public sealed record EditorPreferences
         if (SchemaVersion != CurrentSchemaVersion) throw new NotSupportedException(EditorLocalization.Text("编辑器设置版本不受支持。"));
         if (ThemeIndex is < 0 or > 1) throw new ArgumentException(EditorLocalization.Text("请选择黑色或白色主题。"));
         if (Language is not ("zh-CN" or "en" or "ja")) throw new ArgumentException(EditorLocalization.Text("请选择简体中文、English 或日本語。"));
+        if (!float.IsFinite(CameraOrbitSensitivity) || CameraOrbitSensitivity is < MinCameraSensitivity or > MaxCameraSensitivity)
+            throw EditorLocalization.Error("Mda.Text.Preferences.CameraMouse.InvalidSensitivity",
+                EditorLocalization.Label("Mda.Text.Preferences.CameraMouse.OrbitSensitivity"));
+        if (!float.IsFinite(CameraPanSensitivity) || CameraPanSensitivity is < MinCameraSensitivity or > MaxCameraSensitivity)
+            throw EditorLocalization.Error("Mda.Text.Preferences.CameraMouse.InvalidSensitivity",
+                EditorLocalization.Label("Mda.Text.Preferences.CameraMouse.PanSensitivity"));
+        if (!float.IsFinite(CameraZoomSensitivity) || CameraZoomSensitivity is < MinCameraSensitivity or > MaxCameraSensitivity)
+            throw EditorLocalization.Error("Mda.Text.Preferences.CameraMouse.InvalidSensitivity",
+                EditorLocalization.Label("Mda.Text.Preferences.CameraMouse.ZoomSensitivity"));
         ValidateExecutable(FfmpegPath, "FFmpeg", requireExecutableFiles);
         ValidateExecutable(FfprobePath, "ffprobe", requireExecutableFiles);
         if (PmxMaxBytes < 1 || PmaPackageMaxBytes < 1 || PmaExpandedMaxBytes < 1 || PmaEntryMaxBytes < 1)
@@ -259,8 +315,7 @@ public sealed record EditorPreferences
     internal static EditorPreferences LoadForMigration(string path, string sourceDefaultRecoveryDirectory)
     {
         byte[] bytes = ReadBounded(path) ?? throw new FileNotFoundException("Preferences disappeared during migration.", path);
-        var preferences = JsonSerializer.Deserialize<EditorPreferences>(bytes, JsonOptions)
-            ?? throw new InvalidDataException(EditorLocalization.Text("设置文件内容为空。"));
+        var preferences = DeserializeFromStorage(bytes);
         using var json = JsonDocument.Parse(bytes);
         if (!json.RootElement.TryGetProperty("recoveryDirectory", out _))
             preferences = preferences with { RecoveryDirectory = sourceDefaultRecoveryDirectory };
@@ -282,8 +337,7 @@ public sealed record EditorPreferences
         {
             byte[]? bytes = ReadBounded(path ?? DefaultPath);
             if (bytes is null) return new();
-            var preferences = JsonSerializer.Deserialize<EditorPreferences>(bytes, JsonOptions)
-                ?? throw new InvalidDataException(EditorLocalization.Text("设置文件内容为空。"));
+            var preferences = DeserializeFromStorage(bytes);
             preferences.Validate();
             return preferences;
         }
@@ -292,6 +346,42 @@ public sealed record EditorPreferences
             diagnostic = EditorLocalization.Text("无法读取编辑器设置，已使用默认设置；原文件未改动。") + error.Message;
             return new();
         }
+    }
+
+    private static EditorPreferences DeserializeFromStorage(byte[] bytes)
+    {
+        var snapshot = JsonSerializer.Deserialize<LocalPreferencesSnapshot>(bytes, JsonOptions)
+            ?? throw new InvalidDataException(EditorLocalization.Text("设置文件内容为空。"));
+        bool legacyX = snapshot.InvertCameraMouseX ?? false;
+        bool legacyY = snapshot.InvertCameraMouseY ?? false;
+        return new EditorPreferences
+        {
+            SchemaVersion = snapshot.SchemaVersion,
+            ThemeIndex = snapshot.ThemeIndex,
+            ShowWorldGuides = snapshot.ShowWorldGuides,
+            AutoCheckUpdates = snapshot.AutoCheckUpdates,
+            InvertCameraOrbitX = snapshot.InvertCameraOrbitX ?? legacyX,
+            InvertCameraOrbitY = snapshot.InvertCameraOrbitY ?? legacyY,
+            InvertCameraPanX = snapshot.InvertCameraPanX ?? legacyX,
+            InvertCameraPanY = snapshot.InvertCameraPanY ?? legacyY,
+            InvertCameraZoom = snapshot.InvertCameraZoom ?? false,
+            CameraOrbitSensitivity = NormalizeCameraSensitivity(snapshot.CameraOrbitSensitivity ?? DefaultCameraSensitivity),
+            CameraPanSensitivity = NormalizeCameraSensitivity(snapshot.CameraPanSensitivity ?? DefaultCameraSensitivity),
+            CameraZoomSensitivity = NormalizeCameraSensitivity(snapshot.CameraZoomSensitivity ?? DefaultCameraSensitivity),
+            Language = snapshot.Language,
+            FfmpegPath = snapshot.FfmpegPath,
+            FfprobePath = snapshot.FfprobePath,
+            PmxMaxBytes = snapshot.PmxMaxBytes,
+            PmaPackageMaxBytes = snapshot.PmaPackageMaxBytes,
+            PmaExpandedMaxBytes = snapshot.PmaExpandedMaxBytes,
+            PmaEntryMaxBytes = snapshot.PmaEntryMaxBytes,
+            AutoSaveEnabled = snapshot.AutoSaveEnabled,
+            AutoSaveIntervalMinutes = snapshot.AutoSaveIntervalMinutes,
+            RecoveryMaxVersions = snapshot.RecoveryMaxVersions,
+            RecoveryMaxTotalBytes = snapshot.RecoveryMaxTotalBytes,
+            RecoveryDirectory = snapshot.RecoveryDirectory,
+            RecoverySearchDirectories = snapshot.RecoverySearchDirectories
+        };
     }
 
     /// <summary>Validate and flush a new sibling file, then publish it with a single atomic rename.</summary>
@@ -444,6 +534,39 @@ public sealed record EditorPreferences
         string? VideoEncodingJson, long VideoTimeoutTicks, bool? IncludeEndFrame = null);
     private sealed record LocalCustomPreviewPresetEntry(string Id, string Name, string PresetJson);
     private sealed record LocalCustomPreviewPresetsSnapshot(int SchemaVersion, List<LocalCustomPreviewPresetEntry> Presets);
+    private sealed record LocalPreferencesSnapshot
+    {
+        public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+        public int ThemeIndex { get; init; }
+        public bool ShowWorldGuides { get; init; } = true;
+        public bool AutoCheckUpdates { get; init; } = true;
+        public bool? InvertCameraOrbitX { get; init; }
+        public bool? InvertCameraOrbitY { get; init; }
+        public bool? InvertCameraPanX { get; init; }
+        public bool? InvertCameraPanY { get; init; }
+        public bool? InvertCameraZoom { get; init; }
+        public bool? InvertCameraMouseX { get; init; }
+        public bool? InvertCameraMouseY { get; init; }
+        [JsonNumberHandling(JsonNumberHandling.AllowNamedFloatingPointLiterals)]
+        public float? CameraOrbitSensitivity { get; init; }
+        [JsonNumberHandling(JsonNumberHandling.AllowNamedFloatingPointLiterals)]
+        public float? CameraPanSensitivity { get; init; }
+        [JsonNumberHandling(JsonNumberHandling.AllowNamedFloatingPointLiterals)]
+        public float? CameraZoomSensitivity { get; init; }
+        public string Language { get; init; } = "zh-CN";
+        public string FfmpegPath { get; init; } = "";
+        public string FfprobePath { get; init; } = "";
+        public long PmxMaxBytes { get; init; } = 10 * Gibibyte;
+        public long PmaPackageMaxBytes { get; init; } = 50 * Gibibyte;
+        public long PmaExpandedMaxBytes { get; init; } = 50 * Gibibyte;
+        public long PmaEntryMaxBytes { get; init; } = 10 * Gibibyte;
+        public bool AutoSaveEnabled { get; init; } = true;
+        public int AutoSaveIntervalMinutes { get; init; } = 3;
+        public int RecoveryMaxVersions { get; init; } = 5;
+        public long RecoveryMaxTotalBytes { get; init; } = 5 * Gibibyte;
+        public string RecoveryDirectory { get; init; } = DefaultRecoveryDirectory;
+        public ImmutableArray<string> RecoverySearchDirectories { get; init; } = [];
+    }
 }
 
 public sealed record EditorPreviewCustomPreset(string Id, string Name, ViewQualityOptions Quality);

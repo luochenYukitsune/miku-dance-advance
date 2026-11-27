@@ -198,9 +198,41 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             : LightController?.InteractionQuality(quality) ?? quality;
 
     public SceneCamera CurrentCamera => currentCamera;
+    private float cameraOrbitSensitivity = EditorPreferences.DefaultCameraSensitivity;
+    private float cameraPanSensitivity = EditorPreferences.DefaultCameraSensitivity;
+    private float cameraZoomSensitivity = EditorPreferences.DefaultCameraSensitivity;
+
     /// <summary>Machine-local camera controls; object/bone/light gestures keep screen-space direction.</summary>
-    public bool InvertCameraMouseX { get; set; }
-    public bool InvertCameraMouseY { get; set; }
+    public bool InvertCameraOrbitX { get; set; }
+    public bool InvertCameraOrbitY { get; set; }
+    public bool InvertCameraPanX { get; set; }
+    public bool InvertCameraPanY { get; set; }
+    public bool InvertCameraZoom { get; set; }
+    public float CameraOrbitSensitivity
+    {
+        get => cameraOrbitSensitivity;
+        set => cameraOrbitSensitivity = EditorPreferences.NormalizeCameraSensitivity(value);
+    }
+    public float CameraPanSensitivity
+    {
+        get => cameraPanSensitivity;
+        set => cameraPanSensitivity = EditorPreferences.NormalizeCameraSensitivity(value);
+    }
+    public float CameraZoomSensitivity
+    {
+        get => cameraZoomSensitivity;
+        set => cameraZoomSensitivity = EditorPreferences.NormalizeCameraSensitivity(value);
+    }
+    public bool InvertCameraMouseX
+    {
+        get => InvertCameraOrbitX && InvertCameraPanX;
+        set { InvertCameraOrbitX = value; InvertCameraPanX = value; }
+    }
+    public bool InvertCameraMouseY
+    {
+        get => InvertCameraOrbitY && InvertCameraPanY;
+        set { InvertCameraOrbitY = value; InvertCameraPanY = value; }
+    }
     public PmmCameraPose? ManualCameraPose => manualCameraPose;
     public PmmCameraPose? FreeEditorCameraPose => freeEditorCameraPose;
     public bool IsPilotingCamera => isPilotingCamera;
@@ -1124,6 +1156,23 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             Distance = -depth, ParentModelIndex = -1, ParentBoneIndex = 0, IgnoreParentRotation = false, ViewOffset = Vector2.Zero };
     }
 
+    internal static PmmCameraPose OrbitCamera(PmmCameraPose pose, float dx, float dy, bool invertX, bool invertY, float sensitivity)
+    {
+        const float radiansPerPixel = .3f * MathF.PI / 180;
+        float scale = EditorPreferences.NormalizeCameraSensitivity(sensitivity);
+        float effectiveDx = (invertX ? -dx : dx) * scale;
+        float effectiveDy = (invertY ? -dy : dy) * scale;
+        return pose with { Angle = pose.Angle + new Vector3(effectiveDy * radiansPerPixel, effectiveDx * radiansPerPixel, 0) };
+    }
+
+    internal static PmmCameraPose PanCameraWithPreferences(PmmCameraPose pose, float dx, float dy, float height, bool invertX, bool invertY, float sensitivity)
+    {
+        float scale = EditorPreferences.NormalizeCameraSensitivity(sensitivity);
+        float effectiveDx = (invertX ? -dx : dx) * scale;
+        float effectiveDy = (invertY ? -dy : dy) * scale;
+        return PanCamera(pose, effectiveDx, effectiveDy, height);
+    }
+
     private static PmmCameraPose PanCamera(PmmCameraPose pose, float dx, float dy, float height)
     {
         var camera = pose.CreateCamera();
@@ -1136,9 +1185,18 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         return pose with { LookAt = pose.LookAt + (-dx * right + dy * up) * unitsPerPixel };
     }
 
-    private static PmmCameraPose ZoomCamera(PmmCameraPose pose, int delta)
+    internal static PmmCameraPose ZoomCameraWithPreferences(PmmCameraPose pose, int delta, bool invertZoom, float sensitivity)
     {
-        float depth = Math.Clamp(MathF.Abs(pose.CameraDepth) * MathF.Pow(.9f, delta / 120f), .05f, 1_000_000);
+        float scale = EditorPreferences.NormalizeCameraSensitivity(sensitivity);
+        float effectiveDelta = (invertZoom ? -delta : delta) * scale;
+        return ZoomCameraCore(pose, effectiveDelta);
+    }
+
+    private static PmmCameraPose ZoomCamera(PmmCameraPose pose, int delta) => ZoomCameraCore(pose, delta);
+
+    private static PmmCameraPose ZoomCameraCore(PmmCameraPose pose, float effectiveDelta)
+    {
+        float depth = Math.Clamp(MathF.Abs(pose.CameraDepth) * MathF.Pow(.9f, effectiveDelta / 120f), .05f, 1_000_000);
         depth = pose.CameraDepth > 0 ? depth : -depth;
         return pose.ParentModelIndex >= 0 ? pose with { LookAt = pose.LookAt with { Z = depth } }
             : pose with { Distance = depth };
@@ -1199,12 +1257,19 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         dragCamera = ActiveNavigationCamera();
     }
 
+    internal void ApplyOrbitDrag(float dx, float dy)
+        => ChangeCamera(OrbitCamera(dragCamera, dx, dy, InvertCameraOrbitX, InvertCameraOrbitY, CameraOrbitSensitivity));
+
+    internal void ApplyPanDrag(float dx, float dy, float height)
+        => ChangeCamera(PanCameraWithPreferences(dragCamera, dx, dy, height, InvertCameraPanX, InvertCameraPanY, CameraPanSensitivity));
+
+    internal void ApplyZoomWheel(int delta)
+        => ChangeCamera(ZoomCameraWithPreferences(ActiveNavigationCamera(), delta, InvertCameraZoom, CameraZoomSensitivity));
+
     private void PanViewport(Avalonia.Vector delta)
     {
         if (Bounds.Height <= 0 || IsSuspended) return;
-        float dx = (float)(InvertCameraMouseX ? -delta.X : delta.X);
-        float dy = (float)(InvertCameraMouseY ? -delta.Y : delta.Y);
-        ChangeCamera(PanCamera(dragCamera, dx, dy, (float)Bounds.Height));
+        ApplyPanDrag((float)delta.X, (float)delta.Y, (float)Bounds.Height);
     }
 
     private void RevertCameraDrag()
@@ -1350,16 +1415,13 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
             {
                 if (dragButton == 0x204) { rightClick.Move(ViewportPoint(x, y)); return nint.Zero; }
                 float dx = x - pointerX, dy = y - pointerY;
-                if (InvertCameraMouseX) dx = -dx;
-                if (InvertCameraMouseY) dy = -dy;
                 if (dragButton == 0x201)
                 {
-                    const float radiansPerPixel = .3f * MathF.PI / 180;
-                    ChangeCamera(dragCamera with { Angle = dragCamera.Angle + new Vector3(dy * radiansPerPixel, dx * radiansPerPixel, 0) });
+                    ApplyOrbitDrag(dx, dy);
                 }
                 else if (GetClientRect(window, out var bounds) && bounds.Bottom > bounds.Top)
                 {
-                    ChangeCamera(PanCamera(dragCamera, dx, dy, bounds.Bottom - bounds.Top));
+                    ApplyPanDrag(dx, dy, bounds.Bottom - bounds.Top);
                 }
                 return nint.Zero;
             }
@@ -1395,8 +1457,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                 if (LightController?.IsDragging == true || CameraController?.IsDragging == true) return nint.Zero;
                 if (dragButton == 0x204) rightClick.SuppressMenu();
                 int delta = unchecked((short)((wParam.ToInt64() >> 16) & 0xffff));
-                var camera = ActiveNavigationCamera();
-                ChangeCamera(ZoomCamera(camera, delta));
+                ApplyZoomWheel(delta);
                 return nint.Zero;
             }
         }

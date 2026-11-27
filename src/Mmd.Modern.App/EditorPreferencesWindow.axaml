@@ -251,10 +251,47 @@
               <TextBlock Text="{DynamicResource Mda.Text.Preferences.AutoCheckUpdatesHint}" Classes="caption" />
             </StackPanel>
             <Separator />
-            <StackPanel Spacing="8">
-              <TextBlock Name="PreferencesCameraMouseHeading" Classes="section" />
-              <CheckBox Name="PreferencesInvertCameraMouseXBox" />
-              <CheckBox Name="PreferencesInvertCameraMouseYBox" />
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Name="PreferencesCameraMouseHeading" Classes="section" VerticalAlignment="Center" />
+                <Button Name="PreferencesResetCameraMouseButton" Grid.Column="1" Classes="action" Click="ResetCameraMouseDefaults" />
+              </Grid>
+              <StackPanel Spacing="6">
+                <TextBlock Name="PreferencesCameraOrbitHeading" Classes="label" />
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox Name="PreferencesInvertCameraOrbitXBox" Margin="0,0,20,0" />
+                  <CheckBox Name="PreferencesInvertCameraOrbitYBox" />
+                </WrapPanel>
+                <Grid ColumnDefinitions="136,112,*,24">
+                  <TextBlock Name="PreferencesCameraOrbitSensitivityLabel" Classes="label" TextWrapping="Wrap" />
+                  <validated:EditorNumericUpDown Name="PreferencesCameraOrbitSensitivityBox" Grid.Column="1" Minimum="0.2" Maximum="3" Increment="0.1" FormatString="0.##" ClipValueToMinMax="False" MenuDefaultValue="1" />
+                  <validated:EditorValueSlider Name="PreferencesCameraOrbitSensitivitySlider" Grid.Column="2" Margin="12,0,0,0" Minimum="0.2" Maximum="3" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                  <TextBlock Grid.Column="3" Text="×" Classes="label" Margin="8,0,0,0" />
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Name="PreferencesCameraPanHeading" Classes="label" />
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox Name="PreferencesInvertCameraPanXBox" Margin="0,0,20,0" />
+                  <CheckBox Name="PreferencesInvertCameraPanYBox" />
+                </WrapPanel>
+                <Grid ColumnDefinitions="136,112,*,24">
+                  <TextBlock Name="PreferencesCameraPanSensitivityLabel" Classes="label" TextWrapping="Wrap" />
+                  <validated:EditorNumericUpDown Name="PreferencesCameraPanSensitivityBox" Grid.Column="1" Minimum="0.2" Maximum="3" Increment="0.1" FormatString="0.##" ClipValueToMinMax="False" MenuDefaultValue="1" />
+                  <validated:EditorValueSlider Name="PreferencesCameraPanSensitivitySlider" Grid.Column="2" Margin="12,0,0,0" Minimum="0.2" Maximum="3" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                  <TextBlock Grid.Column="3" Text="×" Classes="label" Margin="8,0,0,0" />
+                </Grid>
+              </StackPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Name="PreferencesCameraZoomHeading" Classes="label" />
+                <CheckBox Name="PreferencesInvertCameraZoomBox" />
+                <Grid ColumnDefinitions="136,112,*,24">
+                  <TextBlock Name="PreferencesCameraZoomSensitivityLabel" Classes="label" TextWrapping="Wrap" />
+                  <validated:EditorNumericUpDown Name="PreferencesCameraZoomSensitivityBox" Grid.Column="1" Minimum="0.2" Maximum="3" Increment="0.1" FormatString="0.##" ClipValueToMinMax="False" MenuDefaultValue="1" />
+                  <validated:EditorValueSlider Name="PreferencesCameraZoomSensitivitySlider" Grid.Column="2" Margin="12,0,0,0" Minimum="0.2" Maximum="3" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" />
+                  <TextBlock Grid.Column="3" Text="×" Classes="label" Margin="8,0,0,0" />
+                </Grid>
+              </StackPanel>
               <TextBlock Name="PreferencesCameraMouseHint" Classes="caption" />
             </StackPanel>
           </StackPanel>

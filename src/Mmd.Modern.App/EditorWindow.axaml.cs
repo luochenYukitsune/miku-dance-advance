@@ -399,8 +399,14 @@ public partial class EditorWindow : Window
         if (_shell is null) return;
         _preferences = preferences; _shell.Workspace.Preferences = preferences;
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
-        viewport.InvertCameraMouseX = preferences.InvertCameraMouseX;
-        viewport.InvertCameraMouseY = preferences.InvertCameraMouseY;
+        viewport.InvertCameraOrbitX = preferences.InvertCameraOrbitX;
+        viewport.InvertCameraOrbitY = preferences.InvertCameraOrbitY;
+        viewport.InvertCameraPanX = preferences.InvertCameraPanX;
+        viewport.InvertCameraPanY = preferences.InvertCameraPanY;
+        viewport.InvertCameraZoom = preferences.InvertCameraZoom;
+        viewport.CameraOrbitSensitivity = preferences.CameraOrbitSensitivity;
+        viewport.CameraPanSensitivity = preferences.CameraPanSensitivity;
+        viewport.CameraZoomSensitivity = preferences.CameraZoomSensitivity;
         EditorLocalization.SetLanguage(preferences.Language);
         _applyingPreferences = true;
         try { _shell.SelectedThemeIndex = preferences.ThemeIndex; _shell.ShowWorldGuides = preferences.ShowWorldGuides; }
