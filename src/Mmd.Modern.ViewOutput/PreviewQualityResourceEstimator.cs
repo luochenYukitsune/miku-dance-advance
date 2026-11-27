@@ -107,7 +107,7 @@ public static class PreviewQualityResourceEstimator
             if (hasTemporal)
                 bytes = checked(bytes + displayPixels * 28L + renderPixels * 16L);
             else if (hasFsr1)
-                bytes = checked(bytes + displayPixels * 20L * InFlightFrames);
+                bytes = checked(bytes + displayPixels * (upscaling.EnableRcas ? 20L : 4L) * InFlightFrames);
             else if (rw != vw || rh != vh)
                 bytes = checked(bytes + displayPixels * 4L * InFlightFrames);
 

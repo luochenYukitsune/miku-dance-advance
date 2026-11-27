@@ -265,4 +265,54 @@ public sealed class ViewQualityPresetsAndCompatibilityTests
         bad["preview"]!["quality"]!["shadow"]!["sampling"] = "LinearWrap";
         Assert.Throws<InvalidDataException>(() => ViewOutputPresetJson.Deserialize(Encoding.UTF8.GetBytes(bad.ToJsonString())));
     }
+
+    [Fact]
+    public void PathTracingIgnoresInvalidLegacyGiOnEvaluateValidateAndApply()
+    {
+        var staleGiPt = new ViewQualityOptions(
+            Gi: new RayGiOptions(
+                Mode: LightingMode.SoftwareRayTracing,
+                MaxRayDistance: 1f,
+                RayEpsilon: 2f,
+                OcclusionStrength: 0.5f,
+                OcclusionRadius: 0.1f,
+                Composition: RayGiComposition.Additive,
+                Denoiser: RayGiDenoiser.Spatial)
+            {
+                ToonResponse = RayGiToonResponse.PreservePaletteBands
+            },
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: PathTracingOptions.Default);
+
+        Assert.True(ViewQualityCompatibility.Evaluate(staleGiPt).IsValid);
+        staleGiPt.Validate();
+        var applied = staleGiPt.ApplyTo(new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false));
+        Assert.Equal(RenderPipelineMode.PathTracing, applied.PipelineMode);
+        Assert.Equal(RayGiOptions.Off, applied.RayGi);
+    }
+
+    [Fact]
+    public void PresetsNormalizePreservesNullInheritanceWhileStrippingRuntimeState()
+    {
+        var inherited = new ViewQualityOptions();
+        Assert.False(ViewQualityPresets.AreEquivalent(inherited, inherited with { ScreenSpaceAo = ScreenSpaceAoOptions.Off }));
+        Assert.False(ViewQualityPresets.AreEquivalent(inherited, inherited with { AnisotropicFiltering = 1 }));
+        Assert.False(ViewQualityPresets.AreEquivalent(inherited, inherited with { ShadowFilter = ShadowFilterMode.Linear }));
+        Assert.False(ViewQualityPresets.AreEquivalent(inherited, inherited with { ShadowSoftness = 1f }));
+        Assert.False(ViewQualityPresets.AreEquivalent(inherited, inherited with { PathTracing = PathTracingOptions.Default }));
+
+        var ptA = new ViewQualityOptions(
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: PathTracingOptions.Default with
+            {
+                HistoryGeneration = 1,
+                CameraCutKey = 2,
+                ResetHistory = true,
+                Interactive = true
+            });
+        var ptB = new ViewQualityOptions(
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: PathTracingOptions.Default);
+        Assert.True(ViewQualityPresets.AreEquivalent(ptA, ptB));
+    }
 }

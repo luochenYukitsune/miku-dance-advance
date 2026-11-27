@@ -50,6 +50,8 @@ public sealed record EditorPreviewCapabilities(
     public bool XeSsAvailable => XeSsQueries?.Any(query => query.Initialized && query.Failure is null) == true;
     public bool DlssAvailable => DlssQueries?.Any(query => query.Available && query.Initialized && query.Failure is null) == true;
     public string? AdapterName { get; init; }
+    internal long? AdapterLuid { get; init; }
+    internal bool IsWarp { get; init; }
     public ulong? LocalVideoMemoryBudgetBytes { get; init; }
     public int QueryWidth { get; init; }
     public int QueryHeight { get; init; }
@@ -97,7 +99,11 @@ public sealed record EditorPreviewCapabilities(
     {
         var paths = EditorOptionalRuntimePaths.Resolve();
         if (!forceRefresh && TryGetCached(paths, adapterName, out var cached) && cached is not null)
+        {
+            if (cached.AdapterLuid is { } cachedLuid && cachedLuid != 0)
+                cached = cached with { LocalVideoMemoryBudgetBytes = QueryLocalVideoMemoryBudget(cachedLuid, cached.IsWarp) };
             return cached;
+        }
 
         var result = QueryInstalled(displayWidth, displayHeight, paths, cancellationToken);
         if (result.DeviceUnavailableReason is null)
@@ -151,6 +157,8 @@ public sealed record EditorPreviewCapabilities(
             result = result with
             {
                 AdapterName = renderer.AdapterName,
+                AdapterLuid = renderer.AdapterLuid,
+                IsWarp = renderer.IsWarp,
                 SpatialUpscalingAvailable = true,
                 LocalVideoMemoryBudgetBytes = QueryLocalVideoMemoryBudget(renderer.AdapterLuid, renderer.IsWarp)
             };
@@ -243,7 +251,7 @@ public sealed record EditorPreviewCapabilities(
         return result;
     }
 
-    private static ulong? QueryLocalVideoMemoryBudget(long adapterLuid, bool isWarp)
+    internal static ulong? QueryLocalVideoMemoryBudget(long adapterLuid, bool isWarp)
     {
         if (!OperatingSystem.IsWindows() || isWarp) return null;
         try
@@ -515,7 +523,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     }
     public string CapabilityProbingNotice => Text("Mda.Text.Ux.Preview.ProbingCapabilities");
     public string RefreshCapabilitiesLabel => Text("Mda.Text.Ux.Preview.RefreshCapabilities");
-    public bool NeedsCapabilitiesForApply => isProbingCapabilities && (
+    public bool NeedsCapabilitiesForApply => isProbingCapabilities && !IsPathTracing && (
         (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != appliedOptions.EffectiveGi.Mode)
         || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != appliedOptions.EffectiveTemporalUpscaling.Mode)
         || (IsFsr1 && appliedOptions.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
@@ -906,21 +914,26 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => antialiasingIndex;
         set
         {
-            if (!Set(ref antialiasingIndex, value)) return;
+            if (refreshingLocalization || antialiasingIndex == value) return;
+            antialiasingIndex = value;
+            bool clearedSpatial = false, clearedFsr1 = false;
             if (IsTaa || IsMsaa)
             {
                 if (CurrentSpatialSamples > 1)
                 {
                     spatialIndex = 1; // 1× Off
-                    Changed(nameof(SpatialIndex));
+                    clearedSpatial = true;
                 }
                 if (upscalingIndex == 1)
                 {
                     upscalingIndex = 0; // Off
-                    Changed(nameof(UpscalingIndex));
+                    clearedFsr1 = true;
                 }
-                RefreshDerived();
             }
+            Changed(nameof(AntialiasingIndex));
+            if (clearedSpatial) Changed(nameof(SpatialIndex));
+            if (clearedFsr1) Changed(nameof(UpscalingIndex));
+            RefreshDerived();
             SetActiveHelpTopicInternal(ResolveDynamicHelpTopic("aa.mode"));
         }
     }
@@ -939,13 +952,14 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => spatialIndex;
         set
         {
-            if (!Set(ref spatialIndex, value)) return;
-            if (CurrentSpatialSamples > 1 && renderScale != 1m)
-            {
+            if (refreshingLocalization || spatialIndex == value) return;
+            spatialIndex = value;
+            bool resetScale = CurrentSpatialSamples > 1 && renderScale != 1m;
+            if (resetScale)
                 renderScale = 1m;
-                Changed(nameof(RenderScale));
-                RefreshDerived();
-            }
+            Changed(nameof(SpatialIndex));
+            if (resetScale) Changed(nameof(RenderScale));
+            RefreshDerived();
             SelectHelpTopic("help.aa.ssaa");
         }
     }
@@ -954,13 +968,14 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => upscalingIndex;
         set
         {
-            if (!Set(ref upscalingIndex, value)) return;
-            if (upscalingIndex == 1 && renderScale != 1m)
-            {
+            if (refreshingLocalization || upscalingIndex == value) return;
+            upscalingIndex = value;
+            bool resetScale = upscalingIndex == 1 && renderScale != 1m;
+            if (resetScale)
                 renderScale = 1m;
-                Changed(nameof(RenderScale));
-                RefreshDerived();
-            }
+            Changed(nameof(UpscalingIndex));
+            if (resetScale) Changed(nameof(RenderScale));
+            RefreshDerived();
             SetActiveHelpTopicInternal(ResolveDynamicHelpTopic("fsr1.mode"));
         }
     }
@@ -974,15 +989,17 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => temporalIndex;
         set
         {
-            if (!Set(ref temporalIndex, value)) return;
+            if (refreshingLocalization || temporalIndex == value) return;
+            temporalIndex = value;
             temporalQualityIndex = InitialTemporalQualityIndex;
-            if (IsTemporal && renderScale != 1m)
-            {
+            bool resetScale = IsTemporal && renderScale != 1m;
+            if (resetScale)
                 renderScale = 1m;
-                Changed(nameof(RenderScale));
-                RefreshDerived();
-            }
-            Changed(nameof(TemporalQualities)); Changed(nameof(TemporalQualityIndex));
+            Changed(nameof(TemporalIndex));
+            Changed(nameof(TemporalQualities));
+            Changed(nameof(TemporalQualityIndex));
+            if (resetScale) Changed(nameof(RenderScale));
+            RefreshDerived();
             SetActiveHelpTopicInternal(ResolveDynamicHelpTopic("temporal.mode"));
         }
     }
@@ -1016,10 +1033,12 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => shadowFilterIndex;
         set
         {
-            if (!Set(ref shadowFilterIndex, value)) return;
-            hasExplicitShadow = true;
+            if (refreshingLocalization || shadowFilterIndex == value) return;
+            shadowFilterIndex = value;
             hasExplicitShadowFilter = true;
+            Changed(nameof(ShadowFilterIndex));
             Changed(nameof(ShadowSamplingIndex));
+            RefreshDerived();
             SetActiveHelpTopicInternal(ResolveDynamicHelpTopic("shadow.filter"));
         }
     }
@@ -1053,17 +1072,21 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         get => pipelineModeIndex;
         set
         {
-            if (!Set(ref pipelineModeIndex, value)) return;
+            if (refreshingLocalization || pipelineModeIndex == value) return;
+            pipelineModeIndex = value;
+            bool resetScale = false;
             if (IsPathTracing)
             {
                 hasExplicitPathTracing = true;
                 if (renderScale != 1m)
                 {
                     renderScale = 1m;
-                    Changed(nameof(RenderScale));
-                    RefreshDerived();
+                    resetScale = true;
                 }
             }
+            Changed(nameof(PipelineModeIndex));
+            if (resetScale) Changed(nameof(RenderScale));
+            RefreshDerived();
             SetActiveHelpTopicInternal(ResolveDynamicHelpTopic("pipeline.mode"));
         }
     }
@@ -1317,7 +1340,16 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             var draft = TryBuildDraft(out var built, validateCompatibility: false) && built is not null ? built : baseline;
             int vw = runtime?.Statistics?.Width ?? runtime?.Width ?? 1280;
             int vh = runtime?.Statistics?.Height ?? runtime?.Height ?? 720;
-            ulong? budget = runtime?.LocalVideoMemoryBudgetBytes ?? capabilities.LocalVideoMemoryBudgetBytes;
+            bool useRuntimeAdapter = !string.IsNullOrWhiteSpace(runtime?.AdapterName);
+            bool capabilitiesMatchDisplayedAdapter = !useRuntimeAdapter
+                || (!string.IsNullOrWhiteSpace(capabilities.AdapterName)
+                    && string.Equals(runtime!.AdapterName!.Trim(), capabilities.AdapterName.Trim(), StringComparison.OrdinalIgnoreCase));
+            ulong? budget = runtime?.IsWarp == true
+                ? null
+                : useRuntimeAdapter
+                    ? runtime!.LocalVideoMemoryBudgetBytes
+                        ?? (capabilitiesMatchDisplayedAdapter ? capabilities.LocalVideoMemoryBudgetBytes : null)
+                    : capabilities.LocalVideoMemoryBudgetBytes;
             return PreviewQualityResourceEstimator.Estimate(draft, vw, vh, budget, IsClassicEngine);
         }
     }
@@ -1968,7 +2000,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
                 AnisotropicFiltering = (hasExplicitAnisotropicFiltering || CurrentAnisotropicFiltering != baseline.EffectiveAnisotropicFiltering)
                     ? CurrentAnisotropicFiltering
                     : baseline.AnisotropicFiltering,
-                Shadow = (hasExplicitShadow || shadow != baseline.EffectiveShadow) ? shadow : baseline.Shadow,
+                Shadow = (hasExplicitShadow || shadowRes != baseline.EffectiveShadow.Resolution) ? shadow : baseline.Shadow,
                 ShadowFilter = (hasExplicitShadowFilter || (baseline.ShadowFilter is { } bsf && bsf != shadowFilter) || shadowFilter == ShadowFilterMode.PcfSoft)
                     ? shadowFilter
                     : baseline.ShadowFilter,

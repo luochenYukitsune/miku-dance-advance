@@ -32,6 +32,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private bool disposed;
     public ViewRendererCapabilities Capabilities { get; }
     public string AdapterName => presenter.AdapterName;
+    public long AdapterLuid => presenter.AdapterLuid;
     public bool IsWarp => presenter.IsWarp;
     internal bool LastNativeTaaReset => presenter.LastNativeTaaReset;
     internal int NativeTaaPhase => presenter.NativeTaaPhase;

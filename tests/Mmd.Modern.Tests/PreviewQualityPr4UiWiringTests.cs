@@ -1,3 +1,4 @@
+using System.Numerics;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -95,19 +96,32 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
                 Assert.Equal(expectedAa[i], aaDraft!.Antialiasing);
             }
 
-            vm.PipelineModeIndex = 1; // ClusteredForward
-            vm.AntialiasingIndex = 6; // Msaa4X
-            vm.StandaloneRcasEnabled = true;
-            vm.StandaloneRcasSharpness = 0.35m;
-            vm.AnisotropicFilteringIndex = 4; // 16x
-            vm.ShadowResolutionIndex = 4; // 4096
-            vm.ShadowFilterIndex = 2; // PcfSoft
-            vm.ShadowSoftness = 2.75m;
-            vm.SsaoEnabled = true;
-            vm.SsaoStrength = 0.65m;
-            vm.SsaoRadius = 3.2m;
-            vm.SsaoSampleCountIndex = 2; // 16
+            dialog.FindControl<ComboBox>("PreviewPipelineModeBox")!.SelectedIndex = 1; // ClusteredForward
+            dialog.FindControl<ComboBox>("PreviewAntialiasingBox")!.SelectedIndex = 6; // Msaa4X
+            dialog.FindControl<CheckBox>("PreviewStandaloneRcasEnabledBox")!.IsChecked = true;
+            dialog.FindControl<EditorNumericUpDown>("PreviewStandaloneRcasSharpnessBox")!.Text = "0.35";
+            dialog.FindControl<ComboBox>("PreviewAnisotropicFilteringBox")!.SelectedIndex = 4; // 16x
+            dialog.FindControl<ComboBox>("PreviewShadowResolutionBox")!.SelectedIndex = 4; // 4096
+            dialog.FindControl<ComboBox>("PreviewShadowFilterBox")!.SelectedIndex = 2; // PcfSoft
+            dialog.FindControl<EditorNumericUpDown>("PreviewShadowSoftnessBox")!.Text = "2.75";
+            dialog.FindControl<CheckBox>("PreviewSsaoEnabledBox")!.IsChecked = true;
+            dialog.FindControl<EditorNumericUpDown>("PreviewSsaoStrengthBox")!.Text = "0.65";
+            dialog.FindControl<EditorNumericUpDown>("PreviewSsaoRadiusBox")!.Text = "3.2";
+            dialog.FindControl<ComboBox>("PreviewSsaoSampleCountBox")!.SelectedIndex = 2; // 16
             Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal(1, vm.PipelineModeIndex);
+            Assert.Equal(6, vm.AntialiasingIndex);
+            Assert.True(vm.StandaloneRcasEnabled);
+            Assert.Equal(0.35m, vm.StandaloneRcasSharpness);
+            Assert.Equal(4, vm.AnisotropicFilteringIndex);
+            Assert.Equal(4, vm.ShadowResolutionIndex);
+            Assert.Equal(2, vm.ShadowFilterIndex);
+            Assert.Equal(2.75m, vm.ShadowSoftness);
+            Assert.True(vm.SsaoEnabled);
+            Assert.Equal(0.65m, vm.SsaoStrength);
+            Assert.Equal(3.2m, vm.SsaoRadius);
+            Assert.Equal(2, vm.SsaoSampleCountIndex);
 
             Assert.True(vm.TryCreate(out var rasterResult), vm.ValidationMessage);
             Assert.Equal(RenderPipelineMode.ClusteredForward, rasterResult!.PipelineMode);
@@ -642,16 +656,147 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
             Dispatcher.UIThread.RunJobs();
         }
 
-        // 4. TAA + TransparentBackground is rejected clearly at OutputSettingsDraft.Validate() / OutputSettingsViewModel.TryCreate().
+        // 4. TAA + TransparentBackground is rejected clearly at OutputSettingsDraft.Validate() / OutputSettingsViewModel.TryCreate(),
+        // and user can switch straight to SMAA (index 2) without being trapped on a misleading SMAA label.
         using var shell = new EditorShellViewModel();
         Assert.True(shell.CreateOutputSettingsViewModel().TryCreate(out var baseDraft));
         shell.ApplyOutputSettings(baseDraft!);
         EditorWindow.CopyPreviewQualityToExport(shell, new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa), persistPreferences: false, isClassic: false);
         var exportVm = shell.CreateOutputSettingsViewModel();
+        Assert.Equal(3, exportVm.AntialiasingIndex);
+        Assert.Equal(EditorLocalization.Text("Mda.Text.Preview.AaTaa"), exportVm.AntialiasingModes[3].Label);
+        Assert.False(exportVm.IsSmaa);
         exportVm.MediaKindIndex = 0; // PNG
         exportVm.TransparentBackground = true;
         Assert.False(exportVm.TryCreate(out _));
         Assert.Equal(EditorLocalization.Text("Mda.Text.Output.TransparentRejectsTaa"), exportVm.ValidationMessage);
+
+        exportVm.AntialiasingIndex = 2; // SMAA
+        Assert.True(exportVm.IsSmaa);
+        Assert.True(exportVm.TryCreate(out var fixedDraft), exportVm.ValidationMessage);
+        Assert.Equal(FrameAntialiasing.Smaa1X, fixedDraft!.Request.Quality!.Antialiasing);
+
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task CodeRabbitRegressionGuardsWork() => await session.Dispatch(() =>
+    {
+        // 1. Adapter budget matching: do not mix fallback capability budget across adapters or onto WARP.
+        var mismatchedVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capabilities: new EditorPreviewCapabilities { AdapterName = "GPU-B", LocalVideoMemoryBudgetBytes = 64UL * 1024 * 1024 },
+            runtime: new EditorPreviewRuntimeInfo("GPU-A", IsWarp: false, Width: 1280, Height: 720, LocalVideoMemoryBudgetBytes: null),
+            persistCustomPresets: false);
+        Assert.Null(mismatchedVm.ResourceEstimate.AdapterBudgetBytes);
+
+        var warpVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capabilities: new EditorPreviewCapabilities { AdapterName = "GPU-A", LocalVideoMemoryBudgetBytes = 64UL * 1024 * 1024 },
+            runtime: new EditorPreviewRuntimeInfo("Microsoft Basic Render Driver", IsWarp: true, Width: 1280, Height: 720, LocalVideoMemoryBudgetBytes: 64UL * 1024 * 1024),
+            persistCustomPresets: false);
+        Assert.Null(warpVm.ResourceEstimate.AdapterBudgetBytes);
+
+        var matchedVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capabilities: new EditorPreviewCapabilities { AdapterName = "GPU-A", LocalVideoMemoryBudgetBytes = 64UL * 1024 * 1024 },
+            runtime: new EditorPreviewRuntimeInfo("GPU-A", IsWarp: false, Width: 1280, Height: 720, LocalVideoMemoryBudgetBytes: 512UL * 1024 * 1024),
+            persistCustomPresets: false);
+        Assert.Equal(512UL * 1024 * 1024, matchedVm.ResourceEstimate.AdapterBudgetBytes);
+
+        // 2. TemporalIndex updates dependent renderScale & temporalQualityIndex BEFORE firing RefreshDerived().
+        var caps = new EditorPreviewCapabilities(
+            SpatialUpscalingAvailable: true,
+            Fsr: new D3D12FsrRuntimeProbeResult(D3D12FsrRuntimeStatus.ContextCreated, "mock", null, null, [], null, "ok"));
+        var orderVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(Antialiasing: FrameAntialiasing.Off) { RenderScale = 0.75f },
+            caps,
+            runtime: new EditorPreviewRuntimeInfo("Mock", IsWarp: false, Width: 1280, Height: 720),
+            persistCustomPresets: false);
+        var observedRenderWidthsWhenTemporal = new List<int>();
+        orderVm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(EditorPreviewSettingsViewModel.ResourceEstimate) && orderVm.IsTemporal)
+                observedRenderWidthsWhenTemporal.Add(orderVm.ResourceEstimate.RenderWidth);
+        };
+        orderVm.TemporalIndex = 1; // FSR
+        Assert.NotEmpty(observedRenderWidthsWhenTemporal);
+        Assert.All(observedRenderWidthsWhenTemporal, w => Assert.NotEqual(960, w));
+        Assert.Equal(1m, orderVm.RenderScale);
+
+        // 3. Changing ShadowFilter / ShadowSoftness alone does not clobber Shadow == null scene resolution inheritance.
+        var inheritShadowVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            caps,
+            persistCustomPresets: false);
+        var inheritDialog = new EditorPreviewSettingsWindow(inheritShadowVm);
+        inheritDialog.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            inheritDialog.FindControl<ComboBox>("PreviewShadowFilterBox")!.SelectedIndex = 2; // PcfSoft
+            inheritDialog.FindControl<EditorNumericUpDown>("PreviewShadowSoftnessBox")!.Text = "2.25";
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(inheritShadowVm.TryCreate(out var inheritDraft), inheritShadowVm.ValidationMessage);
+            Assert.Null(inheritDraft!.Shadow);
+            Assert.Equal(ShadowFilterMode.PcfSoft, inheritDraft.ShadowFilter);
+            Assert.Equal(2.25f, inheritDraft.ShadowSoftness);
+            var sceneWith1024Shadow = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false,
+                SelfShadow: new OriginalSelfShadowOptions(Matrix4x4.Identity, 1024, 1024, true, false, OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual));
+            var appliedInherited = inheritDraft.ApplyTo(sceneWith1024Shadow);
+            Assert.Equal(1024, appliedInherited.SelfShadow!.Width);
+            Assert.Equal(ShadowFilterMode.PcfSoft, appliedInherited.SelfShadow.FilterMode);
+            Assert.Equal(2.25f, appliedInherited.ShadowSoftness);
+
+            // 4. PreviewPtFireflyClampBox companion slider allows up to 1000 without clamping > 100 down to 100.
+            inheritDialog.FindControl<ComboBox>("PreviewPipelineModeBox")!.SelectedIndex = 2; // PathTracing
+            Dispatcher.UIThread.RunJobs();
+            var fireflyBox = inheritDialog.FindControl<EditorNumericUpDown>("PreviewPtFireflyClampBox")!;
+            var fireflyGrid = fireflyBox.Parent as Grid;
+            var fireflySlider = fireflyGrid?.Children.OfType<EditorValueSlider>().SingleOrDefault();
+            Assert.NotNull(fireflySlider);
+            Assert.Equal(1000d, fireflySlider!.Maximum);
+            inheritShadowVm.PtFireflyClamp = 250m;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(250m, fireflySlider.Number);
+            Assert.Equal(250m, inheritShadowVm.PtFireflyClamp);
+        }
+        finally
+        {
+            inheritDialog.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // 5. NeedsCapabilitiesForApply short-circuits under PathTracing while capabilities are still probing.
+        var probingVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capabilities: new EditorPreviewCapabilities(),
+            capabilitiesPending: true,
+            persistCustomPresets: false);
+        probingVm.UpscalingIndex = 1; // FSR1 (normally requires capabilities)
+        Assert.True(probingVm.NeedsCapabilitiesForApply);
+        probingVm.PipelineModeIndex = 2; // PathTracing
+        Assert.False(probingVm.NeedsCapabilitiesForApply);
+
+        var neverResolvesProbe = new TaskCompletionSource<EditorPreviewCapabilities>().Task;
+        var probingDialog = new EditorPreviewSettingsWindow(probingVm, (_, _) => neverResolvesProbe);
+        bool appliedWithoutWait = false;
+        probingDialog.Closed += (_, _) => appliedWithoutWait = true;
+        probingDialog.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            probingDialog.FindControl<Button>("ApplyPreviewSettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(appliedWithoutWait);
+            Assert.True(probingVm.TryCreate(out var ptProbingDraft), probingVm.ValidationMessage);
+            Assert.Equal(RenderPipelineMode.PathTracing, ptProbingDraft!.PipelineMode);
+        }
+        finally
+        {
+            probingDialog.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
 
         return true;
     }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);

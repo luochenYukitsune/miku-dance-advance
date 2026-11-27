@@ -83,6 +83,18 @@ public sealed class PreviewQualityResourceEstimatorTests
             PathTracing: PathTracingOptions.Default), 1280, 720);
         Assert.True(ptOn.EstimatedRenderBufferBytes > baseline.EstimatedRenderBufferBytes);
         Assert.Equal(PreviewPerformanceLoadTier.Heavy, ptOn.LoadTier);
+
+        var fsrNoRcas = PreviewQualityResourceEstimator.Estimate(new ViewQualityOptions(
+            Upscaling: new ViewUpscalingOptions { Mode = ViewUpscalingMode.Fsr1, EnableRcas = false })
+        {
+            Shadow = new ViewShadowOptions(0)
+        }, 1280, 720);
+        var fsrWithRcas = PreviewQualityResourceEstimator.Estimate(new ViewQualityOptions(
+            Upscaling: new ViewUpscalingOptions { Mode = ViewUpscalingMode.Fsr1, EnableRcas = true })
+        {
+            Shadow = new ViewShadowOptions(0)
+        }, 1280, 720);
+        Assert.True(fsrWithRcas.EstimatedRenderBufferBytes > fsrNoRcas.EstimatedRenderBufferBytes);
     }
 
     [Fact]

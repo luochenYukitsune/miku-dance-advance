@@ -35,7 +35,10 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     public ScreenSpaceAoOptions EffectiveScreenSpaceAo => ScreenSpaceAo ?? ScreenSpaceAoOptions.Off;
     public void Validate()
     {
-        EffectiveDiffusion.Validate(); EffectiveGi.Validate(); EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
+        EffectiveDiffusion.Validate();
+        if (PipelineMode != RenderPipelineMode.PathTracing)
+            EffectiveGi.Validate();
+        EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
         EffectiveShadow.Validate(); EffectiveSharpening.Validate(); EffectiveScreenSpaceAo.Validate();
         if (!Enum.IsDefined(SurfaceOrder)) throw new ArgumentOutOfRangeException(nameof(SurfaceOrder));
         if (!Enum.IsDefined(PipelineMode)) throw new ArgumentOutOfRangeException(nameof(PipelineMode));

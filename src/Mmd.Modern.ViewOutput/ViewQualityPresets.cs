@@ -178,22 +178,22 @@ public static class ViewQualityPresets
 
     private static ViewQualityOptions Normalize(ViewQualityOptions q) => new(
         Gi: q.EffectiveGi with { TemporalHistoryGeneration = 0, TemporalCameraCutKey = 0, ResetTemporalHistory = false },
-        Antialiasing: q.Antialiasing ?? FrameAntialiasing.Off,
-        SmaaQuality: q.SmaaQuality ?? SmaaQuality.High,
-        SpatialSamples: q.SpatialSamples ?? 1,
+        Antialiasing: q.Antialiasing,
+        SmaaQuality: q.SmaaQuality,
+        SpatialSamples: q.SpatialSamples,
         Upscaling: q.EffectiveUpscaling,
         TemporalUpscaling: q.EffectiveTemporalUpscaling,
         Diffusion: q.EffectiveDiffusion,
         SurfaceOrder: q.SurfaceOrder,
         PipelineMode: q.PipelineMode,
-        PathTracing: q.EffectivePathTracing.StripRuntimeState())
+        PathTracing: q.PathTracing?.StripRuntimeState())
     {
         Shadow = q.Shadow,
-        ShadowFilter = q.ShadowFilter ?? (q.EffectiveShadow.Sampling == OriginalTextureSampling.PointClamp ? ShadowFilterMode.Point : ShadowFilterMode.Linear),
-        ShadowSoftness = q.EffectiveShadowSoftness,
-        AnisotropicFiltering = q.EffectiveAnisotropicFiltering,
+        ShadowFilter = q.ShadowFilter,
+        ShadowSoftness = q.ShadowSoftness,
+        AnisotropicFiltering = q.AnisotropicFiltering,
         Sharpening = q.EffectiveSharpening,
-        ScreenSpaceAo = q.EffectiveScreenSpaceAo,
+        ScreenSpaceAo = q.ScreenSpaceAo,
         UseEnvironmentMipmaps = q.UseEnvironmentMipmaps,
         AdaptiveVramSampling = q.AdaptiveVramSampling,
         RenderScale = q.RenderScale,

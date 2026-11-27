@@ -59,10 +59,10 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     private readonly decimal _initialFramesPerSecond;
     private readonly bool _hasPaletteReceiver;
     private readonly bool _supportsCaptureMemory;
+    private readonly FrameAntialiasing? _preservedAntialiasing;
     private int _captureMemoryIndex;
     private int _mediaKindIndex = 2, _encoderIndex = 2, _rateControlIndex, _speedIndex = 1, _profileIndex, _levelIndex;
     private int _antialiasingIndex, _smaaIndex, _spatialIndex, _surfaceOrderIndex;
-    private bool _antialiasingChanged;
     private int _giIndex, _giCompositionIndex, _giDenoiserIndex;
     private decimal? _giStrength, _giSamples;
     private EditorPreviewCapabilities _giCapabilities = new();
@@ -125,7 +125,26 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
         _customKeyframeInterval = _sourceEncoding.KeyframeInterval.HasValue;
         _keyframeInterval = _sourceEncoding.KeyframeInterval ?? 60;
         if (current is null && _encoderIndex == 0) _destination = Path.ChangeExtension(_destination, ".avi");
-        _antialiasingIndex = _sourceQuality.Antialiasing switch { null => 0, FrameAntialiasing.Off => 1, _ => 2 };
+        _preservedAntialiasing = _sourceQuality.Antialiasing is { } sourceAa
+            && sourceAa is not (FrameAntialiasing.Off or FrameAntialiasing.Smaa1X)
+            ? sourceAa
+            : null;
+        var aaModes = new List<OutputSettingsChoice>
+        {
+            new(() => Text("沿用场景")),
+            new(() => Text("Mda.Text.Context.OptionOff")),
+            new(() => "SMAA"),
+        };
+        if (_preservedAntialiasing is { } preservedAa)
+            aaModes.Add(new(() => PreservedAntialiasingLabel(preservedAa)));
+        AntialiasingModes = aaModes.AsReadOnly();
+        _antialiasingIndex = _sourceQuality.Antialiasing switch
+        {
+            null => 0,
+            FrameAntialiasing.Off => 1,
+            FrameAntialiasing.Smaa1X => 2,
+            _ => 3
+        };
         _smaaIndex = _sourceQuality.SmaaQuality is { } smaa ? (int)smaa + 1 : 0;
         _surfaceOrderIndex = _sourceQuality.SurfaceOrder == SurfaceDrawOrder.OpaqueFirst ? 0 : 1;
         _spatialIndex = _sourceQuality.SpatialSamples is { } samples ? Array.IndexOf(SpatialValues, samples) + 1 : 0;
@@ -154,7 +173,7 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     public IReadOnlyList<OutputSettingsChoice> Speeds { get; } = [new(() => Text("快速")), new(() => Text("均衡")), new(() => Text("慢速"))];
     public IReadOnlyList<OutputSettingsChoice> Profiles { get; } = [new(() => Text("自动")), new(() => "H.264 Main"), new(() => "H.264 High"), new(() => "HEVC Main"), new(() => "AV1 Main")];
     public IReadOnlyList<OutputSettingsChoice> Levels { get; } = [new(() => Text("自动")), new(() => "H.264 · 4.1")];
-    public IReadOnlyList<OutputSettingsChoice> AntialiasingModes { get; } = [new(() => Text("沿用场景")), new(() => Text("Mda.Text.Context.OptionOff")), new(() => "SMAA")];
+    public IReadOnlyList<OutputSettingsChoice> AntialiasingModes { get; }
     public IReadOnlyList<OutputSettingsChoice> SmaaQualities { get; } = [new(() => Text("沿用场景")), new(() => Text("低")), new(() => Text("中")), new(() => Text("高")), new(() => Text("超高"))];
     public string SurfaceOrderLabel => Text("Mda.Text.SurfaceOrder.Label");
     public bool SupportsCaptureMemory => _supportsCaptureMemory;
@@ -188,6 +207,16 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     public IReadOnlyList<OutputSettingsChoice> GiModes { get; }
     public IReadOnlyList<OutputSettingsChoice> GiCompositions { get; } = [new(() => Text("原色叠加")), new(() => Text("卡通色阶"))];
     public IReadOnlyList<OutputSettingsChoice> GiDenoisers { get; } = [new(() => Text("Mda.Text.Context.OptionOff")), new(() => Text("空间降噪")), new(() => Text("时空降噪"))];
+
+    private static string PreservedAntialiasingLabel(FrameAntialiasing aa) => aa switch
+    {
+        FrameAntialiasing.Fxaa => Text("Mda.Text.Preview.AaFxaa"),
+        FrameAntialiasing.Taa => Text("Mda.Text.Preview.AaTaa"),
+        FrameAntialiasing.Msaa2X => Text("Mda.Text.Preview.AaMsaa2x"),
+        FrameAntialiasing.Msaa4X => Text("Mda.Text.Preview.AaMsaa4x"),
+        FrameAntialiasing.Msaa8X => Text("Mda.Text.Preview.AaMsaa8x"),
+        _ => aa.ToString()
+    };
 
     private string GiModeChoiceLabel(LightingMode mode)
     {
@@ -229,7 +258,7 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     public int SpeedIndex { get => _speedIndex; set => Set(ref _speedIndex, value); }
     public int ProfileIndex { get => _profileIndex; set => Set(ref _profileIndex, value); }
     public int LevelIndex { get => _levelIndex; set => Set(ref _levelIndex, value); }
-    public int AntialiasingIndex { get => _antialiasingIndex; set { if (Set(ref _antialiasingIndex, value)) _antialiasingChanged = true; } }
+    public int AntialiasingIndex { get => _antialiasingIndex; set => Set(ref _antialiasingIndex, value); }
     public int SmaaIndex { get => _smaaIndex; set => Set(ref _smaaIndex, value); }
     public int SurfaceOrderIndex { get => _surfaceOrderIndex; set => Set(ref _surfaceOrderIndex, value); }
     public int CaptureMemoryIndex { get => _captureMemoryIndex; set => Set(ref _captureMemoryIndex, value); }
@@ -345,9 +374,8 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
                 {
                     0 => null,
                     1 => FrameAntialiasing.Off,
-                    2 => !_antialiasingChanged && _sourceQuality.Antialiasing is { } preserved && preserved is not (FrameAntialiasing.Off or FrameAntialiasing.Smaa1X)
-                        ? preserved
-                        : FrameAntialiasing.Smaa1X,
+                    2 => FrameAntialiasing.Smaa1X,
+                    3 when _preservedAntialiasing is { } preserved => preserved,
                     _ => throw Error("请选择抗锯齿模式。")
                 },
                 SmaaQuality = SmaaIndex == 0 ? null : Choice<SmaaQuality>(SmaaIndex - 1, "SMAA 质量"),

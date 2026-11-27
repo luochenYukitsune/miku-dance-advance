@@ -53,7 +53,10 @@ public partial class EditorWindow
         double scaling = TopLevel.GetTopLevel(viewport)?.RenderScaling ?? 1;
         int width = Math.Clamp((int)Math.Ceiling(viewport.Bounds.Width * scaling), 1, 4096);
         int height = Math.Clamp((int)Math.Ceiling(viewport.Bounds.Height * scaling), 1, 4096);
-        return new(viewport.AdapterName, viewport.IsWarp, width, height, viewport.Statistics);
+        ulong? budget = viewport.AdapterLuid != 0
+            ? EditorPreviewCapabilities.QueryLocalVideoMemoryBudget(viewport.AdapterLuid, viewport.IsWarp)
+            : null;
+        return new(viewport.AdapterName, viewport.IsWarp, width, height, viewport.Statistics, budget);
     }
 
     private async Task OpenPreviewSettingsAsync(Window owner)
