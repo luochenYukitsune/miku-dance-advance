@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T03:15:41.3358704Z",
+    "generatedAtUtc":  "2026-11-27T03:24:13.5032004Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -8562,8 +8562,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  42753,
-                      "sha256":  "91b31a8e43a7abea61a0a5f83c3858ce3795140d4b540d5f755540277ff9ffa6",
+                      "bytes":  42994,
+                      "sha256":  "3f1ad3c1116cd31a07a94ad286293494fd35b12aa57fbd4c61d4e07d2a61106f",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -14704,8 +14704,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  28594,
-                      "sha256":  "58a42be4003c56a0ec4e4c6a4fed877fc51c2e1abd0c8050a8c520df49b5fda6",
+                      "bytes":  28763,
+                      "sha256":  "563057c4bb8c8387712fc09cf00ff74f2fd9b873898a5477d0a03807e7a6638a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -15040,8 +15040,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  33629,
-                      "sha256":  "94be2ab9b7918ebf1f0356ec71f9dea719ac63d46b08b0c98f57e151f55caa3e",
+                      "bytes":  33699,
+                      "sha256":  "ccb4c8913d7d2bb7879084b81ecbae90a51e7de478bf4d2ab854aec0f2d5e600",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {

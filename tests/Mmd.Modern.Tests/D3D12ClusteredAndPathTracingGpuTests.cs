@@ -473,15 +473,17 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
             $"Expected distant geometry at z={dist} to be hit rather than clipped at 1000 (RGBA={img.Rgba[center]},{img.Rgba[center + 1]},{img.Rgba[center + 2]},{img.Rgba[center + 3]}).");
     }
 
-    [Fact]
-    public void PathTracingPhysicalEnclosedBoxDoesNotLeakEnvironmentStrength()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PathTracingPhysicalEnclosedBoxDoesNotLeakEnvironmentStrength(bool preferHardware)
     {
         using var session = new D3D12FrameSession();
         var caps = session.QueryRayGiCapabilities();
         if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
             return;
 
-        static OriginalFrameScene BuildRoomScene(bool enclosed)
+        OriginalFrameScene BuildRoomScene(bool enclosed)
         {
             var verts = new List<SceneVertex>();
             var idx = new List<uint>();
@@ -543,7 +545,7 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
                 ProgressiveAccumulation: false,
                 FireflyClamp: 10f,
                 Denoiser: RayGiDenoiser.Off,
-                UseHardwareRayTracing: false);
+                UseHardwareRayTracing: preferHardware);
             var options = new OriginalFrameOptions(
                 OriginalAlphaBlendMode.Normal,
                 WriteDepth: true,

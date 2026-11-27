@@ -166,8 +166,13 @@ internal static class D3D12PathTracingShaders
             if (dot(n, incoming) > 0.0) n = -n;
             return n;
         }
+        float3 PtHitPosition(GiTriangle tri, float2 bary) {
+            float3 w = PtWeights(bary);
+            return tri.P0.xyz * w.x + tri.P1.xyz * w.y + tri.P2.xyz * w.z;
+        }
         float3 PtOffset(float3 p, float3 geometric, float3 direction) {
-            return p + geometric * (dot(geometric, direction) >= 0.0 ? PtTuning.x : -PtTuning.x);
+            float scale = max(1.0, max(abs(p.x), max(abs(p.y), abs(p.z))) * 1e-3);
+            return p + geometric * ((dot(geometric, direction) >= 0.0 ? PtTuning.x : -PtTuning.x) * scale);
         }
         """;
 
@@ -347,12 +352,12 @@ internal static class D3D12PathTracingShaders
                 float attenuation = NativeLightAttenuation(light.PositionKind, light.DirectionRange, light.ConeShadow, distSq, l);
                 if (attenuation <= 0.0) continue;
 
-                if (receiveShadow && light.ConeShadow.z > 0.0) {
+                if (receiveShadow && light.ConeShadow.z > 0.0 && (kind == 0.0 || dist > PtTuning.x)) {
                     GiRay shadowRay;
                     shadowRay.Origin = PtOffset(p, gN, l);
                     shadowRay.Direction = l;
-                    shadowRay.TMin = PtTuning.x;
-                    shadowRay.TMax = kind == 0.0 ? PtLightDirDist.w : max(dist - PtTuning.x, PtTuning.x);
+                    shadowRay.TMin = 0.0;
+                    shadowRay.TMax = kind == 0.0 ? PtLightDirDist.w : (dist - PtTuning.x);
                     if (TraceAny(shadowRay)) continue;
                 }
 
@@ -428,7 +433,7 @@ internal static class D3D12PathTracingShaders
                 GiMaterial mat0 = GiMaterials[matIndex0];
                 PtMaterialExtra extra0 = PtMaterials[matIndex0];
 
-                float3 p0 = ray.Origin + ray.Direction * primaryHit.T;
+                float3 p0 = PtHitPosition(tri0, primaryHit.Barycentrics);
                 float3 gN0 = PtGeometricNormal(tri0);
                 float3 n0 = PtShadingNormal(tri0, primaryHit.Barycentrics, ray.Direction);
                 float3 v0 = -ray.Direction;
@@ -472,7 +477,7 @@ internal static class D3D12PathTracingShaders
                         GiRay sunRay;
                         sunRay.Origin = PtOffset(p0, gN0, jitteredSun);
                         sunRay.Direction = jitteredSun;
-                        sunRay.TMin = PtTuning.x;
+                        sunRay.TMin = 0.0;
                         sunRay.TMax = PtLightDirDist.w;
                         if (TraceAny(sunRay)) shadowVis = 0.0;
                     }
@@ -494,7 +499,7 @@ internal static class D3D12PathTracingShaders
                         GiRay bounceRay;
                         bounceRay.Origin = PtOffset(p0, gN0, bounceDir);
                         bounceRay.Direction = bounceDir;
-                        bounceRay.TMin = PtTuning.x;
+                        bounceRay.TMin = 0.0;
                         bounceRay.TMax = PtLightDirDist.w;
 
                         [loop] for (uint b = 1u; b < maxBounces; b++) {
@@ -507,7 +512,7 @@ internal static class D3D12PathTracingShaders
                             uint mIdx = tri.Meta.x;
                             GiMaterial mat = GiMaterials[mIdx];
                             PtMaterialExtra extra = PtMaterials[mIdx];
-                            float3 hp = bounceRay.Origin + bounceRay.Direction * hit.T;
+                            float3 hp = PtHitPosition(tri, hit.Barycentrics);
                             float3 gN = PtGeometricNormal(tri);
                             float3 hn = PtShadingNormal(tri, hit.Barycentrics, bounceRay.Direction);
                             float3 halbedo = saturate(mat.DiffuseFactor.rgb * PtDiffuseTexel(mIdx, tri, hit.Barycentrics));
@@ -522,7 +527,7 @@ internal static class D3D12PathTracingShaders
                                     GiRay sr;
                                     sr.Origin = PtOffset(hp, gN, jSun);
                                     sr.Direction = jSun;
-                                    sr.TMin = PtTuning.x;
+                                    sr.TMin = 0.0;
                                     sr.TMax = PtLightDirDist.w;
                                     if (!TraceAny(sr))
                                         indirect += throughput * halbedo * PtLightColorEnv.rgb * (nDotL * PT_INV_PI);
@@ -542,7 +547,7 @@ internal static class D3D12PathTracingShaders
                             float3 nextDir = PtSampleCosineHemisphere(hn, PtRand(rng), PtRand(rng));
                             bounceRay.Origin = PtOffset(hp, gN, nextDir);
                             bounceRay.Direction = nextDir;
-                            bounceRay.TMin = PtTuning.x;
+                            bounceRay.TMin = 0.0;
                             bounceRay.TMax = PtLightDirDist.w;
                         }
 
@@ -570,7 +575,7 @@ internal static class D3D12PathTracingShaders
                         uint mIdx = tri.Meta.x;
                         GiMaterial mat = GiMaterials[mIdx];
                         PtMaterialExtra extra = PtMaterials[mIdx];
-                        float3 hp = curRay.Origin + curRay.Direction * hit.T;
+                        float3 hp = PtHitPosition(tri, hit.Barycentrics);
                         float3 gN = PtGeometricNormal(tri);
                         float3 hn = PtShadingNormal(tri, hit.Barycentrics, curRay.Direction);
                         float3 hv = -curRay.Direction;
@@ -593,7 +598,7 @@ internal static class D3D12PathTracingShaders
                                     GiRay sr;
                                     sr.Origin = PtOffset(hp, gN, jSun);
                                     sr.Direction = jSun;
-                                    sr.TMin = PtTuning.x;
+                                    sr.TMin = 0.0;
                                     sr.TMax = PtLightDirDist.w;
                                     occluded = TraceAny(sr);
                                 }
@@ -643,7 +648,7 @@ internal static class D3D12PathTracingShaders
 
                         curRay.Origin = PtOffset(hp, gN, nextDir);
                         curRay.Direction = nextDir;
-                        curRay.TMin = PtTuning.x;
+                        curRay.TMin = 0.0;
                         curRay.TMax = PtLightDirDist.w;
                     }
                 }

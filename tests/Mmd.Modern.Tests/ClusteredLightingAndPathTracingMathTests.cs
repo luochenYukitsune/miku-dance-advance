@@ -327,6 +327,8 @@ public sealed class ClusteredLightingAndPathTracingMathTests
         Assert.Contains("ray.TMax = rayLen;", traceSrc, StringComparison.Ordinal);
         Assert.Contains("if (toonMode && PtLightColorEnv.w > 0.0)", traceSrc, StringComparison.Ordinal);
         Assert.Contains("bool keepPreviousGuide = !hasGuide && !resetHistory && progressive && PtConfig.z > 0u;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("PtHitPosition(", traceSrc, StringComparison.Ordinal);
+        Assert.DoesNotContain(".TMin = PtTuning.x;", traceSrc, StringComparison.Ordinal);
         Assert.Contains("float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
         Assert.Contains("straightAlpha ? (filteredRgb * center.a) : filteredRgb", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
     }
