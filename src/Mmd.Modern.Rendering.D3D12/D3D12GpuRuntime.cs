@@ -107,6 +107,11 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public double CaptureRetirementMilliseconds {get;init;}
     public FrameAntialiasing Antialiasing {get;init;}
     public int AntialiasingPassDrawCalls {get;init;}
+    public int MsaaSampleCount {get;init;}=1;
+    public int AnisotropicFiltering {get;init;}=1;
+    public ShadowFilterMode ShadowFilter {get;init;}=ShadowFilterMode.Linear;
+    public int ScreenSpaceAoPassDrawCalls {get;init;}
+    public int SharpeningPassDrawCalls {get;init;}
     public SmaaQuality SmaaQuality {get;init;}=SmaaQuality.High;
     public int SpatialSamples {get;init;}=1;
     public int SpatialAccumulationDispatches {get;init;}
@@ -189,6 +194,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
     internal bool IsRecording {get;private set;}
     internal D3D12TransientResources Transients {get;}
     private readonly Slot[] slots;
+    private readonly List<(ulong Fence, IDisposable Resource)> deferredRetirements = [];
     private readonly ID3D12Fence fence;
     private readonly D3D12FenceWaiter fenceWaiter;
     private int slotIndex=-1;
@@ -224,12 +230,29 @@ internal sealed class D3D12GpuRuntime:IDisposable
         ObjectDisposedException.ThrowIf(disposed,this);
         if(IsRecording) throw new InvalidOperationException("Concurrent or nested GPU recording is unsupported.");
         slotIndex=(slotIndex+1)%slots.Length;var slot=slots[slotIndex];
-        var waitTimer=System.Diagnostics.Stopwatch.StartNew();Wait(slot.Fence);LastSlotWaitMilliseconds=waitTimer.Elapsed.TotalMilliseconds;Retire(slot);
+        var waitTimer=System.Diagnostics.Stopwatch.StartNew();Wait(slot.Fence);LastSlotWaitMilliseconds=waitTimer.Elapsed.TotalMilliseconds;Retire(slot);CollectDeferredRetirements();
         ConstantAllocations=0;ConstantBytes=0;FrameOwnedAllocations=0;
         slot.Allocator.Reset();slot.Commands.Reset(slot.Allocator,null);slot.ConstantPage=slot.ConstantOffset=0;IsRecording=true;FrameId++;
         DebugQueue?.ClearStoredMessages();return new(this);
     }
     internal T Own<T>(T value) where T:IDisposable {if(!IsRecording)throw new InvalidOperationException("No open GPU frame.");slots[slotIndex].Resources.Add(value);FrameOwnedAllocations++;return value;}
+    internal void RetireAfterFence(IDisposable resource, ulong requiredFence)
+    {
+        if (requiredFence <= CompletedFence) { resource.Dispose(); return; }
+        deferredRetirements.Add((requiredFence, resource));
+    }
+    private void CollectDeferredRetirements()
+    {
+        ulong completed = CompletedFence;
+        for (int i = deferredRetirements.Count - 1; i >= 0; i--)
+        {
+            if (deferredRetirements[i].Fence <= completed)
+            {
+                deferredRetirements[i].Resource.Dispose();
+                deferredRetirements.RemoveAt(i);
+            }
+        }
+    }
     internal void OnAbort(Action action)=>slots[slotIndex].AbortActions.Add(action);
     internal ulong UploadConstants(ReadOnlySpan<byte> bytes)
     {
@@ -277,6 +300,7 @@ internal sealed class D3D12GpuRuntime:IDisposable
         if (forDisposal) fenceWaiter.Wait(fenceValue, CancellationToken.None);
         else Wait(fenceValue);
         foreach (var slot in slots) Retire(slot);
+        CollectDeferredRetirements();
         Transients.ReleaseIdle();
     }
     private static void Retire(Slot slot){for(int i=slot.Resources.Count-1;i>=0;i--)slot.Resources[i].Dispose();slot.Resources.Clear();}
@@ -290,7 +314,10 @@ internal sealed class D3D12GpuRuntime:IDisposable
         try{Abort();WaitForIdleForDisposal();}
         finally
         {
-            disposed=true;Transients.Dispose();pipelineLibrary.Dispose();
+            disposed=true;
+            for(int i=deferredRetirements.Count-1;i>=0;i--)deferredRetirements[i].Resource.Dispose();
+            deferredRetirements.Clear();
+            Transients.Dispose();pipelineLibrary.Dispose();
             foreach(var slot in slots){foreach(var page in slot.ConstantPages)page.Dispose();slot.Commands.Dispose();slot.Allocator.Dispose();}
             DebugQueue?.Dispose();fence.Dispose();Queue.Dispose();Device.Dispose();fenceWaiter.Dispose();
         }
@@ -319,13 +346,14 @@ internal sealed class D3D12RecordingContext(D3D12GpuRuntime runtime)
     {if(target.State!=state){Commands.ResourceBarrierTransition(target.Resource,target.State,state);target.State=state;}}
 }
 
-internal sealed class D3D12GpuTarget(string name,ID3D12Resource resource,CpuDescriptorHandle handle,int width,int height,Format format,bool depth)
+internal sealed class D3D12GpuTarget(string name,ID3D12Resource resource,CpuDescriptorHandle handle,int width,int height,Format format,bool depth,int sampleCount=1)
 {
     internal string Name=name;
     internal ID3D12Resource Resource=resource;
     internal CpuDescriptorHandle Handle=handle;
     internal int Width=width,Height=height;
     internal Format Format=format;
+    internal int SampleCount=sampleCount;
     internal bool Depth=depth,Initialized=false;
     internal bool StencilInitialized=false;
     internal ResourceStates State=depth?ResourceStates.DepthWrite:ResourceStates.RenderTarget;

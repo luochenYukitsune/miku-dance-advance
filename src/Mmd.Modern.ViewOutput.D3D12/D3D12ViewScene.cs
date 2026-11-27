@@ -103,6 +103,7 @@ internal static class D3D12ViewScene
                     true, false, OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual);
                 if (quality.Shadow is { } shadowOverride)
                     selected = selected with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
+                selected = ApplyShadowFilterOverrides(selected, quality);
                 options = options with { SelfShadow = selected with {
                     LightViewProjection = ModernDirectionalShadowProjection.Fit(surface.Snapshot), Generate = true, PartialFar = false } };
             }
@@ -116,12 +117,30 @@ internal static class D3D12ViewScene
                 throw new NotSupportedException("Resolved camera differs from the sampled original camera. Supply a validated explicit projection instead of guessing its original shadow space.");
             var createdShadow = PmmOriginalSelfShadowAdapter.Create(shadowCamera, shadowLight,
                 shadow, surface.Snapshot.World, options.SelfShadow, cameraParentTransform);
-            if (createdShadow is not null && quality.Shadow is { } shadowOverride)
-                createdShadow = createdShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
+            if (createdShadow is not null)
+            {
+                if (quality.Shadow is { } shadowOverride)
+                    createdShadow = createdShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
+                createdShadow = ApplyShadowFilterOverrides(createdShadow, quality);
+            }
             options = options with { SelfShadow = createdShadow };
         }
         var materials = ApplyViewMaterialOverrides(scene.Materials, quality);
         return new(surface, scene.Outline, outline, options, materials, scene.Lighting, scene.EditorOverlay);
+    }
+
+    private static OriginalSelfShadowOptions ApplyShadowFilterOverrides(OriginalSelfShadowOptions target, ViewQualityOptions quality)
+    {
+        if (quality.ShadowFilter is null && quality.ShadowSoftness is null) return target;
+        var effectiveMode = quality.ShadowFilter ?? target.EffectiveFilterMode;
+        return target with
+        {
+            FilterMode = quality.ShadowFilter ?? target.FilterMode,
+            Sampling = effectiveMode == ShadowFilterMode.Point
+                ? OriginalTextureSampling.PointClamp
+                : OriginalTextureSampling.LinearClamp,
+            ShadowSoftness = quality.ShadowSoftness ?? target.ShadowSoftness,
+        };
     }
 
     internal static IEnumerable<OriginalFrameMaterialFlags> ApplyViewMaterialOverrides(

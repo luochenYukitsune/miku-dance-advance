@@ -126,6 +126,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         if(context.Device.NativePointer!=device.NativePointer)throw new InvalidOperationException("Cross-device original frame recording is unsupported.");
         bool straight=frame.Options?.AlphaOutput==FrameAlphaOutput.Straight;
         if(color.Format!=(straight?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm)||depth.Format is not (Format.D32_Float or Format.D24_UNorm_S8_UInt))throw new InvalidOperationException("Original frame requires its selected RGBA color format with D32 or D24S8 depth.");
+        if(color.SampleCount!=depth.SampleCount)throw new InvalidOperationException("Scene color and depth targets must have matching MSAA sample counts.");
         var commands=context.Commands;var scene=frame.Surface.Snapshot;var style=frame.Surface;int width=color.Width,height=color.Height;
         bool subTexture=HasSubTexture(frame);
         bool textureMorph=subTexture||style.Materials.Any(binding=>!binding.TextureFactors.IsIdentity);
@@ -147,7 +148,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         }
         preflightCpu.Dispose();
         if(frame.Options is not null)
-            return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasAnyPluginSpace2==true),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
+            return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasAnyPluginSpace2==true,color.SampleCount),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
         var selected=GetPipelines(style.Profile.TextureSampling,depth.Format,textureMorph,subTexture,D3D12RasterWinding.FrontCounterClockwise(frame));var root=selected.Root;
         commands.SetGraphicsRootSignature(root);commands.SetDescriptorHeaps(srvHeap);commands.OMSetRenderTargets(color.Handle,depth.Handle);
         commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);

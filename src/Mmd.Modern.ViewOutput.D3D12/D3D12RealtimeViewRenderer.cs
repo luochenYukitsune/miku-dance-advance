@@ -33,6 +33,8 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     public ViewRendererCapabilities Capabilities { get; }
     public string AdapterName => presenter.AdapterName;
     public bool IsWarp => presenter.IsWarp;
+    internal bool LastNativeTaaReset => presenter.LastNativeTaaReset;
+    internal int NativeTaaPhase => presenter.NativeTaaPhase;
     public D3D12PresentationStatistics Statistics => presenter.Statistics with
     {
         RequestedSpatialSamples = previewSampling.LastRequestedSpatialSamples,
@@ -127,16 +129,17 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                     var prepared = previewSampling.ApplyTo(scene);
                     var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState, allowPreviewAcceleration: true);
                     var upscaling = D3D12ViewQuality.Upscaling(request.EffectiveQuality);
+                    var temporal = D3D12ViewQuality.Temporal(request.EffectiveQuality, frame.TemporalState, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory);
                     var diffusion = D3D12ViewQuality.Diffusion(request.EffectiveQuality);
+                    var sharpening = D3D12ViewQuality.Sharpening(request.EffectiveQuality);
                     if (recordAhead)
                     {
                         if (request.EffectiveQuality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off)
                             throw new InvalidOperationException("Recording ahead requires vendor temporal upscaling to be off.");
-                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken);
+                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken, sharpening, temporal);
                     }
-                    else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling,
-                        D3D12ViewQuality.Temporal(request.EffectiveQuality, frame.TemporalState, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory),
-                        style.SurfaceStyles, diffusion);
+                    else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling, temporal,
+                        style.SurfaceStyles, diffusion, sharpening);
                     previewSampling.CommitPresentation();
                     break;
                 }

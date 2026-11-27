@@ -40,6 +40,8 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics=>renderer.GpuSkinningStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
+    internal bool LastNativeTaaReset=>renderer.LastNativeTaaReset;
+    internal int NativeTaaPhase=>renderer.NativeTaaPhase;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>renderer.TemporalUpscalingStatistics;
     public int EditorOverlayDrawCalls=>renderer.EditorOverlayDrawCalls;
     public string? RayGiBackendIdentity=>renderer.RayGiBackendIdentity;
@@ -56,17 +58,17 @@ public sealed class D3D12FrameSession:IDisposable
     internal string? PipelineLibraryCachePath => Runtime.PipelineLibrary.CacheFilePath;
     public D3D12FrameSession() : this(null) { }
     internal D3D12FrameSession(string? pipelineCacheDirectory){Runtime=new(pipelineCacheDirectory);renderer=new(Runtime);}
-    public D3D12FrameOutput Render(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
-        =>renderer.RecordGpu(frame,width,height,rayGiOptions,null,upscaling,temporalUpscaling,surfaceStyles,diffusion);
-    public RenderedFrame Capture(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
-        =>renderer.Render(frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+    public D3D12FrameOutput Render(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12SharpeningOptions? sharpening=null)
+        =>renderer.RecordGpu(frame,width,height,rayGiOptions,null,upscaling,temporalUpscaling,surfaceStyles,diffusion,sharpening);
+    public RenderedFrame Capture(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,D3D12SharpeningOptions? sharpening=null)
+        =>renderer.Render(frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,sharpening);
     /// <summary>Capture into caller-owned storage of at least width*height*4 bytes (tightly packed RGBA8 rows),
     /// so repeated captures can reuse one CPU buffer. The returned frame's Rgba is empty.</summary>
-    public RenderedFrame CaptureInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
-        =>renderer.RenderInto(destination,frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+    public RenderedFrame CaptureInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,D3D12SharpeningOptions? sharpening=null)
+        =>renderer.RenderInto(destination,frame,width,height,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,sharpening);
     internal D3D12FrameOutput RenderForPresent(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
-        Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
-        =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion);
+        Action<D3D12RecordingContext,D3D12GpuTarget> appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12SharpeningOptions? sharpening=null)
+        =>renderer.RecordGpu(frame,width,height,rayGiOptions,appendPresent,upscaling,temporalUpscaling,surfaceStyles,diffusion,sharpening);
     public Task PrewarmAsync(D3D12ShaderWarmupSpec spec, int maxParallelism = 0, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(spec);

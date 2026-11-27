@@ -33,7 +33,11 @@ public sealed class D3D12FrameRenderer : IDisposable
     private readonly D3D12OriginalStyleRenderer originalRecorder;
     private D3D12RayGiRenderer? rayGiRenderer;
     private D3D12SmaaPass? smaaPass;
+    private D3D12FxaaPass? fxaaPass;
+    private D3D12NativeTaaPass? nativeTaaPass;
     private D3D12Fsr1Pass? fsr1Pass;
+    private D3D12RcasPass? rcasPass;
+    private D3D12ScreenSpaceAoPass? ssaoPass;
     private D3D12RenderScalePass? renderScalePass;
     private D3D12DiffusionPass? diffusionPass;
     private D3D12ExposurePass? exposurePass;
@@ -46,6 +50,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private D3D12TemporalInputPass? temporalInputs;
     private D3D12TemporalColorTransfer? temporalColor;
     private readonly D3D12TemporalHistory temporalHistory = new();
+    private readonly D3D12TemporalHistory nativeTaaHistory = new();
     private readonly MipmapTextureCache mipmapCache = new();
     private readonly PostEffectTargetRecorder targetRecorder = new();
     private D3D12SurfaceStyleMap? lastSubmittedSurfaceStyles;
@@ -77,6 +82,8 @@ public sealed class D3D12FrameRenderer : IDisposable
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder => originalRecorder;
+    internal bool LastNativeTaaReset => nativeTaaPass?.LastReset ?? false;
+    internal int NativeTaaPhase => nativeTaaHistory.Phase;
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics => cache.ExistingGpuSkinning?.Statistics;
     public string? RayGiBackendIdentity => rayGiRenderer?.LastBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities()
@@ -117,29 +124,31 @@ public sealed class D3D12FrameRenderer : IDisposable
     }
 
     public RenderedFrame Render(OriginalFrameScene frame,int width,int height,
-        RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
-        =>RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory);
+        RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,D3D12SharpeningOptions? sharpening=null)
+        =>RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,null,sharpening);
     internal RenderedFrame RenderInto(Memory<byte> destination,OriginalFrameScene frame,int width,int height,
-        RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null)
+        RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,D3D12SharpeningOptions? sharpening=null)
     {
         if(width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         if(destination.Length<checked(width*height*4)) throw new ArgumentException("Destination must hold width*height*4 RGBA bytes.",nameof(destination));
-        return RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,destination);
+        return RenderCore(frame,width,height,true,null,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,captureMemory,destination,sharpening);
     }
 
     internal D3D12FrameOutput RecordGpu(OriginalFrameScene frame,int width,int height,RayGiOptions? rayGiOptions,
-        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
+        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12SharpeningOptions? sharpening=null)
     {
         LastGpuOutput=null;
-        RenderCore(frame,width,height,false,appendPresent,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion);
+        RenderCore(frame,width,height,false,appendPresent,rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,null,null,sharpening);
         return LastGpuOutput!;
     }
 
     private RenderedFrame RenderCore(OriginalFrameScene frame,int width,int height,bool capture,
-        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,Memory<byte>? destination=null)
+        Action<D3D12RecordingContext,D3D12GpuTarget>? appendPresent,RayGiOptions? rayGiOptions=null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12CaptureMemoryOptions? captureMemory=null,Memory<byte>? destination=null,D3D12SharpeningOptions? sharpening=null)
     {
         ObjectDisposedException.ThrowIf(disposed, this); ArgumentNullException.ThrowIfNull(frame);
         if (rendering) throw new InvalidOperationException("Reentrant/concurrent rendering is unsupported.");
+        if (frame.Options is not null) OriginalFrameMath.Validate(frame.Options);
+        sharpening?.Validate();
         captureMemory??=D3D12CaptureMemoryOptions.Default;
         captureMemory.Validate();
         CaptureMemoryStatistics=null;
@@ -186,7 +195,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool temporal=temporalUpscaling.Mode!=D3D12TemporalUpscalingMode.Off;
         bool straightAlpha=frame.Options?.AlphaOutput==FrameAlphaOutput.Straight;
         float renderScale=frame.Options?.RenderScale??1f;
-        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode, renderScale);
+        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode, rayGiOptions, renderScale);
         if (temporal) dimensions = temporalDimensions;
         bool upscale=upscaling.Mode==D3D12SpatialUpscalingMode.Fsr1;
         bool useRenderScale=!upscale&&!temporal&&renderScale!=1f;
@@ -320,6 +329,37 @@ public sealed class D3D12FrameRenderer : IDisposable
         }
         else if(temporalPass is not null||xeSsTemporalPass is not null||dlssTemporalPass is not null)
         {DisposeTemporalPasses();temporalConfiguration=null;temporalHistory.Invalidate("ModeChanged");}
+        var antialiasing=frame.Options?.Antialiasing??FrameAntialiasing.Off;
+        bool nativeTaa=antialiasing==FrameAntialiasing.Taa;
+        bool taaReset=false;int taaPhase=0;const int taaPhaseCount=8;Vector2 taaJitter=default;
+        if(nativeTaa)
+        {
+            taaReset=nativeTaaHistory.ShouldReset(frame,temporalUpscaling,historyRayGiOptions);
+            taaPhase=taaReset?0:nativeTaaHistory.Phase;
+            taaJitter=D3D12TemporalHistory.Jitter(taaPhase);
+            var effectiveCamera=(frame.Options?.CameraOverride??scene.Camera) with {ProjectionJitterPixels=taaJitter};
+            if(frame.Options is {} options)
+                frame=new(frame.Surface,frame.Outline,frame.OutlineOptions,options with {CameraOverride=effectiveCamera},frame.Materials,frame.Lighting,frame.EditorOverlay);
+            else
+            {
+                scene=scene.WithCamera(effectiveCamera);
+                frame=new(new OriginalStyleScene(scene,frame.Surface.Materials,frame.Surface.Profile),frame.Outline,frame.OutlineOptions,
+                    null,frame.Materials,frame.Lighting,frame.EditorOverlay);
+            }
+        }
+        else if(nativeTaaPass is not null)
+        {
+            nativeTaaPass.InvalidateHistory();
+            nativeTaaHistory.Invalidate("ModeChanged");
+        }
+        bool ssaoActive=frame.Options?.ScreenSpaceAo is { IsActive: true };
+        var ssaoOptions=frame.Options?.ScreenSpaceAo;
+        var colorFormat=straightAlpha?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm;
+        var depthFormat=frame.Options?.GroundShadow?.UseStencil==true?Format.D24_UNorm_S8_UInt:Format.D32_Float;
+        int msaaSamples=ResolveSupportedMsaaSamples(device,colorFormat,depthFormat,OriginalFrameMath.MsaaSampleCount(antialiasing));
+        var effectiveShadowFilter=frame.Options?.SelfShadow is { } shadowSpec
+            ? frame.Options.ResolveShadowFilter(shadowSpec)
+            : (frame.Options?.ShadowFilter ?? ShadowFilterMode.Linear);
         if(temporal)SelectCaptureMemory();
         if(temporal&&captureLowMemory&&rayGiOptions?.Enabled==true&&!D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             D3D12SsaaGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,spatialSamples,rayGiOptions,capture,
@@ -346,8 +386,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         double geometryMilliseconds=0,textureMilliseconds=0,sceneMilliseconds=0,submitMilliseconds=0;
         double frameTargetMilliseconds=0,antialiasingMilliseconds=0,editorVisibilityMilliseconds=0,editorOverlayMilliseconds=0,appendPresentMilliseconds=0;
         long sceneAllocatedBytes=0,editorVisibilityAllocatedBytes=0;
-        var antialiasing=frame.Options?.Antialiasing??FrameAntialiasing.Off;
-        int antialiasingDrawCalls=0,spatialResolveDrawCalls=0,upscalingDrawCalls=0;
+        int antialiasingDrawCalls=0,spatialResolveDrawCalls=0,upscalingDrawCalls=0,ssaoPassDrawCalls=0,sharpeningPassDrawCalls=0;
         var recordingRecords=new List<D3D12RecordingRecord>();
         void Recorded(string channel,D3D12GpuTarget color,D3D12GpuTarget depth)=>recordingRecords.Add(new(runtime.FrameId,channel,color.Name,color.Format.ToString(),depth.Format.ToString(),runtime.DeviceIdentity,runtime.CommandListIdentity));
         try
@@ -389,8 +428,48 @@ public sealed class D3D12FrameRenderer : IDisposable
                 targetRecorder.Add(name, w, h, format);
                 return target;
             }
-            var output = Allocate("$output", width, height, straightAlpha?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm, false);
-            var defaultDepth = Allocate("$depth", width, height, frame.Options?.GroundShadow?.UseStencil==true?Format.D24_UNorm_S8_UInt:Format.D32_Float, true);
+            D3D12GpuTarget AllocateDepthTarget(string name, int w, int h, Format dsvFormat, bool typelessForSrv, int sampleCount)
+            {
+                Format resourceFormat = typelessForSrv ? D3D12ScreenSpaceAoPass.DepthResourceFormat(dsvFormat) : dsvFormat;
+                var resource = runtime.Transients.Resource(context, HeapType.Default, ResourceDescription.Texture2D(resourceFormat, (uint)w, (uint)h,
+                    mipLevels: 1, sampleCount: sampleCount, sampleQuality: 0, flags: ResourceFlags.AllowDepthStencil),
+                    ResourceStates.DepthWrite);
+                CpuDescriptorHandle handle;
+                if (!typelessForSrv && sampleCount == 1)
+                {
+                    handle = dsvHeap.GetCPUDescriptorHandleForHeapStart().Offset(depthIndex++, dsvStride);
+                    Counted(heaps.WriteTarget(device, resource, true));
+                }
+                else
+                {
+                    var localDsv = runtime.Transients.Heap(new(DescriptorHeapType.DepthStencilView, 1));
+                    handle = localDsv.GetCPUDescriptorHandleForHeapStart();
+                    device.CreateDepthStencilView(resource, new DepthStencilViewDescription
+                    {
+                        Format = dsvFormat,
+                        ViewDimension = sampleCount > 1 ? DepthStencilViewDimension.Texture2DMultisampled : DepthStencilViewDimension.Texture2D,
+                    }, handle);
+                }
+                var target = runtime.Transients.Track(new D3D12GpuTarget(name, resource, handle, w, h, dsvFormat, true, sampleCount));
+                targetRecorder.Add(name, w, h, dsvFormat);
+                return target;
+            }
+            var output = Allocate("$output", width, height, colorFormat, false);
+            var defaultDepth = AllocateDepthTarget("$depth", width, height, depthFormat, ssaoActive && msaaSamples == 1, 1);
+            D3D12GpuTarget? msaaColor = null;
+            D3D12GpuTarget? msaaDepth = null;
+            if (msaaSamples > 1)
+            {
+                var msaaColorRes = runtime.Transients.Resource(context, HeapType.Default, ResourceDescription.Texture2D(colorFormat, (uint)width, (uint)height,
+                    mipLevels: 1, sampleCount: msaaSamples, sampleQuality: 0, flags: ResourceFlags.AllowRenderTarget),
+                    ResourceStates.RenderTarget);
+                var msaaRtv = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 1));
+                var msaaRtvHandle = msaaRtv.GetCPUDescriptorHandleForHeapStart();
+                device.CreateRenderTargetView(msaaColorRes, null, msaaRtvHandle);
+                msaaColor = runtime.Transients.Track(new D3D12GpuTarget("$msaa-color", msaaColorRes, msaaRtvHandle, width, height, colorFormat, false, msaaSamples));
+                targetRecorder.Add("$msaa-color", width, height, colorFormat);
+                msaaDepth = AllocateDepthTarget("$msaa-depth", width, height, depthFormat, ssaoActive, msaaSamples);
+            }
             commands.SetDescriptorHeaps(srvHeap);
             frameTargetMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(frameTargetStart).TotalMilliseconds;
             var stageTimer=System.Diagnostics.Stopwatch.StartNew();
@@ -506,38 +585,86 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             var background=frame.Options?.BackgroundColor??new Vector4(20f/255,24f/255,32f/255,1);
             if(straightAlpha)background=new(background.X*background.W,background.Y*background.W,background.Z*background.W,background.W);
-            commands.ClearRenderTargetView(output.Handle,new Color4(background.X,background.Y,background.Z,background.W));
-            commands.ClearDepthStencilView(defaultDepth.Handle,ClearFlags.Depth|(defaultDepth.Format==Format.D24_UNorm_S8_UInt?ClearFlags.Stencil:0),1,0);
-            output.Initialized=true; defaultDepth.Initialized=true;
-            defaultDepth.StencilInitialized=defaultDepth.Format==Format.D24_UNorm_S8_UInt;
-            if(spatialSamples==1)Scene();
+            D3D12ScreenSpaceAoPass.Result? ssaoReusable = null;
+            D3D12GpuTarget RunSsao(D3D12GpuTarget sceneColor, D3D12GpuTarget sceneDepth1x, OriginalFrameScene activeFrame, bool reuseAcrossSamples = false)
+            {
+                var activeCamera = activeFrame.Options?.CameraOverride ?? activeFrame.Surface.Snapshot.Camera;
+                var ssaoResult = (ssaoPass ??= new(runtime, cache)).Record(context, sceneColor, sceneDepth1x, activeCamera, ssaoOptions!, reuseAcrossSamples ? ssaoReusable : null);
+                if (reuseAcrossSamples && ssaoReusable is null) ssaoReusable = ssaoResult;
+                Recorded("ssao:raw", ssaoResult.RawAo, sceneDepth1x);
+                Recorded("ssao:composite", ssaoResult.Output, sceneDepth1x);
+                targetRecorder.Add(ssaoResult.RawAo);
+                targetRecorder.Add(ssaoResult.Output);
+                ssaoPassDrawCalls += 2;
+                LastPassDrawCalls += 2;
+                return ssaoResult.Output;
+            }
+            if(msaaSamples>1)
+            {
+                current=msaaColor!;
+                currentDepth=msaaDepth!;
+                commands.ClearRenderTargetView(msaaColor!.Handle,new Color4(background.X,background.Y,background.Z,background.W));
+                commands.ClearDepthStencilView(msaaDepth!.Handle,ClearFlags.Depth|(msaaDepth.Format==Format.D24_UNorm_S8_UInt?ClearFlags.Stencil:0),1,0);
+                msaaColor.Initialized=true;msaaDepth.Initialized=true;
+                msaaDepth.StencilInitialized=msaaDepth.Format==Format.D24_UNorm_S8_UInt;
+                Scene();
+                commands.UnsetRenderTargets();
+                Transition(msaaColor,ResourceStates.ResolveSource);
+                Transition(output,ResourceStates.ResolveDest);
+                commands.ResolveSubresource(output.Resource,0,msaaColor.Resource,0,output.Format);
+                output.Initialized=true;
+                Recorded("msaa:resolve",output,defaultDepth);
+                if(ssaoActive)
+                {
+                    var depth1x=(ssaoPass??=new(runtime,cache)).ResolveMsaaDepth(context,msaaDepth,msaaSamples);
+                    Recorded("msaa:depth-resolve",output,depth1x);
+                    targetRecorder.Add(depth1x);
+                    ssaoPassDrawCalls++;
+                    LastPassDrawCalls++;
+                    output=RunSsao(output,depth1x,frame);
+                }
+            }
             else
             {
-                var sourceFrame=frame;
-                var sourceOptions=sourceFrame.Options!;
-                var camera=sourceOptions.CameraOverride??scene.Camera;
-                var accumulation=(spatialPass??=new(runtime,cache)).Begin(context,width,height,spatialSamples,output.Format);
-                for(int sample=0;sample<spatialSamples;sample++)
+                commands.ClearRenderTargetView(output.Handle,new Color4(background.X,background.Y,background.Z,background.W));
+                commands.ClearDepthStencilView(defaultDepth.Handle,ClearFlags.Depth|(defaultDepth.Format==Format.D24_UNorm_S8_UInt?ClearFlags.Stencil:0),1,0);
+                output.Initialized=true; defaultDepth.Initialized=true;
+                defaultDepth.StencilInitialized=defaultDepth.Format==Format.D24_UNorm_S8_UInt;
+                if(spatialSamples==1)
                 {
-                    if(sample>0)
-                    {
-                        Transition(output,ResourceStates.RenderTarget);
-                        commands.ClearRenderTargetView(output.Handle,new Color4(background.X,background.Y,background.Z,background.W));
-                        commands.ClearDepthStencilView(defaultDepth.Handle,ClearFlags.Depth|(defaultDepth.Format==Format.D24_UNorm_S8_UInt?ClearFlags.Stencil:0),1,0);
-                    }
-                    frame=new(sourceFrame.Surface,sourceFrame.Outline,sourceFrame.OutlineOptions,
-                        sourceOptions with {CameraOverride=camera with {ProjectionJitterPixels=camera.ProjectionJitterPixels+SpatialSampling.JitterPixels(spatialSamples,sample)}},
-                        sourceFrame.Materials,sourceFrame.Lighting,sourceFrame.EditorOverlay);
-                    commands.SetDescriptorHeaps(srvHeap);
-                    Scene(sample);
-                    accumulation.Accumulate(context,output,sample);
-                    Recorded("ssaa:accumulate",output,defaultDepth);
+                    Scene();
+                    if(ssaoActive)output=RunSsao(output,defaultDepth,frame);
                 }
-                frame=sourceFrame;
-                output=accumulation.Resolve(context);
-                spatialResolveDrawCalls=1;
-                Recorded("ssaa:resolve",output,defaultDepth);
-                targetRecorder.Add(output.Name,width,height,output.Format);
+                else
+                {
+                    var sourceFrame=frame;
+                    var sourceOptions=sourceFrame.Options!;
+                    var camera=sourceOptions.CameraOverride??scene.Camera;
+                    var accumulation=(spatialPass??=new(runtime,cache)).Begin(context,width,height,spatialSamples,output.Format);
+                    for(int sample=0;sample<spatialSamples;sample++)
+                    {
+                        if(sample>0)
+                        {
+                            Transition(output,ResourceStates.RenderTarget);
+                            Transition(defaultDepth,ResourceStates.DepthWrite);
+                            commands.ClearRenderTargetView(output.Handle,new Color4(background.X,background.Y,background.Z,background.W));
+                            commands.ClearDepthStencilView(defaultDepth.Handle,ClearFlags.Depth|(defaultDepth.Format==Format.D24_UNorm_S8_UInt?ClearFlags.Stencil:0),1,0);
+                        }
+                        frame=new(sourceFrame.Surface,sourceFrame.Outline,sourceFrame.OutlineOptions,
+                            sourceOptions with {CameraOverride=camera with {ProjectionJitterPixels=camera.ProjectionJitterPixels+SpatialSampling.JitterPixels(spatialSamples,sample)}},
+                            sourceFrame.Materials,sourceFrame.Lighting,sourceFrame.EditorOverlay);
+                        commands.SetDescriptorHeaps(srvHeap);
+                        Scene(sample);
+                        var sampleColor=ssaoActive?RunSsao(output,defaultDepth,frame,reuseAcrossSamples:true):output;
+                        accumulation.Accumulate(context,sampleColor,sample);
+                        Recorded("ssaa:accumulate",sampleColor,defaultDepth);
+                    }
+                    frame=sourceFrame;
+                    output=accumulation.Resolve(context);
+                    spatialResolveDrawCalls=1;
+                    Recorded("ssaa:resolve",output,defaultDepth);
+                    targetRecorder.Add(output.Name,width,height,output.Format);
+                }
             }
             if(antialiasing==FrameAntialiasing.Smaa1X)
             {
@@ -550,6 +677,29 @@ public sealed class D3D12FrameRenderer : IDisposable
                 targetRecorder.Add(aa.Weights);
                 targetRecorder.Add(aa.Output);
                 output=aa.Output;antialiasingDrawCalls=3;
+                antialiasingMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(antialiasingStart).TotalMilliseconds;
+            }
+            else if(antialiasing==FrameAntialiasing.Fxaa)
+            {
+                long antialiasingStart=System.Diagnostics.Stopwatch.GetTimestamp();
+                var fxaaOut=(fxaaPass??=new(runtime,cache)).Record(context,output,alphaCoverage:straightAlpha);
+                Recorded("fxaa:apply",fxaaOut,defaultDepth);
+                targetRecorder.Add(fxaaOut);
+                output=fxaaOut;antialiasingDrawCalls=1;
+                antialiasingMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(antialiasingStart).TotalMilliseconds;
+            }
+            else if(nativeTaa)
+            {
+                long antialiasingStart=System.Diagnostics.Stopwatch.GetTimestamp();
+                var currentTaaFrame=frame;
+                var prevTaaFrame=taaReset?currentTaaFrame:nativeTaaHistory.Previous!;
+                var skinningForTaa=(currentTaaFrame.Surface.Snapshot.HasDeferredDeformation||prevTaaFrame.Surface.Snapshot.HasDeferredDeformation)
+                    ?cache.GpuSkinning:null;
+                var coverage=(temporalInputs??=new(runtime)).Record(context,currentTaaFrame,prevTaaFrame,width,height,preparedFrame,skinningForTaa,vb);
+                var taaResult=(nativeTaaPass??=new(runtime,cache)).Record(context,output,coverage,taaJitter,taaReset);
+                Recorded("taa:resolve",taaResult.Output,defaultDepth);
+                targetRecorder.Add(taaResult.Output);
+                output=taaResult.Output;antialiasingDrawCalls=1;
                 antialiasingMilliseconds=System.Diagnostics.Stopwatch.GetElapsedTime(antialiasingStart).TotalMilliseconds;
             }
             if(upscale)
@@ -612,6 +762,13 @@ public sealed class D3D12FrameRenderer : IDisposable
                 LastPassDrawCalls++;Recorded("alpha:straight",output,defaultDepth);
                 targetRecorder.Add(output);
             }
+            if(sharpening is { IsActive: true })
+            {
+                output=(rcasPass??=new(runtime,cache)).Record(context,output,sharpening,alphaCoverage:straightAlpha);
+                sharpeningPassDrawCalls=1;LastPassDrawCalls++;
+                Recorded("sharpening:rcas",output,defaultDepth);
+                targetRecorder.Add(output);
+            }
             if(exposureEv!=0)
             {
                 output=(exposurePass??=new(runtime,cache)).Record(context,output,exposureEv);
@@ -662,6 +819,11 @@ public sealed class D3D12FrameRenderer : IDisposable
             lastSubmittedSurfaceStyles=surfaceStyles;
             if(D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))rayGiRenderer?.CommitFrame();
             else rayGiRenderer?.InvalidateTemporalHistory("ModeChanged");
+            if(nativeTaa)
+            {
+                nativeTaaHistory.Commit(frame,temporalUpscaling,taaPhase,taaPhaseCount,historyRayGiOptions);
+                nativeTaaPass?.CommitHistory(completion);
+            }
             if(temporal)
             {
                 temporalHistory.Commit(frame,temporalUpscaling,temporalPhase,temporalPhaseCount,historyRayGiOptions);
@@ -688,7 +850,9 @@ public sealed class D3D12FrameRenderer : IDisposable
                 AntialiasingCpuMilliseconds=antialiasingMilliseconds,EditorVisibilityCpuMilliseconds=editorVisibilityMilliseconds,
                 EditorOverlayCpuMilliseconds=editorOverlayMilliseconds,AppendPresentCpuMilliseconds=appendPresentMilliseconds,
                 RecordAllocatedBytes=recordAllocatedBytes,SceneRecordAllocatedBytes=sceneAllocatedBytes,EditorVisibilityAllocatedBytes=editorVisibilityAllocatedBytes,
-                Antialiasing=antialiasing,AntialiasingPassDrawCalls=antialiasingDrawCalls,SmaaQuality=smaaQuality,
+                Antialiasing=antialiasing,AntialiasingPassDrawCalls=antialiasingDrawCalls,MsaaSampleCount=msaaSamples,
+                AnisotropicFiltering=frame.Options?.AnisotropicFiltering??1,ShadowFilter=effectiveShadowFilter,
+                ScreenSpaceAoPassDrawCalls=ssaoPassDrawCalls,SharpeningPassDrawCalls=sharpeningPassDrawCalls,SmaaQuality=smaaQuality,
                 SpatialSamples=spatialSamples,SpatialAccumulationDispatches=spatialSamples>1?spatialSamples:0,SpatialResolveDrawCalls=spatialResolveDrawCalls,
                 SpatialUpscaling=upscaling.Mode,UpscalingInputWidth=width,UpscalingInputHeight=height,
                 UpscalingOutputWidth=displayWidth,UpscalingOutputHeight=displayHeight,UpscalingPassDrawCalls=upscalingDrawCalls,
@@ -710,32 +874,56 @@ public sealed class D3D12FrameRenderer : IDisposable
         finally
         {
             targetRecorder.ResetStaged();
-            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);if(temporal)temporalHistory.Invalidate("AbortedFrame");}
+            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);if(temporal)temporalHistory.Invalidate("AbortedFrame");if(nativeTaa){nativeTaaHistory.Invalidate("AbortedFrame");nativeTaaPass?.AbortPending();}}
             runtime.Abort();
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
         }
     }
 
-    private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
-        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode, float renderScale = 1f)
+    private static int ResolveSupportedMsaaSamples(ID3D12Device device, Format colorFormat, Format depthFormat, int requested)
     {
+        if (requested <= 1) return 1;
+        for (int count = requested; count >= 2; count /= 2)
+        {
+            var colorLevels = new FeatureDataMultisampleQualityLevels { Format = colorFormat, SampleCount = count };
+            var depthLevels = new FeatureDataMultisampleQualityLevels { Format = depthFormat, SampleCount = count };
+            if (device.CheckFeatureSupport(Vortice.Direct3D12.Feature.MultisampleQualityLevels, ref colorLevels)
+                && colorLevels.NumQualityLevels > 0
+                && device.CheckFeatureSupport(Vortice.Direct3D12.Feature.MultisampleQualityLevels, ref depthLevels)
+                && depthLevels.NumQualityLevels > 0)
+                return count;
+        }
+        return 1;
+    }
+
+    private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
+        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode,
+        RayGiOptions? rayGiOptions = null, float renderScale = 1f)
+    {
+        var antialiasing = frame.Options?.Antialiasing ?? FrameAntialiasing.Off;
         if (!float.IsFinite(renderScale) || renderScale is < 0.5f or > 1.5f)
             throw new ArgumentOutOfRangeException(nameof(renderScale), "Render scale must be finite and between 0.5 and 1.5.");
         if (renderScale != 1f && (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) > 1))
             throw new NotSupportedException("Render scale requires spatial upscaling, temporal reconstruction and spatial supersampling (>1x) to be disabled.");
+        if (frame.Options?.ScreenSpaceAo is { Enabled: true } && !(frame.Options?.WriteDepth ?? true))
+            throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
+        if (frame.Options?.ScreenSpaceAo is { Enabled: true } && rayGiOptions is { Enabled: true, OcclusionStrength: > 0f })
+            throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
         {
             D3D12AlphaResolvePass.ValidateCoverage(frame);
             if (temporalMode != D3D12TemporalUpscalingMode.Off || spatialMode != D3D12SpatialUpscalingMode.Off)
                 throw new NotSupportedException("Straight-alpha output with spatial/temporal upscaling requires an explicit coverage contract and is not supported.");
+            if (antialiasing == FrameAntialiasing.Taa)
+                throw new NotSupportedException("Native TAA currently requires an opaque composited background; straight-alpha output is unsupported.");
             if (!capture && frame.EditorOverlay is { Lines.Count: > 0 })
                 throw new NotSupportedException("Straight-alpha GPU output requires editor overlays to be disabled; their compositor uses the opaque viewport contract.");
         }
         if (temporalMode != D3D12TemporalUpscalingMode.Off)
         {
-            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1 || frame.Options?.Antialiasing == FrameAntialiasing.Smaa1X)
-                throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, SMAA and spatial supersampling to be explicitly disabled.");
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1 || antialiasing != FrameAntialiasing.Off)
+                throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, frame antialiasing and spatial supersampling to be explicitly disabled.");
             if (frame.Options?.BackgroundColor is { W: not 1f })
                 throw new NotSupportedException("Temporal reconstruction currently requires an opaque composited background.");
             var camera = frame.Options?.CameraOverride ?? frame.Surface.Snapshot.Camera;
@@ -748,6 +936,18 @@ public sealed class D3D12FrameRenderer : IDisposable
             if (camera.ProjectionJitterPixels != Vector2.Zero)
                 throw new NotSupportedException("Temporal reconstruction owns the camera jitter sequence; supply an unjittered effective camera.");
         }
+        if (antialiasing == FrameAntialiasing.Taa)
+        {
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1)
+                throw new NotSupportedException("TAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
+            if (frame.Options?.BackgroundColor is { W: not 1f })
+                throw new NotSupportedException("Native TAA currently requires an opaque composited background.");
+            var camera = frame.Options?.CameraOverride ?? frame.Surface.Snapshot.Camera;
+            if (camera.ProjectionJitterPixels != Vector2.Zero)
+                throw new NotSupportedException("Native TAA owns the camera jitter sequence; supply an unjittered effective camera.");
+        }
+        if (OriginalFrameMath.IsMsaa(antialiasing) && (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1))
+            throw new NotSupportedException("MSAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
         if (spatialMode == D3D12SpatialUpscalingMode.Fsr1 && frame.Options?.BackgroundColor is { W: not 1f })
             throw new NotSupportedException("FSR1 currently requires an opaque background; transparent coverage reconstruction is not implemented.");
     }
@@ -927,7 +1127,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         targetRecorder.Clear();
         // Native upscalers may report a teardown error after device loss. Release
         // independent pools and the owning device before reporting those failures.
-        IDisposable?[] resources = [temporalPass, xeSsTemporalPass, dlssTemporalPass, temporalInputs,
+        IDisposable?[] resources = [temporalPass, xeSsTemporalPass, dlssTemporalPass, nativeTaaPass, temporalInputs,
             rayGiRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
             ownsRuntime ? runtime : null];
         List<Exception>? failures = null;
