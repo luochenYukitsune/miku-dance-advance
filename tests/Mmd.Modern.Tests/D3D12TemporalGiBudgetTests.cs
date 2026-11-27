@@ -103,4 +103,19 @@ public sealed class D3D12TemporalGiBudgetTests
         }
         finally { Environment.SetEnvironmentVariable("MMD_RAYGI_DIAGNOSTICS", saved); }
     }
+
+    [Fact, Trait("Category", "Gpu")]
+    public void RenderScalePassAndSpatialUpscalingAreDistinguishedInTemporalGiBudget()
+    {
+        using var runtime = new D3D12GpuRuntime();
+        var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, Denoiser: RayGiDenoiser.TemporalSpatial);
+        var plain = D3D12TemporalGiMemoryBudget.Measure(runtime, 17, 13, 31, 23, gi, false,
+            spatialUpscaling: false, renderScalePass: false);
+        var renderScale = D3D12TemporalGiMemoryBudget.Measure(runtime, 17, 13, 31, 23, gi, false,
+            spatialUpscaling: false, renderScalePass: true);
+        var spatial = D3D12TemporalGiMemoryBudget.Measure(runtime, 17, 13, 31, 23, gi, false,
+            spatialUpscaling: true, renderScalePass: false);
+        Assert.True(renderScale.PerFrameBytes > plain.PerFrameBytes);
+        Assert.True(spatial.PerFrameBytes > renderScale.PerFrameBytes);
+    }
 }

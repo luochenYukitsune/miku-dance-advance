@@ -105,7 +105,7 @@ internal static class D3D12TemporalGiMemoryBudget
 
     internal static Estimate Measure(D3D12GpuRuntime runtime, int width, int height, int displayWidth, int displayHeight,
         RayGiOptions options, bool capture, bool straightAlpha = false, OriginalFrameScene? frame = null, bool temporalUpscaling = false,
-        int spatialSamples = 1, bool reuseReceiverWorkspace = false)
+        int spatialSamples = 1, bool reuseReceiverWorkspace = false, bool? spatialUpscaling = null, bool renderScalePass = false)
     {
         if (spatialSamples is < 1 or > 32) throw new ArgumentOutOfRangeException(nameof(spatialSamples));
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
@@ -124,14 +124,14 @@ internal static class D3D12TemporalGiMemoryBudget
         ulong signalBytes = checked((ulong)traceWidth * (ulong)traceHeight * (HistoryBytesPerPixel / HistoryBufferCount));
         ulong historyBuffer = Buffer(signalBytes, ResourceFlags.AllowUnorderedAccess);
         bool smaa = frame?.Options?.Antialiasing == FrameAntialiasing.Smaa1X;
-        bool spatialUpscaling = !temporalUpscaling && (width != displayWidth || height != displayHeight);
+        bool resolvedSpatialUpscaling = spatialUpscaling ?? (!temporalUpscaling && !renderScalePass && (width != displayWidth || height != displayHeight));
         // Reuse the common receiver/shadow/AS preflight so its driver measurements stay authoritative.
         // The common estimator accepts the exact sample count. Shared shadows,
         // acceleration structures, output and accumulation are already counted once by this estimator.
         // The 1x path deliberately retains the float SSAA accumulation and extra color image (safe excess).
         var common = D3D12SsaaGiMemoryBudget.Measure(runtime, width, height, displayWidth, displayHeight, spatialSamples,
-            options with { Denoiser = RayGiDenoiser.Spatial }, capture, smaa, spatialUpscaling, straightAlpha, frame,reuseReceiverWorkspace,
-            temporalUpscaling:temporalUpscaling);
+            options with { Denoiser = RayGiDenoiser.Spatial }, capture, smaa, resolvedSpatialUpscaling, straightAlpha, frame, reuseReceiverWorkspace,
+            temporalUpscaling: temporalUpscaling, renderScalePass: renderScalePass);
         ulong workspace = common.PerFrameBytes;
         if (capture && Environment.GetEnvironmentVariable("MMD_RAYGI_DIAGNOSTICS") is not null)
             workspace = checked(workspace + 2UL * (ulong)spatialSamples * Buffer(signalBytes)); // Signal and moments readbacks per bank.
@@ -188,8 +188,9 @@ internal static class D3D12TemporalGiMemoryBudget
     internal static Admission Validate(D3D12GpuRuntime runtime, int width, int height, int displayWidth, int displayHeight,
         RayGiOptions options, bool capture, bool straightAlpha = false, OriginalFrameScene? frame = null, bool temporalUpscaling = false,
         int spatialSamples = 1,ulong additionalInFlightBytes=0, bool allowBoundedFlight = false,
-        bool forceBoundedFlight = false, bool reuseReceiverWorkspace = false)
+        bool forceBoundedFlight = false, bool reuseReceiverWorkspace = false,
+        bool? spatialUpscaling = null, bool renderScalePass = false)
         => Admit(WithAdditionalReservation(Measure(runtime, width, height, displayWidth, displayHeight, options, capture, straightAlpha, frame, temporalUpscaling,
-            spatialSamples,reuseReceiverWorkspace),additionalInFlightBytes), () => D3D12SsaaGiMemoryBudget.Query(runtime), runtime.WaitForIdle,
+            spatialSamples,reuseReceiverWorkspace, spatialUpscaling, renderScalePass),additionalInFlightBytes), () => D3D12SsaaGiMemoryBudget.Query(runtime), runtime.WaitForIdle,
             width, height, spatialSamples, allowBoundedFlight,forceBoundedFlight);
 }

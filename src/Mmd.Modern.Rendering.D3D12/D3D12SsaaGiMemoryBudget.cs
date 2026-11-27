@@ -76,7 +76,7 @@ internal static class D3D12SsaaGiMemoryBudget
     internal static Estimate Measure(D3D12GpuRuntime runtime, int width, int height, int displayWidth, int displayHeight,
         int samples, RayGiOptions options, bool capture, bool smaa, bool upscale, bool straightAlpha=false,
         OriginalFrameScene? frame=null, bool reuseReceiverWorkspace=false, int inFlightFrames=MaximumInFlightFrames,
-        bool temporalUpscaling=false)
+        bool temporalUpscaling=false, bool renderScalePass=false)
     {
         var device = runtime.Device;
         ulong Allocation(ResourceDescription description)
@@ -173,6 +173,7 @@ internal static class D3D12SsaaGiMemoryBudget
                 + Buffer((ulong)System.Runtime.InteropServices.Marshal.SizeOf<RaytracingInstanceDescription>()));
         }
         if (smaa) workspace = checked(workspace + 2 * Allocation(Texture(Format.R8G8B8A8_UNorm, ResourceFlags.AllowRenderTarget, width, height)) + Allocation(color));
+        if (renderScalePass) workspace = checked(workspace + Allocation(Texture(color.Format, ResourceFlags.AllowRenderTarget, displayWidth, displayHeight)));
         if (straightAlpha) workspace = checked(workspace + Allocation(display));
         if (upscale) workspace = checked(workspace + Allocation(
             Texture(Format.R32G32B32A32_Float, ResourceFlags.AllowRenderTarget, displayWidth, displayHeight))
@@ -200,8 +201,8 @@ internal static class D3D12SsaaGiMemoryBudget
     internal static void Validate(D3D12GpuRuntime runtime, int width, int height, int displayWidth, int displayHeight,
         int samples, RayGiOptions options, bool capture, bool smaa, bool upscale, bool straightAlpha=false,
         OriginalFrameScene? frame=null,ulong additionalInFlightBytes=0, bool reuseReceiverWorkspace=false,
-        int inFlightFrames=MaximumInFlightFrames, bool temporalUpscaling=false)
+        int inFlightFrames=MaximumInFlightFrames, bool temporalUpscaling=false, bool renderScalePass=false)
         => RequireFits(WithAdditionalReservation(Measure(runtime, width, height, displayWidth, displayHeight, samples, options, capture, smaa, upscale, straightAlpha, frame,
-                reuseReceiverWorkspace,inFlightFrames,temporalUpscaling),additionalInFlightBytes),
+                reuseReceiverWorkspace,inFlightFrames,temporalUpscaling,renderScalePass),additionalInFlightBytes),
             Query(runtime), width, height, samples);
 }

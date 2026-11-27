@@ -69,6 +69,7 @@ internal static class D3D12ViewShaderPrewarm
             SmaaQuality = quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
             SmaaAlphaCoverage = straightAlpha,
             IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
+            IncludeRenderScale = quality.RenderScale != 1f,
             IncludeTemporalInputs = temporal || hasLightGizmos,
             IncludeTemporalCharacter = temporal && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0),
             IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,

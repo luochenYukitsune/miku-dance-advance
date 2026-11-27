@@ -14,6 +14,7 @@ internal sealed class D3D12PreviewAdaptiveSampling
     private ResourceContext? resources;
     private ViewQualityOptions? quality;
     private int width, height, requestedSamples;
+    private bool adaptiveVramSampling = true;
     private string? adjustmentReason;
     internal int SpatialSamples { get; private set; } = 1;
     internal int LastRequestedSpatialSamples { get; private set; } = 1;
@@ -29,15 +30,17 @@ internal sealed class D3D12PreviewAdaptiveSampling
         // Camera/pose values are intentionally absent: animated frames with the same resource
         // layout reuse the admitted choice instead of attempting the rejected count every frame.
         if (this.width == width && this.height == height && this.quality == quality
+            && adaptiveVramSampling == quality.AdaptiveVramSampling
             && requestedSamples == requested && resources?.Matches(scene, styles) == true) return;
         this.width = width; this.height = height; this.quality = quality;
+        adaptiveVramSampling = quality.AdaptiveVramSampling;
         requestedSamples = requested; SpatialSamples = requested; adjustmentReason = null;
         resources = new(scene, styles);
     }
 
     internal bool Reduce(string reason)
     {
-        if (SpatialSamples == 1) return false;
+        if (!adaptiveVramSampling || SpatialSamples == 1) return false;
         SpatialSamples /= 2;
         adjustmentReason = reason;
         return true;

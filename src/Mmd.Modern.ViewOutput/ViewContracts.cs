@@ -9,21 +9,36 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     ViewTemporalUpscalingOptions? TemporalUpscaling = null, ViewDiffusionOptions? Diffusion = null,
     SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
 {
+    public ViewShadowOptions? Shadow { get; init; }
+    public bool UseEnvironmentMipmaps { get; init; }
+    public bool AdaptiveVramSampling { get; init; } = true;
+    public float RenderScale { get; init; } = 1f;
+    public bool PreviewOutlineEnabled { get; init; } = true;
+    public float PreviewOutlineWidthScale { get; init; } = 1f;
+
     public ViewDiffusionOptions EffectiveDiffusion => Diffusion ?? ViewDiffusionOptions.Off;
     public RayGiOptions EffectiveGi => Gi ?? RayGiOptions.Off;
     public ViewUpscalingOptions EffectiveUpscaling => Upscaling ?? ViewUpscalingOptions.Off;
     public ViewTemporalUpscalingOptions EffectiveTemporalUpscaling => TemporalUpscaling ?? ViewTemporalUpscalingOptions.Off;
+    public ViewShadowOptions EffectiveShadow => Shadow ?? ViewShadowOptions.Default;
+
     public void Validate()
     {
         EffectiveDiffusion.Validate(); EffectiveGi.Validate(); EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
+        EffectiveShadow.Validate();
         if (!Enum.IsDefined(SurfaceOrder)) throw new ArgumentOutOfRangeException(nameof(SurfaceOrder));
         if (Antialiasing is { } antialiasing && !Enum.IsDefined(antialiasing)) throw new ArgumentOutOfRangeException(nameof(Antialiasing));
         if (SmaaQuality is { } smaa && !Enum.IsDefined(smaa)) throw new ArgumentOutOfRangeException(nameof(SmaaQuality));
         if (SpatialSamples is { } samples && samples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentOutOfRangeException(nameof(SpatialSamples));
+        if (!float.IsFinite(RenderScale) || RenderScale is < 0.5f or > 1.5f) throw new ArgumentOutOfRangeException(nameof(RenderScale));
+        if (!float.IsFinite(PreviewOutlineWidthScale) || PreviewOutlineWidthScale is < 0f or > 4f) throw new ArgumentOutOfRangeException(nameof(PreviewOutlineWidthScale));
         if (EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off
             && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off || Antialiasing is not (null or FrameAntialiasing.Off)
                 || SpatialSamples is > 1))
             throw new NotSupportedException("Temporal reconstruction currently requires spatial upscaling, SMAA and supersampling to be disabled.");
+        if (RenderScale != 1f && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off
+            || EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off || SpatialSamples is > 1))
+            throw new NotSupportedException("Render scale must be 1.0 when spatial upscaling, temporal reconstruction, or spatial supersampling (>1x) is enabled.");
     }
 
     /// <summary>Returns a per-view copy. Scene settings and other views are never modified.</summary>
@@ -31,12 +46,19 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     {
         Validate();
         var options = sceneOptions ?? new(OriginalAlphaBlendMode.Normal, true, false);
+        var selfShadow = options.SelfShadow;
+        if (Shadow is { Resolution: 0 })
+            selfShadow = null;
+        else if (Shadow is { } shadowOverride && selfShadow is { } existingShadow)
+            selfShadow = existingShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
         var resolved = options with { RayGi = EffectiveGi, Antialiasing = Antialiasing ?? options.Antialiasing,
             SmaaQuality = SmaaQuality ?? options.SmaaQuality, SpatialSamples = SpatialSamples ?? options.SpatialSamples,
-            SurfaceOrder = SurfaceOrder };
+            SurfaceOrder = SurfaceOrder, SelfShadow = selfShadow, RenderScale = RenderScale };
         if (EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off
             && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
             throw new NotSupportedException("Inherited scene SMAA/supersampling must be explicitly disabled for temporal reconstruction.");
+        if (resolved.RenderScale != 1f && resolved.SpatialSamples != 1)
+            throw new NotSupportedException("Inherited scene supersampling must be explicitly disabled when render scale is not 1.0.");
         return resolved;
     }
 }

@@ -1,8 +1,11 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
+using Mmd.Modern.App.Controls;
 using Mmd.Modern.ViewOutput;
 
 namespace Mmd.Modern.App;
@@ -108,11 +111,89 @@ public partial class EditorPreviewSettingsWindow : Window
         await EnsureCapabilitiesAsync(forceRefresh: true);
     }
 
+    private void ApplyPerformancePreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Performance);
+    private void ApplyBalancedPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Balanced);
+    private void ApplyHighPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.High);
+    private void ApplyUltraRayTracedPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.UltraRayTraced);
+
+    private bool RejectInvalidInputs()
+    {
+        Control? firstInvalid = null;
+        foreach (var control in this.GetLogicalDescendants().OfType<Control>()
+            .Concat(this.GetVisualDescendants().OfType<Control>()))
+        {
+            if (!control.IsEffectivelyEnabled) continue;
+            bool invalid = (control is EditorNumericUpDown numeric && !numeric.IsInputValid)
+                || DataValidationErrors.GetHasErrors(control);
+            if (!invalid) continue;
+            firstInvalid = control;
+            break;
+        }
+        if (firstInvalid is null) return false;
+
+        RevealInvalidControl(firstInvalid);
+        ViewModel.SetValidationMessage("请先修正标出的输入值，再应用设置。");
+        return true;
+    }
+
+    private void RevealInvalidControl(Control control)
+    {
+        for (ILogical? ancestor = control; ancestor is not null; ancestor = ancestor.GetLogicalParent())
+            ApplyRevealToAncestor(ancestor);
+        for (Visual? ancestor = control; ancestor is not null; ancestor = ancestor.GetVisualParent())
+            ApplyRevealToAncestor(ancestor);
+        control.Focus();
+    }
+
+    private void ApplyRevealToAncestor(object ancestor)
+    {
+        if (ancestor is Expander expander && !expander.IsExpanded)
+            expander.IsExpanded = true;
+        if (ancestor is Control panel && TryCategoryIndex(panel.Name, out int categoryIndex))
+            ViewModel.SelectedCategoryIndex = categoryIndex;
+    }
+
+    private static bool TryCategoryIndex(string? panelName, out int categoryIndex)
+    {
+        categoryIndex = panelName switch
+        {
+            "CategoryOverviewPanel" => 0,
+            "CategoryAntialiasingPanel" => 1,
+            "CategoryShadowsPanel" => 2,
+            "CategoryGiPanel" => 3,
+            "CategoryPostPanel" => 4,
+            "CategoryDiagnosticsPanel" => 5,
+            _ => -1
+        };
+        return categoryIndex >= 0;
+    }
+
+    private void SaveNewCustomPresetClick(object? sender, RoutedEventArgs args)
+    {
+        if (RejectInvalidInputs()) return;
+        ViewModel.SaveNewCustomPreset();
+    }
+
+    private void OverwriteCustomPresetClick(object? sender, RoutedEventArgs args)
+    {
+        if (RejectInvalidInputs()) return;
+        ViewModel.OverwriteSelectedCustomPreset();
+    }
+
+    private void RenameCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.RenameSelectedCustomPreset();
+    private void DeleteCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.DeleteSelectedCustomPreset();
+
+    private void CopyToExportClick(object? sender, RoutedEventArgs args)
+    {
+        if (RejectInvalidInputs()) return;
+        ViewModel.CopyToExport();
+    }
+
+    private void LoadFromExportClick(object? sender, RoutedEventArgs args) => ViewModel.LoadFromExport();
+
     private async void ApplySettings(object? sender, RoutedEventArgs args)
     {
-        if (this.GetVisualDescendants().OfType<Control>().Any(control =>
-            control.IsEffectivelyEnabled && DataValidationErrors.GetHasErrors(control)))
-        { ViewModel.SetValidationMessage("请先修正标出的输入值，再应用设置。"); return; }
+        if (RejectInvalidInputs()) return;
         if (ViewModel.NeedsCapabilitiesForApply && !await EnsureCapabilitiesAsync(forceRefresh: false)) return;
         if (closed) return;
         if (ViewModel.TryCreate(out var result)) Close(result);
