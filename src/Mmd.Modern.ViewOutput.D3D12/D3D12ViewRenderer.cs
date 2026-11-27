@@ -123,7 +123,7 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             // Resolve discontinuities once for both independent histories; capture itself does not reset GI.
             var state = temporalClock.Resolve(frame.Sample, temporalState);
-            if (D3D12ViewQuality.PathTracing(request.EffectiveQuality, state, interactive: false) is { } pathTracing && scene.Options is not null)
+            if (D3D12ViewQuality.PathTracing(request.EffectiveQuality, state, interactive: false, scenePathTracing: scene.Options?.PathTracing) is { } pathTracing && scene.Options is not null)
                 scene = new(scene.Surface, scene.Outline, scene.OutlineOptions, scene.Options with { PathTracing = pathTracing },
                     scene.Materials, scene.Lighting, scene.EditorOverlay);
             var temporal = D3D12ViewQuality.Temporal(request.EffectiveQuality, state, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory);

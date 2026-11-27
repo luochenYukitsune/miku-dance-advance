@@ -184,6 +184,57 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
     }
 
     [Fact]
+    public void PathTracingRestoresResourceStatesAndHistoryOnSameSizeAndResizedAbort()
+    {
+        using var renderer = new D3D12FrameRenderer();
+        var caps = renderer.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            return;
+
+        var baseScene = CreateLitBoxScene(withOccluder: true);
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.ToonHybrid,
+            SamplesPerFrame: 1,
+            MaxBounces: 2,
+            ProgressiveAccumulation: true,
+            MaxAccumulatedFrames: 8,
+            FireflyClamp: 10f,
+            Denoiser: RayGiDenoiser.TemporalSpatial,
+            UseHardwareRayTracing: false);
+        var frame = new OriginalFrameScene(baseScene.Surface,
+            options: baseScene.Options! with { PipelineMode = RenderPipelineMode.PathTracing, PathTracing = ptOptions },
+            materials: baseScene.Materials, lighting: baseScene.Lighting);
+
+        // 1. Commit frame 1 at 64x48.
+        _ = renderer.Render(frame, 64, 48);
+        Assert.Equal(1, renderer.PathTracingStatistics!.AccumulatedFrames);
+
+        // 2. Abort a same-size recording after PathTracingRenderer.Record has transitioned persistent history buffers.
+        Assert.Throws<InvalidOperationException>(() =>
+            renderer.RecordGpu(frame, 64, 48, null, (_, _) => throw new InvalidOperationException("simulated same-size abort")));
+
+        // 3. Subsequent same-size frame must recover cleanly without barrier mismatch and continue accumulation.
+        _ = renderer.Render(frame, 64, 48);
+        Assert.False(renderer.PathTracingStatistics!.HistoryReset);
+        Assert.Equal(2, renderer.PathTracingStatistics.AccumulatedFrames);
+
+        // 4. Abort a resized recording (80x60) before Submit; prior 64x48 history buffers & states must remain intact.
+        Assert.Throws<InvalidOperationException>(() =>
+            renderer.RecordGpu(frame, 80, 60, null, (_, _) => throw new InvalidOperationException("simulated resize abort")));
+
+        // 5. Rendering at 64x48 again continues cleanly from accumulated frame 2 -> 3.
+        _ = renderer.Render(frame, 64, 48);
+        Assert.False(renderer.PathTracingStatistics!.HistoryReset);
+        Assert.Equal(3, renderer.PathTracingStatistics.AccumulatedFrames);
+
+        // 6. Committing resize to 80x60 resets history cleanly and swaps buffers.
+        _ = renderer.Render(frame, 80, 60);
+        Assert.True(renderer.PathTracingStatistics!.HistoryReset);
+        Assert.Equal("Resized", renderer.PathTracingStatistics.HistoryResetReason);
+        Assert.Equal(1, renderer.PathTracingStatistics.AccumulatedFrames);
+    }
+
+    [Fact]
     public async Task ViewRendererExecutesClusteredForwardAndPathTracingThroughViewQualityOptions()
     {
         var baseScene = CreateLitBoxScene(withOccluder: true);

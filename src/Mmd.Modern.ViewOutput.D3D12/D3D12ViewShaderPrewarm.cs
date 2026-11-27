@@ -24,8 +24,10 @@ internal static class D3D12ViewShaderPrewarm
         IReadOnlyList<D3D12ShaderStyleWarmupVariant>? explicitStylizedVariants = null)
     {
         ArgumentNullException.ThrowIfNull(quality);
+        bool pathTracing = quality.PipelineMode == RenderPipelineMode.PathTracing;
+        var pt = quality.EffectivePathTracing;
         var gi = quality.EffectiveGi;
-        bool giEnabled = quality.PipelineMode != RenderPipelineMode.PathTracing && gi.Enabled && gi.Strength > 0;
+        bool giEnabled = !pathTracing && gi.Enabled && gi.Strength > 0;
         bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
 
         bool anyMaterialToon = hasCharacterToon
@@ -57,7 +59,8 @@ internal static class D3D12ViewShaderPrewarm
             IncludeGiDenoiser = giEnabled && gi.Denoiser != RayGiDenoiser.Off,
             IncludeGiTemporal = giEnabled && gi.Denoiser == RayGiDenoiser.TemporalSpatial,
             IncludeGiHalfRes = giEnabled && gi.PreviewAcceleration,
-            IncludePositionGather = giEnabled && gi.Mode == LightingMode.HardwareRayTracing && hasDynamicVertices,
+            IncludePositionGather = (giEnabled && gi.Mode == LightingMode.HardwareRayTracing && hasDynamicVertices)
+                || (pathTracing && pt.UseHardwareRayTracing && hasDynamicVertices),
             NativeLights = hasNativeLights,
             TextureMorph = hasTextureMorph,
             SubTexture = hasSubTexture,
@@ -66,9 +69,9 @@ internal static class D3D12ViewShaderPrewarm
             Outline = hasOutline,
             CharacterOutline = hasCharacterOutline,
             StylizedVariants = variants,
-            SmaaQuality = quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
+            SmaaQuality = !pathTracing && quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
             SmaaAlphaCoverage = straightAlpha,
-            IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
+            IncludeFsr1 = !pathTracing && quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
             IncludeTemporalInputs = temporal || hasLightGizmos,
             IncludeTemporalCharacter = temporal && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0),
             IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,
@@ -77,9 +80,13 @@ internal static class D3D12ViewShaderPrewarm
             IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
             IncludeDiffusionAlphaCoverage = straightAlpha,
             IncludeAlphaResolve = straightAlpha,
-            IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
+            IncludeSpatialAccumulation = !pathTracing && (quality.SpatialSamples ?? 1) > 1,
             IncludeLightGizmos = hasLightGizmos,
             IncludeGpuSkinning = hasDynamicVertices,
+            PipelineMode = quality.PipelineMode,
+            PathTracingUseHardware = pt.UseHardwareRayTracing,
+            PathTracingDenoiser = pt.Denoiser,
+            PathTracingShadingMode = pt.ShadingMode,
         };
     }
 

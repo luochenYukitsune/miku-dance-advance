@@ -46,11 +46,13 @@ internal static class D3D12ViewQuality
     }
 
     internal static PathTracingOptions? PathTracing(ViewQualityOptions quality, ViewTemporalFrameState? state = null,
-        bool interactive = false)
+        bool interactive = false, PathTracingOptions? scenePathTracing = null)
     {
         quality.Validate(); state ??= new(); state.Validate();
         if (quality.PipelineMode != RenderPipelineMode.PathTracing) return null;
-        return quality.EffectivePathTracing with
+        var effective = quality.PathTracing ?? scenePathTracing ?? PathTracingOptions.Default;
+        effective.Validate();
+        return effective with
         {
             HistoryGeneration = state.HistoryGeneration,
             CameraCutKey = state.CameraCutKey,

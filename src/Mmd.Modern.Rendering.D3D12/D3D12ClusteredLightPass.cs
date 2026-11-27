@@ -240,6 +240,13 @@ internal sealed class D3D12ClusteredLightPass(D3D12GpuRuntime runtime, D3D12GpuC
         return new Pipelines(buildRoot, buildState, cullRoot, cullState);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness;
+        yield return new(BuildSource, "CSBuildClusters", "clustered-build.hlsl", "cs_5_1", flags);
+        yield return new(CullSource, "CSCullLights", "clustered-cull.hlsl", "cs_5_1", flags);
+    }
+
     private (byte[] Build, byte[] Cull) GetShaders()
     {
         if (shaders is { } cached) return cached;

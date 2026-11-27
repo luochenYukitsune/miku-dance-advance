@@ -233,9 +233,33 @@ public sealed class ClusteredLightingAndPathTracingMathTests
         Assert.Equal("SceneMaterialChanged", PathTracingHistoryKey.EvaluateResetReason(key0, PathTracingHistoryKey.Create(tintedFrame, 640, 360, options), false));
 
         // Lighting change
+        var lightId = Guid.NewGuid();
+        var receiverObjA = Guid.NewGuid();
+        var receiverObjB = Guid.NewGuid();
+        var pointLight = new NativeSceneLight(lightId, "L", SceneLightKind.Point, new Vector3(0, 2, -2), Quaternion.Identity, Vector3.One, 2f, 10f);
         var litFrame = new OriginalFrameScene(baseFrame.Surface, options: baseFrame.Options, materials: baseFrame.Materials,
-            lighting: new SceneLightingSnapshot([new NativeSceneLight(Guid.NewGuid(), "L", SceneLightKind.Point, new Vector3(0, 2, -2), Quaternion.Identity, Vector3.One, 2f, 10f)]));
+            lighting: new SceneLightingSnapshot([pointLight]));
         Assert.Equal("LightingChanged", PathTracingHistoryKey.EvaluateResetReason(key0, PathTracingHistoryKey.Create(litFrame, 640, 360, options), false));
+
+        // Per-light receiver mask changes on material flags and on lights both invalidate history.
+        var keyLit = PathTracingHistoryKey.Create(litFrame, 640, 360, options);
+        var materialReceiverFrame = new OriginalFrameScene(baseFrame.Surface, options: baseFrame.Options,
+            materials: [baseFrame.Materials[0] with { LightReceiverObjectId = receiverObjA }],
+            lighting: litFrame.Lighting);
+        Assert.Equal("SceneMaterialChanged", PathTracingHistoryKey.EvaluateResetReason(keyLit, PathTracingHistoryKey.Create(materialReceiverFrame, 640, 360, options), false));
+
+        var lightReceiverIncludeA = new OriginalFrameScene(baseFrame.Surface, options: baseFrame.Options, materials: baseFrame.Materials,
+            lighting: new SceneLightingSnapshot([pointLight with { Receivers = new SceneLightReceivers(SceneLightReceiverMode.Include, [receiverObjA]) }]));
+        var keyIncludeA = PathTracingHistoryKey.Create(lightReceiverIncludeA, 640, 360, options);
+        Assert.Equal("LightingChanged", PathTracingHistoryKey.EvaluateResetReason(keyLit, keyIncludeA, false));
+
+        var lightReceiverIncludeB = new OriginalFrameScene(baseFrame.Surface, options: baseFrame.Options, materials: baseFrame.Materials,
+            lighting: new SceneLightingSnapshot([pointLight with { Receivers = new SceneLightReceivers(SceneLightReceiverMode.Include, [receiverObjB]) }]));
+        Assert.Equal("LightingChanged", PathTracingHistoryKey.EvaluateResetReason(keyIncludeA, PathTracingHistoryKey.Create(lightReceiverIncludeB, 640, 360, options), false));
+
+        var lightReceiverExcludeA = new OriginalFrameScene(baseFrame.Surface, options: baseFrame.Options, materials: baseFrame.Materials,
+            lighting: new SceneLightingSnapshot([pointLight with { Receivers = new SceneLightReceivers(SceneLightReceiverMode.Exclude, [receiverObjA]) }]));
+        Assert.Equal("LightingChanged", PathTracingHistoryKey.EvaluateResetReason(keyIncludeA, PathTracingHistoryKey.Create(lightReceiverExcludeA, 640, 360, options), false));
 
         // Background change
         var bgFrame = new OriginalFrameScene(baseFrame.Surface,
@@ -296,6 +320,112 @@ public sealed class ClusteredLightingAndPathTracingMathTests
 
         var denoise = compiler.CompileCompute(D3D12PathTracingShaders.DenoiserSource, "CSDenoise", "cs_6_0");
         Assert.NotEmpty(denoise.Dxil);
+    }
+
+    [Fact]
+    public void ViewQualityPathTracingPreservesSceneOverrideWhenViewOverrideIsNull()
+    {
+        var scenePt = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.Physical,
+            SamplesPerFrame: 8,
+            MaxBounces: 6,
+            ProgressiveAccumulation: false,
+            MaxAccumulatedFrames: 64,
+            InteractiveSamplesPerFrame: 2,
+            FireflyClamp: 25f,
+            Denoiser: RayGiDenoiser.Spatial,
+            UseHardwareRayTracing: false);
+        var viewQualityNullPt = new Mmd.Modern.ViewOutput.ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Off,
+            SpatialSamples: 1,
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: null);
+        var state = new Mmd.Modern.ViewOutput.ViewTemporalFrameState
+        {
+            HistoryGeneration = 7,
+            CameraCutKey = 13,
+            ResetHistory = true,
+        };
+
+        var resolved = Mmd.Modern.ViewOutput.D3D12.D3D12ViewQuality.PathTracing(
+            viewQualityNullPt, state, interactive: true, scenePathTracing: scenePt);
+        Assert.NotNull(resolved);
+        Assert.Equal(scenePt.ShadingMode, resolved!.ShadingMode);
+        Assert.Equal(scenePt.SamplesPerFrame, resolved.SamplesPerFrame);
+        Assert.Equal(scenePt.MaxBounces, resolved.MaxBounces);
+        Assert.Equal(scenePt.FireflyClamp, resolved.FireflyClamp);
+        Assert.Equal(scenePt.Denoiser, resolved.Denoiser);
+        Assert.Equal(scenePt.UseHardwareRayTracing, resolved.UseHardwareRayTracing);
+        Assert.Equal(7, resolved.HistoryGeneration);
+        Assert.Equal(13, resolved.CameraCutKey);
+        Assert.True(resolved.ResetHistory);
+        Assert.True(resolved.Interactive);
+
+        // Explicit view-level PathTracing takes precedence over scene-level override.
+        var explicitViewPt = new PathTracingOptions(PathTracingShadingMode.ToonHybrid, SamplesPerFrame: 2, MaxBounces: 3);
+        var overrideQuality = viewQualityNullPt with { PathTracing = explicitViewPt };
+        var overridden = Mmd.Modern.ViewOutput.D3D12.D3D12ViewQuality.PathTracing(
+            overrideQuality, state, interactive: false, scenePathTracing: scenePt);
+        Assert.Equal(PathTracingShadingMode.ToonHybrid, overridden!.ShadingMode);
+        Assert.Equal(2, overridden.SamplesPerFrame);
+        Assert.Equal(3, overridden.MaxBounces);
+        Assert.False(overridden.Interactive);
+    }
+
+    [Fact]
+    public async Task ShaderPrewarmerCoversClusteredForwardAndPathTracingSpecs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var baseFrame = CreateUnitTestFrame();
+        var light = new NativeSceneLight(Guid.NewGuid(), "pt", SceneLightKind.Point, new Vector3(0, 1, -2), Quaternion.Identity, Vector3.One, 2f, 10f);
+
+        // 1. Clustered Forward spec & prewarm
+        var clusteredFrame = new OriginalFrameScene(baseFrame.Surface,
+            options: baseFrame.Options! with { PipelineMode = RenderPipelineMode.ClusteredForward },
+            materials: baseFrame.Materials,
+            lighting: new SceneLightingSnapshot([light]));
+        var clusteredSpec = D3D12ShaderPrewarmer.SpecFromScene(clusteredFrame);
+        Assert.Equal(RenderPipelineMode.ClusteredForward, clusteredSpec.PipelineMode);
+        Assert.True(clusteredSpec.NativeLights);
+        await D3D12ShaderPrewarmer.PrewarmAsync(clusteredSpec, maxParallelism: 2, cancellationToken: ct);
+
+        var clusteredViewSpec = Mmd.Modern.ViewOutput.D3D12.D3D12ViewShaderPrewarm.BuildFromViewRequest(
+            new Mmd.Modern.ViewOutput.ViewQualityOptions(PipelineMode: RenderPipelineMode.ClusteredForward),
+            hasNativeLights: true);
+        Assert.Equal(RenderPipelineMode.ClusteredForward, clusteredViewSpec.PipelineMode);
+
+        // 2. Path Tracing spec (both software and hardware flags, ToonHybrid & Physical) & prewarm
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.ToonHybrid,
+            Denoiser: RayGiDenoiser.TemporalSpatial,
+            UseHardwareRayTracing: false);
+        var ptFrame = new OriginalFrameScene(baseFrame.Surface,
+            options: baseFrame.Options! with { PipelineMode = RenderPipelineMode.PathTracing, PathTracing = ptOptions },
+            materials: baseFrame.Materials,
+            lighting: new SceneLightingSnapshot([light]));
+        var ptSpec = D3D12ShaderPrewarmer.SpecFromScene(ptFrame,
+            rayGi: new RayGiOptions(LightingMode.HardwareRayTracing, Strength: 4f, SamplesPerPixel: 4));
+        Assert.Equal(RenderPipelineMode.PathTracing, ptSpec.PipelineMode);
+        Assert.False(ptSpec.Gi);
+        Assert.False(ptSpec.PathTracingUseHardware);
+        Assert.Equal(RayGiDenoiser.TemporalSpatial, ptSpec.PathTracingDenoiser);
+        Assert.Equal(PathTracingShadingMode.ToonHybrid, ptSpec.PathTracingShadingMode);
+        await D3D12ShaderPrewarmer.PrewarmAsync(ptSpec, maxParallelism: 2, cancellationToken: ct);
+
+        var ptViewSpec = Mmd.Modern.ViewOutput.D3D12.D3D12ViewShaderPrewarm.BuildFromViewRequest(
+            new Mmd.Modern.ViewOutput.ViewQualityOptions(
+                Gi: new RayGiOptions(LightingMode.HardwareRayTracing, Strength: 4f),
+                Antialiasing: FrameAntialiasing.Off,
+                SpatialSamples: 1,
+                PipelineMode: RenderPipelineMode.PathTracing,
+                PathTracing: new PathTracingOptions(PathTracingShadingMode.Physical, Denoiser: RayGiDenoiser.Off, UseHardwareRayTracing: true)),
+            hasDynamicVertices: true);
+        Assert.Equal(RenderPipelineMode.PathTracing, ptViewSpec.PipelineMode);
+        Assert.False(ptViewSpec.Gi);
+        Assert.True(ptViewSpec.PathTracingUseHardware);
+        Assert.Equal(RayGiDenoiser.Off, ptViewSpec.PathTracingDenoiser);
+        Assert.Equal(PathTracingShadingMode.Physical, ptViewSpec.PathTracingShadingMode);
+        Assert.True(ptViewSpec.IncludePositionGather);
     }
 
     private static OriginalFrameScene CreateUnitTestFrame()

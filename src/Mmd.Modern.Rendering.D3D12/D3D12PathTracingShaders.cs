@@ -7,6 +7,22 @@ namespace Mmd.Modern.Rendering.D3D12;
 /// firefly clamping, progressive accumulation, and ToonHybrid / Physical shading contracts.</summary>
 internal static class D3D12PathTracingShaders
 {
+    internal static DxcShaderWarmupRequest GetTracePrewarmRequest(bool hardware, bool textureMorph, bool subTexture)
+    {
+        var defines = hardware ? new Dictionary<string, string?> { ["PT_HARDWARE"] = "1" } : null;
+        return new(TraceShaderSource(hardware, textureMorph, subTexture), "CSPathTrace", hardware ? "cs_6_5" : "cs_6_0", defines);
+    }
+
+    internal static DxcShaderWarmupRequest GetDenoisePrewarmRequest()
+        => new(DenoiserSource, "CSDenoise", "cs_6_0");
+
+    internal static IEnumerable<D3D12FxcShaderRequest> GetResolvePrewarmRequests()
+    {
+        const Vortice.D3DCompiler.ShaderFlags flags = Vortice.D3DCompiler.ShaderFlags.EnableStrictness | Vortice.D3DCompiler.ShaderFlags.IeeeStrictness;
+        yield return new(ResolveSource, "VSResolve", "pathtrace-resolve.hlsl", "vs_5_1", flags);
+        yield return new(ResolveSource, "PSResolve", "pathtrace-resolve.hlsl", "ps_5_1", flags);
+    }
+
     internal static string TraceShaderSource(bool hardware, bool textureMorph, bool subTexture)
     {
         string shared = SharedHeader;

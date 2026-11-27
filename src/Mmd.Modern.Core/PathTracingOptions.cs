@@ -218,6 +218,14 @@ public sealed record PathTracingHistoryKey(
     private static ulong FnvFloat(ulong hash, float value) => FnvMix(hash, (uint)BitConverter.SingleToInt32Bits(value));
     private static ulong FnvVec3(ulong hash, Vector3 v) => FnvFloat(FnvFloat(FnvFloat(hash, v.X), v.Y), v.Z);
     private static ulong FnvVec4(ulong hash, Vector4 v) => FnvFloat(FnvVec3(hash, new(v.X, v.Y, v.Z)), v.W);
+    private static ulong FnvGuid(ulong hash, Guid id)
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        id.TryWriteBytes(bytes);
+        ulong lo = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(bytes[..8]);
+        ulong hi = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(bytes[8..]);
+        return FnvMix(FnvMix(hash, lo), hi);
+    }
 
     private static bool SameVertexRevision(SceneVertexRevision? a, SceneVertexRevision? b)
     {
@@ -280,6 +288,15 @@ public sealed record PathTracingHistoryKey(
             h = FnvVec4(h, b.TextureFactors.Toon.Add);
             h = FnvMix(h, (f.SurfaceEnabled ? 1UL : 0UL) | (f.ReceiveSelfShadow ? 2UL : 0UL) | (f.UseSceneLighting ? 4UL : 0UL) | (f.CullTransparentSurface ? 8UL : 0UL));
             h = FnvFloat(h, f.OutlineWidthScale);
+            if (f.LightReceiverObjectId is { } receiverId)
+            {
+                h = FnvMix(h, 1UL);
+                h = FnvGuid(h, receiverId);
+            }
+            else
+            {
+                h = FnvMix(h, 0UL);
+            }
         }
         return h;
     }
@@ -309,6 +326,17 @@ public sealed record PathTracingHistoryKey(
                 h = FnvFloat(h, area.Y);
             }
             if (l.AimDistance is { } aim) h = FnvFloat(h, aim);
+            if (l.Receivers is { } receivers)
+            {
+                h = FnvMix(h, (ulong)receivers.Mode + 1UL);
+                h = FnvMix(h, (ulong)receivers.ObjectIds.Count);
+                foreach (var id in receivers.ObjectIds)
+                    h = FnvGuid(h, id);
+            }
+            else
+            {
+                h = FnvMix(h, 0UL);
+            }
         }
         return h;
     }

@@ -137,8 +137,37 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
     private DxcShaderCompiler? compiler;
     private D3D12RayGiCapabilities? capabilities;
 
+    private readonly record struct HistoryBufferStateSnapshot(
+        PersistentHistoryBuffers Target,
+        ResourceStates Accumulation,
+        ResourceStates GuidePosDepth,
+        ResourceStates GuideNormalMat,
+        ResourceStates GuideAlbedo,
+        ResourceStates Denoised)
+    {
+        internal static HistoryBufferStateSnapshot Capture(PersistentHistoryBuffers target) => new(
+            target,
+            target.AccumulationState,
+            target.GuidePosDepthState,
+            target.GuideNormalMatState,
+            target.GuideAlbedoState,
+            target.DenoisedState);
+
+        internal void Restore()
+        {
+            Target.AccumulationState = Accumulation;
+            Target.GuidePosDepthState = GuidePosDepth;
+            Target.GuideNormalMatState = GuideNormalMat;
+            Target.GuideAlbedoState = GuideAlbedo;
+            Target.DenoisedState = Denoised;
+        }
+    }
+
     private D3D12RetainedResource? historyOwner;
     private PersistentHistoryBuffers? historyBuffers;
+    private D3D12RetainedResource? pendingHistoryOwner;
+    private PersistentHistoryBuffers? pendingHistoryBuffers;
+    private HistoryBufferStateSnapshot? pendingStateRestore;
     private PathTracingHistoryKey? committedKey;
     private int committedAccumulatedFrames;
     private PathTracingHistoryKey? pendingKey;
@@ -163,6 +192,18 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
     internal void CommitFrame()
     {
         if (!hasPendingCommit) return;
+        if (pendingHistoryOwner is not null)
+        {
+            var retired = historyOwner;
+            historyOwner = pendingHistoryOwner;
+            historyBuffers = pendingHistoryBuffers;
+            pendingHistoryOwner = null;
+            pendingHistoryBuffers = null;
+            // Earlier in-flight frames still hold fence-owned leases on retired, so dropping
+            // the renderer's reference never frees GPU memory prematurely.
+            retired?.Dispose();
+        }
+        pendingStateRestore = null;
         committedKey = pendingKey;
         committedAccumulatedFrames = pendingAccumulatedFrames;
         pendingKey = null;
@@ -173,6 +214,17 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
 
     internal void AbortFrame()
     {
+        if (pendingStateRestore is { } snapshot)
+        {
+            snapshot.Restore();
+            pendingStateRestore = null;
+        }
+        if (pendingHistoryOwner is not null)
+        {
+            pendingHistoryOwner.Dispose();
+            pendingHistoryOwner = null;
+            pendingHistoryBuffers = null;
+        }
         pendingKey = null;
         pendingAccumulatedFrames = 0;
         hasPendingCommit = false;
@@ -487,16 +539,20 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         if (historyBuffers is not null && historyBuffers.Width == width && historyBuffers.Height == height && historyOwner is not null)
         {
             context.Own(historyOwner.Lease());
+            pendingStateRestore = HistoryBufferStateSnapshot.Capture(historyBuffers);
+            runtime.OnAbort(AbortFrame);
             return historyBuffers;
         }
-        historyOwner?.Dispose();
-        historyOwner = null;
-        historyBuffers = null;
+        pendingHistoryOwner?.Dispose();
+        pendingHistoryOwner = null;
+        pendingHistoryBuffers = null;
         var created = new PersistentHistoryBuffers(runtime.Device, width, height);
         var owner = new D3D12RetainedResource(new object(), created);
-        historyBuffers = created;
-        historyOwner = owner;
+        pendingHistoryBuffers = created;
+        pendingHistoryOwner = owner;
+        pendingStateRestore = null;
         context.Own(owner.Lease());
+        runtime.OnAbort(AbortFrame);
         return created;
     }
 
@@ -664,6 +720,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
     {
         if (disposed) return;
         disposed = true;
+        AbortFrame();
         historyOwner?.Dispose();
         historyOwner = null;
         historyBuffers = null;
