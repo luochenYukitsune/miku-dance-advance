@@ -547,24 +547,24 @@
               <TextBlock Text="{Binding PathTracingSectionLabel}" Classes="section" />
               <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="pt.shading">
                 <TextBlock Text="{Binding PtShadingModeLabel}" Classes="label" />
-                <ComboBox Name="PreviewPtShadingModeBox" Grid.Column="1" ItemsSource="{Binding PtShadingModeChoices}" SelectedIndex="{Binding PtShadingModeIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="pt.shading" AutomationProperties.Name="{Binding PtShadingModeLabel}" />
+                <ComboBox Name="PreviewPtShadingModeBox" Grid.Column="1" ItemsSource="{Binding PtShadingModeChoices}" SelectedIndex="{Binding PtShadingModeIndex}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="pt.shading" AutomationProperties.Name="{Binding PtShadingModeLabel}" />
               </Grid>
               <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.samples">
                 <TextBlock Text="{Binding PtSamplesPerFrameLabel}" Classes="label" />
-                <validated:EditorNumericUpDown Name="PreviewPtSamplesPerFrameBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtSamplesPerFrame}" Minimum="1" Maximum="64" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.samples" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
-                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="64" SmallChange="1" LargeChange="8" Step="1" DefaultValue="1" Number="{Binding PtSamplesPerFrame, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.samples" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
+                <validated:EditorNumericUpDown Name="PreviewPtSamplesPerFrameBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtSamplesPerFrame}" Minimum="1" Maximum="64" Increment="1" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.samples" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="64" SmallChange="1" LargeChange="8" Step="1" DefaultValue="1" Number="{Binding PtSamplesPerFrame, Mode=TwoWay}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.samples" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
               </Grid>
               <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.bounces">
                 <TextBlock Text="{Binding PtMaxBouncesLabel}" Classes="label" />
-                <validated:EditorNumericUpDown Name="PreviewPtMaxBouncesBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding PtMaxBounces}" Minimum="1" Maximum="8" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.bounces" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
-                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="8" SmallChange="1" LargeChange="2" Step="1" DefaultValue="4" Number="{Binding PtMaxBounces, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.bounces" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
+                <validated:EditorNumericUpDown Name="PreviewPtMaxBouncesBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding PtMaxBounces}" Minimum="1" Maximum="8" Increment="1" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.bounces" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="8" SmallChange="1" LargeChange="2" Step="1" DefaultValue="4" Number="{Binding PtMaxBounces, Mode=TwoWay}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.bounces" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
               </Grid>
               <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.progressive">
-                <CheckBox Name="PreviewPtProgressiveBox" Grid.Column="1" Content="{Binding PtProgressiveLabel}" IsChecked="{Binding PtProgressiveAccumulation}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.progressive" />
+                <CheckBox Name="PreviewPtProgressiveBox" Grid.Column="1" Content="{Binding PtProgressiveLabel}" IsChecked="{Binding PtProgressiveAccumulation}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.progressive" />
               </Grid>
               <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="pt.denoiser">
                 <TextBlock Text="{Binding PtDenoiserLabel}" Classes="label" />
-                <ComboBox Name="PreviewPtDenoiserBox" Grid.Column="1" ItemsSource="{Binding PtDenoiserChoices}" SelectedIndex="{Binding PtDenoiserIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="pt.denoiser" AutomationProperties.Name="{Binding PtDenoiserLabel}" />
+                <ComboBox Name="PreviewPtDenoiserBox" Grid.Column="1" ItemsSource="{Binding PtDenoiserChoices}" SelectedIndex="{Binding PtDenoiserIndex}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="pt.denoiser" AutomationProperties.Name="{Binding PtDenoiserLabel}" />
               </Grid>
               <Separator />
             </StackPanel>
@@ -621,19 +621,19 @@
                 <StackPanel Spacing="12" IsVisible="{Binding IsPathTracing}">
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.maxAccum">
                     <TextBlock Text="{Binding PtMaxAccumulatedFramesLabel}" Classes="label" />
-                    <validated:EditorNumericUpDown Name="PreviewPtMaxAccumulatedFramesBox" Grid.Column="1" MenuDefaultValue="256" Value="{Binding PtMaxAccumulatedFrames}" Minimum="1" Maximum="4096" Increment="16" FormatString="0" IsEnabled="{Binding IsPtProgressiveMaxFramesEditable}" local:PreviewHelp.Topic="help.pt.maxAccum" AutomationProperties.Name="{Binding PtMaxAccumulatedFramesLabel}" />
+                    <validated:EditorNumericUpDown Name="PreviewPtMaxAccumulatedFramesBox" Grid.Column="1" MenuDefaultValue="256" Value="{Binding PtMaxAccumulatedFrames}" Minimum="1" Maximum="4096" Increment="16" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsPtProgressiveMaxFramesEditable}" local:PreviewHelp.Topic="help.pt.maxAccum" AutomationProperties.Name="{Binding PtMaxAccumulatedFramesLabel}" />
                   </Grid>
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.interactiveSamples">
                     <TextBlock Text="{Binding PtInteractiveSamplesLabel}" Classes="label" />
-                    <validated:EditorNumericUpDown Name="PreviewPtInteractiveSamplesBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtInteractiveSamplesPerFrame}" Minimum="1" Maximum="16" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.interactiveSamples" AutomationProperties.Name="{Binding PtInteractiveSamplesLabel}" />
+                    <validated:EditorNumericUpDown Name="PreviewPtInteractiveSamplesBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtInteractiveSamplesPerFrame}" Minimum="1" Maximum="16" Increment="1" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.interactiveSamples" AutomationProperties.Name="{Binding PtInteractiveSamplesLabel}" />
                   </Grid>
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.firefly">
                     <TextBlock Text="{Binding PtFireflyClampLabel}" Classes="label" />
-                    <validated:EditorNumericUpDown Name="PreviewPtFireflyClampBox" Grid.Column="1" MenuDefaultValue="10" Value="{Binding PtFireflyClamp}" Minimum="1" Maximum="1000" Increment="1" FormatString="0.##" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.firefly" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
-                    <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="100" SmallChange="1" LargeChange="10" Step="1" DefaultValue="10" Number="{Binding PtFireflyClamp, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.firefly" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
+                    <validated:EditorNumericUpDown Name="PreviewPtFireflyClampBox" Grid.Column="1" MenuDefaultValue="10" Value="{Binding PtFireflyClamp}" Minimum="1" Maximum="1000" Increment="1" FormatString="0.##" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.firefly" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
+                    <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="100" SmallChange="1" LargeChange="10" Step="1" DefaultValue="10" Number="{Binding PtFireflyClamp, Mode=TwoWay}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.firefly" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
                   </Grid>
                   <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.hardwareRt">
-                    <CheckBox Name="PreviewPtUseHardwareRtBox" Grid.Column="1" Content="{Binding PtUseHardwareRtLabel}" IsChecked="{Binding PtUseHardwareRayTracing}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.hardwareRt" />
+                    <CheckBox Name="PreviewPtUseHardwareRtBox" Grid.Column="1" Content="{Binding PtUseHardwareRtLabel}" IsChecked="{Binding PtUseHardwareRayTracing}" IsEnabled="{Binding IsPathTracingEditable}" local:PreviewHelp.Topic="help.pt.hardwareRt" />
                   </Grid>
                   <TextBlock Text="{Binding PtUseHardwareRtHint}" Classes="caption" Margin="164,0,0,0" />
                   <TextBlock Name="PtHardwareFallbackNoticeText" Text="{Binding PtHardwareFallbackNotice}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowPtHardwareFallbackNotice}" />
@@ -643,7 +643,7 @@
                 <StackPanel Spacing="12" IsVisible="{Binding IsRasterPipeline}">
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.samples">
                     <TextBlock Text="{Binding GiSamplesLabel}" Classes="label" />
-                    <validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" MenuDefaultValue="16" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.samples" AutomationProperties.Name="{Binding GiSamplesLabel}" />
+                    <validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" MenuDefaultValue="16" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.samples" AutomationProperties.Name="{Binding GiSamplesLabel}" />
                   </Grid>
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.maxRayDist">
                     <TextBlock Text="{Binding GiMaxRayDistanceLabel}" Classes="label" />
@@ -660,7 +660,7 @@
                   </Grid>
                   <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.seed">
                     <TextBlock Text="{Binding GiSeedLabel}" Classes="label" />
-                    <validated:EditorNumericUpDown Name="PreviewGiSeedBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiSeed}" Minimum="0" Maximum="4294967295" Increment="1" FormatString="0" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.seed" AutomationProperties.Name="{Binding GiSeedLabel}" />
+                    <validated:EditorNumericUpDown Name="PreviewGiSeedBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiSeed}" Minimum="0" Maximum="4294967295" Increment="1" FormatString="0" ParsingNumberStyle="Integer" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.seed" AutomationProperties.Name="{Binding GiSeedLabel}" />
                   </Grid>
                 </StackPanel>
               </StackPanel>
@@ -734,6 +734,7 @@
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Text="{Binding EstimateHeader}" Classes="section" VerticalAlignment="Center" />
               <Border Grid.Column="1" Name="PerformanceLoadBadge" Classes="loadBadge" CornerRadius="4" Padding="8,2"
+                      IsVisible="{Binding IsModernEngine}"
                       Classes.loadLight="{Binding IsLoadLight}"
                       Classes.loadModerate="{Binding IsLoadModerate}"
                       Classes.loadHigh="{Binding IsLoadHigh}"

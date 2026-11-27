@@ -40,6 +40,8 @@ public sealed record OutputSettingsDraft(ViewOutputPresetDefinition Preset, Expo
         if (TransparentBackground && ((Request.Quality?.EffectiveUpscaling.Mode ?? ViewUpscalingMode.Off) != ViewUpscalingMode.Off
             || (Request.Quality?.EffectiveTemporalUpscaling.Mode ?? ViewTemporalUpscalingMode.Off) != ViewTemporalUpscalingMode.Off))
             throw Error("透明图片请关闭超分与时域重建；可使用 SMAA 和 SSAA。");
+        if (TransparentBackground && Request.Quality?.Antialiasing == FrameAntialiasing.Taa)
+            throw Error("Mda.Text.Output.TransparentRejectsTaa");
         OriginalFrameMath.Validate(new(OriginalAlphaBlendMode.Normal, true, false,
             BackgroundColor: BackgroundColor, AlphaOutput: FrameAlphaOutput.Straight));
         if (BackgroundColor.W != (TransparentBackground ? 0 : 1))

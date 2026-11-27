@@ -2055,5 +2055,7 @@
   "Mda.Text.Preview.Help.diffusion.extent.Title": "ディフュージョン範囲",
   "Mda.Text.Preview.Help.diffusion.extent.Body": "光のにじみが広がる半径（0〜0.01）です。小さな値でも十分に柔らかな光輪が出ます。",
   "Mda.Text.Preview.Help.diag.adaptiveVram.Title": "VRAM 不足時の自動サンプリング低下",
-  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "既定でオン：高倍率 SSAA や GI で VRAM が限界に近いとき、プレビューのサンプリングだけ一時的に下げて安定を保ちます。保存設定は変わりません。"
+  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "既定でオン：高倍率 SSAA や GI で VRAM が限界に近いとき、プレビューのサンプリングだけ一時的に下げて安定を保ちます。保存設定は変わりません。",
+  "Mda.Text.Preview.OverviewPtBounces": "{0} バウンス",
+  "Mda.Text.Output.TransparentRejectsTaa": "透過背景の書き出しでは内蔵 TAA を使用できません。AA を SMAA・FXAA・MSAA またはオフに変更してください。"
 }

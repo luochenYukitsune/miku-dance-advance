@@ -200,7 +200,7 @@ public static class ViewQualityCompatibility
                 "Shadow"));
         }
 
-        if (gi.ToonResponse != RayGiToonResponse.Continuous && gi.Composition != RayGiComposition.ToonPalette)
+        if (!isPathTracing && gi.ToonResponse != RayGiToonResponse.Continuous && gi.Composition != RayGiComposition.ToonPalette)
         {
             issues.Add(new(
                 "GiToonResponseRequiresPalette",
@@ -208,7 +208,7 @@ public static class ViewQualityCompatibility
                 "卡通色阶响应仅在受光方式设为「卡通色阶」时可用。",
                 "Gi"));
         }
-        if (gi.Denoiser != RayGiDenoiser.Off && gi.Composition != RayGiComposition.ToonPalette)
+        if (!isPathTracing && gi.Denoiser != RayGiDenoiser.Off && gi.Composition != RayGiComposition.ToonPalette)
         {
             issues.Add(new(
                 "GiDenoiserRequiresPalette",
@@ -216,8 +216,8 @@ public static class ViewQualityCompatibility
                 "GI 降噪仅在受光方式设为「卡通色阶」时可用。",
                 "Gi"));
         }
-        if (!float.IsFinite(gi.RayEpsilon) || !float.IsFinite(gi.MaxRayDistance)
-            || gi.RayEpsilon <= 0f || gi.MaxRayDistance <= 0f || gi.RayEpsilon >= gi.MaxRayDistance)
+        if (!isPathTracing && (!float.IsFinite(gi.RayEpsilon) || !float.IsFinite(gi.MaxRayDistance)
+            || gi.RayEpsilon <= 0f || gi.MaxRayDistance <= 0f || gi.RayEpsilon >= gi.MaxRayDistance))
         {
             issues.Add(new(
                 "GiRayEpsilon",
@@ -225,8 +225,8 @@ public static class ViewQualityCompatibility
                 "光线偏移（RayEpsilon）必须大于 0 且小于最大光线距离（MaxRayDistance）。",
                 "Gi"));
         }
-        if (!float.IsFinite(gi.OcclusionRadius) || gi.OcclusionRadius <= 0f
-            || (gi.OcclusionStrength > 0f && gi.OcclusionRadius <= gi.RayEpsilon))
+        if (!isPathTracing && (!float.IsFinite(gi.OcclusionRadius) || gi.OcclusionRadius <= 0f
+            || (gi.OcclusionStrength > 0f && gi.OcclusionRadius <= gi.RayEpsilon)))
         {
             issues.Add(new(
                 "GiOcclusionRadius",

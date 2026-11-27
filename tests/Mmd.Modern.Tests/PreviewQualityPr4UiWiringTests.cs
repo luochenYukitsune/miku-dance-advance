@@ -384,6 +384,7 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
             {
                 Dispatcher.UIThread.RunJobs();
                 Assert.True(classicDialog.FindControl<TextBlock>("EstimateClassicNoticeText")!.IsVisible);
+                Assert.False(classicDialog.FindControl<Border>("PerformanceLoadBadge")!.IsVisible);
                 Assert.False(classicDialog.FindControl<ComboBox>("PreviewPipelineModeBox")!.IsEnabled);
                 Assert.False(classicDialog.FindControl<ComboBox>("PreviewShadowFilterBox")!.IsEnabled);
                 Assert.False(classicDialog.FindControl<CheckBox>("PreviewSsaoEnabledBox")!.IsEnabled);
@@ -524,6 +525,7 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
                     Assert.All(vm.AntialiasingModes, item => Assert.DoesNotContain("Mda.Text.", item));
                     Assert.All(vm.ShadowFilterChoices, item => Assert.DoesNotContain("Mda.Text.", item));
                     Assert.All(vm.PipelineModeChoices, item => Assert.DoesNotContain("Mda.Text.", item));
+                    Assert.DoesNotContain("Bounces", ptVm.OverviewConfigurationSummary, StringComparison.Ordinal);
                 }
             }
             finally { EditorLocalization.SetLanguage(langBefore); }
@@ -532,6 +534,125 @@ public sealed class PreviewQualityPr4UiWiringTests : IAsyncDisposable
         {
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
         }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task AllEightDropdownHelpSettersHiddenPathTracingInputInvalidGiPathTracingAndTaaTransparentExportWork() => await session.Dispatch(() =>
+    {
+        var caps = new EditorPreviewCapabilities(
+            Gi: new D3D12RayGiCapabilities(false, true, 66, 11, true, true, true, true, true, null),
+            SpatialUpscalingAvailable: true,
+            XeSsQueries: [new D3D12XeSsDeviceQuery("Mock", D3D12XeSsQuality.Quality) { Initialized = true }]);
+        var vm = new EditorPreviewSettingsViewModel(
+            ViewQualityPresets.Create(BuiltInPreviewPresetKind.Balanced),
+            caps,
+            persistCustomPresets: false);
+        var dialog = new EditorPreviewSettingsWindow(vm);
+        bool dialogClosed = false;
+        dialog.Closed += (_, _) => dialogClosed = true;
+        dialog.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+
+            void AssertHelpClean(string expectedPrefix)
+            {
+                Assert.StartsWith("Mda.Text.Preview.Help.", vm.ActiveHelpTopicId, StringComparison.Ordinal);
+                Assert.DoesNotContain("help.", vm.ActiveHelpTitle, StringComparison.Ordinal);
+                Assert.DoesNotContain("help.", vm.ActiveHelpBody, StringComparison.Ordinal);
+                Assert.DoesNotContain("Mda.Text.", vm.ActiveHelpTitle, StringComparison.Ordinal);
+                Assert.DoesNotContain("Mda.Text.", vm.ActiveHelpBody, StringComparison.Ordinal);
+                Assert.Contains(expectedPrefix, vm.ActiveHelpTopicId, StringComparison.Ordinal);
+            }
+
+            // 1. All 8 dropdown setters normalize help topic IDs properly.
+            vm.SmaaIndex = 2; AssertHelpClean("aa.smaaQuality");
+            vm.SpatialIndex = 2; AssertHelpClean("aa.ssaa");
+            vm.Fsr1QualityIndex = 2; AssertHelpClean("fsr1.quality");
+            vm.TemporalIndex = 1; // FSR
+            vm.TemporalQualityIndex = 2; AssertHelpClean("temporal.quality");
+            vm.TemporalIndex = 0; // Off
+            vm.GiIndex = 1; // SoftwareRayTracing
+            vm.GiCompositionIndex = (int)RayGiComposition.ToonPalette;
+            vm.GiDenoiserIndex = 1; AssertHelpClean("gi.denoiser");
+            vm.GiToonResponseIndex = 1; AssertHelpClean("gi.toonResponse");
+            vm.ShadowResolutionIndex = 2; AssertHelpClean("shadow.res");
+            vm.SsaoSampleCountIndex = 2; AssertHelpClean("ssao.samples");
+
+            // 2. Hidden invalid PathTracing NumericUpDown does not soft-lock Apply after switching back to Forward.
+            vm.PipelineModeIndex = 2; // PathTracing
+            Dispatcher.UIThread.RunJobs();
+            var ptSppBox = dialog.FindControl<EditorNumericUpDown>("PreviewPtSamplesPerFrameBox")!;
+            Assert.True(ptSppBox.IsEnabled);
+            ptSppBox.Text = "abc";
+            Dispatcher.UIThread.RunJobs();
+
+            vm.PipelineModeIndex = 0; // Forward
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(ptSppBox.IsEnabled);
+            // Applying while hidden PreviewPtSamplesPerFrameBox has invalid text "abc" must succeed cleanly.
+            var hiddenSppDialog = new EditorPreviewSettingsWindow(vm);
+            bool forwardClosed = false;
+            hiddenSppDialog.Closed += (_, _) => forwardClosed = true;
+            hiddenSppDialog.Show();
+            try
+            {
+                Dispatcher.UIThread.RunJobs();
+                vm.PipelineModeIndex = 2; // PathTracing
+                Dispatcher.UIThread.RunJobs();
+                var dlgPtBox = hiddenSppDialog.FindControl<EditorNumericUpDown>("PreviewPtSamplesPerFrameBox")!;
+                dlgPtBox.Text = "abc";
+                Dispatcher.UIThread.RunJobs();
+                vm.PipelineModeIndex = 0; // Forward (hides & disables dlgPtBox)
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(dlgPtBox.IsEnabled);
+                hiddenSppDialog.FindControl<Button>("ApplyPreviewSettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(forwardClosed);
+                Assert.False(vm.HasValidationMessage);
+            }
+            finally { hiddenSppDialog.Close(); Dispatcher.UIThread.RunJobs(); }
+
+            // 3. Invalid cross-field GI (RayEpsilon > MaxRayDistance) does not block switching to PathTracing & applying.
+            vm.GiIndex = 1;
+            vm.GiMaxRayDistance = 1m;
+            vm.GiRayEpsilon = 2m;
+            vm.PipelineModeIndex = 2; // PathTracing
+            ptSppBox.Text = "2";
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(vm.TryCreate(out var ptFromInvalidGi), vm.ValidationMessage);
+            Assert.Equal(RenderPipelineMode.PathTracing, ptFromInvalidGi!.PipelineMode);
+            Assert.Equal(RayGiOptions.Off, ptFromInvalidGi.EffectiveGi);
+
+            var directEval = ViewQualityCompatibility.Evaluate(new ViewQualityOptions(
+                Gi: new RayGiOptions(LightingMode.SoftwareRayTracing, MaxRayDistance: 1f, RayEpsilon: 2f, OcclusionStrength: 0.5f, OcclusionRadius: 0.1f),
+                PipelineMode: RenderPipelineMode.PathTracing));
+            Assert.True(directEval.IsValid);
+
+            dialog.FindControl<Button>("ApplyPreviewSettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(dialogClosed);
+            Assert.False(vm.HasValidationMessage);
+        }
+        finally
+        {
+            dialog.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // 4. TAA + TransparentBackground is rejected clearly at OutputSettingsDraft.Validate() / OutputSettingsViewModel.TryCreate().
+        using var shell = new EditorShellViewModel();
+        Assert.True(shell.CreateOutputSettingsViewModel().TryCreate(out var baseDraft));
+        shell.ApplyOutputSettings(baseDraft!);
+        EditorWindow.CopyPreviewQualityToExport(shell, new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa), persistPreferences: false, isClassic: false);
+        var exportVm = shell.CreateOutputSettingsViewModel();
+        exportVm.MediaKindIndex = 0; // PNG
+        exportVm.TransparentBackground = true;
+        Assert.False(exportVm.TryCreate(out _));
+        Assert.Equal(EditorLocalization.Text("Mda.Text.Output.TransparentRejectsTaa"), exportVm.ValidationMessage);
+
         return true;
     }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
 }

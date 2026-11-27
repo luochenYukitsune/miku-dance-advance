@@ -660,7 +660,8 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             {
                 string ptStyle = PtShadingModeChoices[Math.Clamp(ptShadingModeIndex, 0, PtShadingModeChoices.Count - 1)];
                 string ptDenoise = PtDenoiserChoices[Math.Clamp(ptDenoiserIndex, 0, PtDenoiserChoices.Count - 1)];
-                return $"{pipeline} · {ptStyle} · {ptSamplesPerFrame ?? 1} SPP · {ptMaxBounces ?? 4} Bounces · {ptDenoise}";
+                string ptBounces = Format("Mda.Text.Preview.OverviewPtBounces", ptMaxBounces ?? 4);
+                return $"{pipeline} · {ptStyle} · {ptSamplesPerFrame ?? 1} SPP · {ptBounces} · {ptDenoise}";
             }
             string aa = CurrentTemporalMode != ViewTemporalUpscalingMode.Off
                 ? TemporalModes[Math.Clamp(temporalIndex, 0, TemporalModes.Count - 1)]
@@ -926,7 +927,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public int SmaaIndex
     {
         get => smaaIndex;
-        set { if (Set(ref smaaIndex, value)) SetActiveHelpTopicInternal("help.aa.smaaQuality"); }
+        set { if (Set(ref smaaIndex, value)) SelectHelpTopic("help.aa.smaaQuality"); }
     }
     public int SurfaceOrderIndex
     {
@@ -945,7 +946,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
                 Changed(nameof(RenderScale));
                 RefreshDerived();
             }
-            SetActiveHelpTopicInternal("help.aa.ssaa");
+            SelectHelpTopic("help.aa.ssaa");
         }
     }
     public int UpscalingIndex
@@ -966,7 +967,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public int Fsr1QualityIndex
     {
         get => fsr1QualityIndex;
-        set { if (Set(ref fsr1QualityIndex, value)) SetActiveHelpTopicInternal("help.fsr1.quality"); }
+        set { if (Set(ref fsr1QualityIndex, value)) SelectHelpTopic("help.fsr1.quality"); }
     }
     public int TemporalIndex
     {
@@ -988,7 +989,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public int TemporalQualityIndex
     {
         get => temporalQualityIndex;
-        set { if (Set(ref temporalQualityIndex, value)) SetActiveHelpTopicInternal("help.temporal.quality"); }
+        set { if (Set(ref temporalQualityIndex, value)) SelectHelpTopic("help.temporal.quality"); }
     }
     public int GiCompositionIndex
     {
@@ -998,17 +999,17 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public int GiDenoiserIndex
     {
         get => giDenoiserIndex;
-        set { if (Set(ref giDenoiserIndex, value)) SetActiveHelpTopicInternal("help.gi.denoiser"); }
+        set { if (Set(ref giDenoiserIndex, value)) SelectHelpTopic("help.gi.denoiser"); }
     }
     public int GiToonResponseIndex
     {
         get => giToonResponseIndex;
-        set { if (Set(ref giToonResponseIndex, value)) SetActiveHelpTopicInternal("help.gi.toonResponse"); }
+        set { if (Set(ref giToonResponseIndex, value)) SelectHelpTopic("help.gi.toonResponse"); }
     }
     public int ShadowResolutionIndex
     {
         get => shadowResolutionIndex;
-        set { if (Set(ref shadowResolutionIndex, value)) { hasExplicitShadow = true; SetActiveHelpTopicInternal("help.shadow.res"); } }
+        set { if (Set(ref shadowResolutionIndex, value)) { hasExplicitShadow = true; SelectHelpTopic("help.shadow.res"); } }
     }
     public int ShadowFilterIndex
     {
@@ -1044,7 +1045,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         {
             if (!Set(ref ssaoSampleCountIndex, value)) return;
             hasExplicitSsao = true;
-            SetActiveHelpTopicInternal("help.ssao.samples");
+            SelectHelpTopic("help.ssao.samples");
         }
     }
     public int PipelineModeIndex
@@ -1165,6 +1166,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 
     // Derived enabling states
     public bool IsPathTracing => CurrentPipelineMode == RenderPipelineMode.PathTracing;
+    public bool IsPathTracingEditable => IsModernEngine && IsPathTracing;
     public bool IsRasterPipeline => !IsPathTracing;
     public bool IsGiSectionEnabled => IsModernEngine && !IsPathTracing;
     public bool IsGiEnabled => IsModernEngine && !IsPathTracing && giIndex >= 0 && giIndex < giValues.Length && giValues[giIndex] != LightingMode.Legacy;
@@ -1219,6 +1221,8 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 
     private void SetActiveHelpTopicInternal(string topicId)
     {
+        if (topicId.StartsWith("help.", StringComparison.Ordinal))
+            topicId = "Mda.Text.Preview.Help." + topicId["help.".Length..];
         if (StringComparer.Ordinal.Equals(activeHelpTopicId, topicId)) return;
         activeHelpTopicId = topicId;
         Changed(nameof(ActiveHelpTopicId));
@@ -1774,10 +1778,12 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
                     throw Error("请选择当前设备可用的空间超分模式。");
             }
 
-            var gi = baseline.EffectiveGi with { Mode = CurrentGiMode, PreviewAcceleration = PreviewGiAcceleration };
-            if (CurrentGiMode != LightingMode.Legacy)
+            var gi = pathTracing
+                ? RayGiOptions.Off
+                : baseline.EffectiveGi with { Mode = CurrentGiMode, PreviewAcceleration = PreviewGiAcceleration };
+            if (!pathTracing && CurrentGiMode != LightingMode.Legacy)
             {
-                if (validateCompatibility && !pathTracing)
+                if (validateCompatibility)
                 {
                     decimal samples = Number(GiSamples, 1, 1024, "每像素采样");
                     if (decimal.Truncate(samples) != samples) throw Error("{0}需要整数。", Label("每像素采样"));
@@ -2031,7 +2037,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 
     private static readonly string[] DerivedProperties =
     [
-        nameof(IsPathTracing), nameof(IsRasterPipeline), nameof(IsGiSectionEnabled),
+        nameof(IsPathTracing), nameof(IsPathTracingEditable), nameof(IsRasterPipeline), nameof(IsGiSectionEnabled),
         nameof(IsGiEnabled), nameof(IsGiToonPaletteEnabled), nameof(IsGiDenoiserEnabled),
         nameof(IsGiOcclusionStrengthEditable), nameof(IsRayGiOcclusionActive),
         nameof(IsTemporal), nameof(IsTemporalModeEditable), nameof(IsTemporalEnabled),
@@ -2052,7 +2058,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         nameof(ActivePresetSummary), nameof(OverviewConfigurationSummary),
         nameof(ResourceEstimate), nameof(EstimateAdapterText), nameof(EstimateViewportText), nameof(EstimateInternalResolutionText),
         nameof(EstimateVramText), nameof(EstimateVramProgressPercent), nameof(IsOverVramBudget),
-        nameof(HasEstimateBudgetUnavailableNote), nameof(PerformanceLoadTier), nameof(PerformanceLoadBadgeText),
+        nameof(HasEstimateBudgetUnavailableNote), nameof(EstimateBudgetSourceNote), nameof(PerformanceLoadTier), nameof(PerformanceLoadBadgeText),
         nameof(IsLoadLight), nameof(IsLoadModerate), nameof(IsLoadHigh), nameof(IsLoadHeavy),
         nameof(ActiveHelpTitle), nameof(ActiveHelpBody)
     ];

@@ -2055,5 +2055,7 @@
   "Mda.Text.Preview.Help.diffusion.extent.Title": "柔光范围",
   "Mda.Text.Preview.Help.diffusion.extent.Body": "控制光晕向外扩散的半径（0–0.01），很小的数值就能泛出自然光边。",
   "Mda.Text.Preview.Help.diag.adaptiveVram.Title": "显存不足自动降采样",
-  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "默认开启：高倍 SSAA 或 GI 快撑爆显存时，临时降低预览采样保稳定，不会改动你保存的画质设置。"
+  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "默认开启：高倍 SSAA 或 GI 快撑爆显存时，临时降低预览采样保稳定，不会改动你保存的画质设置。",
+  "Mda.Text.Preview.OverviewPtBounces": "{0} 弹射",
+  "Mda.Text.Output.TransparentRejectsTaa": "透明背景图片暂不支持内置 TAA，请将抗锯齿切换为 SMAA、FXAA、MSAA 或关。"
 }

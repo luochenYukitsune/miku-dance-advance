@@ -2055,5 +2055,7 @@
   "Mda.Text.Preview.Help.diffusion.extent.Title": "Diffusion Extent",
   "Mda.Text.Preview.Help.diffusion.extent.Body": "Sets how far the glow spreads outward (0–0.01). Even small values create a gentle halo.",
   "Mda.Text.Preview.Help.diag.adaptiveVram.Title": "Adaptive VRAM Sampling",
-  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "On by default: temporarily lowers preview SSAA when VRAM runs tight to prevent crashes, without changing your saved settings."
+  "Mda.Text.Preview.Help.diag.adaptiveVram.Body": "On by default: temporarily lowers preview SSAA when VRAM runs tight to prevent crashes, without changing your saved settings.",
+  "Mda.Text.Preview.OverviewPtBounces": "{0} bounces",
+  "Mda.Text.Output.TransparentRejectsTaa": "Transparent background export does not support built-in TAA. Switch antialiasing to SMAA, FXAA, MSAA, or Off."
 }
