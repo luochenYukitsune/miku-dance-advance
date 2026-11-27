@@ -90,7 +90,7 @@ internal static class D3D12ViewScene
             surface = LightingCache.GetValue(surface.Snapshot, static _ => new()).Get(surface, light);
         bool sceneShadow = scene.UsesSceneLighting && !surface.Snapshot.IsEmpty
             && scene.Materials.Any(flags => flags.UseSceneLighting && flags.ReceiveSelfShadow);
-        if (quality.Shadow is { Resolution: 0 } || shadowPose is { Mode: 0 })
+        if (options.PipelineMode == RenderPipelineMode.PathTracing || quality.Shadow is { Resolution: 0 } || shadowPose is { Mode: 0 })
             options = options with { SelfShadow = null };
         else if (sceneShadow)
         {

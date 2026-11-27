@@ -47,21 +47,25 @@ internal static partial class OriginalFrameShaders
         return source.Insert(insertion,CharacterToonHelper+"\n");
     }
 
-    internal static byte[] CompileCharacterToon(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
-        =>D3D12FxcShaderCache.Compile(CharacterToonSource(native,gi,textureMorph,subTexture),entry,
-            "OriginalFrameCharacterToon.hlsl","ps_5_1",
+    internal static byte[] CompileCharacterToon(string entry,bool native,bool gi,bool textureMorph,bool subTexture,bool clustered=false)
+    {
+        string source=CharacterToonSource(native,gi,textureMorph,subTexture);
+        if(clustered&&native) source=OriginalClusteredLightShader.Apply(source);
+        return D3D12FxcShaderCache.Compile(source,entry,
+            clustered?"OriginalFrameCharacterToonClustered.hlsl":"OriginalFrameCharacterToon.hlsl","ps_5_1",
             ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    }
 }
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    private readonly Dictionary<(string Entry,bool Native,bool Gi,bool Morph,bool SubTexture),byte[]> characterToonFrameShaders=[];
+    private readonly Dictionary<(string Entry,bool Native,bool Gi,bool Morph,bool SubTexture,bool Clustered),byte[]> characterToonFrameShaders=[];
 
-    private byte[] GetCharacterToonFrameShader(string entry,bool native,bool gi,bool textureMorph,bool subTexture)
+    private byte[] GetCharacterToonFrameShader(string entry,bool native,bool gi,bool textureMorph,bool subTexture,bool clustered=false)
     {
-        var key=(entry,native,gi,textureMorph,subTexture);
+        var key=(entry,native,gi,textureMorph,subTexture,clustered);
         if(characterToonFrameShaders.TryGetValue(key,out var found))return found;
-        var compiled=OriginalFrameShaders.CompileCharacterToon(entry,native,gi,textureMorph,subTexture);
+        var compiled=OriginalFrameShaders.CompileCharacterToon(entry,native,gi,textureMorph,subTexture,clustered);
         runtime.ShaderCompilations++;
         characterToonFrameShaders.Add(key,compiled);
         return compiled;

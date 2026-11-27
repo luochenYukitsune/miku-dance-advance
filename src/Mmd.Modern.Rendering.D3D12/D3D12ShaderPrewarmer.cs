@@ -48,6 +48,10 @@ public sealed record D3D12ShaderWarmupSpec
     public bool IncludeSpatialAccumulation { get; init; }
     public bool IncludeLightGizmos { get; init; }
     public bool IncludeGpuSkinning { get; init; }
+    public RenderPipelineMode PipelineMode { get; init; } = RenderPipelineMode.Forward;
+    public bool PathTracingUseHardware { get; init; } = true;
+    public RayGiDenoiser PathTracingDenoiser { get; init; } = RayGiDenoiser.TemporalSpatial;
+    public PathTracingShadingMode PathTracingShadingMode { get; init; } = PathTracingShadingMode.ToonHybrid;
 }
 
 /// <summary>Asynchronous bounded-concurrency shader prewarmer for FXC and DXC variants.
@@ -75,6 +79,11 @@ public static class D3D12ShaderPrewarmer
 
         var fxcRequests = new List<D3D12FxcShaderRequest>();
         var fxcActions = CollectSurfaceCompileActions(spec);
+
+        if (spec.PipelineMode == RenderPipelineMode.ClusteredForward && spec.NativeLights)
+            fxcRequests.AddRange(D3D12ClusteredLightPass.GetPrewarmRequests());
+        if (spec.PipelineMode == RenderPipelineMode.PathTracing)
+            fxcRequests.AddRange(D3D12PathTracingShaders.GetResolvePrewarmRequests());
 
         if (spec.SmaaQuality is { } smaaQuality)
             fxcRequests.AddRange(D3D12SmaaPass.GetPrewarmRequests(smaaQuality, spec.SmaaAlphaCoverage));
@@ -174,7 +183,10 @@ public static class D3D12ShaderPrewarmer
     {
         ArgumentNullException.ThrowIfNull(frame);
         var o = frame.Options;
-        bool gi = rayGi is { Enabled: true, Strength: > 0 };
+        var pipelineMode = o?.PipelineMode ?? RenderPipelineMode.Forward;
+        bool pathTracing = pipelineMode == RenderPipelineMode.PathTracing;
+        var ptOptions = o?.PathTracing ?? PathTracingOptions.Default;
+        bool gi = !pathTracing && rayGi is { Enabled: true, Strength: > 0 };
         bool subTexture = frame.Surface.Materials.Any(binding => binding.SphereMode == OriginalSphereMode.SubTexture && binding.SphereTexture >= 0);
         bool textureMorph = subTexture || frame.Surface.Materials.Any(binding => !binding.TextureFactors.IsIdentity);
         bool nativeLights = D3D12OriginalStyleRenderer.HasNativeLights(frame);
@@ -227,7 +239,8 @@ public static class D3D12ShaderPrewarmer
             IncludeGiDenoiser = gi && D3D12RayGiDenoiser.IsEnabled(rayGi!),
             IncludeGiTemporal = gi && D3D12RayGiRenderer.IsTemporalEnabled(rayGi),
             IncludeGiHalfRes = gi && rayGi!.PreviewAcceleration,
-            IncludePositionGather = gi && (rayGi?.Mode ?? LightingMode.HardwareRayTracing) == LightingMode.HardwareRayTracing && frame.Surface.Snapshot.HasDynamicVertices,
+            IncludePositionGather = (gi && (rayGi?.Mode ?? LightingMode.HardwareRayTracing) == LightingMode.HardwareRayTracing && frame.Surface.Snapshot.HasDynamicVertices)
+                || (pathTracing && ptOptions.UseHardwareRayTracing && frame.Surface.Snapshot.HasDynamicVertices),
             NativeLights = nativeLights,
             TextureMorph = textureMorph,
             SubTexture = subTexture,
@@ -236,17 +249,17 @@ public static class D3D12ShaderPrewarmer
             Outline = outline,
             CharacterOutline = characterOutline,
             StylizedVariants = variants,
-            SmaaQuality = o?.Antialiasing == FrameAntialiasing.Smaa1X ? o.SmaaQuality : null,
+            SmaaQuality = !pathTracing && o?.Antialiasing == FrameAntialiasing.Smaa1X ? o.SmaaQuality : null,
             SmaaAlphaCoverage = straightAlpha,
-            IncludeFxaa = o?.Antialiasing == FrameAntialiasing.Fxaa,
+            IncludeFxaa = !pathTracing && o?.Antialiasing == FrameAntialiasing.Fxaa,
             IncludeFxaaAlphaCoverage = straightAlpha,
-            IncludeNativeTaa = o?.Antialiasing == FrameAntialiasing.Taa,
+            IncludeNativeTaa = !pathTracing && o?.Antialiasing == FrameAntialiasing.Taa,
             IncludeStandaloneRcas = sharpening is { IsActive: true },
-            IncludeScreenSpaceAo = o?.ScreenSpaceAo is { IsActive: true },
-            IncludeFsr1 = spatialUpscaling is { Mode: not D3D12SpatialUpscalingMode.Off },
+            IncludeScreenSpaceAo = !pathTracing && o?.ScreenSpaceAo is { IsActive: true },
+            IncludeFsr1 = !pathTracing && spatialUpscaling is { Mode: not D3D12SpatialUpscalingMode.Off },
             IncludeRenderScale = (o?.RenderScale ?? 1f) != 1f,
-            IncludeTemporalInputs = temporal || o?.Antialiasing == FrameAntialiasing.Taa || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
-            IncludeTemporalCharacter = o?.Antialiasing == FrameAntialiasing.Taa || (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
+            IncludeTemporalInputs = temporal || (!pathTracing && o?.Antialiasing == FrameAntialiasing.Taa) || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
+            IncludeTemporalCharacter = (!pathTracing && o?.Antialiasing == FrameAntialiasing.Taa) || (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
             IncludeTemporalReactive = temporal && temporalUpscaling?.Mode == D3D12TemporalUpscalingMode.XeSs,
             IncludeTemporalEditorVisibility = includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false),
             IncludeTemporalColorTransfer = temporal,
@@ -254,9 +267,13 @@ public static class D3D12ShaderPrewarmer
             IncludeDiffusionAlphaCoverage = straightAlpha,
             IncludeExposure = (frame.Lighting?.Settings.ExposureEv ?? 0f) != 0f,
             IncludeAlphaResolve = straightAlpha,
-            IncludeSpatialAccumulation = (o?.SpatialSamples ?? 1) > 1,
+            IncludeSpatialAccumulation = !pathTracing && (o?.SpatialSamples ?? 1) > 1,
             IncludeLightGizmos = includeLightGizmos || (frame.EditorOverlay?.Lines.Count ?? 0) > 0,
             IncludeGpuSkinning = frame.Surface.Snapshot.HasDeferredDeformation,
+            PipelineMode = pipelineMode,
+            PathTracingUseHardware = ptOptions.UseHardwareRayTracing,
+            PathTracingDenoiser = ptOptions.Denoiser,
+            PathTracingShadingMode = ptOptions.ShadingMode,
         };
     }
 
@@ -279,6 +296,24 @@ public static class D3D12ShaderPrewarmer
             if (keys.Add(key)) actions.Add(compile);
         }
 
+        if (spec.PipelineMode == RenderPipelineMode.PathTracing)
+        {
+            // Path tracing replaces forward raster surfaces, shadows, ground shadow and standalone GI.
+            // Only ToonHybrid mode composites authored outlines on top of primary path-traced depth.
+            if (spec.PathTracingShadingMode == PathTracingShadingMode.ToonHybrid)
+            {
+                if (spec.Outline)
+                    Add("outline:base", () => OriginalOutlineShaders.Compile());
+                if (spec.CharacterOutline)
+                {
+                    bool st = spec.SubTexture;
+                    Add($"charOutline:{st}", () => OriginalFrameShaders.CompileCharacterOutline(st));
+                }
+            }
+            return actions;
+        }
+
+        bool clustered = spec.PipelineMode == RenderPipelineMode.ClusteredForward && spec.NativeLights;
         string surfacePixel = spec.NativeLights
             ? (spec.Gi ? "PSSurfaceGiNative" : "PSSurfaceNative")
             : (spec.Gi ? "PSSurfaceGi" : "PSSurface");
@@ -290,7 +325,7 @@ public static class D3D12ShaderPrewarmer
             if (n && g)
                 Add("sub:VS:false:true", () => OriginalFrameShaders.CompileSubTexture("VSSurface", true, false, true));
             if (!spec.CharacterDirectPalette && !spec.CharacterToon)
-                Add("sub:PS:" + surfacePixel + $":{n}:{g}", () => OriginalFrameShaders.CompileSubTexture(surfacePixel, false, n, g));
+                Add("sub:PS:" + surfacePixel + $":{n}:{g}:{clustered}", () => OriginalFrameShaders.CompileSubTexture(surfacePixel, false, n, g, clustered));
         }
         else
         {
@@ -300,23 +335,23 @@ public static class D3D12ShaderPrewarmer
         if (spec.CharacterDirectPalette)
         {
             bool g = spec.Gi, tm = spec.TextureMorph, st = spec.SubTexture, ct = spec.CharacterToon;
-            Add($"cdp:{surfacePixel}:{g}:{tm}:{st}:{ct}", () => OriginalFrameShaders.CompileCharacterDirectPalette(surfacePixel, g, tm, st, ct));
+            Add($"cdp:{surfacePixel}:{g}:{tm}:{st}:{ct}:{clustered}", () => OriginalFrameShaders.CompileCharacterDirectPalette(surfacePixel, g, tm, st, ct, clustered));
         }
         else if (spec.CharacterToon)
         {
             bool n = spec.NativeLights, g = spec.Gi, tm = spec.TextureMorph, st = spec.SubTexture;
-            Add($"ct:{surfacePixel}:{n}:{g}:{tm}:{st}", () => OriginalFrameShaders.CompileCharacterToon(surfacePixel, n, g, tm, st));
+            Add($"ct:{surfacePixel}:{n}:{g}:{tm}:{st}:{clustered}", () => OriginalFrameShaders.CompileCharacterToon(surfacePixel, n, g, tm, st, clustered));
         }
         else if (!spec.SubTexture)
         {
             if (spec.TextureMorph)
             {
                 bool n = spec.NativeLights, g = spec.Gi;
-                Add($"tm:{surfacePixel}:{n}:{g}", () => OriginalFrameShaders.CompileTextureMorph(surfacePixel, n, g));
+                Add($"tm:{surfacePixel}:{n}:{g}:{clustered}", () => OriginalFrameShaders.CompileTextureMorph(surfacePixel, n, g, clustered));
             }
             else if (spec.NativeLights)
             {
-                Add($"nat:{surfacePixel}", () => OriginalFrameShaders.CompileNative(surfacePixel, false));
+                Add($"nat:{surfacePixel}:{clustered}", () => OriginalFrameShaders.CompileNative(surfacePixel, false, clustered));
             }
             else if (spec.Gi && surfacePixel == "PSSurfaceGi")
             {
@@ -383,10 +418,10 @@ public static class D3D12ShaderPrewarmer
             Add(vsKey, () => D3D12StyleShaderAssembler.CompileVertex(module, geom, n, g, st));
 
             var captured = v;
-            string styleKey = $"styPs:{captured.StyleId}:{module.ModuleId}:{module.EffectiveContentHash}:{hooks}:{geom}:{surfacePixel}:{n}:{g}:{tm}:{st}:{captured.CharacterToon}:{captured.PreserveDirectLightPalette}";
+            string styleKey = $"styPs:{captured.StyleId}:{module.ModuleId}:{module.EffectiveContentHash}:{hooks}:{geom}:{surfacePixel}:{n}:{g}:{tm}:{st}:{captured.CharacterToon}:{captured.PreserveDirectLightPalette}:{clustered}";
             Add(styleKey, () => D3D12StyleShaderAssembler.CompilePixel(
                 captured.StyleId, surfacePixel, module, hooks, geom,
-                n, g, tm, st, captured.CharacterToon, captured.PreserveDirectLightPalette));
+                n, g, tm, st, captured.CharacterToon, captured.PreserveDirectLightPalette, clustered));
         }
 
         return actions;
@@ -395,11 +430,22 @@ public static class D3D12ShaderPrewarmer
     private static List<DxcShaderWarmupRequest> CollectDxcRequests(D3D12ShaderWarmupSpec spec)
     {
         var requests = new List<DxcShaderWarmupRequest>();
+        bool pathTracing = spec.PipelineMode == RenderPipelineMode.PathTracing;
         if (spec.IncludeGpuSkinning)
         {
-            bool hwGi = spec.Gi && spec.GiMode == LightingMode.HardwareRayTracing;
+            bool hwRay = pathTracing ? spec.PathTracingUseHardware : (spec.Gi && spec.GiMode == LightingMode.HardwareRayTracing);
+            bool outline = spec.Outline && (!pathTracing || spec.PathTracingShadingMode == PathTracingShadingMode.ToonHybrid);
             bool temporal = spec.IncludeTemporalInputs || spec.IncludeTemporalCharacter || spec.IncludeGiTemporal;
-            requests.AddRange(D3D12GpuSkinning.GetPrewarmRequests(spec.Outline, temporal, hwGi));
+            requests.AddRange(D3D12GpuSkinning.GetPrewarmRequests(outline, temporal, hwRay));
+        }
+        if (pathTracing)
+        {
+            requests.Add(D3D12PathTracingShaders.GetTracePrewarmRequest(spec.PathTracingUseHardware, spec.TextureMorph, spec.SubTexture));
+            if (spec.PathTracingDenoiser is RayGiDenoiser.Spatial or RayGiDenoiser.TemporalSpatial)
+                requests.Add(D3D12PathTracingShaders.GetDenoisePrewarmRequest());
+            if (spec.IncludePositionGather)
+                requests.Add(D3D12HardwareRayGi.GetPositionGatherPrewarmRequest());
+            return requests;
         }
         if (!spec.Gi) return requests;
         bool hardware = spec.GiMode == LightingMode.HardwareRayTracing;

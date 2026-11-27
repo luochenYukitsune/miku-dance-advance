@@ -32,7 +32,8 @@ internal static class D3D12StyleShaderAssembler
         bool TextureMorph,
         bool SubTexture,
         bool CharacterToon,
-        bool PreserveDirectLightPalette);
+        bool PreserveDirectLightPalette,
+        bool ClusteredLights);
 
     private static readonly ConcurrentDictionary<VertexCacheKey, byte[]> VertexCache = new();
     private static readonly ConcurrentDictionary<PixelCacheKey, byte[]> PixelCache = new();
@@ -114,7 +115,8 @@ internal static class D3D12StyleShaderAssembler
         bool textureMorph,
         bool subTexture,
         bool characterToon,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights = false)
     {
         ArgumentNullException.ThrowIfNull(module);
         if (entryPoint is not ("PSSurface" or "PSSurfaceGi" or "PSSurfaceNative" or "PSSurfaceGiNative"))
@@ -125,6 +127,7 @@ internal static class D3D12StyleShaderAssembler
             textureMorph = true;
         }
         bool directPalette = nativeLights && (preserveDirectLightPalette || effectiveHooks.HasFlag(D3D12StyleShaderHookMask.PreserveDirectLightPalette));
+        bool useClustered = nativeLights && clusteredLights;
         var key = new PixelCacheKey(
             styleId,
             module.ModuleId,
@@ -137,7 +140,8 @@ internal static class D3D12StyleShaderAssembler
             textureMorph,
             subTexture,
             characterToon,
-            directPalette);
+            directPalette,
+            useClustered);
 
         return PixelCache.GetOrAdd(key, k =>
         {
@@ -151,7 +155,8 @@ internal static class D3D12StyleShaderAssembler
                 k.TextureMorph,
                 k.SubTexture,
                 k.CharacterToon,
-                k.PreserveDirectLightPalette);
+                k.PreserveDirectLightPalette,
+                k.ClusteredLights);
             string fileName = $"PluginStyle_{SanitizeFileToken(k.StyleId)}_{SanitizeFileToken(k.ModuleId)}.hlsl";
             return D3D12FxcShaderCache.Compile(source, k.EntryPoint, fileName, "ps_5_1", CompileFlags);
         });
@@ -192,7 +197,8 @@ internal static class D3D12StyleShaderAssembler
         bool textureMorph,
         bool subTexture,
         bool characterToon,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights = false)
     {
         var sb = new StringBuilder(8192);
         sb.AppendLine("#define MDA_STYLE_TARGET_PS 1");
@@ -227,7 +233,7 @@ internal static class D3D12StyleShaderAssembler
             sb.AppendLine("// --- End Plugin Shader Module ---");
         }
 
-        AppendPixelHostPostPlugin(sb, entryPoint, hooks, geometry, gi, nativeLights, preserveDirectLightPalette);
+        AppendPixelHostPostPlugin(sb, entryPoint, hooks, geometry, gi, nativeLights, preserveDirectLightPalette, clusteredLights);
         return PruneInactivePreprocessorBranches(sb.ToString());
     }
 
@@ -754,7 +760,8 @@ internal static class D3D12StyleShaderAssembler
         D3D12StyleGeometryRequirements geometry,
         bool gi,
         bool nativeLights,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights)
     {
         if (!hooks.HasFlag(D3D12StyleShaderHookMask.LightResponse))
         {
@@ -1086,6 +1093,10 @@ internal static class D3D12StyleShaderAssembler
                 float NativeVisibility(uint index, NativeLight light, float3 position, float3 normal, float3 towardLight) {
                     return NativeVisibility(index, light, position, normal, towardLight, 0, 0, 0);
                 }
+                """);
+            if (clusteredLights)
+                sb.AppendLine(OriginalClusteredLightShader.HlslHeader);
+            sb.AppendLine("""
                 float3 NativeDirect(SurfaceOutput v) {
                     float3 worldDx = ddx(v.WorldPosition), worldDy = ddy(v.WorldPosition);
                     float3 n = normalize(v.Normal);
@@ -1101,7 +1112,11 @@ internal static class D3D12StyleShaderAssembler
                     if (multiplySphere) diffuse *= MorphSphere(SphereMap.Sample(SelectedSampler, MdaGetSphereUv(v)).rgb, false);
                     float3 result = 0;
                     if (NativeAtlasLayout.z > 0) result = diffuse * NativeAtlasLayout.z;
-                    [loop] for (uint i = 0; i < (uint)NativeInfo.x; i++) {
+                """);
+            sb.AppendLine(clusteredLights
+                ? OriginalClusteredLightShader.ClusteredLoopReplacement
+                : "    [loop] for (uint i = 0; i < (uint)NativeInfo.x; i++) {");
+            sb.AppendLine("""
                         if ((NativeInfo.y & (1u << i)) == 0) continue;
                         NativeLight source = NativeLights[i];
                         [loop] for (uint sample = 0; sample < (source.PositionKind.w == 3 ? 4u : 1u); sample++) {

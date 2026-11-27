@@ -25,9 +25,11 @@ internal static class D3D12ViewShaderPrewarm
         OriginalFrameOptions? sceneOptions = null)
     {
         ArgumentNullException.ThrowIfNull(quality);
+        bool pathTracing = quality.PipelineMode == RenderPipelineMode.PathTracing;
         var resolved = quality.ApplyTo(sceneOptions);
+        var pt = resolved.PathTracing ?? quality.EffectivePathTracing;
         var gi = resolved.RayGi ?? quality.EffectiveGi;
-        bool giEnabled = gi.Enabled && gi.Strength > 0;
+        bool giEnabled = !pathTracing && gi.Enabled && gi.Strength > 0;
         bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
         bool effectiveStraightAlpha = straightAlpha || resolved.AlphaOutput == FrameAlphaOutput.Straight;
         var effectiveAntialiasing = resolved.Antialiasing;
@@ -62,7 +64,8 @@ internal static class D3D12ViewShaderPrewarm
             IncludeGiDenoiser = giEnabled && gi.Denoiser != RayGiDenoiser.Off,
             IncludeGiTemporal = giEnabled && gi.Denoiser == RayGiDenoiser.TemporalSpatial,
             IncludeGiHalfRes = giEnabled && gi.PreviewAcceleration,
-            IncludePositionGather = giEnabled && gi.Mode == LightingMode.HardwareRayTracing && hasDynamicVertices,
+            IncludePositionGather = (giEnabled && gi.Mode == LightingMode.HardwareRayTracing && hasDynamicVertices)
+                || (pathTracing && pt.UseHardwareRayTracing && hasDynamicVertices),
             NativeLights = hasNativeLights,
             TextureMorph = hasTextureMorph,
             SubTexture = hasSubTexture,
@@ -71,26 +74,30 @@ internal static class D3D12ViewShaderPrewarm
             Outline = hasOutline,
             CharacterOutline = hasCharacterOutline,
             StylizedVariants = variants,
-            SmaaQuality = effectiveAntialiasing == FrameAntialiasing.Smaa1X ? resolved.SmaaQuality : null,
+            SmaaQuality = !pathTracing && effectiveAntialiasing == FrameAntialiasing.Smaa1X ? resolved.SmaaQuality : null,
             SmaaAlphaCoverage = effectiveStraightAlpha,
-            IncludeFxaa = effectiveAntialiasing == FrameAntialiasing.Fxaa,
+            IncludeFxaa = !pathTracing && effectiveAntialiasing == FrameAntialiasing.Fxaa,
             IncludeFxaaAlphaCoverage = effectiveStraightAlpha,
-            IncludeNativeTaa = effectiveAntialiasing == FrameAntialiasing.Taa,
+            IncludeNativeTaa = !pathTracing && effectiveAntialiasing == FrameAntialiasing.Taa,
             IncludeStandaloneRcas = quality.EffectiveSharpening.IsActive,
-            IncludeScreenSpaceAo = effectiveSsao,
-            IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
+            IncludeScreenSpaceAo = !pathTracing && effectiveSsao,
+            IncludeFsr1 = !pathTracing && quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
             IncludeRenderScale = resolved.RenderScale != 1f,
-            IncludeTemporalInputs = temporal || effectiveAntialiasing == FrameAntialiasing.Taa || hasLightGizmos,
-            IncludeTemporalCharacter = effectiveAntialiasing == FrameAntialiasing.Taa || (temporal && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0)),
+            IncludeTemporalInputs = temporal || (!pathTracing && effectiveAntialiasing == FrameAntialiasing.Taa) || hasLightGizmos,
+            IncludeTemporalCharacter = (!pathTracing && effectiveAntialiasing == FrameAntialiasing.Taa) || (temporal && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0)),
             IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,
             IncludeTemporalEditorVisibility = hasLightGizmos,
             IncludeTemporalColorTransfer = temporal,
             IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
             IncludeDiffusionAlphaCoverage = effectiveStraightAlpha,
             IncludeAlphaResolve = effectiveStraightAlpha,
-            IncludeSpatialAccumulation = resolved.SpatialSamples > 1,
+            IncludeSpatialAccumulation = !pathTracing && resolved.SpatialSamples > 1,
             IncludeLightGizmos = hasLightGizmos,
             IncludeGpuSkinning = hasDynamicVertices,
+            PipelineMode = quality.PipelineMode,
+            PathTracingUseHardware = pt.UseHardwareRayTracing,
+            PathTracingDenoiser = pt.Denoiser,
+            PathTracingShadingMode = pt.ShadingMode,
         };
     }
 

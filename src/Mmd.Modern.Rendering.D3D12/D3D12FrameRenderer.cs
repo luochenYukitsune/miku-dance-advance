@@ -32,6 +32,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private readonly D3D12FrameDescriptorHeaps frameDescriptors;
     private readonly D3D12OriginalStyleRenderer originalRecorder;
     private D3D12RayGiRenderer? rayGiRenderer;
+    private D3D12PathTracingRenderer? pathTracingRenderer;
     private D3D12SmaaPass? smaaPass;
     private D3D12FxaaPass? fxaaPass;
     private D3D12NativeTaaPass? nativeTaaPass;
@@ -81,6 +82,8 @@ public sealed class D3D12FrameRenderer : IDisposable
     public IReadOnlyList<D3D12RecordingRecord> LastRecordings {get;private set;}=[];
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
+    public D3D12ClusteredLightStatistics? ClusteredLightStatistics => originalRecorder.LastClusteredLightStatistics;
+    public D3D12PathTracingStatistics? PathTracingStatistics => pathTracingRenderer?.LastStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder => originalRecorder;
     internal bool LastNativeTaaReset => nativeTaaPass?.LastReset ?? false;
     internal int NativeTaaPhase => nativeTaaHistory.Phase;
@@ -155,10 +158,20 @@ public sealed class D3D12FrameRenderer : IDisposable
         diffusion?.ValidateFrame(frame); // Before captures, SDK recreation or any recording.
         bool diffusionActive=diffusion?.IsActive==true;
         float exposureEv=frame.Lighting?.Settings.ExposureEv??0;
-        rayGiOptions??=frame.Options?.RayGi;
-        if(capture&&rayGiOptions is {PreviewAcceleration:true})
-            rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
-        rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
+        var pipelineMode=frame.Options?.PipelineMode??RenderPipelineMode.Forward;
+        bool pathTracing=pipelineMode==RenderPipelineMode.PathTracing;
+        if(pathTracing)
+        {
+            frame.Options?.PathTracing?.Validate();
+            rayGiOptions=null;
+        }
+        else
+        {
+            rayGiOptions??=frame.Options?.RayGi;
+            if(capture&&rayGiOptions is {PreviewAcceleration:true})
+                rayGiOptions=rayGiOptions with {PreviewAcceleration=false};
+            rayGiOptions=D3D12SceneLighting.ResolveGi(frame,rayGiOptions);
+        }
         surfaceStyles?.Validate(frame,rayGiOptions);
         surfaceStyles=surfaceStyles?.CaptureResolvedInputs(frame);
         var scene=frame.Surface.Snapshot;
@@ -178,6 +191,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool emptyScene=scene.Indices.Length==0;
         bool retainTriangleScratch=!emptyScene&&D3D12RayGiRenderer.UsesTriangleScratch(scene,rayGiOptions,capture);
         rayGiRenderer?.BeginFrame(retainTriangleScratch);
+        pathTracingRenderer?.BeginFrame();
+        originalRecorder.ResetClusteredLightStatistics();
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         ulong diffusionReservation=D3D12DiffusionMemoryBudget.Measure(runtime,width,height,diffusionActive,
             alphaCoverage:frame.Options?.AlphaOutput==FrameAlphaOutput.Straight);
@@ -352,7 +367,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             nativeTaaPass.InvalidateHistory();
             nativeTaaHistory.Invalidate("ModeChanged");
         }
-        bool ssaoActive=frame.Options?.ScreenSpaceAo is { IsActive: true };
+        bool ssaoActive=!pathTracing&&frame.Options?.ScreenSpaceAo is { IsActive: true };
         var ssaoOptions=frame.Options?.ScreenSpaceAo;
         var colorFormat=straightAlpha?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm;
         var depthFormat=frame.Options?.GroundShadow?.UseStencil==true?Format.D24_UNorm_S8_UInt:Format.D32_Float;
@@ -555,6 +570,19 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             void SceneCore(int sampleIndex)
             {
+                if(pathTracing)
+                {
+                    originalRecorder.ResetNativeLightStatistics();
+                    (pathTracingRenderer??=new(runtime,cache)).Record(context,frame,current,currentDepth,vb,ib,capture);
+                    Recorded("path-tracing",current,currentDepth);
+                    var ptOptions=frame.Options?.PathTracing??PathTracingOptions.Default;
+                    if(!emptyScene&&ptOptions.ShadingMode==PathTracingShadingMode.ToonHybrid
+                        &&frame.Outline is not null&&frame.OutlineOptions is {Eligible:true,ModelWidth:>0})
+                    {
+                        LastSceneDrawCalls+=originalRecorder.RecordOutlineOnly(context,current,currentDepth,frame,vb!,ib!,srvHeap,srvStride,textureSlots,cache,surfaceStyles);
+                    }
+                    return;
+                }
                 // All actors may be hidden. Keep the real cleared GPU target and built-in passes,
                 // without allocating empty geometry or tracing hidden surfaces.
                 if(emptyScene){originalRecorder.ResetNativeLightStatistics();return;}
@@ -819,6 +847,8 @@ public sealed class D3D12FrameRenderer : IDisposable
             lastSubmittedSurfaceStyles=surfaceStyles;
             if(D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))rayGiRenderer?.CommitFrame();
             else rayGiRenderer?.InvalidateTemporalHistory("ModeChanged");
+            if(pathTracing)pathTracingRenderer?.CommitFrame();
+            else pathTracingRenderer?.InvalidateHistory("ModeChanged");
             if(nativeTaa)
             {
                 nativeTaaHistory.Commit(frame,temporalUpscaling,taaPhase,taaPhaseCount,historyRayGiOptions);
@@ -863,7 +893,10 @@ public sealed class D3D12FrameRenderer : IDisposable
                 TemporalGiRetirementMilliseconds=temporalGiAdmission?.RetirementMilliseconds??0,
                 CaptureLowMemory=captureLowMemory,CaptureInFlightFrames=CaptureMemoryStatistics?.InFlightFrames??0,
                 CaptureRetirementMilliseconds=captureRetirementMilliseconds,
-                TemporalUpscaling=TemporalUpscalingStatistics};
+                TemporalUpscaling=TemporalUpscalingStatistics,
+                PipelineMode=pipelineMode,
+                ClusteredLights=ClusteredLightStatistics,
+                PathTracing=PathTracingStatistics};
             LastTargets=targetRecorder.Commit();
             LastRecordings=recordingRecords;
             // A pooled final image leaves the pool until the lease is disposed, so later frames cannot overwrite it.
@@ -874,7 +907,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         finally
         {
             targetRecorder.ResetStaged();
-            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);if(temporal)temporalHistory.Invalidate("AbortedFrame");if(nativeTaa){nativeTaaHistory.Invalidate("AbortedFrame");nativeTaaPass?.AbortPending();}}
+            if(runtime.IsRecording){rayGiRenderer?.AbortFrame();rayGiRenderer?.BeginFrame(retainTriangleScratch);pathTracingRenderer?.AbortFrame();if(temporal)temporalHistory.Invalidate("AbortedFrame");if(nativeTaa){nativeTaaHistory.Invalidate("AbortedFrame");nativeTaaPass?.AbortPending();}}
             runtime.Abort();
             if(debugQueue is not null){var messages=new List<string>();for(ulong i=0;i<debugQueue.NumStoredMessages;i++)messages.Add(debugQueue.GetMessage(i).ToString());LastDebugMessages=messages;}
             rendering=false;
@@ -902,13 +935,20 @@ public sealed class D3D12FrameRenderer : IDisposable
         RayGiOptions? rayGiOptions = null, float renderScale = 1f)
     {
         var antialiasing = frame.Options?.Antialiasing ?? FrameAntialiasing.Off;
+        bool pathTracing = frame.Options?.PipelineMode == RenderPipelineMode.PathTracing;
+        if (pathTracing)
+        {
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off
+                || (frame.Options?.SpatialSamples ?? 1) != 1 || antialiasing != FrameAntialiasing.Off)
+                throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and progressive accumulation, and requires raster antialiasing, spatial supersampling, spatial upscaling and temporal upscaling to be disabled.");
+        }
         if (!float.IsFinite(renderScale) || renderScale is < 0.5f or > 1.5f)
             throw new ArgumentOutOfRangeException(nameof(renderScale), "Render scale must be finite and between 0.5 and 1.5.");
         if (renderScale != 1f && (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) > 1))
             throw new NotSupportedException("Render scale requires spatial upscaling, temporal reconstruction and spatial supersampling (>1x) to be disabled.");
-        if (frame.Options?.ScreenSpaceAo is { Enabled: true } && !(frame.Options?.WriteDepth ?? true))
+        if (!pathTracing && frame.Options?.ScreenSpaceAo is { Enabled: true } && !(frame.Options?.WriteDepth ?? true))
             throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
-        if (frame.Options?.ScreenSpaceAo is { Enabled: true } && rayGiOptions is { Enabled: true, OcclusionStrength: > 0f })
+        if (!pathTracing && frame.Options?.ScreenSpaceAo is { Enabled: true } && rayGiOptions is { Enabled: true, OcclusionStrength: > 0f })
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
         {
@@ -1128,7 +1168,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         // Native upscalers may report a teardown error after device loss. Release
         // independent pools and the owning device before reporting those failures.
         IDisposable?[] resources = [temporalPass, xeSsTemporalPass, dlssTemporalPass, nativeTaaPass, temporalInputs,
-            rayGiRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
+            rayGiRenderer, pathTracingRenderer, frameDescriptors, cache, ownsOriginalRecorder ? originalRecorder : null,
             ownsRuntime ? runtime : null];
         List<Exception>? failures = null;
         foreach (var resource in resources)

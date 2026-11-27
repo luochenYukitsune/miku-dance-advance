@@ -85,6 +85,8 @@ public static class ViewOutputPresetJson
         options.Converters.Add(new ExactEnumConverter<ViewTemporalQualityPreset>());
         options.Converters.Add(new ExactEnumConverter<ViewXeSsQuality>());
         options.Converters.Add(new ExactEnumConverter<ViewDlssQuality>());
+        options.Converters.Add(new ExactEnumConverter<RenderPipelineMode>());
+        options.Converters.Add(new ExactEnumConverter<PathTracingShadingMode>());
         options.Converters.Add(new ExactEnumConverter<OriginalTextureSampling>());
         options.Converters.Add(new OpaqueDataConverter());
         return options;
@@ -152,6 +154,8 @@ public static class ViewOutputPresetJson
         int? SpatialSamples, UpscalingDto? Upscaling, TemporalDto? TemporalUpscaling,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiffusionDto? Diffusion = null,
         SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] RenderPipelineMode PipelineMode = RenderPipelineMode.Forward,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PathTracingDto? PathTracing = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ShadowDto? Shadow = null,
         bool UseEnvironmentMipmaps = false,
         bool AdaptiveVramSampling = true,
@@ -167,12 +171,14 @@ public static class ViewOutputPresetJson
         internal static QualityDto? From(ViewQualityOptions? value) => value is null ? null : new(GiDto.From(value.Gi),
             value.Antialiasing, value.SmaaQuality, value.SpatialSamples, UpscalingDto.From(value.Upscaling),
             TemporalDto.From(value.TemporalUpscaling), DiffusionDto.From(value.Diffusion), value.SurfaceOrder,
+            value.PipelineMode, PathTracingDto.From(value.PathTracing),
             ShadowDto.From(value.Shadow), value.UseEnvironmentMipmaps, value.AdaptiveVramSampling,
             value.RenderScale, value.PreviewOutlineEnabled, value.PreviewOutlineWidthScale,
             SharpeningDto.From(value.Sharpening), value.AnisotropicFiltering, value.ShadowFilter,
             value.ShadowSoftness, ScreenSpaceAoDto.From(value.ScreenSpaceAo));
         internal ViewQualityOptions ToOptions() => new(Gi?.ToOptions(), Antialiasing, SmaaQuality, SpatialSamples,
-            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder)
+            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder,
+            PipelineMode, PathTracing?.ToOptions())
         {
             Shadow = Shadow?.ToOptions(),
             UseEnvironmentMipmaps = UseEnvironmentMipmaps,
@@ -186,6 +192,19 @@ public static class ViewOutputPresetJson
             ShadowSoftness = ShadowSoftness,
             ScreenSpaceAo = ScreenSpaceAo?.ToOptions(),
         };
+    }
+
+    private sealed record PathTracingDto(PathTracingShadingMode ShadingMode, int SamplesPerFrame, int MaxBounces,
+        bool ProgressiveAccumulation, int MaxAccumulatedFrames, int InteractiveSamplesPerFrame, float FireflyClamp,
+        RayGiDenoiser Denoiser, bool UseHardwareRayTracing)
+    {
+        internal static PathTracingDto? From(PathTracingOptions? value) => value is null ? null : new(
+            value.ShadingMode, value.SamplesPerFrame, value.MaxBounces, value.ProgressiveAccumulation,
+            value.MaxAccumulatedFrames, value.InteractiveSamplesPerFrame, value.FireflyClamp,
+            value.Denoiser, value.UseHardwareRayTracing);
+        internal PathTracingOptions ToOptions() => new(ShadingMode, SamplesPerFrame, MaxBounces,
+            ProgressiveAccumulation, MaxAccumulatedFrames, InteractiveSamplesPerFrame, FireflyClamp,
+            Denoiser, UseHardwareRayTracing);
     }
 
     private sealed record ShadowDto(int Resolution = 2048, OriginalTextureSampling Sampling = OriginalTextureSampling.LinearClamp)

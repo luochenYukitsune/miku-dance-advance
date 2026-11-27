@@ -123,6 +123,9 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public int UpscalingOutputHeight {get;init;}
     public int UpscalingPassDrawCalls {get;init;}
     public D3D12TemporalUpscalingStatistics? TemporalUpscaling {get;init;}
+    public RenderPipelineMode PipelineMode {get;init;}=RenderPipelineMode.Forward;
+    public D3D12ClusteredLightStatistics? ClusteredLights {get;init;}
+    public D3D12PathTracingStatistics? PathTracing {get;init;}
 }
 
 /// <summary>The sole command-list submission and retirement owner. Each slot has its own allocator/list and frame resources.</summary>

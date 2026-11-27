@@ -98,7 +98,9 @@ public sealed partial class D3D12OriginalStyleRenderer
 {
     internal const int NativeShadowTileSize = NativeLightShadowAtlasLayout.TileSize;
     public D3D12NativeLightStatistics? LastNativeLightStatistics { get; private set; }
-    internal void ResetNativeLightStatistics() => LastNativeLightStatistics = null;
+    public D3D12ClusteredLightStatistics? LastClusteredLightStatistics { get; private set; }
+    internal void ResetClusteredLightStatistics() { LastClusteredLightStatistics = null; }
+    internal void ResetNativeLightStatistics() { LastNativeLightStatistics = null; LastClusteredLightStatistics = null; }
     internal void SetNativeGiParticipation(bool active)
     {
         if(LastNativeLightStatistics is { } statistics)
@@ -319,10 +321,10 @@ public sealed partial class D3D12OriginalStyleRenderer
         return (readback, footprints[0]);
     }
 
-    private readonly Dictionary<(string, bool), byte[]> nativeFrameShaders = [];
-    private byte[] GetNativeFrameShader(string entry, bool vertex)
+    private readonly Dictionary<(string, bool, bool), byte[]> nativeFrameShaders = [];
+    private byte[] GetNativeFrameShader(string entry, bool vertex, bool clustered = false)
     {
-        if (nativeFrameShaders.TryGetValue((entry, vertex), out var value)) return value;
-        value = OriginalFrameShaders.CompileNative(entry, vertex); nativeFrameShaders.Add((entry, vertex), value); runtime.ShaderCompilations++; return value;
+        if (nativeFrameShaders.TryGetValue((entry, vertex, clustered), out var value)) return value;
+        value = OriginalFrameShaders.CompileNative(entry, vertex, clustered); nativeFrameShaders.Add((entry, vertex, clustered), value); runtime.ShaderCompilations++; return value;
     }
 }

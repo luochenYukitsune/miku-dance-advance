@@ -76,10 +76,14 @@ internal static partial class OriginalFrameShaders
         .Replace("LightViewProjection","SurfaceLightViewProjection",StringComparison.Ordinal)
         .Replace("GroundDirection","SurfaceGroundDirection",StringComparison.Ordinal);
 
-    internal static byte[] CompileSubTexture(string entry,bool vertex,bool native=false,bool gi=false)
-        =>D3D12FxcShaderCache.Compile(OriginalSubTextureShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:""),true,native,gi),entry,
-            native?"OriginalFrameSubTextureNative.hlsl":"OriginalFrameSubTexture.hlsl",
+    internal static byte[] CompileSubTexture(string entry,bool vertex,bool native=false,bool gi=false,bool clustered=false)
+    {
+        string source=OriginalSubTextureShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:""),true,native,gi);
+        if(clustered&&native&&!vertex) source=OriginalClusteredLightShader.Apply(source);
+        return D3D12FxcShaderCache.Compile(source,entry,
+            native?(clustered?"OriginalFrameSubTextureNativeClustered.hlsl":"OriginalFrameSubTextureNative.hlsl"):"OriginalFrameSubTexture.hlsl",
             vertex?"vs_5_1":"ps_5_1",ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    }
 }
 
 internal static partial class OriginalStyleShaders
@@ -95,7 +99,7 @@ internal static partial class OriginalStyleShaders
 public sealed partial class D3D12OriginalStyleRenderer
 {
     private (byte[] Vertex,byte[] Pixel)? subTextureSurfaceShaders;
-    private readonly Dictionary<(string,bool,bool,bool),byte[]> subTextureFrameShaders=[];
+    private readonly Dictionary<(string,bool,bool,bool,bool),byte[]> subTextureFrameShaders=[];
     internal static bool HasSubTexture(OriginalFrameScene frame)=>frame.Surface.Materials.Any(m=>m.SphereMode==OriginalSphereMode.SubTexture);
     internal static void ValidateSubTexture(OriginalFrameScene? frame,RayGiOptions? gi,D3D12TemporalUpscalingOptions? temporal)
     {
@@ -142,10 +146,10 @@ public sealed partial class D3D12OriginalStyleRenderer
         var compiled=OriginalStyleShaders.CompileSubTexture();runtime.ShaderCompilations+=2;
         subTextureSurfaceShaders=compiled;return compiled;
     }
-    private byte[] GetSubTextureFrameShader(string entry,bool vertex,bool native=false,bool gi=false)
+    private byte[] GetSubTextureFrameShader(string entry,bool vertex,bool native=false,bool gi=false,bool clustered=false)
     {
-        if(subTextureFrameShaders.TryGetValue((entry,vertex,native,gi),out var found))return found;
-        var compiled=OriginalFrameShaders.CompileSubTexture(entry,vertex,native,gi);runtime.ShaderCompilations++;
-        subTextureFrameShaders.Add((entry,vertex,native,gi),compiled);return compiled;
+        if(subTextureFrameShaders.TryGetValue((entry,vertex,native,gi,clustered),out var found))return found;
+        var compiled=OriginalFrameShaders.CompileSubTexture(entry,vertex,native,gi,clustered);runtime.ShaderCompilations++;
+        subTextureFrameShaders.Add((entry,vertex,native,gi,clustered),compiled);return compiled;
     }
 }

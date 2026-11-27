@@ -6,9 +6,13 @@ internal static partial class OriginalFrameShaders
 {
     // Ordinary character materials opt in independently of GI and primary toon style.
     // The accepted no-native source and the four specialised families stay separate.
-    internal static byte[] CompileCharacterDirectPalette(string entry, bool gi, bool textureMorph, bool subTexture, bool characterToon)
-        => D3D12FxcShaderCache.Compile(CharacterDirectPaletteSource(gi, textureMorph, subTexture, characterToon), entry,
-            "OriginalCharacterDirectPalette.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
+    internal static byte[] CompileCharacterDirectPalette(string entry, bool gi, bool textureMorph, bool subTexture, bool characterToon, bool clustered = false)
+    {
+        string source = CharacterDirectPaletteSource(gi, textureMorph, subTexture, characterToon);
+        if (clustered) source = OriginalClusteredLightShader.Apply(source);
+        return D3D12FxcShaderCache.Compile(source, entry,
+            clustered ? "OriginalCharacterDirectPaletteClustered.hlsl" : "OriginalCharacterDirectPalette.hlsl", "ps_5_1", ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
+    }
 
     internal static string CharacterDirectPaletteSource(bool gi, bool textureMorph, bool subTexture, bool characterToon)
     {
@@ -130,13 +134,13 @@ internal static partial class OriginalFrameShaders
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    private readonly Dictionary<(string Entry, bool Gi, bool Morph, bool SubTexture, bool Toon), byte[]> characterDirectPaletteShaders = [];
+    private readonly Dictionary<(string Entry, bool Gi, bool Morph, bool SubTexture, bool Toon, bool Clustered), byte[]> characterDirectPaletteShaders = [];
 
-    private byte[] GetCharacterDirectPaletteShader(string entry, bool gi, bool textureMorph, bool subTexture, bool characterToon)
+    private byte[] GetCharacterDirectPaletteShader(string entry, bool gi, bool textureMorph, bool subTexture, bool characterToon, bool clustered = false)
     {
-        var key = (entry, gi, textureMorph, subTexture, characterToon);
+        var key = (entry, gi, textureMorph, subTexture, characterToon, clustered);
         if (characterDirectPaletteShaders.TryGetValue(key, out var found)) return found;
-        var compiled = OriginalFrameShaders.CompileCharacterDirectPalette(entry, gi, textureMorph, subTexture, characterToon);
+        var compiled = OriginalFrameShaders.CompileCharacterDirectPalette(entry, gi, textureMorph, subTexture, characterToon, clustered);
         runtime.ShaderCompilations++;
         characterDirectPaletteShaders.Add(key, compiled);
         return compiled;

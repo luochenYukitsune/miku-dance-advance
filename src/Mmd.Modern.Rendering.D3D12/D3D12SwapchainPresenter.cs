@@ -61,6 +61,8 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     public D3D12RayGiStatistics? RayGiStatistics => session.RayGiStatistics;
     public int EditorOverlayDrawCalls=>session.EditorOverlayDrawCalls;
     public D3D12NativeLightStatistics? NativeLightStatistics=>session.NativeLightStatistics;
+    public D3D12ClusteredLightStatistics? ClusteredLightStatistics=>session.ClusteredLightStatistics;
+    public D3D12PathTracingStatistics? PathTracingStatistics=>session.PathTracingStatistics;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>session.TemporalUpscalingStatistics;
     internal bool LastNativeTaaReset => session.LastNativeTaaReset;
     internal int NativeTaaPhase => session.NativeTaaPhase;

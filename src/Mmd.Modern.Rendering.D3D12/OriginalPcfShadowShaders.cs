@@ -78,7 +78,7 @@ internal static partial class OriginalPcfShadowShader
 internal static partial class OriginalFrameShaders
 {
     internal static byte[] CompilePcfShadow(string entry, bool native, bool gi, bool textureMorph, bool subTexture,
-        bool characterToon, bool characterDirectPalette)
+        bool characterToon, bool characterDirectPalette, bool clustered = false)
     {
         string source;
         if (characterDirectPalette)
@@ -91,10 +91,13 @@ internal static partial class OriginalFrameShaders
             if (subTexture) source = OriginalSubTextureShader.Apply(source, true, native, gi);
             else if (textureMorph) source = OriginalTextureMorphShader.Apply(source);
         }
+        source = OriginalPcfShadowShader.Apply(source);
+        if (native && clustered)
+            source = OriginalClusteredLightShader.Apply(source);
         return D3D12FxcShaderCache.Compile(
-            OriginalPcfShadowShader.Apply(source),
+            source,
             entry,
-            "OriginalFramePcfShadow.hlsl",
+            clustered ? "OriginalFramePcfShadowClustered.hlsl" : "OriginalFramePcfShadow.hlsl",
             "ps_5_1",
             ShaderFlags.EnableStrictness | ShaderFlags.IeeeStrictness);
     }
@@ -102,14 +105,14 @@ internal static partial class OriginalFrameShaders
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    private readonly Dictionary<(string Entry, bool Native, bool Gi, bool Morph, bool SubTexture, bool CharacterToon, bool CharacterDirectPalette), byte[]> pcfShadowFrameShaders = [];
+    private readonly Dictionary<(string Entry, bool Native, bool Gi, bool Morph, bool SubTexture, bool CharacterToon, bool CharacterDirectPalette, bool Clustered), byte[]> pcfShadowFrameShaders = [];
 
     private byte[] GetPcfShadowFrameShader(string entry, bool native, bool gi, bool textureMorph, bool subTexture,
-        bool characterToon, bool characterDirectPalette)
+        bool characterToon, bool characterDirectPalette, bool clustered = false)
     {
-        var key = (entry, native, gi, textureMorph, subTexture, characterToon, characterDirectPalette);
+        var key = (entry, native, gi, textureMorph, subTexture, characterToon, characterDirectPalette, clustered);
         if (pcfShadowFrameShaders.TryGetValue(key, out var found)) return found;
-        var compiled = OriginalFrameShaders.CompilePcfShadow(entry, native, gi, textureMorph, subTexture, characterToon, characterDirectPalette);
+        var compiled = OriginalFrameShaders.CompilePcfShadow(entry, native, gi, textureMorph, subTexture, characterToon, characterDirectPalette, clustered);
         runtime.ShaderCompilations++;
         pcfShadowFrameShaders.Add(key, compiled);
         return compiled;

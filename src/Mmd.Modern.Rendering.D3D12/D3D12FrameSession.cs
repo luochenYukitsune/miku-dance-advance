@@ -39,6 +39,8 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12RayGiStatistics? RayGiStatistics=>renderer.RayGiStatistics;
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics=>renderer.GpuSkinningStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
+    public D3D12ClusteredLightStatistics? ClusteredLightStatistics=>renderer.ClusteredLightStatistics;
+    public D3D12PathTracingStatistics? PathTracingStatistics=>renderer.PathTracingStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
     internal bool LastNativeTaaReset=>renderer.LastNativeTaaReset;
     internal int NativeTaaPhase=>renderer.NativeTaaPhase;
@@ -73,12 +75,7 @@ public sealed class D3D12FrameSession:IDisposable
     {
         ArgumentNullException.ThrowIfNull(spec);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed), this);
-        DxcShaderCompiler? compiler = null;
-        if (spec.Gi)
-        {
-            try { compiler = Runtime.GetOrCreateDxcCompiler(); } catch { }
-        }
-        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, compiler, cancellationToken);
+        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, explicitDxcCompiler: null, cancellationToken);
     }
     internal void StartBackgroundPrewarm(D3D12ShaderWarmupSpec spec)
     {

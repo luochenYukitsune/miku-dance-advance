@@ -31,6 +31,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         bool HasPluginSpace2 = false,
         bool FrontCounterClockwise = true,
         bool CharacterDirectPalette = false,
+        bool ClusteredLights = false,
         int SampleCount = 1,
         int AnisotropicFiltering = 1,
         bool PcfSoftShadow = false);
@@ -49,7 +50,8 @@ public sealed partial class D3D12OriginalStyleRenderer
         int PluginCbvRoot = -1,
         int PluginSrvTableRoot = -1,
         int PluginStructuredRoot = -1,
-        FramePipelineKey Key = default);
+        FramePipelineKey Key = default,
+        int ClusteredRoot = -1);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct FrameConstants(
@@ -189,6 +191,8 @@ public sealed partial class D3D12OriginalStyleRenderer
         device.CreateShaderResourceView(ready.White, null, srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(whiteSlot, srvStride));
         device.CreateShaderResourceView(ready.Shadow, null, srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot, srvStride));
         bool nativeLights = HasNativeLights(frame);
+        bool clusteredRequested = options.PipelineMode == RenderPipelineMode.ClusteredForward;
+        D3D12ClusteredLightPass.PreparedClusteredLights? clustered = null;
         int nativeRoot = gi is null ? 4 : 7;
         if (nativeLights)
         {
@@ -203,6 +207,36 @@ public sealed partial class D3D12OriginalStyleRenderer
                 BufferLocation = ready.Native.FrameAddress,
                 SizeInBytes = (Marshal.SizeOf<NativeFrameConstants>() + 255) & ~255
             }, srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot + 2, srvStride));
+            if (clusteredRequested)
+            {
+                clustered = (clusteredLightPass ??= new D3D12ClusteredLightPass(runtime, cache)).Record(
+                    context, camera, width, height, ready.Native.FrameAddress, ready.Native.Count);
+                var sampleStats = clustered.Statistics;
+                LastClusteredLightStatistics = LastClusteredLightStatistics is { Active: true } prior
+                    ? prior with
+                    {
+                        ActiveLightCount = Math.Max(prior.ActiveLightCount, sampleStats.ActiveLightCount),
+                        MaxLightsPerCluster = Math.Max(prior.MaxLightsPerCluster, sampleStats.MaxLightsPerCluster),
+                        DispatchCount = prior.DispatchCount + sampleStats.DispatchCount,
+                    }
+                    : sampleStats;
+            }
+            else
+            {
+                LastClusteredLightStatistics = null;
+            }
+        }
+        else if (clusteredRequested)
+        {
+            if (LastClusteredLightStatistics is null)
+            {
+                var defaultGrid = ClusterGridDimensions.Default;
+                LastClusteredLightStatistics = new(true, defaultGrid.X, defaultGrid.Y, defaultGrid.Z, defaultGrid.TotalClusters, 0, defaultGrid.MaxLightsPerCluster, 0);
+            }
+        }
+        else
+        {
+            LastClusteredLightStatistics = null;
         }
         commands.OMSetRenderTargets(rtv, dsv); commands.RSSetViewport(0, 0, width, height, 0, 1); commands.RSSetScissorRect(new RawRect(0, 0, width, height));
         commands.SetGraphicsRootSignature(pipeline.Root); commands.SetDescriptorHeaps(srvHeap);
@@ -239,6 +273,12 @@ public sealed partial class D3D12OriginalStyleRenderer
         if (nativeLights)
         {
             commands.SetGraphicsRootDescriptorTable(nativeRoot + 1, srvHeap.GetGPUDescriptorHandleForHeapStart().Offset(realSlot + 1, srvStride));
+            if (clustered is not null && pipeline.ClusteredRoot >= 0)
+            {
+                commands.SetGraphicsRootConstantBufferView(pipeline.ClusteredRoot, clustered.PixelConstantsAddress);
+                commands.SetGraphicsRootShaderResourceView(pipeline.ClusteredRoot + 1, clustered.LightGrid.GPUVirtualAddress);
+                commands.SetGraphicsRootShaderResourceView(pipeline.ClusteredRoot + 2, clustered.LightIndices.GPUVirtualAddress);
+            }
         }
 
         int pluginBaseSlot = slotBase + scene.Textures.Count + 4 + (nativeLights ? 2 : 0);
@@ -455,6 +495,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             hasPluginSpace2,
             D3D12RasterWinding.FrontCounterClockwise(frame),
             HasNativeLights(frame) && HasPrimaryLight(frame.Surface.Profile) && frame.Materials.Any(flags => flags.PreserveDirectLightPalette),
+            HasNativeLights(frame) && o.PipelineMode == RenderPipelineMode.ClusteredForward,
             sampleCount,
             o.AnisotropicFiltering,
             pcfSoftShadow);
@@ -503,6 +544,19 @@ public sealed partial class D3D12OriginalStyleRenderer
                 new(RootParameterType.ShaderResourceView, new RootDescriptor(13, 2), ShaderVisibility.Pixel),
                 new(RootParameterType.ShaderResourceView, new RootDescriptor(14, 2), ShaderVisibility.Pixel),
                 new(RootParameterType.ShaderResourceView, new RootDescriptor(15, 2), ShaderVisibility.Pixel),
+            ];
+        }
+
+        int clusteredRoot = -1;
+        if (key.ClusteredLights)
+        {
+            clusteredRoot = parameters.Length;
+            parameters =
+            [
+                ..parameters,
+                new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 3), ShaderVisibility.Pixel),
+                new(RootParameterType.ShaderResourceView, new RootDescriptor(0, 3), ShaderVisibility.Pixel),
+                new(RootParameterType.ShaderResourceView, new RootDescriptor(1, 3), ShaderVisibility.Pixel),
             ];
         }
 
@@ -560,11 +614,12 @@ public sealed partial class D3D12OriginalStyleRenderer
             {
                 runtime.PipelineCreations++;
                 bool nativeShader = ps.Contains("Native", StringComparison.Ordinal);
+                bool surfaceClustered = key.ClusteredLights && ps.StartsWith("PSSurface", StringComparison.Ordinal);
                 var state = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription
                 {
                     RootSignature = root,
                     VertexShader = key.SubTexture && (vs is "VSSurface" or "VSNativeDepth") ? GetSubTextureFrameShader(vs, true, key.NativeLights, gi) : vs == "VSNativeDepth" ? GetNativeFrameShader(vs, true) : GetFrameShader(vs, true),
-                    PixelShader = key.PcfSoftShadow && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetPcfShadowFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture, key.CharacterToon, key.CharacterDirectPalette) : key.CharacterDirectPalette && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterDirectPaletteShader(ps, gi, key.TextureMorph, key.SubTexture, key.CharacterToon) : key.CharacterToon && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterToonFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture) : key.SubTexture && (ps.StartsWith("PSSurface", StringComparison.Ordinal) || ps == "PSNativeDepth") ? GetSubTextureFrameShader(ps, false, key.NativeLights, gi) : key.TextureMorph && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetTextureMorphFrameShader(ps, key.NativeLights, gi) : nativeShader ? GetNativeFrameShader(ps, false) : gi && ps == "PSSurfaceGi" ? GetGiFrameShader(ps, false) : GetFrameShader(ps, false),
+                    PixelShader = key.PcfSoftShadow && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetPcfShadowFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture, key.CharacterToon, key.CharacterDirectPalette, surfaceClustered) : key.CharacterDirectPalette && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterDirectPaletteShader(ps, gi, key.TextureMorph, key.SubTexture, key.CharacterToon, surfaceClustered) : key.CharacterToon && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterToonFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture, surfaceClustered) : key.SubTexture && (ps.StartsWith("PSSurface", StringComparison.Ordinal) || ps == "PSNativeDepth") ? GetSubTextureFrameShader(ps, false, key.NativeLights, gi, surfaceClustered) : key.TextureMorph && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetTextureMorphFrameShader(ps, key.NativeLights, gi, surfaceClustered) : nativeShader ? GetNativeFrameShader(ps, false, surfaceClustered) : gi && ps == "PSSurfaceGi" ? GetGiFrameShader(ps, false) : GetFrameShader(ps, false),
                     InputLayout = input,
                     BlendState = blend,
                     SampleMask = uint.MaxValue,
@@ -594,7 +649,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             var outlineLayout = new InputLayoutDescription([new InputElementDescription("POSITION", 0, Format.R32G32B32_Float, 0, 0),
                 new("TEXCOORD", 2, Format.R32G32B32A32_Float, 0, 1)]);
             var outline = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription { RootSignature = outlineRoot, VertexShader = outlineShader.Vertex, PixelShader = outlineShader.Pixel, InputLayout = outlineLayout, BlendState = FrameBlend(o.BlendMode, o.AlphaOutput), SampleMask = uint.MaxValue, RasterizerState = front, DepthStencilState = depth, PrimitiveTopologyType = PrimitiveTopologyType.Triangle, RenderTargetFormats = [surfaceFormat], DepthStencilFormat = depthFormat, SampleDescription = new(key.SampleCount, 0) }); created.Add(outline);
-            var result = new FramePipelines(root, surfaceBack, surfaceBoth, shadowBack, shadowBoth, ground, new(outlineRoot, outline), nativeShadowBack, nativeShadowBoth, textureMorphRoot, pluginCbvRoot, pluginSrvTableRoot, pluginStructuredRoot, key);
+            var result = new FramePipelines(root, surfaceBack, surfaceBoth, shadowBack, shadowBoth, ground, new(outlineRoot, outline), nativeShadowBack, nativeShadowBoth, textureMorphRoot, pluginCbvRoot, pluginSrvTableRoot, pluginStructuredRoot, key, clusteredRoot);
             framePipelines.Add(key, result);
             return result;
         }

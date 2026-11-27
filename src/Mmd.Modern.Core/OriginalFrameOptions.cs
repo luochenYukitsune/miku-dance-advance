@@ -75,7 +75,8 @@ public sealed record OriginalFrameOptions(OriginalAlphaBlendMode BlendMode,bool 
     SceneCamera? CameraOverride=null,Matrix4x4? SphereRotationOverride=null,bool EnableFrustumCulling=true,RayGiOptions? RayGi=null,
     FrameAntialiasing Antialiasing=FrameAntialiasing.Off,Vector4? BackgroundColor=null,
     SmaaQuality SmaaQuality=SmaaQuality.High,int SpatialSamples=1,FrameAlphaOutput AlphaOutput=FrameAlphaOutput.LegacyMax,
-    SurfaceDrawOrder SurfaceOrder=SurfaceDrawOrder.Original,float RenderScale=1f)
+    SurfaceDrawOrder SurfaceOrder=SurfaceDrawOrder.Original,float RenderScale=1f,
+    RenderPipelineMode PipelineMode=RenderPipelineMode.Forward,PathTracingOptions? PathTracing=null)
 {
     /// <summary>Anisotropic texture filtering level (1, 2, 4, 8, or 16). Default 1 preserves original linear/point filtering.</summary>
     public int AnisotropicFiltering { get; init; } = 1;
@@ -161,19 +162,23 @@ public static class OriginalFrameMath
             throw new NotSupportedException("Straight-alpha output requires source-over blending; legacy additive blending is not representable by this output contract.");
         if(!Enum.IsDefined(options.Antialiasing)) throw new ArgumentException("Unknown frame antialiasing mode.");
         if(!Enum.IsDefined(options.SmaaQuality)) throw new ArgumentException("Unknown SMAA quality preset.");
+        if(!Enum.IsDefined(options.PipelineMode)) throw new ArgumentException("Unknown render pipeline mode.");
+        options.PathTracing?.Validate();
         if(options.SpatialSamples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentException("Spatial samples must be 1, 2, 4, 8, 16 or 32.");
         if(!float.IsFinite(options.RenderScale)||options.RenderScale is <0.5f or >1.5f) throw new ArgumentOutOfRangeException(nameof(options), "Render scale must be finite and between 0.5 and 1.5.");
         if(!IsValidAnisotropicFiltering(options.AnisotropicFiltering)) throw new ArgumentException("Anisotropic filtering must be 1, 2, 4, 8 or 16.");
         if(options.ShadowFilter is { } shadowFilter && !Enum.IsDefined(shadowFilter)) throw new ArgumentException("Unknown shadow filter mode.");
         if(!float.IsFinite(options.ShadowSoftness)||options.ShadowSoftness is <0f or >4f) throw new ArgumentException("Shadow softness must be finite and between 0 and 4.");
         options.ScreenSpaceAo?.Validate();
+        if(options.PipelineMode==RenderPipelineMode.PathTracing&&(options.Antialiasing!=FrameAntialiasing.Off||options.SpatialSamples>1))
+            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing and spatial supersampling to be disabled.");
         if(options.Antialiasing==FrameAntialiasing.Taa&&options.SpatialSamples>1)
             throw new NotSupportedException("TAA cannot be combined with spatial supersampling (SpatialSamples > 1).");
         if(IsMsaa(options.Antialiasing)&&options.SpatialSamples>1)
             throw new NotSupportedException("MSAA cannot be combined with spatial supersampling (SpatialSamples > 1).");
-        if(options.ScreenSpaceAo is { Enabled: true } && !options.WriteDepth)
+        if(options.PipelineMode!=RenderPipelineMode.PathTracing&&options.ScreenSpaceAo is { Enabled: true } && !options.WriteDepth)
             throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
-        if(options.ScreenSpaceAo is { Enabled: true } && options.RayGi is { Enabled: true, OcclusionStrength: > 0 })
+        if(options.PipelineMode!=RenderPipelineMode.PathTracing&&options.ScreenSpaceAo is { Enabled: true } && options.RayGi is { Enabled: true, OcclusionStrength: > 0 })
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         if(options.BackgroundColor is {} background&&!OriginalOutlineMath.Finite(background))throw new ArgumentException("Background color must be finite.");
         if(options.AlphaOutput==FrameAlphaOutput.Straight&&options.BackgroundColor is {} clear

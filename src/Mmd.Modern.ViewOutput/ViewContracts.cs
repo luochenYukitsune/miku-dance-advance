@@ -7,7 +7,9 @@ namespace Mmd.Modern.ViewOutput;
 public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasing? Antialiasing = null,
     SmaaQuality? SmaaQuality = null, int? SpatialSamples = null, ViewUpscalingOptions? Upscaling = null,
     ViewTemporalUpscalingOptions? TemporalUpscaling = null, ViewDiffusionOptions? Diffusion = null,
-    SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
+    SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst,
+    RenderPipelineMode PipelineMode = RenderPipelineMode.Forward,
+    PathTracingOptions? PathTracing = null)
 {
     public ViewShadowOptions? Shadow { get; init; }
     public bool UseEnvironmentMipmaps { get; init; }
@@ -25,17 +27,19 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     public RayGiOptions EffectiveGi => Gi ?? RayGiOptions.Off;
     public ViewUpscalingOptions EffectiveUpscaling => Upscaling ?? ViewUpscalingOptions.Off;
     public ViewTemporalUpscalingOptions EffectiveTemporalUpscaling => TemporalUpscaling ?? ViewTemporalUpscalingOptions.Off;
+    public PathTracingOptions EffectivePathTracing => PathTracing ?? PathTracingOptions.Default;
     public ViewShadowOptions EffectiveShadow => Shadow ?? ViewShadowOptions.Default;
     public ViewSharpeningOptions EffectiveSharpening => Sharpening ?? ViewSharpeningOptions.Off;
     public int EffectiveAnisotropicFiltering => AnisotropicFiltering ?? 1;
     public float EffectiveShadowSoftness => ShadowSoftness ?? 1f;
     public ScreenSpaceAoOptions EffectiveScreenSpaceAo => ScreenSpaceAo ?? ScreenSpaceAoOptions.Off;
-
     public void Validate()
     {
         EffectiveDiffusion.Validate(); EffectiveGi.Validate(); EffectiveUpscaling.Validate(); EffectiveTemporalUpscaling.Validate();
         EffectiveShadow.Validate(); EffectiveSharpening.Validate(); EffectiveScreenSpaceAo.Validate();
         if (!Enum.IsDefined(SurfaceOrder)) throw new ArgumentOutOfRangeException(nameof(SurfaceOrder));
+        if (!Enum.IsDefined(PipelineMode)) throw new ArgumentOutOfRangeException(nameof(PipelineMode));
+        EffectivePathTracing.Validate();
         if (Antialiasing is { } antialiasing && !Enum.IsDefined(antialiasing)) throw new ArgumentOutOfRangeException(nameof(Antialiasing));
         if (SmaaQuality is { } smaa && !Enum.IsDefined(smaa)) throw new ArgumentOutOfRangeException(nameof(SmaaQuality));
         if (SpatialSamples is { } samples && samples is not (1 or 2 or 4 or 8 or 16 or 32)) throw new ArgumentOutOfRangeException(nameof(SpatialSamples));
@@ -51,6 +55,11 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off || Antialiasing is not (null or FrameAntialiasing.Off)
                 || SpatialSamples is > 1))
             throw new NotSupportedException("Temporal reconstruction requires spatial upscaling, frame antialiasing and supersampling to be disabled.");
+        if (PipelineMode == RenderPipelineMode.PathTracing
+            && (Antialiasing is not (null or FrameAntialiasing.Off) || SpatialSamples is > 1
+                || EffectiveUpscaling.Mode != ViewUpscalingMode.Off
+                || EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off))
+            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and progressive accumulation, and requires raster antialiasing, spatial supersampling, spatial upscaling and temporal upscaling to be disabled.");
         if (RenderScale != 1f && (EffectiveUpscaling.Mode != ViewUpscalingMode.Off
             || EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off || SpatialSamples is > 1))
             throw new NotSupportedException("Render scale must be 1.0 when spatial upscaling, temporal reconstruction, or spatial supersampling (>1x) is enabled.");
@@ -60,7 +69,7 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
         if (Antialiasing is { } msaa && OriginalFrameMath.IsMsaa(msaa)
             && (SpatialSamples is > 1 || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
             throw new NotSupportedException("MSAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
-        if (EffectiveScreenSpaceAo.Enabled && EffectiveGi.Enabled && EffectiveGi.OcclusionStrength > 0f)
+        if (PipelineMode != RenderPipelineMode.PathTracing && EffectiveScreenSpaceAo.Enabled && EffectiveGi.Enabled && EffectiveGi.OcclusionStrength > 0f)
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
     }
 
@@ -69,8 +78,9 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     {
         Validate();
         var options = sceneOptions ?? new(OriginalAlphaBlendMode.Normal, true, false);
+        bool pathTracing = PipelineMode == RenderPipelineMode.PathTracing;
         var selfShadow = options.SelfShadow;
-        if (Shadow is { Resolution: 0 })
+        if (pathTracing || Shadow is { Resolution: 0 })
             selfShadow = null;
         else if (Shadow is { } shadowOverride && selfShadow is { } existingShadow)
             selfShadow = existingShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
@@ -92,21 +102,25 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
         }
         var resolved = options with
         {
-            RayGi = EffectiveGi,
+            RayGi = pathTracing ? RayGiOptions.Off : EffectiveGi,
             Antialiasing = Antialiasing ?? options.Antialiasing,
             SmaaQuality = SmaaQuality ?? options.SmaaQuality,
             SpatialSamples = SpatialSamples ?? options.SpatialSamples,
             SurfaceOrder = SurfaceOrder,
             SelfShadow = selfShadow,
             RenderScale = RenderScale,
+            PipelineMode = PipelineMode,
+            PathTracing = PathTracing ?? options.PathTracing,
             AnisotropicFiltering = AnisotropicFiltering ?? options.AnisotropicFiltering,
             ShadowFilter = ShadowFilter ?? options.ShadowFilter,
             ShadowSoftness = resolvedShadowSoftness,
-            ScreenSpaceAo = ScreenSpaceAo ?? options.ScreenSpaceAo,
+            ScreenSpaceAo = pathTracing ? ScreenSpaceAoOptions.Off : (ScreenSpaceAo ?? options.ScreenSpaceAo),
         };
         if (EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off
             && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
             throw new NotSupportedException("Inherited scene antialiasing/supersampling must be explicitly disabled for temporal reconstruction.");
+        if (pathTracing && (resolved.Antialiasing != FrameAntialiasing.Off || resolved.SpatialSamples != 1))
+            throw new NotSupportedException("Inherited scene antialiasing/supersampling must be explicitly disabled for path tracing.");
         if (resolved.RenderScale != 1f && resolved.SpatialSamples != 1)
             throw new NotSupportedException("Inherited scene supersampling must be explicitly disabled when render scale is not 1.0.");
         if (resolved.Antialiasing == FrameAntialiasing.Taa
@@ -115,7 +129,7 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
         if (OriginalFrameMath.IsMsaa(resolved.Antialiasing)
             && (resolved.SpatialSamples > 1 || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
             throw new NotSupportedException("MSAA cannot be combined with spatial supersampling, FSR1, or temporal upscaling.");
-        if (resolved.ScreenSpaceAo is { Enabled: true } && resolved.RayGi is { Enabled: true, OcclusionStrength: > 0f })
+        if (!pathTracing && resolved.ScreenSpaceAo is { Enabled: true } && resolved.RayGi is { Enabled: true, OcclusionStrength: > 0f })
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         return resolved;
     }

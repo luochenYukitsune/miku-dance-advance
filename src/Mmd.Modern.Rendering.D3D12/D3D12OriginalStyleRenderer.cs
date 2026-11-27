@@ -93,6 +93,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
     private readonly bool ownsRuntime;
     private ID3D12Device device=>runtime.Device;
     private readonly Dictionary<(OriginalTextureSampling,Format,bool,bool,bool),PipelineSet> pipelines=[];
+    private D3D12ClusteredLightPass? clusteredLightPass;
     private D3D12FrameRenderer? captureRecorder;
     private bool disposed;
     public string AdapterName=>runtime.AdapterName;
@@ -149,6 +150,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         preflightCpu.Dispose();
         if(frame.Options is not null)
             return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasAnyPluginSpace2==true,color.SampleCount),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
+        ResetClusteredLightStatistics();
         var selected=GetPipelines(style.Profile.TextureSampling,depth.Format,textureMorph,subTexture,D3D12RasterWinding.FrontCounterClockwise(frame));var root=selected.Root;
         commands.SetGraphicsRootSignature(root);commands.SetDescriptorHeaps(srvHeap);commands.OMSetRenderTargets(color.Handle,depth.Handle);
         commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
@@ -178,6 +180,28 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
                 draws+=RecordCombinedOutline(device,commands,GetOutlinePipeline(depth.Format,frame),frame,width,height,vb,ib,UploadBuffer,resource=>Own(resource),context,
                     srvHeap,srvStride,slotBase,depth.Format,cache,surfaceStyles);
         return draws;
+    }
+    internal int RecordOutlineOnly(D3D12RecordingContext context,D3D12GpuTarget color,D3D12GpuTarget depth,OriginalFrameScene frame,
+        ID3D12Resource vb,ID3D12Resource ib,ID3D12DescriptorHeap srvHeap,int srvStride,int slotBase,D3D12GpuCache cache,D3D12SurfaceStyleMap? surfaceStyles=null)
+    {
+        ObjectDisposedException.ThrowIf(disposed,this);
+        if(frame.Outline is null||frame.OutlineOptions is not {Eligible:true,ModelWidth:>0})return 0;
+        var scene=frame.Surface.Snapshot;
+        int whiteSlot=slotBase+scene.Textures.Count+2;
+        int realSlot=whiteSlot+1;
+        var whiteShadow=D3D12ShadowTargets.White(context,cache);
+        device.CreateShaderResourceView(whiteShadow,null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(whiteSlot,srvStride));
+        device.CreateShaderResourceView(whiteShadow,null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot,srvStride));
+        var commands=context.Commands;
+        commands.OMSetRenderTargets(color.Handle,depth.Handle);
+        commands.OMSetStencilRef(1);
+        commands.RSSetViewport(0,0,color.Width,color.Height,0,1);
+        commands.RSSetScissorRect(new RawRect(0,0,color.Width,color.Height));
+        commands.SetDescriptorHeaps(srvHeap);
+        BeginVisibility(frame);
+        ID3D12Resource UploadBuffer(D3D12ExpandedPositions positions)=>cache.ExpandedPositionBuffer("original-edge",positions);
+        return RecordCombinedOutline(device,commands,GetOutlinePipeline(depth.Format,frame),frame,color.Width,color.Height,vb,ib,
+            UploadBuffer,resource=>context.Own(resource),context,srvHeap,srvStride,slotBase,depth.Format,cache,surfaceStyles);
     }
     public void Dispose()
     {

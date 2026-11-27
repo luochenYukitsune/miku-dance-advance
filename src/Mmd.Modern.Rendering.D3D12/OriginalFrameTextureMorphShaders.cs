@@ -60,10 +60,14 @@ internal static class OriginalTextureMorphShader
 
 internal static partial class OriginalFrameShaders
 {
-    internal static byte[] CompileTextureMorph(string entry,bool native,bool gi=false)
-        =>D3D12FxcShaderCache.Compile(OriginalTextureMorphShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:"")),entry,
-            native?"OriginalFrameNativeTextureMorph.hlsl":"OriginalFrameTextureMorph.hlsl","ps_5_1",
+    internal static byte[] CompileTextureMorph(string entry,bool native,bool gi=false,bool clustered=false)
+    {
+        string source=OriginalTextureMorphShader.Apply(Source+(native||gi?GiSource:"")+(native?NativeSource:""));
+        if(clustered&&native) source=OriginalClusteredLightShader.Apply(source);
+        return D3D12FxcShaderCache.Compile(source,entry,
+            native?(clustered?"OriginalFrameNativeTextureMorphClustered.hlsl":"OriginalFrameNativeTextureMorph.hlsl"):"OriginalFrameTextureMorph.hlsl","ps_5_1",
             ShaderFlags.EnableStrictness|ShaderFlags.IeeeStrictness);
+    }
 }
 
 internal static partial class OriginalStyleShaders
@@ -85,18 +89,18 @@ public sealed partial class D3D12OriginalStyleRenderer
             value.Sphere.Multiply,value.Sphere.Add,value.Toon.Multiply,value.Toon.Add){}
     }
     private (byte[] Vertex,byte[] Pixel)? textureMorphSurfaceShaders;
-    private readonly Dictionary<(string Entry,bool Native,bool Gi),byte[]> textureMorphFrameShaders=[];
+    private readonly Dictionary<(string Entry,bool Native,bool Gi,bool Clustered),byte[]> textureMorphFrameShaders=[];
     private (byte[] Vertex,byte[] Pixel) GetTextureMorphSurfaceShaders()
     {
         if(textureMorphSurfaceShaders is {} found)return found;
         var compiled=OriginalStyleShaders.CompileTextureMorph();runtime.ShaderCompilations+=2;
         textureMorphSurfaceShaders=compiled;return compiled;
     }
-    private byte[] GetTextureMorphFrameShader(string entry,bool native,bool gi=false)
+    private byte[] GetTextureMorphFrameShader(string entry,bool native,bool gi=false,bool clustered=false)
     {
-        if(textureMorphFrameShaders.TryGetValue((entry,native,gi),out var found))return found;
-        var compiled=OriginalFrameShaders.CompileTextureMorph(entry,native,gi);runtime.ShaderCompilations++;
-        textureMorphFrameShaders.Add((entry,native,gi),compiled);return compiled;
+        if(textureMorphFrameShaders.TryGetValue((entry,native,gi,clustered),out var found))return found;
+        var compiled=OriginalFrameShaders.CompileTextureMorph(entry,native,gi,clustered);runtime.ShaderCompilations++;
+        textureMorphFrameShaders.Add((entry,native,gi,clustered),compiled);return compiled;
     }
     internal static Vector3 ResolveTextureMorphToon(OriginalStyleMaterialBinding binding)
     {
