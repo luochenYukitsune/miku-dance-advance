@@ -70,26 +70,7 @@ public partial class EditorWindow
             ?? (_persistPreferences ? EditorPreferences.LoadOutputSettings(out _)?.Preset.Export.Quality : null)
             ?? EditorRenderEngineOptions.DefaultExportQuality(shell.Workspace.RenderEngine);
         void CopyToExportQuality(ViewQualityOptions previewQuality)
-        {
-            var exportQuality = StripPreviewOnlyForExport(previewQuality);
-            exportQuality.Validate();
-            var baseDraft = shell.OutputSettings ?? (_persistPreferences ? EditorPreferences.LoadOutputSettings(out _) : null);
-            if (baseDraft is null)
-            {
-                if (!shell.CreateOutputSettingsViewModel().TryCreate(out baseDraft) || baseDraft is null)
-                    throw new InvalidOperationException(Text("Mda.Text.Preview.ExportCopyUnavailable"));
-            }
-            var nextExport = baseDraft.Preset.Export with { Quality = exportQuality };
-            var nextPreset = new ViewOutputPresetDefinition(baseDraft.Preset.StableId, baseDraft.Preset.Name,
-                baseDraft.Preset.Preview, nextExport, baseDraft.Preset.Encoding, baseDraft.Preset.SchemaVersion);
-            var nextRequest = baseDraft.Request with { Quality = exportQuality };
-            nextRequest.Validate();
-            var updatedDraft = baseDraft with { Preset = nextPreset, Request = nextRequest };
-            updatedDraft.Validate();
-            shell.ApplyOutputSettings(updatedDraft);
-            if (_persistPreferences && !isClassic)
-                EditorPreferences.SaveOutputSettings(updatedDraft);
-        }
+            => CopyPreviewQualityToExport(shell, previewQuality, _persistPreferences, isClassic);
         var viewModel = new EditorPreviewSettingsViewModel(
             viewport.Quality,
             cached,
@@ -112,6 +93,35 @@ public partial class EditorWindow
             ApplyPreviewQuality(viewport, quality);
         }
         catch (Exception error) { await ShowErrorAsync(error, owner); }
+    }
+
+    internal static void CopyPreviewQualityToExport(
+        EditorShellViewModel shell,
+        ViewQualityOptions previewQuality,
+        bool persistPreferences,
+        bool isClassic,
+        string? outputSettingsPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(shell);
+        ArgumentNullException.ThrowIfNull(previewQuality);
+        var exportQuality = StripPreviewOnlyForExport(previewQuality);
+        exportQuality.Validate();
+        var baseDraft = shell.OutputSettings ?? (persistPreferences ? EditorPreferences.LoadOutputSettings(out _, outputSettingsPath) : null);
+        if (baseDraft is null)
+        {
+            if (!shell.CreateOutputSettingsViewModel().TryCreate(out baseDraft) || baseDraft is null)
+                throw new InvalidOperationException(EditorLocalization.Text("Mda.Text.Preview.ExportCopyUnavailable"));
+        }
+        var nextExport = baseDraft.Preset.Export with { Quality = exportQuality };
+        var nextPreset = new ViewOutputPresetDefinition(baseDraft.Preset.StableId, baseDraft.Preset.Name,
+            baseDraft.Preset.Preview, nextExport, baseDraft.Preset.Encoding, baseDraft.Preset.SchemaVersion);
+        var nextRequest = baseDraft.Request with { Quality = exportQuality };
+        nextRequest.Validate();
+        var updatedDraft = baseDraft with { Preset = nextPreset, Request = nextRequest };
+        updatedDraft.Validate();
+        if (persistPreferences && !isClassic)
+            EditorPreferences.SaveOutputSettings(updatedDraft, outputSettingsPath);
+        shell.ApplyOutputSettings(updatedDraft);
     }
 
     private static ViewQualityOptions StripPreviewOnlyForExport(ViewQualityOptions quality)

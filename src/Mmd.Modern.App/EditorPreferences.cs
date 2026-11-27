@@ -434,8 +434,8 @@ public sealed record EditorPreferences
         }
     }
 
-    private static bool IsStorageFailure(Exception error) => error is IOException or UnauthorizedAccessException
-        or ArgumentException or NotSupportedException or JsonException or OverflowException;
+    private static bool IsStorageFailure(Exception error) => error is IOException or InvalidDataException
+        or UnauthorizedAccessException or ArgumentException or NotSupportedException or JsonException or OverflowException;
 
     private sealed record LocalColor(float R, float G, float B, float A);
     private sealed record LocalOutputSnapshot(int SchemaVersion, string PresetJson, string RequestPresetJson,

@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T03:19:03.4477118Z",
+    "generatedAtUtc":  "2026-11-27T07:48:05.9344122Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -2933,8 +2933,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  25225,
-                      "sha256":  "8926a2614a512bd42389efacf48bc5b45899e57985957eb407db1e231e1cc50e",
+                      "bytes":  25249,
+                      "sha256":  "aed4cea8f653a96ab087e34f88e30b0b1ef1c59645d28cbd43d160a79f81ed41",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -2985,8 +2985,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  79366,
-                      "sha256":  "c371e09ef11f28b1ac439d7f4b880fb33a9eb8469487af81dbc725b95c4efe23",
+                      "bytes":  79811,
+                      "sha256":  "9973678d9d519bd83ba212c4cdecb1081a2a1eb9bca11ea9131f195239890855",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -3700,8 +3700,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  13677,
-                      "sha256":  "318150f615e9c62b5778997f10e69a2142e6076c023e9d621e7c5b974762f274",
+                      "bytes":  14094,
+                      "sha256":  "34d9fc5434002b9a5402a3de84b792459df3284796f51d118bbfbd67967d077c",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -21155,8 +21155,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  33375,
-                      "sha256":  "d35102d990d2747c201137485cc6b1ea735866a65b8ded070562752faf0a4715",
+                      "bytes":  38568,
+                      "sha256":  "18851ed8134b9263f3ad97a7b5d246167c123154d2f3a36bdce82b61de0d02cc",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {

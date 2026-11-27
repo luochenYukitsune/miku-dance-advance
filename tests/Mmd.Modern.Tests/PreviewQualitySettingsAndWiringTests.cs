@@ -607,6 +607,113 @@ public sealed class EditorPreviewSettingsUiRedesignTests : IAsyncDisposable
         return true;
     }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
 
+    [Fact]
+    public async Task LoadCustomPreviewPresetsRecoversCleanlyOnNullEmptyOrDuplicateIdsAndGuardsWrites() => await session.Dispatch(() =>
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "mda-corrupt-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string seedPath = Path.Combine(tempRoot, "seed.json");
+            var first = EditorPreferences.SaveCustomPreviewPreset("One", ViewQualityPresets.Create(BuiltInPreviewPresetKind.Performance), "id-one", seedPath);
+            var second = EditorPreferences.SaveCustomPreviewPreset("Two", ViewQualityPresets.Create(BuiltInPreviewPresetKind.Balanced), "id-two", seedPath);
+            string duplicateIdJson = File.ReadAllText(seedPath).Replace("\"id-two\"", "\"id-one\"", StringComparison.Ordinal);
+
+            foreach (string payload in new[] { "null", "", duplicateIdJson })
+            {
+                string path = Path.Combine(tempRoot, Guid.NewGuid().ToString("N") + ".json");
+                File.WriteAllText(path, payload);
+
+                var loaded = EditorPreferences.LoadCustomPreviewPresets(out string? diagnostic, path);
+                Assert.Empty(loaded);
+                Assert.NotNull(diagnostic);
+
+                var vm = new EditorPreviewSettingsViewModel(
+                    EditorPreferences.DefaultPreviewQuality,
+                    customPresetsPath: path,
+                    persistCustomPresets: true);
+                Assert.Empty(vm.CustomPresets);
+
+                Assert.Throws<InvalidDataException>(() =>
+                    EditorPreferences.SaveCustomPreviewPreset("New", EditorPreferences.DefaultPreviewQuality, path: path));
+                Assert.Throws<InvalidDataException>(() =>
+                    EditorPreferences.RenameCustomPreviewPreset(first.Id, "Renamed", path));
+                Assert.Throws<InvalidDataException>(() =>
+                    EditorPreferences.DeleteCustomPreviewPreset(second.Id, path));
+                Assert.Equal(payload, File.ReadAllText(path));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task NeedsCapabilitiesForApplyRemainsTrueAcrossPresetAndExportLoadsWhileProbing() => await session.Dispatch(() =>
+    {
+        var exportHwGi = new ViewQualityOptions(Gi: new RayGiOptions(LightingMode.HardwareRayTracing));
+        var vm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capabilities: null,
+            capabilitiesPending: true,
+            persistCustomPresets: false,
+            getExportQuality: () => exportHwGi);
+
+        vm.ApplyBuiltInPreset(BuiltInPreviewPresetKind.UltraRayTraced);
+        Assert.True(vm.NeedsCapabilitiesForApply);
+
+        vm.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Performance);
+        Assert.False(vm.NeedsCapabilitiesForApply);
+
+        Assert.True(vm.LoadFromExport());
+        Assert.True(vm.NeedsCapabilitiesForApply);
+
+        vm.ApplyBuiltInPreset(BuiltInPreviewPresetKind.UltraRayTraced);
+        Assert.True(vm.NeedsCapabilitiesForApply);
+
+        var softwareOnly = new EditorPreviewCapabilities(
+            Gi: new D3D12RayGiCapabilities(false, true, 66, 0, false, false, true, true, false, null));
+        vm.ApplyCapabilities(softwareOnly);
+        Assert.False(vm.NeedsCapabilitiesForApply);
+        Assert.True(vm.TryCreate(out var resolved));
+        Assert.Equal(LightingMode.SoftwareRayTracing, resolved!.EffectiveGi.Mode);
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task CopyToExportCatchesUnauthorizedAccessAndKeepsShellOutputSettingsConsistent() => await session.Dispatch(() =>
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "mda-export-sync-" + Guid.NewGuid().ToString("N"));
+        string blockedOutputPath = Path.Combine(tempRoot, "blocked-output.json");
+        Directory.CreateDirectory(blockedOutputPath);
+        try
+        {
+            using var shell = new EditorShellViewModel();
+            Assert.True(shell.CreateOutputSettingsViewModel().TryCreate(out var initialDraft));
+            Assert.NotNull(initialDraft);
+            shell.ApplyOutputSettings(initialDraft!);
+
+            var vm = new EditorPreviewSettingsViewModel(
+                ViewQualityPresets.Create(BuiltInPreviewPresetKind.High),
+                persistCustomPresets: false,
+                copyToExportQuality: quality => EditorWindow.CopyPreviewQualityToExport(
+                    shell, quality, persistPreferences: true, isClassic: false, outputSettingsPath: blockedOutputPath));
+
+            Assert.False(vm.CopyToExport());
+            Assert.True(vm.HasValidationMessage);
+            Assert.Same(initialDraft, shell.OutputSettings);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
     public async ValueTask DisposeAsync() => await Task.Run(session.Dispose).ConfigureAwait(false);
 }
 

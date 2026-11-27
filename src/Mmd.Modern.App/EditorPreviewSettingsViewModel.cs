@@ -249,6 +249,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 {
     private static readonly int[] SampleValues = [1, 2, 4, 8, 16, 32];
     private static readonly int[] ShadowResolutions = [0, 512, 1024, 2048, 4096];
+    private readonly ViewQualityOptions appliedOptions;
     private ViewQualityOptions baseline;
     private readonly EditorPreviewRuntimeInfo? runtime;
     private readonly string? customPresetsPath;
@@ -288,8 +289,9 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         Action<ViewQualityOptions>? copyToExportQuality = null,
         bool persistCustomPresets = true)
     {
-        baseline = current ?? new();
-        baseline.Validate();
+        appliedOptions = current ?? new();
+        appliedOptions.Validate();
+        baseline = appliedOptions;
         this.capabilities = capabilities ?? new();
         this.runtime = runtime;
         IsClassicEngine = isClassicEngine;
@@ -300,7 +302,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         isProbingCapabilities = capabilitiesPending;
         giValues = [];
         temporalValues = [];
-        LoadFromOptions(baseline, resetCustomSelection: true);
+        LoadFromOptions(appliedOptions, resetCustomSelection: true);
         if (persistCustomPresets)
         {
             foreach (var preset in EditorPreferences.LoadCustomPreviewPresets(out _, customPresetsPath))
@@ -319,9 +321,9 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             var effectiveGi = options.EffectiveGi;
             loadedTemporalBaseline = options.EffectiveTemporalUpscaling;
             hasExplicitShadow = options.Shadow is not null;
-            giValues = BuildGiValues(capabilities, baseline.EffectiveGi.Mode, effectiveGi.Mode);
+            giValues = BuildGiValues(capabilities, appliedOptions.EffectiveGi.Mode, effectiveGi.Mode);
             giIndex = Array.IndexOf(giValues, effectiveGi.Mode);
-            temporalValues = BuildTemporalValues(capabilities, baseline.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode);
+            temporalValues = BuildTemporalValues(capabilities, appliedOptions.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode);
             temporalIndex = Array.IndexOf(temporalValues, loadedTemporalBaseline.Mode);
             temporalQualityIndex = InitialTemporalQualityIndexFrom(options);
             antialiasingIndex = options.Antialiasing switch { null => 0, FrameAntialiasing.Off => 1, _ => 2 };
@@ -428,9 +430,9 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string CapabilityProbingNotice => Text("Mda.Text.Ux.Preview.ProbingCapabilities");
     public string RefreshCapabilitiesLabel => Text("Mda.Text.Ux.Preview.RefreshCapabilities");
     public bool NeedsCapabilitiesForApply => isProbingCapabilities && (
-        (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != baseline.EffectiveGi.Mode)
-        || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != baseline.EffectiveTemporalUpscaling.Mode)
-        || (IsFsr1 && baseline.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
+        (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != appliedOptions.EffectiveGi.Mode)
+        || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != appliedOptions.EffectiveTemporalUpscaling.Mode)
+        || (IsFsr1 && appliedOptions.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
 
     // 6-category left navigation
     public IReadOnlyList<string> Categories =>
@@ -690,7 +692,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> GiCompositions => [Text("原色叠加"), Text("卡通色阶")];
     public IReadOnlyList<string> GiDenoisers => [Text("Mda.Text.Context.OptionOff"), Text("空间降噪"), Text("时空降噪")];
     public IReadOnlyList<string> GiToonResponses => [Text("Mda.Text.Preview.GiToonResponseContinuous"), Text("Mda.Text.Preview.GiToonResponsePreserve")];
-    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || isProbingCapabilities || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
+    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || isProbingCapabilities || appliedOptions.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
         ? [Text("Mda.Text.Context.OptionOff"), WithAvailability("FSR 1", isProbingCapabilities || capabilities.SpatialUpscalingAvailable)]
         : [Text("Mda.Text.Context.OptionOff")];
     public IReadOnlyList<string> Fsr1Qualities => [Text("超画质"), Text("画质"), Text("均衡"), Text("性能")];
@@ -839,10 +841,10 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     }
     private bool ActualGiAvailable(LightingMode mode) => mode switch
     { LightingMode.Legacy => true, LightingMode.SoftwareRayTracing => capabilities.Gi?.SoftwareAvailable == true, _ => capabilities.Gi?.HardwareAvailable == true };
-    private bool GiAvailable(LightingMode mode) => ActualGiAvailable(mode) || (isProbingCapabilities && mode == baseline.EffectiveGi.Mode) || (isProbingCapabilities && pendingUltraGiFallback && mode == LightingMode.HardwareRayTracing);
+    private bool GiAvailable(LightingMode mode) => ActualGiAvailable(mode) || (isProbingCapabilities && (mode == appliedOptions.EffectiveGi.Mode || mode == baseline.EffectiveGi.Mode)) || (isProbingCapabilities && pendingUltraGiFallback && mode == LightingMode.HardwareRayTracing);
     private bool ActualTemporalAvailable(ViewTemporalUpscalingMode mode) => mode switch
     { ViewTemporalUpscalingMode.Off => true, ViewTemporalUpscalingMode.Fsr => capabilities.FsrAvailable, ViewTemporalUpscalingMode.XeSs => capabilities.XeSsAvailable, _ => capabilities.DlssAvailable };
-    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => ActualTemporalAvailable(mode) || (isProbingCapabilities && (mode == baseline.EffectiveTemporalUpscaling.Mode || mode == loadedTemporalBaseline.Mode));
+    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => ActualTemporalAvailable(mode) || (isProbingCapabilities && (mode == appliedOptions.EffectiveTemporalUpscaling.Mode || mode == baseline.EffectiveTemporalUpscaling.Mode || mode == loadedTemporalBaseline.Mode));
     private bool ActualTemporalQualityAvailable(int value) => CurrentTemporalMode switch
     {
         ViewTemporalUpscalingMode.XeSs => (capabilities.XeSsQueries ?? []).Any(query => query.Initialized && query.Failure is null
@@ -1054,7 +1056,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
             SetStatus("Mda.Text.Preview.CopiedToExport");
             return true;
         }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or IOException)
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
             validationError = error;
             Changed(nameof(ValidationMessage));
@@ -1113,9 +1115,9 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 
         capabilities = updatedCapabilities;
         isProbingCapabilities = false;
-        giValues = BuildGiValues(updatedCapabilities, baseline.EffectiveGi.Mode, selectedGi);
+        giValues = BuildGiValues(updatedCapabilities, appliedOptions.EffectiveGi.Mode, selectedGi);
         giIndex = Array.IndexOf(giValues, selectedGi);
-        temporalValues = BuildTemporalValues(updatedCapabilities, baseline.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode, selectedTemporal);
+        temporalValues = BuildTemporalValues(updatedCapabilities, appliedOptions.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode, selectedTemporal);
         temporalIndex = Array.IndexOf(temporalValues, selectedTemporal);
 
         int[] updatedQualities = CurrentTemporalQualityValues;
@@ -1123,7 +1125,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         temporalQualityIndex = qualityMatch >= 0
             ? qualityMatch
             : Math.Max(0, Array.IndexOf(updatedQualities, BaselineTemporalQuality));
-        upscalingIndex = selectedFsr1 && (updatedCapabilities.SpatialUpscalingAvailable || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1)
+        upscalingIndex = selectedFsr1 && (updatedCapabilities.SpatialUpscalingAvailable || appliedOptions.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1)
             ? 1 : 0;
 
         NotifyCapabilitiesUpdated();
