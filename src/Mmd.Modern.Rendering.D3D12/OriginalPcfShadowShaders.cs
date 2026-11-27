@@ -39,7 +39,7 @@ internal static partial class OriginalPcfShadowShader
             [unroll] for(int t=0;t<12;t++) {
                 float2 r=float2(kPcf[t].x*cRot-kPcf[t].y*s, kPcf[t].x*s+kPcf[t].y*cRot);
                 float2 suv=saturate(uv+r*radius);
-                float expectedDepth=receiverDepth+clamp(dot(receiverGrad,suv-uv),-0.02,0.02);
+                float expectedDepth=saturate(receiverDepth+clamp(dot(receiverGrad,suv-uv),-0.02,0.02));
                 float sd=ShadowMap.SampleLevel(ShadowSampler,suv,0);
                 float d=max(expectedDepth-sd,0);
                 float w=d*(ShadowOptions.y>0?8000:1500);

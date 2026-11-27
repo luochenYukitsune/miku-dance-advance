@@ -81,6 +81,8 @@ public sealed class D3D12FrameRenderer : IDisposable
     public D3D12RayGiStatistics? RayGiStatistics => rayGiRenderer?.LastStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics => originalRecorder.LastNativeLightStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder => originalRecorder;
+    internal bool LastNativeTaaReset => nativeTaaPass?.LastReset ?? false;
+    internal int NativeTaaPhase => nativeTaaHistory.Phase;
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics => cache.ExistingGpuSkinning?.Statistics;
     public string? RayGiBackendIdentity => rayGiRenderer?.LastBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities()
@@ -741,7 +743,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             if(sharpening is { IsActive: true })
             {
-                output=(rcasPass??=new(runtime,cache)).Record(context,output,sharpening);
+                output=(rcasPass??=new(runtime,cache)).Record(context,output,sharpening,alphaCoverage:straightAlpha);
                 sharpeningPassDrawCalls=1;LastPassDrawCalls++;
                 Recorded("sharpening:rcas",output,defaultDepth);
                 targetRecorder.Add(output);

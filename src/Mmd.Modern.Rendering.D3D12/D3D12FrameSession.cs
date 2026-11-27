@@ -40,6 +40,8 @@ public sealed class D3D12FrameSession:IDisposable
     public D3D12GpuSkinningStatistics? GpuSkinningStatistics=>renderer.GpuSkinningStatistics;
     public D3D12NativeLightStatistics? NativeLightStatistics=>renderer.NativeLightStatistics;
     internal D3D12OriginalStyleRenderer OriginalRecorder=>renderer.OriginalRecorder;
+    internal bool LastNativeTaaReset=>renderer.LastNativeTaaReset;
+    internal int NativeTaaPhase=>renderer.NativeTaaPhase;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>renderer.TemporalUpscalingStatistics;
     public int EditorOverlayDrawCalls=>renderer.EditorOverlayDrawCalls;
     public string? RayGiBackendIdentity=>renderer.RayGiBackendIdentity;

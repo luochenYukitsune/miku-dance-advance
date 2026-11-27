@@ -15,7 +15,7 @@ internal sealed class D3D12RcasPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
 {
     private (byte[] Vertex, byte[] Pixel)? shaders;
 
-    internal D3D12GpuTarget Record(D3D12RecordingContext context, D3D12GpuTarget input, D3D12SharpeningOptions options)
+    internal D3D12GpuTarget Record(D3D12RecordingContext context, D3D12GpuTarget input, D3D12SharpeningOptions options, bool alphaCoverage = false)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -65,7 +65,7 @@ internal sealed class D3D12RcasPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             return pso;
         });
 
-        Vector4[] constants = [new(width, height, options.Sharpness, 0)];
+        Vector4[] constants = [new(width, height, options.Sharpness, alphaCoverage ? 1f : 0f)];
         ulong cbAddress = context.UploadConstants(MemoryMarshal.AsBytes(constants.AsSpan()));
 
         commands.UnsetRenderTargets();
@@ -126,9 +126,13 @@ internal sealed class D3D12RcasPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
     private const string Entries = """
         cbuffer RcasConstants : register(b0) { float4 Params; };
         Texture2D<float4> InputTexture : register(t0);
+        static float4 gRcasCenter;
         AF4 FsrRcasLoadF(ASU2 p) {
             int2 maxCoord = max(int2(Params.xy) - 1, int2(0, 0));
-            return InputTexture.Load(int3(clamp(p, int2(0, 0), maxCoord), 0));
+            float4 s = InputTexture.Load(int3(clamp(p, int2(0, 0), maxCoord), 0));
+            if (Params.w > 0.5)
+                s.rgb = lerp(gRcasCenter.rgb, s.rgb, s.a);
+            return s;
         }
         void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
         float4 VSMain(uint id : SV_VertexID) : SV_Position {
@@ -136,14 +140,16 @@ internal sealed class D3D12RcasPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
         }
         float4 PSRcasStandalone(float4 position : SV_Position) : SV_Target {
+            int2 maxCoord = max(int2(Params.xy) - 1, int2(0, 0));
             uint2 coord = uint2(position.xy);
+            gRcasCenter = InputTexture.Load(int3(clamp(int2(coord), int2(0, 0), maxCoord), 0));
+            if (Params.w > 0.5 && gRcasCenter.a <= 0.0)
+                return float4(0, 0, 0, 0);
             uint4 con;
             FsrRcasCon(con, Params.z);
             float3 color;
             FsrRcasF(color.r, color.g, color.b, coord, con);
-            int2 maxCoord = max(int2(Params.xy) - 1, int2(0, 0));
-            float alpha = InputTexture.Load(int3(clamp(int2(coord), int2(0, 0), maxCoord), 0)).a;
-            return float4(saturate(color), alpha);
+            return float4(saturate(color), gRcasCenter.a);
         }
         """;
 }

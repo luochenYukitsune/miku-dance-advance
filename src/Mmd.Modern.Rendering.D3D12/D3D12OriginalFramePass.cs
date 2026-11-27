@@ -314,7 +314,11 @@ public sealed partial class D3D12OriginalStyleRenderer
                     StylizedGradeParams = stylizedShading?.Grade ?? default,
                     ExtraSurfaceParams = drawData?.ExtraSurfaceParams ?? default,
                     IncomingLight = new(common.IncomingLight.X, common.IncomingLight.Y, common.IncomingLight.Z, response?.TransitionWidth ?? 0),
-                    ShadowOptions = new(common.ShadowOptions.X, common.ShadowOptions.Y, common.ShadowOptions.Z, response?.Threshold ?? 0),
+                    ShadowOptions = new(
+                        flags.ReceiveSelfShadow && options.SelfShadow is { Generate: true } ? common.ShadowOptions.X : 0f,
+                        common.ShadowOptions.Y,
+                        common.ShadowOptions.Z,
+                        response?.Threshold ?? 0),
                     Options = new(material.AlphaCutoff, SurfaceMode(binding), material.DiffuseTexture >= 0 ? 1 : 0, options.Transp ? 1 : 0),
                 });
 

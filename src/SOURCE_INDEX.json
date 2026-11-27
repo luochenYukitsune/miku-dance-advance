@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-27T02:26:57.6603926Z",
+    "generatedAtUtc":  "2026-11-27T03:25:01.0563686Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -8211,8 +8211,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  89790,
-                      "sha256":  "3614b45bf9474cbec46a7261c89d01855d7206738214f7ffe46c91cb90fb5f56",
+                      "bytes":  89954,
+                      "sha256":  "f4b925b4be660f36f81255ba89ca3f50a99bb05e795f5ab5ae82a3b3b489678d",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8224,8 +8224,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  8058,
-                      "sha256":  "007cb12e1ddb1dd184173c9beb8bca740670f8c351e420eda26ebd2d0517b0b8",
+                      "bytes":  8185,
+                      "sha256":  "8992ceb5f6aa2e68a630004da5b3e57543c91e74db8d1e854d243508774d0d3e",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8458,8 +8458,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  41218,
-                      "sha256":  "f3aeb8244411a37b9987a9e5550b3ba1b72d951be1c2a6c6b5c565e3431698b6",
+                      "bytes":  41390,
+                      "sha256":  "9b75cbc4f95dac150f34d9b343e0292780764a4160d60f4822bde614916a0ddd",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -8692,8 +8692,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  7316,
-                      "sha256":  "5f1e1e041fce071083d25246f82d0001b092e36a5e199361dad41ab33424281e",
+                      "bytes":  7623,
+                      "sha256":  "6e44411e21f0074d3202f0f4a6ab1b34c58269b370dec488ae9c6ac4c65fda0a",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8874,8 +8874,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  62446,
-                      "sha256":  "3566794758eb123d99aeaa431cca72214d96a94a3e34b522e64956f0b7faec6c",
+                      "bytes":  62456,
+                      "sha256":  "e3db9210b76d419029f7e9fc8aabf69c10c497623f329eb60f8ea9b37eeb5c47",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -8887,8 +8887,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  16212,
-                      "sha256":  "8f5769bb9185ba7cda6dd78ef240bb7b7469b0fadd2fa38f330f21cff2ea573c",
+                      "bytes":  16627,
+                      "sha256":  "bba25bd6f20c9c5813210b87d69aeb9de495d43c69c77a340309a26de64bb395",
                       "verificationStatus":  "source-hash-recorded; see-current-stage-for-tested-scope"
                   },
                   {
@@ -9238,8 +9238,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  5866,
-                      "sha256":  "2ddaae40f067d5c3f6090c7446c85ef9f0e2d950b258ffd8de0d3eb223010589",
+                      "bytes":  5876,
+                      "sha256":  "caa9889a85408f2fbcd11e971efdb428747bad603c76d431ec5bc35ac4308ab2",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -10006,8 +10006,8 @@
                                                     "视图模块"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  15071,
-                      "sha256":  "2451aa444712c6279ac6f188d22231b9f4eeff8d614d287f1c9260e29116b5ac",
+                      "bytes":  15233,
+                      "sha256":  "98c5677368f53f7d14855e45f4206cc8bf6ed0b3a9f870ad692a2f91cf5448fd",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -16695,8 +16695,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  22892,
-                      "sha256":  "e51e783be739e5d36a540c998028c5104e5efa3046f0795d2a099b27f3b5b654",
+                      "bytes":  34826,
+                      "sha256":  "8d2f938f0d7a39999bc1561bb5d7345ea24e2c16b9f12aa63fcbabf64c76d021",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {

@@ -62,6 +62,8 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     public int EditorOverlayDrawCalls=>session.EditorOverlayDrawCalls;
     public D3D12NativeLightStatistics? NativeLightStatistics=>session.NativeLightStatistics;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>session.TemporalUpscalingStatistics;
+    internal bool LastNativeTaaReset => session.LastNativeTaaReset;
+    internal int NativeTaaPhase => session.NativeTaaPhase;
     public string? RayGiBackendIdentity => session.RayGiBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities() => session.QueryRayGiCapabilities();
     public D3D12PresentationStatistics Statistics => new(presents, captures, resizeCount, idleWaitCount, width, height, backbuffers.Length,
@@ -114,8 +116,13 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     /// Wait for both gates before accessing the swapchain or executing this list.</summary>
     internal bool PresentRecordedAhead(OriginalFrameScene frame, int width, int height, RayGiOptions rayGiOptions,
         D3D12SpatialUpscalingOptions upscaling, D3D12SurfaceStyleMap? surfaceStyles, D3D12DiffusionOptions diffusion,
-        CancellationToken cancellationToken, D3D12SharpeningOptions? sharpening = null)
-        => PresentCore(frame, width, height, rayGiOptions, upscaling, null, surfaceStyles, diffusion, sharpening, cancellationToken);
+        CancellationToken cancellationToken, D3D12SharpeningOptions? sharpening = null,
+        D3D12TemporalUpscalingOptions? temporalUpscaling = null)
+    {
+        if (temporalUpscaling is { Mode: not D3D12TemporalUpscalingMode.Off })
+            throw new NotSupportedException("Recording ahead does not support vendor temporal upscaling.");
+        return PresentCore(frame, width, height, rayGiOptions, upscaling, temporalUpscaling, surfaceStyles, diffusion, sharpening, cancellationToken);
+    }
 
     private bool PresentCore(OriginalFrameScene frame, int width, int height, RayGiOptions? rayGiOptions,
         D3D12SpatialUpscalingOptions? upscaling, D3D12TemporalUpscalingOptions? temporalUpscaling,
