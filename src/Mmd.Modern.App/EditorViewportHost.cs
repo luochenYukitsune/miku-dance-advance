@@ -243,6 +243,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
     }
     public bool HasChildWindow => childWindow != nint.Zero;
     public string? AdapterName { get; private set; }
+    public long AdapterLuid { get; private set; }
     public bool IsWarp { get; private set; }
     public EditorViewportPresentationStatistics? Statistics { get; private set; }
     public event Action<Exception>? Error;
@@ -559,7 +560,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         // cannot resume preview capture while the old renderer is still being released.
         var releaseError = await release;
         ObjectDisposedException.ThrowIf(disposed, this);
-        AdapterName = null; Statistics = null;
+        AdapterName = null; AdapterLuid = 0; Statistics = null;
         if (releaseError is not null) ExceptionDispatchInfo.Capture(releaseError).Throw();
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -868,6 +869,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     rendererRevision = work.Revision; rendererWidth = work.Width; rendererHeight = work.Height;
                     var requests = Array.AsReadOnly(renderer.SceneInputRequests.ToArray());
                     string adapter = renderer.AdapterName;
+                    long adapterLuid = renderer.AdapterLuid;
                     bool warp = renderer.IsWarp, paced = renderer.PacesPresentation;
                     lock (workerGate)
                     {
@@ -876,7 +878,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (!IsCurrent(work.Revision)) return;
-                        AdapterName = adapter; IsWarp = warp;
+                        AdapterName = adapter; AdapterLuid = adapterLuid; IsWarp = warp;
                     }, DispatcherPriority.Background);
                     return;
                 }
@@ -1095,7 +1097,7 @@ public sealed partial class EditorViewportHost : NativeControlHost, IDisposable
         running.GetAwaiter().GetResult(); // Worker never awaits a UI callback.
         ReleaseRendererAsync().AsTask().GetAwaiter().GetResult();
         lock (workerGate) sceneInputRequests = [];
-        AdapterName = null; Statistics = null;
+        AdapterName = null; AdapterLuid = 0; Statistics = null;
         SetPreparingFrame(false);
     }
 
