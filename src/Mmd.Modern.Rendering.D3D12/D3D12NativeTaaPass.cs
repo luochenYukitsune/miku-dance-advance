@@ -21,6 +21,7 @@ internal sealed class D3D12NativeTaaPass(D3D12GpuRuntime runtime, D3D12GpuCache 
     private readonly ResourceStates[] historyStates = new ResourceStates[HistoryRingCount];
     private int historyWidth, historyHeight;
     private int committedIndex, pendingIndex;
+    private ulong lastSubmittedFence;
     private bool hasCommittedHistory, hasPendingCommit, pendingWasReset;
     private ID3D12Resource? zeroReactiveFallback;
     private (byte[] Vertex, byte[] Pixel)? shaders;
@@ -50,7 +51,7 @@ internal sealed class D3D12NativeTaaPass(D3D12GpuRuntime runtime, D3D12GpuCache 
         bool sizeChanged = historyRing[0] is null || historyWidth != width || historyHeight != height;
         if (sizeChanged)
         {
-            RetireHistoryRing(context);
+            RetireHistoryRing();
             for (int i = 0; i < HistoryRingCount; i++)
             {
                 historyRing[i] = device.CreateCommittedResource(
@@ -128,6 +129,14 @@ internal sealed class D3D12NativeTaaPass(D3D12GpuRuntime runtime, D3D12GpuCache 
             return pso;
         });
 
+        var readStateBefore = historyStates[readIdx];
+        var writeStateBefore = historyStates[writeIdx];
+        runtime.OnAbort(() =>
+        {
+            historyStates[readIdx] = readStateBefore;
+            historyStates[writeIdx] = writeStateBefore;
+        });
+
         commands.UnsetRenderTargets();
         context.Transition(currentColor, ResourceStates.PixelShaderResource);
         TransitionHistory(commands, readIdx, ResourceStates.PixelShaderResource);
@@ -161,10 +170,11 @@ internal sealed class D3D12NativeTaaPass(D3D12GpuRuntime runtime, D3D12GpuCache 
         return new(output, effectiveReset);
     }
 
-    internal void CommitHistory()
+    internal void CommitHistory(ulong submittedFence)
     {
         if (!hasPendingCommit) return;
         committedIndex = pendingIndex;
+        lastSubmittedFence = Math.Max(lastSubmittedFence, submittedFence);
         hasCommittedHistory = true;
         hasPendingCommit = false;
     }
@@ -188,13 +198,14 @@ internal sealed class D3D12NativeTaaPass(D3D12GpuRuntime runtime, D3D12GpuCache 
         historyStates[index] = targetState;
     }
 
-    private void RetireHistoryRing(D3D12RecordingContext context)
+    private void RetireHistoryRing()
     {
+        ulong fence = lastSubmittedFence;
         for (int i = 0; i < HistoryRingCount; i++)
         {
             if (historyRing[i] is { } existing)
             {
-                context.Own(existing);
+                runtime.RetireAfterFence(existing, fence);
                 historyRing[i] = null;
                 historyStates[i] = ResourceStates.Common;
             }

@@ -569,10 +569,12 @@ public sealed class D3D12FrameRenderer : IDisposable
             }
             var background=frame.Options?.BackgroundColor??new Vector4(20f/255,24f/255,32f/255,1);
             if(straightAlpha)background=new(background.X*background.W,background.Y*background.W,background.Z*background.W,background.W);
-            D3D12GpuTarget RunSsao(D3D12GpuTarget sceneColor, D3D12GpuTarget sceneDepth1x, OriginalFrameScene activeFrame)
+            D3D12ScreenSpaceAoPass.Result? ssaoReusable = null;
+            D3D12GpuTarget RunSsao(D3D12GpuTarget sceneColor, D3D12GpuTarget sceneDepth1x, OriginalFrameScene activeFrame, bool reuseAcrossSamples = false)
             {
                 var activeCamera = activeFrame.Options?.CameraOverride ?? activeFrame.Surface.Snapshot.Camera;
-                var ssaoResult = (ssaoPass ??= new(runtime, cache)).Record(context, sceneColor, sceneDepth1x, activeCamera, ssaoOptions!);
+                var ssaoResult = (ssaoPass ??= new(runtime, cache)).Record(context, sceneColor, sceneDepth1x, activeCamera, ssaoOptions!, reuseAcrossSamples ? ssaoReusable : null);
+                if (reuseAcrossSamples && ssaoReusable is null) ssaoReusable = ssaoResult;
                 Recorded("ssao:raw", ssaoResult.RawAo, sceneDepth1x);
                 Recorded("ssao:composite", ssaoResult.Output, sceneDepth1x);
                 targetRecorder.Add(ssaoResult.RawAo);
@@ -637,7 +639,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                             sourceFrame.Materials,sourceFrame.Lighting,sourceFrame.EditorOverlay);
                         commands.SetDescriptorHeaps(srvHeap);
                         Scene(sample);
-                        var sampleColor=ssaoActive?RunSsao(output,defaultDepth,frame):output;
+                        var sampleColor=ssaoActive?RunSsao(output,defaultDepth,frame,reuseAcrossSamples:true):output;
                         accumulation.Accumulate(context,sampleColor,sample);
                         Recorded("ssaa:accumulate",sampleColor,defaultDepth);
                     }
@@ -797,7 +799,7 @@ public sealed class D3D12FrameRenderer : IDisposable
             if(nativeTaa)
             {
                 nativeTaaHistory.Commit(frame,temporalUpscaling,taaPhase,taaPhaseCount,historyRayGiOptions);
-                nativeTaaPass?.CommitHistory();
+                nativeTaaPass?.CommitHistory(completion);
             }
             if(temporal)
             {
@@ -876,6 +878,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode, RayGiOptions? rayGiOptions = null)
     {
         var antialiasing = frame.Options?.Antialiasing ?? FrameAntialiasing.Off;
+        if (frame.Options?.ScreenSpaceAo is { Enabled: true } && !(frame.Options?.WriteDepth ?? true))
+            throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
         if (frame.Options?.ScreenSpaceAo is { Enabled: true } && rayGiOptions is { Enabled: true, OcclusionStrength: > 0f })
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)

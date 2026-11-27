@@ -166,7 +166,8 @@ public static class D3D12ShaderPrewarmer
         D3D12SpatialUpscalingOptions? spatialUpscaling = null,
         D3D12TemporalUpscalingOptions? temporalUpscaling = null,
         D3D12DiffusionOptions? diffusion = null,
-        bool includeLightGizmos = false)
+        bool includeLightGizmos = false,
+        D3D12SharpeningOptions? sharpening = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var o = frame.Options;
@@ -237,10 +238,11 @@ public static class D3D12ShaderPrewarmer
             IncludeFxaa = o?.Antialiasing == FrameAntialiasing.Fxaa,
             IncludeFxaaAlphaCoverage = straightAlpha,
             IncludeNativeTaa = o?.Antialiasing == FrameAntialiasing.Taa,
+            IncludeStandaloneRcas = sharpening is { IsActive: true },
             IncludeScreenSpaceAo = o?.ScreenSpaceAo is { IsActive: true },
             IncludeFsr1 = spatialUpscaling is { Mode: not D3D12SpatialUpscalingMode.Off },
             IncludeTemporalInputs = temporal || o?.Antialiasing == FrameAntialiasing.Taa || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
-            IncludeTemporalCharacter = ((temporal || o?.Antialiasing == FrameAntialiasing.Taa) && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
+            IncludeTemporalCharacter = o?.Antialiasing == FrameAntialiasing.Taa || (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
             IncludeTemporalReactive = temporal && temporalUpscaling?.Mode == D3D12TemporalUpscalingMode.XeSs,
             IncludeTemporalEditorVisibility = includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false),
             IncludeTemporalColorTransfer = temporal,

@@ -57,6 +57,10 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
     {
         Validate();
         var options = sceneOptions ?? new(OriginalAlphaBlendMode.Normal, true, false);
+        float resolvedShadowSoftness = ShadowSoftness
+            ?? (ShadowFilter is not null && options.SelfShadow is { } existingShadow
+                ? options.ResolveShadowSoftness(existingShadow)
+                : options.ShadowSoftness);
         var resolved = options with
         {
             RayGi = EffectiveGi,
@@ -66,7 +70,7 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             SurfaceOrder = SurfaceOrder,
             AnisotropicFiltering = AnisotropicFiltering ?? options.AnisotropicFiltering,
             ShadowFilter = ShadowFilter ?? options.ShadowFilter,
-            ShadowSoftness = ShadowSoftness ?? options.ShadowSoftness,
+            ShadowSoftness = resolvedShadowSoftness,
             ScreenSpaceAo = ScreenSpaceAo ?? options.ScreenSpaceAo,
         };
         if (resolved.SelfShadow is { } selfShadow && (ShadowFilter is not null || ShadowSoftness is not null))

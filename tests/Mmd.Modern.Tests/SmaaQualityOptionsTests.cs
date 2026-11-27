@@ -50,7 +50,7 @@ public sealed class SmaaQualityOptionsTests
             var options = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false,
                 Antialiasing: antialiasing, SmaaQuality: quality, SpatialSamples: samples);
 
-            if (samples > 1 && (antialiasing == FrameAntialiasing.Taa || OriginalFrameMath.IsMsaa(antialiasing)))
+            if (samples > 1 && antialiasing is FrameAntialiasing.Taa or FrameAntialiasing.Msaa2X or FrameAntialiasing.Msaa4X or FrameAntialiasing.Msaa8X)
             {
                 Assert.Throws<NotSupportedException>(() => OriginalFrameMath.Validate(options));
                 continue;

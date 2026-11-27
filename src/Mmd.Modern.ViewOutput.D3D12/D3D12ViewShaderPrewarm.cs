@@ -21,12 +21,17 @@ internal static class D3D12ViewShaderPrewarm
         bool hasDynamicVertices = true,
         bool straightAlpha = false,
         bool hasLightGizmos = false,
-        IReadOnlyList<D3D12ShaderStyleWarmupVariant>? explicitStylizedVariants = null)
+        IReadOnlyList<D3D12ShaderStyleWarmupVariant>? explicitStylizedVariants = null,
+        OriginalFrameOptions? sceneOptions = null)
     {
         ArgumentNullException.ThrowIfNull(quality);
-        var gi = quality.EffectiveGi;
+        var resolved = quality.ApplyTo(sceneOptions);
+        var gi = resolved.RayGi ?? quality.EffectiveGi;
         bool giEnabled = gi.Enabled && gi.Strength > 0;
         bool temporal = quality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off;
+        bool effectiveStraightAlpha = straightAlpha || resolved.AlphaOutput == FrameAlphaOutput.Straight;
+        var effectiveAntialiasing = resolved.Antialiasing;
+        bool effectiveSsao = resolved.ScreenSpaceAo is { IsActive: true };
 
         bool anyMaterialToon = hasCharacterToon
             || (characterMaterials?.Any(static m => m?.ToonResponse is not null) ?? false);
@@ -66,23 +71,23 @@ internal static class D3D12ViewShaderPrewarm
             Outline = hasOutline,
             CharacterOutline = hasCharacterOutline,
             StylizedVariants = variants,
-            SmaaQuality = quality.Antialiasing == FrameAntialiasing.Smaa1X ? (quality.SmaaQuality ?? SmaaQuality.High) : null,
-            SmaaAlphaCoverage = straightAlpha,
-            IncludeFxaa = quality.Antialiasing == FrameAntialiasing.Fxaa,
-            IncludeFxaaAlphaCoverage = straightAlpha,
-            IncludeNativeTaa = quality.Antialiasing == FrameAntialiasing.Taa,
+            SmaaQuality = effectiveAntialiasing == FrameAntialiasing.Smaa1X ? resolved.SmaaQuality : null,
+            SmaaAlphaCoverage = effectiveStraightAlpha,
+            IncludeFxaa = effectiveAntialiasing == FrameAntialiasing.Fxaa,
+            IncludeFxaaAlphaCoverage = effectiveStraightAlpha,
+            IncludeNativeTaa = effectiveAntialiasing == FrameAntialiasing.Taa,
             IncludeStandaloneRcas = quality.EffectiveSharpening.IsActive,
-            IncludeScreenSpaceAo = quality.EffectiveScreenSpaceAo.IsActive,
+            IncludeScreenSpaceAo = effectiveSsao,
             IncludeFsr1 = quality.EffectiveUpscaling.Mode != ViewUpscalingMode.Off,
-            IncludeTemporalInputs = temporal || quality.Antialiasing == FrameAntialiasing.Taa || hasLightGizmos,
-            IncludeTemporalCharacter = (temporal || quality.Antialiasing == FrameAntialiasing.Taa) && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0),
+            IncludeTemporalInputs = temporal || effectiveAntialiasing == FrameAntialiasing.Taa || hasLightGizmos,
+            IncludeTemporalCharacter = effectiveAntialiasing == FrameAntialiasing.Taa || (temporal && (hasCharacterOutline || hasSubTexture || hasTextureMorph || variants.Count > 0)),
             IncludeTemporalReactive = temporal && quality.EffectiveTemporalUpscaling.Mode == ViewTemporalUpscalingMode.XeSs,
             IncludeTemporalEditorVisibility = hasLightGizmos,
             IncludeTemporalColorTransfer = temporal,
             IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
-            IncludeDiffusionAlphaCoverage = straightAlpha,
-            IncludeAlphaResolve = straightAlpha,
-            IncludeSpatialAccumulation = (quality.SpatialSamples ?? 1) > 1,
+            IncludeDiffusionAlphaCoverage = effectiveStraightAlpha,
+            IncludeAlphaResolve = effectiveStraightAlpha,
+            IncludeSpatialAccumulation = resolved.SpatialSamples > 1,
             IncludeLightGizmos = hasLightGizmos,
             IncludeGpuSkinning = hasDynamicVertices,
         };

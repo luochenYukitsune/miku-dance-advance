@@ -671,11 +671,20 @@ internal static class D3D12StyleShaderAssembler
         sb.AppendLine(OriginalFrameShaders.PmxMaterialTreatmentHlsl);
         sb.AppendLine("""
             float MdaSamplePrimaryShadowVisibility(float2 uv, float receiverDepth, float2 screenPos) {
+                float3 uvd = float3(uv, receiverDepth);
+                float3 duvdX = ddx(uvd), duvdY = ddy(uvd);
                 precise float delta = max(receiverDepth - ShadowMap.Sample(ShadowSampler, uv), 0);
                 precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
                 if (ShadowOptions.y > 0) weighted = weighted * uv.y;
                 precise float centerVis = 1 - saturate(weighted - .3);
                 if (ShadowOptions.x <= 0) return centerVis;
+                float det = duvdX.x * duvdY.y - duvdX.y * duvdY.x;
+                float detScale = max(abs(duvdX.x * duvdY.y) + abs(duvdX.y * duvdY.x), 1e-20);
+                float2 receiverGrad = 0;
+                if (abs(det) > detScale * 1e-5) {
+                    float2 grad = float2(duvdX.z * duvdY.y - duvdX.y * duvdY.z, duvdX.x * duvdY.z - duvdX.z * duvdY.x) / det;
+                    if (all(isfinite(grad))) receiverGrad = grad;
+                }
                 uint sw, sh; ShadowMap.GetDimensions(sw, sh);
                 float2 radius = ShadowOptions.x * 1.5 / max(float2(sw, sh), float2(1, 1));
                 float angle = frac(52.9829189 * frac(dot(screenPos, float2(0.06711056, 0.00583715)))) * 6.2831853;
@@ -692,8 +701,9 @@ internal static class D3D12StyleShaderAssembler
                 [unroll] for (int t = 0; t < 12; t++) {
                     float2 r = float2(kPcf[t].x * cRot - kPcf[t].y * s, kPcf[t].x * s + kPcf[t].y * cRot);
                     float2 suv = saturate(uv + r * radius);
+                    float expectedDepth = receiverDepth + clamp(dot(receiverGrad, suv - uv), -0.02, 0.02);
                     float sd = ShadowMap.SampleLevel(ShadowSampler, suv, 0);
-                    float d = max(receiverDepth - sd, 0);
+                    float d = max(expectedDepth - sd, 0);
                     float w = d * (ShadowOptions.y > 0 ? 8000 : 1500);
                     if (ShadowOptions.y > 0) w *= suv.y;
                     sum += 1 - saturate(w - .3);

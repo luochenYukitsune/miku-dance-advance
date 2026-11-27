@@ -89,7 +89,7 @@ public sealed record OriginalFrameOptions(OriginalAlphaBlendMode BlendMode,bool 
     public ShadowFilterMode ResolveShadowFilter(OriginalSelfShadowOptions shadow)
         => ShadowFilter ?? shadow.EffectiveFilterMode;
     public float ResolveShadowSoftness(OriginalSelfShadowOptions shadow)
-        => ShadowFilter is not null || ShadowSoftness != 1f ? ShadowSoftness : shadow.ShadowSoftness;
+        => ShadowSoftness != 1f ? ShadowSoftness : shadow.ShadowSoftness;
 }
 
 public readonly record struct OriginalShadowProjection(bool Inside,Vector2 Uv,float Depth);
@@ -170,6 +170,8 @@ public static class OriginalFrameMath
             throw new NotSupportedException("TAA cannot be combined with spatial supersampling (SpatialSamples > 1).");
         if(IsMsaa(options.Antialiasing)&&options.SpatialSamples>1)
             throw new NotSupportedException("MSAA cannot be combined with spatial supersampling (SpatialSamples > 1).");
+        if(options.ScreenSpaceAo is { Enabled: true } && !options.WriteDepth)
+            throw new NotSupportedException("Screen-space ambient occlusion requires surface depth writes (WriteDepth = true).");
         if(options.ScreenSpaceAo is { Enabled: true } && options.RayGi is { Enabled: true, OcclusionStrength: > 0 })
             throw new NotSupportedException("Screen-space ambient occlusion cannot be enabled together with Ray GI occlusion (OcclusionStrength > 0).");
         if(options.BackgroundColor is {} background&&!OriginalOutlineMath.Finite(background))throw new ArgumentException("Background color must be finite.");

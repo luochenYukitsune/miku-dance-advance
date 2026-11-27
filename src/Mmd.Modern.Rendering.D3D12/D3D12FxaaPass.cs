@@ -140,9 +140,8 @@ internal sealed class D3D12FxaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             return dot(rgb, float3(0.299, 0.587, 0.114));
         }
 
-        float FxaaMetric(float4 rgba, bool alphaCoverage) {
-            float luma = FxaaLuma(rgba.rgb);
-            return alphaCoverage ? max(luma, rgba.a) : luma;
+        float FxaaChannel(float4 rgba, bool useAlpha) {
+            return useAlpha ? rgba.a : FxaaLuma(rgba.rgb);
         }
 
         float4 FxaaCore(float2 uv, bool alphaCoverage) {
@@ -153,24 +152,46 @@ internal sealed class D3D12FxaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
 
             float2 invSize = Metrics.xy;
             float4 center = InputTexture.SampleLevel(LinearClamp, uv, 0);
-            float lumaM = FxaaMetric(center, alphaCoverage);
-            float lumaN = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2(0, -invSize.y), 0), alphaCoverage);
-            float lumaS = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2(0,  invSize.y), 0), alphaCoverage);
-            float lumaW = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x, 0), 0), alphaCoverage);
-            float lumaE = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x, 0), 0), alphaCoverage);
+            float4 sampleN = InputTexture.SampleLevel(LinearClamp, uv + float2(0, -invSize.y), 0);
+            float4 sampleS = InputTexture.SampleLevel(LinearClamp, uv + float2(0,  invSize.y), 0);
+            float4 sampleW = InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x, 0), 0);
+            float4 sampleE = InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x, 0), 0);
 
-            float rangeMin = min(lumaM, min(min(lumaN, lumaS), min(lumaW, lumaE)));
-            float rangeMax = max(lumaM, max(max(lumaN, lumaS), max(lumaW, lumaE)));
-            float range = rangeMax - rangeMin;
+            float lM = FxaaLuma(center.rgb);
+            float lN = FxaaLuma(sampleN.rgb);
+            float lS = FxaaLuma(sampleS.rgb);
+            float lW = FxaaLuma(sampleW.rgb);
+            float lE = FxaaLuma(sampleE.rgb);
+            float lumaMin = min(lM, min(min(lN, lS), min(lW, lE)));
+            float lumaMax = max(lM, max(max(lN, lS), max(lW, lE)));
+            float lumaRange = lumaMax - lumaMin;
+
+            bool useAlpha = false;
+            float lumaM = lM, lumaN = lN, lumaS = lS, lumaW = lW, lumaE = lE;
+            float rangeMax = lumaMax;
+            float range = lumaRange;
+
+            if (alphaCoverage) {
+                float aM = center.a, aN = sampleN.a, aS = sampleS.a, aW = sampleW.a, aE = sampleE.a;
+                float alphaMin = min(aM, min(min(aN, aS), min(aW, aE)));
+                float alphaMax = max(aM, max(max(aN, aS), max(aW, aE)));
+                float alphaRange = alphaMax - alphaMin;
+                if (alphaRange > lumaRange) {
+                    useAlpha = true;
+                    lumaM = aM; lumaN = aN; lumaS = aS; lumaW = aW; lumaE = aE;
+                    rangeMax = alphaMax;
+                    range = alphaRange;
+                }
+            }
 
             if (range < max(EDGE_THRESHOLD_MIN, rangeMax * EDGE_THRESHOLD)) {
                 return center;
             }
 
-            float lumaNW = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x, -invSize.y), 0), alphaCoverage);
-            float lumaNE = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x, -invSize.y), 0), alphaCoverage);
-            float lumaSW = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x,  invSize.y), 0), alphaCoverage);
-            float lumaSE = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x,  invSize.y), 0), alphaCoverage);
+            float lumaNW = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x, -invSize.y), 0), useAlpha);
+            float lumaNE = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x, -invSize.y), 0), useAlpha);
+            float lumaSW = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv + float2(-invSize.x,  invSize.y), 0), useAlpha);
+            float lumaSE = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv + float2( invSize.x,  invSize.y), 0), useAlpha);
 
             float lumaNS = lumaN + lumaS;
             float lumaWE = lumaW + lumaE;
@@ -220,8 +241,8 @@ internal sealed class D3D12FxaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             float2 uv1 = currentUv - offset;
             float2 uv2 = currentUv + offset;
 
-            float lumaEnd1 = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv1, 0), alphaCoverage) - lumaLocalAverage;
-            float lumaEnd2 = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv2, 0), alphaCoverage) - lumaLocalAverage;
+            float lumaEnd1 = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv1, 0), useAlpha) - lumaLocalAverage;
+            float lumaEnd2 = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv2, 0), useAlpha) - lumaLocalAverage;
             bool reached1 = abs(lumaEnd1) >= gradientScaled;
             bool reached2 = abs(lumaEnd2) >= gradientScaled;
             bool reachedBoth = reached1 && reached2;
@@ -232,11 +253,11 @@ internal sealed class D3D12FxaaPass(D3D12GpuRuntime runtime, D3D12GpuCache cache
             if (!reachedBoth) {
                 [unroll] for (int i = 1; i < 12; i++) {
                     if (!reached1) {
-                        lumaEnd1 = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv1, 0), alphaCoverage) - lumaLocalAverage;
+                        lumaEnd1 = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv1, 0), useAlpha) - lumaLocalAverage;
                         reached1 = abs(lumaEnd1) >= gradientScaled;
                     }
                     if (!reached2) {
-                        lumaEnd2 = FxaaMetric(InputTexture.SampleLevel(LinearClamp, uv2, 0), alphaCoverage) - lumaLocalAverage;
+                        lumaEnd2 = FxaaChannel(InputTexture.SampleLevel(LinearClamp, uv2, 0), useAlpha) - lumaLocalAverage;
                         reached2 = abs(lumaEnd2) >= gradientScaled;
                     }
                     reachedBoth = reached1 && reached2;

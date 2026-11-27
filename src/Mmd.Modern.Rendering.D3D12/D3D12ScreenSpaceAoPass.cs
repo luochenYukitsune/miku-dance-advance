@@ -19,9 +19,10 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct SsaoConstants(
         Matrix4x4 InvViewProjection,
-        Vector4 CameraEyeAndOrtho,   // xyz = camera eye, w = 1 if orthographic else 0
-        Vector4 Metrics,             // width, height, 1/width, 1/height
-        Vector4 Params);             // strength, radius, sampleCount, projScalePixels
+        Vector4 CameraEyeAndOrtho,    // xyz = camera eye, w = 1 if orthographic else 0
+        Vector4 CameraOrthoTowardEye, // xyz = normalize(Eye - Target), w = 0
+        Vector4 Metrics,              // width, height, 1/width, 1/height
+        Vector4 Params);              // strength, radius, sampleCount, projScalePixels
 
     private (byte[] Vertex, byte[] Raw, byte[] Composite, byte[] MsaaDepthResolve)? shaders;
 
@@ -120,7 +121,8 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
         D3D12GpuTarget colorInput,
         D3D12GpuTarget depthInput,
         SceneCamera camera,
-        ScreenSpaceAoOptions options)
+        ScreenSpaceAoOptions options,
+        Result? reusableTargets = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -149,26 +151,38 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
                 }]),
             RootSignatureVersion.Version10));
 
-        var rtvHeap = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 2));
         var srvHeap = runtime.Transients.Heap(new(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 3, DescriptorHeapFlags.ShaderVisible));
-        int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
         int srvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
         runtime.DescriptorHighWater = Math.Max(runtime.DescriptorHighWater, 3);
 
-        var rawResource = runtime.Transients.Resource(context, HeapType.Default,
-            ResourceDescription.Texture2D(Format.R8_UNorm, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget),
-            ResourceStates.RenderTarget);
-        var outResource = runtime.Transients.Resource(context, HeapType.Default,
-            ResourceDescription.Texture2D(colorInput.Format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget),
-            ResourceStates.RenderTarget);
-        var rawRtv = rtvHeap.GetCPUDescriptorHandleForHeapStart();
-        var outRtv = rawRtv;
-        outRtv.Offset(1, rtvStride);
-        device.CreateRenderTargetView(rawResource, null, rawRtv);
-        device.CreateRenderTargetView(outResource, null, outRtv);
-
-        var rawAo = runtime.Transients.Track(new D3D12GpuTarget("$ssao-raw", rawResource, rawRtv, width, height, Format.R8_UNorm, false));
-        var output = runtime.Transients.Track(new D3D12GpuTarget("$ssao-output", outResource, outRtv, width, height, colorInput.Format, false));
+        D3D12GpuTarget rawAo, output;
+        if (reusableTargets is not null)
+        {
+            rawAo = reusableTargets.RawAo;
+            output = reusableTargets.Output;
+            if (rawAo.Width != width || rawAo.Height != height || output.Width != width || output.Height != height || output.Format != colorInput.Format)
+                throw new InvalidOperationException("Reusable SSAO targets must match current frame dimensions and color format.");
+            context.Transition(rawAo, ResourceStates.RenderTarget);
+            context.Transition(output, ResourceStates.RenderTarget);
+        }
+        else
+        {
+            var rtvHeap = runtime.Transients.Heap(new(DescriptorHeapType.RenderTargetView, 2));
+            int rtvStride = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);
+            var rawResource = runtime.Transients.Resource(context, HeapType.Default,
+                ResourceDescription.Texture2D(Format.R8_UNorm, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget),
+                ResourceStates.RenderTarget);
+            var outResource = runtime.Transients.Resource(context, HeapType.Default,
+                ResourceDescription.Texture2D(colorInput.Format, (uint)width, (uint)height, mipLevels: 1, flags: ResourceFlags.AllowRenderTarget),
+                ResourceStates.RenderTarget);
+            var rawRtv = rtvHeap.GetCPUDescriptorHandleForHeapStart();
+            var outRtv = rawRtv;
+            outRtv.Offset(1, rtvStride);
+            device.CreateRenderTargetView(rawResource, null, rawRtv);
+            device.CreateRenderTargetView(outResource, null, outRtv);
+            rawAo = runtime.Transients.Track(new D3D12GpuTarget("$ssao-raw", rawResource, rawRtv, width, height, Format.R8_UNorm, false));
+            output = runtime.Transients.Track(new D3D12GpuTarget("$ssao-output", outResource, outRtv, width, height, colorInput.Format, false));
+        }
 
         Format depthSrvFormat = depthInput.Depth ? DepthSrvFormat(depthInput.Format) : depthInput.Format;
         device.CreateShaderResourceView(colorInput.Resource, null, srvHeap.GetCPUDescriptorHandleForHeapStart());
@@ -227,9 +241,11 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
             ? height / MathF.Max(camera.OrthographicHeight, 1e-4f)
             : 0.5f * height / MathF.Tan(camera.VerticalFovDegrees!.Value * (MathF.PI / 360f));
 
+        var orthoTowardEye = Vector3.Normalize(camera.Eye - camera.Target);
         ulong cbAddress = context.UploadConstants(new SsaoConstants(
             invVp,
             new Vector4(camera.Eye, isOrtho ? 1f : 0f),
+            new Vector4(orthoTowardEye, 0f),
             new Vector4(width, height, 1f / width, 1f / height),
             new Vector4(options.Strength, options.Radius, options.SampleCount, projScalePixels)));
 
@@ -304,6 +320,7 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
         cbuffer SsaoConstants : register(b0) {
             row_major float4x4 InvViewProjection;
             float4 CameraEyeAndOrtho;
+            float4 CameraOrthoTowardEye;
             float4 Metrics; // width, height, 1/width, 1/height
             float4 Params;  // strength, radius, sampleCount, projScalePixels
         };
@@ -339,7 +356,7 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
             float3 centerPos = ReconstructWorldPos(uv, centerDepth);
             float3 toCamera = CameraEyeAndOrtho.xyz - centerPos;
             float cameraDist = max(length(toCamera), 1e-4);
-            float3 viewDir = toCamera / cameraDist;
+            float3 viewDir = CameraEyeAndOrtho.w > 0.5 ? CameraOrthoTowardEye.xyz : (toCamera / cameraDist);
 
             // Discontinuity-aware normal reconstruction from adjacent depth texels.
             float2 dx = float2(Metrics.z, 0.0);

@@ -139,6 +139,29 @@ public sealed class ViewQualityPr2Tests
         Assert.Equal(ShadowFilterMode.PcfSoft, applied.SelfShadow!.EffectiveFilterMode);
         Assert.Equal(OriginalTextureSampling.LinearClamp, applied.SelfShadow.Sampling);
         Assert.Equal(2.0f, applied.SelfShadow.ShadowSoftness);
+
+        // Overriding only ShadowFilter must preserve a scene SelfShadow's non-default ShadowSoftness (e.g. 2.5f).
+        var filterOnlyApplied = new ViewQualityOptions { ShadowFilter = ShadowFilterMode.PcfSoft }
+            .ApplyTo(new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: pcf));
+        Assert.Equal(ShadowFilterMode.PcfSoft, filterOnlyApplied.SelfShadow!.EffectiveFilterMode);
+        Assert.Equal(2.5f, filterOnlyApplied.SelfShadow.ShadowSoftness);
+        Assert.Equal(2.5f, filterOnlyApplied.ResolveShadowSoftness(filterOnlyApplied.SelfShadow));
+
+        // Explicitly overriding ShadowSoftness back to 1.0f replaces the scene value.
+        var explicitReset = new ViewQualityOptions { ShadowFilter = ShadowFilterMode.PcfSoft, ShadowSoftness = 1.0f }
+            .ApplyTo(new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: pcf));
+        Assert.Equal(1.0f, explicitReset.SelfShadow!.ShadowSoftness);
+        Assert.Equal(1.0f, explicitReset.ResolveShadowSoftness(explicitReset.SelfShadow));
+    }
+
+    [Fact]
+    public void ScreenSpaceAoRejectsDisabledDepthWrites()
+    {
+        var noDepth = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, WriteDepth: false, Transp: false)
+        {
+            ScreenSpaceAo = new(Enabled: true, Strength: 0.4f),
+        };
+        Assert.Throws<NotSupportedException>(() => OriginalFrameMath.Validate(noDepth));
     }
 
     [Theory]

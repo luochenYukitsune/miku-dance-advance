@@ -84,8 +84,20 @@ public sealed class D3D12Pr2ShaderCompileTests
         var taaSpec = D3D12ViewShaderPrewarm.BuildFromViewRequest(new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa));
         Assert.True(taaSpec.IncludeNativeTaa);
         Assert.True(taaSpec.IncludeTemporalInputs);
+        Assert.True(taaSpec.IncludeTemporalCharacter);
         Assert.False(taaSpec.IncludeFxaa);
         Assert.False(taaSpec.IncludeStandaloneRcas);
         Assert.False(taaSpec.IncludeScreenSpaceAo);
+
+        // Inherited scene options (FXAA, straight-alpha, active SSAO) are honored when view overrides are null.
+        var inheritedScene = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false,
+            Antialiasing: FrameAntialiasing.Fxaa, AlphaOutput: FrameAlphaOutput.Straight)
+        {
+            ScreenSpaceAo = new(Enabled: true, Strength: 0.4f),
+        };
+        var inheritedSpec = D3D12ViewShaderPrewarm.BuildFromViewRequest(new ViewQualityOptions(), sceneOptions: inheritedScene);
+        Assert.True(inheritedSpec.IncludeFxaa);
+        Assert.True(inheritedSpec.IncludeFxaaAlphaCoverage);
+        Assert.True(inheritedSpec.IncludeScreenSpaceAo);
     }
 }
