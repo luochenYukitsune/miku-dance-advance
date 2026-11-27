@@ -9,7 +9,7 @@ namespace Mmd.Modern.Rendering.D3D12;
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    private readonly Dictionary<(Format Depth, bool FrontCounterClockwise),OutlinePipeline> outlinePipelines=[];
+    private readonly Dictionary<(Format Depth, bool FrontCounterClockwise, int SampleCount),OutlinePipeline> outlinePipelines=[];
 
     public RenderedFrame Render(OriginalFrameScene frame,int width,int height)
     {
@@ -79,7 +79,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     private int RecordCombinedOutline(ID3D12Device device,ID3D12GraphicsCommandList commands,OutlinePipeline pipeline,
         OriginalFrameScene frame,int width,int height,ID3D12Resource sharedSurfaceBuffer,ID3D12Resource sharedIndexBuffer,FrameBufferUpload upload,
         Func<ID3D12Resource,ID3D12Resource> own,D3D12RecordingContext context,ID3D12DescriptorHeap srvHeap,int srvStride,
-        int slotBase,Format depthFormat,D3D12GpuCache cache,D3D12SurfaceStyleMap? surfaceStyles=null)
+        int slotBase,Format depthFormat,D3D12GpuCache cache,D3D12SurfaceStyleMap? surfaceStyles=null,int sampleCount=1)
     {
         using var combinedCpu=MeasureSceneCpu(SceneCpuStage.CombinedOutline);
         // Contiguous runs retain source material order when blended modern and original
@@ -91,17 +91,17 @@ public sealed partial class D3D12OriginalStyleRenderer
             int end=first+1;
             while(end<frame.Materials.Count&&(frame.Materials[end].CharacterOutlineStyle is not null)==modern)end++;
             draws+=modern
-                ?RecordCharacterOutline(frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,srvHeap,srvStride,slotBase,depthFormat,context,cache,first,end-first,surfaceStyles)
+                ?RecordCharacterOutline(frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,srvHeap,srvStride,slotBase,depthFormat,context,cache,first,end-first,surfaceStyles,sampleCount)
                 :RecordOutline(device,commands,pipeline,frame,width,height,sharedSurfaceBuffer,sharedIndexBuffer,upload,own,context,cache,first,end-first);
             first=end;
         }
         return draws;
     }
 
-    private OutlinePipeline GetOutlinePipeline(Format depthFormat, OriginalFrameScene frame)
+    private OutlinePipeline GetOutlinePipeline(Format depthFormat, OriginalFrameScene frame, int sampleCount = 1)
     {
         using var pipelineCpu=MeasureSceneCpu(SceneCpuStage.Pipelines);
-        var key=(Depth:depthFormat,FrontCounterClockwise:D3D12RasterWinding.FrontCounterClockwise(frame));
+        var key=(Depth:depthFormat,FrontCounterClockwise:D3D12RasterWinding.FrontCounterClockwise(frame),SampleCount:sampleCount);
         if(outlinePipelines.TryGetValue(key,out var cached))return cached;
         RootParameter[] parameters=[new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)];
         var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
@@ -111,6 +111,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             var shader=GetOutlineShaders();runtime.PipelineCreations++;
             var raster=RasterizerDescription.CullNone;
             raster.FrontCounterClockwise=key.FrontCounterClockwise; raster.CullMode=CullMode.Front;
+            raster.MultisampleEnable=sampleCount>1;
             var depth=DepthStencilDescription.Default;
             depth.DepthFunc=ComparisonFunction.LessEqual;
             // Current opaque slice writes depth. Original complete-frame inherited depth/blend states remain separate evidence.
@@ -121,7 +122,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                     new("TEXCOORD",2,Format.R32G32B32A32_Float,0,1)]),
                 BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=depth,
                 PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[Format.R8G8B8A8_UNorm],DepthStencilFormat=depthFormat,
-                SampleDescription=new SampleDescription(1,0),IndexBufferStripCutValue=IndexBufferStripCutValue.Disabled };
+                SampleDescription=new SampleDescription(sampleCount,0),IndexBufferStripCutValue=IndexBufferStripCutValue.Disabled };
             state=runtime.CreateGraphicsPipelineState(description);
             var result=new OutlinePipeline(root,state);outlinePipelines.Add(key,result);return result;
         }

@@ -22,6 +22,13 @@ internal static class D3D12ViewQuality
         return new(options.Enabled, options.Strength, options.Extent);
     }
 
+    internal static D3D12SharpeningOptions Sharpening(ViewQualityOptions quality)
+    {
+        quality.Validate();
+        var options = quality.EffectiveSharpening;
+        return new(options.Enabled, options.Sharpness);
+    }
+
     /// <summary>GI owns separate history resources, but follows the same host seek and camera-cut markers as AA.
     /// Preview acceleration is strictly isolated to realtime view rendering and always stripped on offline capture/export.</summary>
     internal static RayGiOptions Gi(ViewQualityOptions quality, ViewTemporalFrameState? state = null,

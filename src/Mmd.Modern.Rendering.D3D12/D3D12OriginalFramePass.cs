@@ -30,7 +30,10 @@ public sealed partial class D3D12OriginalStyleRenderer
         bool CharacterToon = false,
         bool HasPluginSpace2 = false,
         bool FrontCounterClockwise = true,
-        bool CharacterDirectPalette = false);
+        bool CharacterDirectPalette = false,
+        int SampleCount = 1,
+        int AnisotropicFiltering = 1,
+        bool PcfSoftShadow = false);
 
     private sealed record FramePipelines(
         ID3D12RootSignature Root,
@@ -164,9 +167,12 @@ public sealed partial class D3D12OriginalStyleRenderer
         if (options.GroundShadow is { UseStencil: true } && depthFormat != Format.D24_UNorm_S8_UInt) throw new ArgumentException("Stencil ground requires D24S8 target.");
         var camera = options.CameraOverride ?? scene.Camera;
         Matrix4x4.Invert(scene.World, out var inverse);
+        float pcfSoftness = options.SelfShadow is { } selfShadow && options.ResolveShadowFilter(selfShadow) == ShadowFilterMode.PcfSoft
+            ? options.ResolveShadowSoftness(selfShadow)
+            : 0f;
         var common = new FrameConstants(scene.World, Matrix4x4.Transpose(inverse), camera.ViewProjection(width, height), options.SphereRotationOverride ?? style.Profile.SphereRotation,
             options.SelfShadow?.LightViewProjection ?? Matrix4x4.Identity, Vector4.One, Vector4.Zero, new(Vector3.Normalize(scene.LightDirection), 0), new(camera.Eye, 1),
-            Vector4.One, Vector4.Zero, new(0, options.SelfShadow?.PartialFar == true ? 1 : 0, options.SelfShadow is null ? 0 : 1, 0), new(options.GroundShadow?.ProjectionDirection ?? Vector3.UnitY, 0));
+            Vector4.One, Vector4.Zero, new(pcfSoftness, options.SelfShadow?.PartialFar == true ? 1 : 0, options.SelfShadow is null ? 0 : 1, 0), new(options.GroundShadow?.ProjectionDirection ?? Vector3.UnitY, 0));
         void Constants(FrameConstants value)
         {
             commands.SetGraphicsRootConstantBufferView(0, context.UploadConstants(value));
@@ -376,7 +382,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         }
         if (frame.Outline is not null && frame.OutlineOptions is { Eligible: true, ModelWidth: > 0 })
             draws += RecordCombinedOutline(device, commands, pipeline.Outline, frame, width, height, vertexBuffer, indexBuffer, upload, own, context,
-                srvHeap, srvStride, slotBase, depthFormat, cache, surfaceStyles);
+                srvHeap, srvStride, slotBase, depthFormat, cache, surfaceStyles, pipeline.Key.SampleCount);
         return draws;
     }
 
@@ -414,15 +420,22 @@ public sealed partial class D3D12OriginalStyleRenderer
             new byte[byteCount], ResourceStates.PixelShaderResource, $"{binding.DataKey}:zero:{byteCount}").GPUVirtualAddress;
     }
 
-    private FramePipelines GetFramePipelines(OriginalFrameScene frame, Format depthFormat, bool gi = false, bool hasPluginSpace2 = false)
+    private FramePipelines GetFramePipelines(OriginalFrameScene frame, Format depthFormat, bool gi = false, bool hasPluginSpace2 = false, int sampleCount = 1)
     {
         using var pipelineCpu = MeasureSceneCpu(SceneCpuStage.Pipelines);
         bool subTexture = HasSubTexture(frame);
         bool textureMorph = subTexture || frame.Surface.Materials.Any(binding => !binding.TextureFactors.IsIdentity);
         var o = frame.Options!;
+        var shadowFilter = o.SelfShadow is { } selfShadow
+            ? o.ResolveShadowFilter(selfShadow)
+            : ShadowFilterMode.Linear;
+        var shadowSampling = shadowFilter == ShadowFilterMode.Point
+            ? OriginalTextureSampling.PointClamp
+            : OriginalTextureSampling.LinearClamp;
+        bool pcfSoftShadow = o.SelfShadow is not null && shadowFilter == ShadowFilterMode.PcfSoft;
         var key = new FramePipelineKey(
             frame.Surface.Profile.TextureSampling,
-            o.SelfShadow?.Sampling ?? OriginalTextureSampling.LinearClamp,
+            shadowSampling,
             depthFormat,
             o.BlendMode,
             o.WriteDepth,
@@ -437,7 +450,10 @@ public sealed partial class D3D12OriginalStyleRenderer
             frame.Materials.Any(flags => flags.CharacterToonResponse is not null),
             hasPluginSpace2,
             D3D12RasterWinding.FrontCounterClockwise(frame),
-            HasNativeLights(frame) && HasPrimaryLight(frame.Surface.Profile) && frame.Materials.Any(flags => flags.PreserveDirectLightPalette));
+            HasNativeLights(frame) && HasPrimaryLight(frame.Surface.Profile) && frame.Materials.Any(flags => flags.PreserveDirectLightPalette),
+            sampleCount,
+            o.AnisotropicFiltering,
+            pcfSoftShadow);
         if (framePipelines.TryGetValue(key, out var existing)) return existing;
 
         RootParameter[] parameters =
@@ -486,23 +502,29 @@ public sealed partial class D3D12OriginalStyleRenderer
             ];
         }
 
-        StaticSamplerDescription Sampler(OriginalTextureSampling sampling, int register, int space = 0) => new(ShaderVisibility.Pixel, register, space)
+        StaticSamplerDescription Sampler(OriginalTextureSampling sampling, int register, int space = 0, int maxAnisotropy = 1)
         {
-            Filter = sampling is OriginalTextureSampling.LinearClamp or OriginalTextureSampling.LinearWrap ? Filter.MinMagMipLinear : Filter.MinMagMipPoint,
-            AddressU = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
-            AddressV = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
-            AddressW = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
-            MinLOD = 0f,
-            MaxLOD = float.MaxValue,
-        };
-        StaticSamplerDescription[] samplers = [Sampler(key.SurfaceSampling, 0), Sampler(key.ShadowSampling, 1)];
+            bool linear = sampling is OriginalTextureSampling.LinearClamp or OriginalTextureSampling.LinearWrap;
+            bool anisotropic = linear && maxAnisotropy > 1;
+            return new(ShaderVisibility.Pixel, register, space)
+            {
+                Filter = anisotropic ? Filter.Anisotropic : (linear ? Filter.MinMagMipLinear : Filter.MinMagMipPoint),
+                MaxAnisotropy = anisotropic ? maxAnisotropy : 0,
+                AddressU = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
+                AddressV = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
+                AddressW = sampling is OriginalTextureSampling.PointWrap or OriginalTextureSampling.LinearWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
+                MinLOD = 0f,
+                MaxLOD = float.MaxValue,
+            };
+        }
+        StaticSamplerDescription[] samplers = [Sampler(key.SurfaceSampling, 0, 0, key.AnisotropicFiltering), Sampler(key.ShadowSampling, 1)];
         if (key.HasPluginSpace2)
         {
             samplers =
             [
                 ..samplers,
-                Sampler(OriginalTextureSampling.LinearWrap, 0, 2),
-                Sampler(OriginalTextureSampling.LinearClamp, 1, 2),
+                Sampler(OriginalTextureSampling.LinearWrap, 0, 2, key.AnisotropicFiltering),
+                Sampler(OriginalTextureSampling.LinearClamp, 1, 2, key.AnisotropicFiltering),
                 Sampler(OriginalTextureSampling.PointWrap, 2, 2),
                 Sampler(OriginalTextureSampling.PointClamp, 3, 2),
             ];
@@ -515,9 +537,11 @@ public sealed partial class D3D12OriginalStyleRenderer
         {
             var layout = new InputLayoutDescription(SurfaceLayout(key.SubTexture));
             var positionLayout = new InputLayoutDescription([new InputElementDescription("POSITION", 0, Format.R32G32B32_Float, 0, 0)]);
-            var both = RasterizerDescription.CullNone; var back = both; back.CullMode = CullMode.Back; back.FrontCounterClockwise = key.FrontCounterClockwise;
+            var both = RasterizerDescription.CullNone; both.MultisampleEnable = key.SampleCount > 1;
+            var back = both; back.CullMode = CullMode.Back; back.FrontCounterClockwise = key.FrontCounterClockwise;
             var front = back; front.CullMode = CullMode.Front;
-            var shadowBackRaster = both; shadowBackRaster.CullMode = CullMode.Back; shadowBackRaster.FrontCounterClockwise = true;
+            var shadowBothRaster = RasterizerDescription.CullNone;
+            var shadowBackRaster = shadowBothRaster; shadowBackRaster.CullMode = CullMode.Back; shadowBackRaster.FrontCounterClockwise = true;
             var depth = DepthStencilDescription.Default; depth.DepthFunc = ComparisonFunction.LessEqual; depth.DepthWriteMask = o.WriteDepth ? DepthWriteMask.All : DepthWriteMask.Zero;
             if (key.Stencil)
             {
@@ -528,7 +552,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             var groundDepth = depth; groundDepth.DepthFunc = ComparisonFunction.Less;
             if (key.Stencil) { groundDepth.FrontFace.StencilFunc = ComparisonFunction.Greater; groundDepth.BackFace = groundDepth.FrontFace; }
 
-            ID3D12PipelineState Pso(string vs, string ps, InputLayoutDescription input, RasterizerDescription raster, DepthStencilDescription ds, BlendDescription blend, Format colorFormat, Format dsFormat)
+            ID3D12PipelineState Pso(string vs, string ps, InputLayoutDescription input, RasterizerDescription raster, DepthStencilDescription ds, BlendDescription blend, Format colorFormat, Format dsFormat, int psoSamples = 1)
             {
                 runtime.PipelineCreations++;
                 bool nativeShader = ps.Contains("Native", StringComparison.Ordinal);
@@ -536,7 +560,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 {
                     RootSignature = root,
                     VertexShader = key.SubTexture && (vs is "VSSurface" or "VSNativeDepth") ? GetSubTextureFrameShader(vs, true, key.NativeLights, gi) : vs == "VSNativeDepth" ? GetNativeFrameShader(vs, true) : GetFrameShader(vs, true),
-                    PixelShader = key.CharacterDirectPalette && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterDirectPaletteShader(ps, gi, key.TextureMorph, key.SubTexture, key.CharacterToon) : key.CharacterToon && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterToonFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture) : key.SubTexture && (ps.StartsWith("PSSurface", StringComparison.Ordinal) || ps == "PSNativeDepth") ? GetSubTextureFrameShader(ps, false, key.NativeLights, gi) : key.TextureMorph && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetTextureMorphFrameShader(ps, key.NativeLights, gi) : nativeShader ? GetNativeFrameShader(ps, false) : gi && ps == "PSSurfaceGi" ? GetGiFrameShader(ps, false) : GetFrameShader(ps, false),
+                    PixelShader = key.PcfSoftShadow && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetPcfShadowFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture, key.CharacterToon, key.CharacterDirectPalette) : key.CharacterDirectPalette && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterDirectPaletteShader(ps, gi, key.TextureMorph, key.SubTexture, key.CharacterToon) : key.CharacterToon && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetCharacterToonFrameShader(ps, key.NativeLights, gi, key.TextureMorph, key.SubTexture) : key.SubTexture && (ps.StartsWith("PSSurface", StringComparison.Ordinal) || ps == "PSNativeDepth") ? GetSubTextureFrameShader(ps, false, key.NativeLights, gi) : key.TextureMorph && ps.StartsWith("PSSurface", StringComparison.Ordinal) ? GetTextureMorphFrameShader(ps, key.NativeLights, gi) : nativeShader ? GetNativeFrameShader(ps, false) : gi && ps == "PSSurfaceGi" ? GetGiFrameShader(ps, false) : GetFrameShader(ps, false),
                     InputLayout = input,
                     BlendState = blend,
                     SampleMask = uint.MaxValue,
@@ -545,27 +569,27 @@ public sealed partial class D3D12OriginalStyleRenderer
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                     RenderTargetFormats = [colorFormat],
                     DepthStencilFormat = dsFormat,
-                    SampleDescription = new(1, 0),
+                    SampleDescription = new(psoSamples, 0),
                 });
                 created.Add(state); return state;
             }
             string surfacePixel = key.NativeLights ? (gi ? "PSSurfaceGiNative" : "PSSurfaceNative") : (gi ? "PSSurfaceGi" : "PSSurface");
-            var surfaceBack = Pso("VSSurface", surfacePixel, layout, back, depth, FrameBlend(o.BlendMode, o.AlphaOutput), surfaceFormat, depthFormat);
-            var surfaceBoth = Pso("VSSurface", surfacePixel, layout, both, depth, FrameBlend(o.BlendMode, o.AlphaOutput), surfaceFormat, depthFormat);
+            var surfaceBack = Pso("VSSurface", surfacePixel, layout, back, depth, FrameBlend(o.BlendMode, o.AlphaOutput), surfaceFormat, depthFormat, key.SampleCount);
+            var surfaceBoth = Pso("VSSurface", surfacePixel, layout, both, depth, FrameBlend(o.BlendMode, o.AlphaOutput), surfaceFormat, depthFormat, key.SampleCount);
             var shadowBack = Pso("VSDepth", "PSDepth", positionLayout, shadowBackRaster, shadowDepth, BlendDescription.Opaque, Format.R32_Float, Format.D24_UNorm_S8_UInt);
-            var shadowBoth = Pso("VSDepth", "PSDepth", positionLayout, both, shadowDepth, BlendDescription.Opaque, Format.R32_Float, Format.D24_UNorm_S8_UInt);
-            var ground = Pso("VSGround", "PSColor", positionLayout, both, groundDepth, key.GroundBlend || o.AlphaOutput == FrameAlphaOutput.Straight ? FrameBlend(OriginalAlphaBlendMode.Normal, o.AlphaOutput) : BlendDescription.Opaque, surfaceFormat, depthFormat);
+            var shadowBoth = Pso("VSDepth", "PSDepth", positionLayout, shadowBothRaster, shadowDepth, BlendDescription.Opaque, Format.R32_Float, Format.D24_UNorm_S8_UInt);
+            var ground = Pso("VSGround", "PSColor", positionLayout, both, groundDepth, key.GroundBlend || o.AlphaOutput == FrameAlphaOutput.Straight ? FrameBlend(OriginalAlphaBlendMode.Normal, o.AlphaOutput) : BlendDescription.Opaque, surfaceFormat, depthFormat, key.SampleCount);
             ID3D12PipelineState? nativeShadowBack = null, nativeShadowBoth = null;
             if (key.NativeLights)
             {
                 nativeShadowBack = Pso("VSNativeDepth", "PSNativeDepth", layout, shadowBackRaster, DepthStencilDescription.Default, BlendDescription.Opaque, Format.R32_Float, Format.D32_Float);
-                nativeShadowBoth = Pso("VSNativeDepth", "PSNativeDepth", layout, both, DepthStencilDescription.Default, BlendDescription.Opaque, Format.R32_Float, Format.D32_Float);
+                nativeShadowBoth = Pso("VSNativeDepth", "PSNativeDepth", layout, shadowBothRaster, DepthStencilDescription.Default, BlendDescription.Opaque, Format.R32_Float, Format.D32_Float);
             }
             var outlineRoot = runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout, [new RootParameter(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All)]), RootSignatureVersion.Version10); created.Add(outlineRoot);
             var outlineShader = GetOutlineShaders(); runtime.PipelineCreations++;
             var outlineLayout = new InputLayoutDescription([new InputElementDescription("POSITION", 0, Format.R32G32B32_Float, 0, 0),
                 new("TEXCOORD", 2, Format.R32G32B32A32_Float, 0, 1)]);
-            var outline = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription { RootSignature = outlineRoot, VertexShader = outlineShader.Vertex, PixelShader = outlineShader.Pixel, InputLayout = outlineLayout, BlendState = FrameBlend(o.BlendMode, o.AlphaOutput), SampleMask = uint.MaxValue, RasterizerState = front, DepthStencilState = depth, PrimitiveTopologyType = PrimitiveTopologyType.Triangle, RenderTargetFormats = [surfaceFormat], DepthStencilFormat = depthFormat, SampleDescription = new(1, 0) }); created.Add(outline);
+            var outline = runtime.CreateGraphicsPipelineState(new GraphicsPipelineStateDescription { RootSignature = outlineRoot, VertexShader = outlineShader.Vertex, PixelShader = outlineShader.Pixel, InputLayout = outlineLayout, BlendState = FrameBlend(o.BlendMode, o.AlphaOutput), SampleMask = uint.MaxValue, RasterizerState = front, DepthStencilState = depth, PrimitiveTopologyType = PrimitiveTopologyType.Triangle, RenderTargetFormats = [surfaceFormat], DepthStencilFormat = depthFormat, SampleDescription = new(key.SampleCount, 0) }); created.Add(outline);
             var result = new FramePipelines(root, surfaceBack, surfaceBoth, shadowBack, shadowBoth, ground, new(outlineRoot, outline), nativeShadowBack, nativeShadowBoth, textureMorphRoot, pluginCbvRoot, pluginSrvTableRoot, pluginStructuredRoot, key);
             framePipelines.Add(key, result);
             return result;

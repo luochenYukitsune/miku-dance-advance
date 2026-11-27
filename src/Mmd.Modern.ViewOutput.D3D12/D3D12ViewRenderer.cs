@@ -146,7 +146,8 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
                 session.CaptureInto(pixels, scene, request.Width, request.Height, rayGiOptions: D3D12ViewQuality.Gi(request.EffectiveQuality, state),
                     upscaling: D3D12ViewQuality.Upscaling(request.EffectiveQuality), temporalUpscaling: temporal,
                     surfaceStyles: style.SurfaceStyles, diffusion: D3D12ViewQuality.Diffusion(request.EffectiveQuality),
-                    captureMemory: D3D12ViewCaptureMemory.Map(request.CaptureMemory));
+                    captureMemory: D3D12ViewCaptureMemory.Map(request.CaptureMemory),
+                    sharpening: D3D12ViewQuality.Sharpening(request.EffectiveQuality));
                 temporalClock.Commit(frame.Sample);
                 cancellationToken.ThrowIfCancellationRequested();
             }

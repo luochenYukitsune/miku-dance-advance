@@ -128,15 +128,16 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                     var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState, allowPreviewAcceleration: true);
                     var upscaling = D3D12ViewQuality.Upscaling(request.EffectiveQuality);
                     var diffusion = D3D12ViewQuality.Diffusion(request.EffectiveQuality);
+                    var sharpening = D3D12ViewQuality.Sharpening(request.EffectiveQuality);
                     if (recordAhead)
                     {
                         if (request.EffectiveQuality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off)
                             throw new InvalidOperationException("Recording ahead requires vendor temporal upscaling to be off.");
-                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken);
+                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken, sharpening);
                     }
                     else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling,
                         D3D12ViewQuality.Temporal(request.EffectiveQuality, frame.TemporalState, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory),
-                        style.SurfaceStyles, diffusion);
+                        style.SurfaceStyles, diffusion, sharpening);
                     previewSampling.CommitPresentation();
                     break;
                 }

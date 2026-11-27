@@ -75,6 +75,7 @@ public static class ViewOutputPresetJson
         options.Converters.Add(new ExactEnumConverter<RayGiDenoiser>());
         options.Converters.Add(new ExactEnumConverter<RayGiToonResponse>());
         options.Converters.Add(new ExactEnumConverter<FrameAntialiasing>());
+        options.Converters.Add(new ExactEnumConverter<ShadowFilterMode>());
         options.Converters.Add(new ExactEnumConverter<SmaaQuality>());
         options.Converters.Add(new ExactEnumConverter<SurfaceDrawOrder>());
         options.Converters.Add(new ExactEnumConverter<ViewCaptureMemoryMode>());
@@ -149,12 +150,39 @@ public static class ViewOutputPresetJson
     private sealed record QualityDto(GiDto? Gi, FrameAntialiasing? Antialiasing, SmaaQuality? SmaaQuality,
         int? SpatialSamples, UpscalingDto? Upscaling, TemporalDto? TemporalUpscaling,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiffusionDto? Diffusion = null,
-        SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
+        SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SharpeningDto? Sharpening = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? AnisotropicFiltering = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ShadowFilterMode? ShadowFilter = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] float? ShadowSoftness = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ScreenSpaceAoDto? ScreenSpaceAo = null)
     {
         internal static QualityDto? From(ViewQualityOptions? value) => value is null ? null : new(GiDto.From(value.Gi),
-            value.Antialiasing, value.SmaaQuality, value.SpatialSamples, UpscalingDto.From(value.Upscaling), TemporalDto.From(value.TemporalUpscaling), DiffusionDto.From(value.Diffusion), value.SurfaceOrder);
+            value.Antialiasing, value.SmaaQuality, value.SpatialSamples, UpscalingDto.From(value.Upscaling), TemporalDto.From(value.TemporalUpscaling), DiffusionDto.From(value.Diffusion), value.SurfaceOrder,
+            SharpeningDto.From(value.Sharpening), value.AnisotropicFiltering, value.ShadowFilter, value.ShadowSoftness, ScreenSpaceAoDto.From(value.ScreenSpaceAo));
         internal ViewQualityOptions ToOptions() => new(Gi?.ToOptions(), Antialiasing, SmaaQuality, SpatialSamples,
-            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder);
+            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder)
+        {
+            Sharpening = Sharpening?.ToOptions(),
+            AnisotropicFiltering = AnisotropicFiltering,
+            ShadowFilter = ShadowFilter,
+            ShadowSoftness = ShadowSoftness,
+            ScreenSpaceAo = ScreenSpaceAo?.ToOptions(),
+        };
+    }
+
+    private sealed record SharpeningDto(bool Enabled, float Sharpness)
+    {
+        internal static SharpeningDto? From(ViewSharpeningOptions? value) => value is null ? null :
+            new(value.Enabled, value.Sharpness);
+        internal ViewSharpeningOptions ToOptions() => new(Enabled, Sharpness);
+    }
+
+    private sealed record ScreenSpaceAoDto(bool Enabled, float Strength, float Radius, int SampleCount)
+    {
+        internal static ScreenSpaceAoDto? From(ScreenSpaceAoOptions? value) => value is null ? null :
+            new(value.Enabled, value.Strength, value.Radius, value.SampleCount);
+        internal ScreenSpaceAoOptions ToOptions() => new(Enabled, Strength, Radius, SampleCount);
     }
 
     private sealed record DiffusionDto(bool Enabled, float Strength, float Extent)

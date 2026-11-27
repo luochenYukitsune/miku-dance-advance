@@ -107,6 +107,11 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public double CaptureRetirementMilliseconds {get;init;}
     public FrameAntialiasing Antialiasing {get;init;}
     public int AntialiasingPassDrawCalls {get;init;}
+    public int MsaaSampleCount {get;init;}=1;
+    public int AnisotropicFiltering {get;init;}=1;
+    public ShadowFilterMode ShadowFilter {get;init;}=ShadowFilterMode.Linear;
+    public int ScreenSpaceAoPassDrawCalls {get;init;}
+    public int SharpeningPassDrawCalls {get;init;}
     public SmaaQuality SmaaQuality {get;init;}=SmaaQuality.High;
     public int SpatialSamples {get;init;}=1;
     public int SpatialAccumulationDispatches {get;init;}
@@ -319,13 +324,14 @@ internal sealed class D3D12RecordingContext(D3D12GpuRuntime runtime)
     {if(target.State!=state){Commands.ResourceBarrierTransition(target.Resource,target.State,state);target.State=state;}}
 }
 
-internal sealed class D3D12GpuTarget(string name,ID3D12Resource resource,CpuDescriptorHandle handle,int width,int height,Format format,bool depth)
+internal sealed class D3D12GpuTarget(string name,ID3D12Resource resource,CpuDescriptorHandle handle,int width,int height,Format format,bool depth,int sampleCount=1)
 {
     internal string Name=name;
     internal ID3D12Resource Resource=resource;
     internal CpuDescriptorHandle Handle=handle;
     internal int Width=width,Height=height;
     internal Format Format=format;
+    internal int SampleCount=sampleCount;
     internal bool Depth=depth,Initialized=false;
     internal bool StencilInitialized=false;
     internal ResourceStates State=depth?ResourceStates.DepthWrite:ResourceStates.RenderTarget;
