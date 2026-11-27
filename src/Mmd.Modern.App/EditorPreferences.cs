@@ -182,7 +182,9 @@ public sealed record EditorPreferences
     {
         quality.Validate();
         string validatedName = ValidateCustomPresetName(name);
-        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        var current = LoadCustomPreviewPresets(out string? diagnostic, path).ToList();
+        if (diagnostic is not null)
+            throw new InvalidDataException(diagnostic);
         string id = string.IsNullOrWhiteSpace(existingId) ? "custom-" + Guid.NewGuid().ToString("N") : existingId.Trim();
         var updated = new EditorPreviewCustomPreset(id, validatedName, quality);
         int index = current.FindIndex(item => StringComparer.Ordinal.Equals(item.Id, id));
@@ -197,7 +199,9 @@ public sealed record EditorPreferences
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException(EditorLocalization.Text("请选择要重命名的自定义预设。"), nameof(id));
         string validatedName = ValidateCustomPresetName(newName);
-        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        var current = LoadCustomPreviewPresets(out string? diagnostic, path).ToList();
+        if (diagnostic is not null)
+            throw new InvalidDataException(diagnostic);
         int index = current.FindIndex(item => StringComparer.Ordinal.Equals(item.Id, id));
         if (index < 0)
             throw new KeyNotFoundException(EditorLocalization.Text("找不到指定的自定义预设。"));
@@ -210,7 +214,9 @@ public sealed record EditorPreferences
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException(EditorLocalization.Text("请选择要删除的自定义预设。"), nameof(id));
-        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        var current = LoadCustomPreviewPresets(out string? diagnostic, path).ToList();
+        if (diagnostic is not null)
+            throw new InvalidDataException(diagnostic);
         current.RemoveAll(item => StringComparer.Ordinal.Equals(item.Id, id));
         SaveCustomPreviewPresets(current, path);
         return current;

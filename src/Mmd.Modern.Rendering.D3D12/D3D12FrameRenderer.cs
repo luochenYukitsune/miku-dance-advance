@@ -191,10 +191,14 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool upscale=upscaling.Mode==D3D12SpatialUpscalingMode.Fsr1;
         bool useRenderScale=!upscale&&!temporal&&renderScale!=1f;
         if(useRenderScale)
-            dimensions=new(Math.Clamp((int)MathF.Round(width*renderScale),1,4096),
-                Math.Clamp((int)MathF.Round(height*renderScale),1,4096),width,height);
+        {
+            float clampedScale=Math.Min(renderScale,4096f/Math.Max(width,height));
+            dimensions=new(Math.Clamp((int)MathF.Round(width*clampedScale),1,4096),
+                Math.Clamp((int)MathF.Round(height*clampedScale),1,4096),width,height);
+        }
         int displayWidth=width,displayHeight=height;
         width=dimensions.RenderWidth;height=dimensions.RenderHeight;
+        bool hasRenderScaleTarget=useRenderScale&&(width!=displayWidth||height!=displayHeight);
         int spatialSamples=frame.Options?.SpatialSamples??1;
         var smaaQuality=frame.Options?.SmaaQuality??SmaaQuality.High;
         D3D12TemporalGiMemoryBudget.Admission? temporalGiAdmission=null;
@@ -221,7 +225,7 @@ public sealed class D3D12FrameRenderer : IDisposable
                     D3D12SsaaGiMemoryBudget.Measure(runtime,width,height,displayWidth,displayHeight,spatialSamples,rayGiOptions!,capture,
                         frame.Options?.Antialiasing==FrameAntialiasing.Smaa1X,upscale,straightAlpha,frame,
                         reuseReceiverWorkspace:lowMemory,inFlightFrames:lowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames,
-                        temporalUpscaling:temporal),
+                        temporalUpscaling:temporal,renderScalePass:hasRenderScaleTarget),
                     additionalReservation).InFlightBytes;
             }
             ulong? ordinary=MeasureGi(false);
@@ -256,7 +260,8 @@ public sealed class D3D12FrameRenderer : IDisposable
         if((spatialSamples>1||captureLowMemory) && rayGiOptions?.Enabled==true&&!D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))
             D3D12SsaaGiMemoryBudget.Validate(runtime,width,height,displayWidth,displayHeight,spatialSamples,rayGiOptions,capture,
                 frame.Options?.Antialiasing==FrameAntialiasing.Smaa1X,upscale,straightAlpha,frame,additionalInFlightBytes:additionalReservation,
-                reuseReceiverWorkspace:captureLowMemory,inFlightFrames:captureLowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames);
+                reuseReceiverWorkspace:captureLowMemory,inFlightFrames:captureLowMemory?1:D3D12SsaaGiMemoryBudget.MaximumInFlightFrames,
+                renderScalePass:hasRenderScaleTarget);
         // In the SSAA/GI-only path the render dimensions are already authoritative. Reject
         // the complete reservation before changing any retained temporal-AA SDK owner.
         if(!temporal&&D3D12RayGiRenderer.IsTemporalEnabled(rayGiOptions))

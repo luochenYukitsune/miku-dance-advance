@@ -82,8 +82,8 @@ public partial class EditorWindow
             var nextExport = baseDraft.Preset.Export with { Quality = exportQuality };
             var nextPreset = new ViewOutputPresetDefinition(baseDraft.Preset.StableId, baseDraft.Preset.Name,
                 baseDraft.Preset.Preview, nextExport, baseDraft.Preset.Encoding, baseDraft.Preset.SchemaVersion);
-            var nextRequest = nextExport.CreateRequest(baseDraft.Request.Plan.StartFrame, baseDraft.Request.Plan.EndFrame,
-                baseDraft.Request.Plan.PhysicsPreRollFrames, baseDraft.Request.Plan.IncludeEndFrame);
+            var nextRequest = baseDraft.Request with { Quality = exportQuality };
+            nextRequest.Validate();
             var updatedDraft = baseDraft with { Preset = nextPreset, Request = nextRequest };
             updatedDraft.Validate();
             shell.ApplyOutputSettings(updatedDraft);

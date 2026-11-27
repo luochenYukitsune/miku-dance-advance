@@ -103,6 +103,18 @@ public sealed class PreviewQualityWiringAndPreferencesTests
     }
 
     [Fact]
+    public void RenderScaleUniformAspectRatioClampPreservesAspectAt4K()
+    {
+        int width = 3840, height = 2160;
+        float renderScale = 1.5f;
+        float clampedScale = Math.Min(renderScale, 4096f / Math.Max(width, height));
+        int rw = Math.Clamp((int)MathF.Round(width * clampedScale), 1, 4096);
+        int rh = Math.Clamp((int)MathF.Round(height * clampedScale), 1, 4096);
+        Assert.Equal(4096, rw);
+        Assert.Equal(2304, rh);
+    }
+
+    [Fact]
     public void CustomPreviewPresetsSaveOverwriteRenameAndDeleteInLocalPreferences()
     {
         string path = Path.Combine(Path.GetTempPath(), "mda-custom-presets-" + Guid.NewGuid().ToString("N") + ".json");
@@ -134,10 +146,17 @@ public sealed class PreviewQualityWiringAndPreferencesTests
             list = EditorPreferences.LoadCustomPreviewPresets(out diag, path);
             Assert.Empty(list);
 
-            File.WriteAllText(path, "{ invalid json");
+            const string corruptJson = "{ invalid json";
+            File.WriteAllText(path, corruptJson);
             list = EditorPreferences.LoadCustomPreviewPresets(out diag, path);
             Assert.Empty(list);
             Assert.NotNull(diag);
+
+            // Corrupt file must NOT be overwritten by Save/Rename/Delete.
+            Assert.Throws<InvalidDataException>(() => EditorPreferences.SaveCustomPreviewPreset("新预设", qualityA, path: path));
+            Assert.Throws<InvalidDataException>(() => EditorPreferences.RenameCustomPreviewPreset(created.Id, "改名", path));
+            Assert.Throws<InvalidDataException>(() => EditorPreferences.DeleteCustomPreviewPreset(created.Id, path));
+            Assert.Equal(corruptJson, File.ReadAllText(path));
         }
         finally
         {
@@ -338,6 +357,64 @@ public sealed class EditorPreviewSettingsUiRedesignTests : IAsyncDisposable
             Assert.False(dialog.FindControl<CheckBox>("PreviewAdaptiveVramSamplingBox")!.IsEnabled);
         }
         finally { dialog.Close(); Dispatcher.UIThread.RunJobs(); }
+        return true;
+    }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
+
+    [Fact]
+    public async Task ShadowNullnessUnsupportedLoadedTemporalQualityAndInvalidNumericGuardsWork() => await session.Dispatch(() =>
+    {
+        // 1. Untouched null Shadow stays null; explicit preset keeps explicit Shadow.
+        var untouchedVm = new EditorPreviewSettingsViewModel(new ViewQualityOptions());
+        Assert.True(untouchedVm.TryCreate(out var untouchedResult));
+        Assert.Null(untouchedResult!.Shadow);
+
+        untouchedVm.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Balanced);
+        Assert.True(untouchedVm.TryCreate(out var balancedResult));
+        Assert.Equal(ViewShadowOptions.Default, balancedResult!.Shadow);
+
+        // 2. Loading an unsupported temporal quality from export preserves it as unavailable instead of clamping to index 0.
+        var exportWithUnsupportedXeSs = new ViewQualityOptions(
+            TemporalUpscaling: new ViewTemporalUpscalingOptions
+            {
+                Mode = ViewTemporalUpscalingMode.XeSs,
+                XeSsQuality = ViewXeSsQuality.UltraQualityPlus
+            });
+        var capsWithOnlyQualityXeSs = new EditorPreviewCapabilities(
+            XeSsQueries: [new D3D12XeSsDeviceQuery("Mock", D3D12XeSsQuality.Quality) { Initialized = true }]);
+        var temporalVm = new EditorPreviewSettingsViewModel(
+            new ViewQualityOptions(),
+            capsWithOnlyQualityXeSs,
+            getExportQuality: () => exportWithUnsupportedXeSs,
+            copyToExportQuality: _ => { });
+        Assert.True(temporalVm.LoadFromExport());
+        Assert.Contains(temporalVm.TemporalQualities, q => q.Contains("不可用", StringComparison.Ordinal));
+        Assert.Contains("不可用", temporalVm.TemporalQualities[temporalVm.TemporalQualityIndex], StringComparison.Ordinal);
+        Assert.False(temporalVm.TryCreate(out _));
+
+        // 3. Invalid NumericUpDown input blocks Save/Overwrite/CopyToExport buttons.
+        var guardVm = new EditorPreviewSettingsViewModel(
+            EditorPreferences.DefaultPreviewQuality,
+            capsWithOnlyQualityXeSs,
+            copyToExportQuality: _ => throw new InvalidOperationException("Should not be called when input is invalid."));
+        var dialog = new EditorPreviewSettingsWindow(guardVm);
+        dialog.Show();
+        try
+        {
+            guardVm.SelectedCategoryIndex = 2; // Shadows & Detail
+            guardVm.CustomPresetName = "Test";
+            Dispatcher.UIThread.RunJobs();
+            var outlineBox = dialog.FindControl<Mmd.Modern.App.Controls.EditorNumericUpDown>("PreviewOutlineWidthScaleBox")!;
+            outlineBox.Text = "abc";
+            Dispatcher.UIThread.RunJobs();
+
+            dialog.FindControl<Button>("SaveNewCustomPresetButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            dialog.FindControl<Button>("CopyToExportButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Empty(guardVm.CustomPresets);
+            Assert.True(guardVm.HasValidationMessage);
+        }
+        finally { dialog.Close(); Dispatcher.UIThread.RunJobs(); }
+
         return true;
     }, Token).WaitAsync(TimeSpan.FromSeconds(15), Token);
 

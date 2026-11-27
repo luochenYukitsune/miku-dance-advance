@@ -145,6 +145,14 @@ public sealed class ViewQualityPresetsAndCompatibilityTests
         Assert.Equal(LightingMode.SoftwareRayTracing, ultraSw.EffectiveGi.Mode);
         Assert.True(ViewQualityPresets.TryMatchBuiltIn(ultraSw, out var matchedSw));
         Assert.Equal(BuiltInPreviewPresetKind.UltraRayTraced, matchedSw);
+
+        var ultraLegacy = ViewQualityPresets.Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: false, softwareGiAvailable: false);
+        Assert.Equal(LightingMode.Legacy, ultraLegacy.EffectiveGi.Mode);
+        Assert.True(ViewQualityPresets.TryMatchBuiltIn(ultraLegacy, out var matchedLegacy));
+        Assert.Equal(BuiltInPreviewPresetKind.UltraRayTraced, matchedLegacy);
+
+        // Null Shadow (inherit scene) must stay distinct from explicit ViewShadowOptions.Default.
+        Assert.False(ViewQualityPresets.AreEquivalent(new ViewQualityOptions(), new ViewQualityOptions { Shadow = ViewShadowOptions.Default }));
     }
 
     [Fact]

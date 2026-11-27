@@ -135,7 +135,8 @@ public static class ViewQualityPresets
             }
         }
         if (AreEquivalent(quality, Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: true, softwareGiAvailable: true))
-            || AreEquivalent(quality, Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: false, softwareGiAvailable: true)))
+            || AreEquivalent(quality, Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: false, softwareGiAvailable: true))
+            || AreEquivalent(quality, Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: false, softwareGiAvailable: false)))
         {
             kind = BuiltInPreviewPresetKind.UltraRayTraced;
             return true;
@@ -161,7 +162,7 @@ public static class ViewQualityPresets
         Diffusion: q.EffectiveDiffusion,
         SurfaceOrder: q.SurfaceOrder)
     {
-        Shadow = q.EffectiveShadow,
+        Shadow = q.Shadow,
         UseEnvironmentMipmaps = q.UseEnvironmentMipmaps,
         AdaptiveVramSampling = q.AdaptiveVramSampling,
         RenderScale = q.RenderScale,
