@@ -182,6 +182,7 @@ public sealed class D3D12FrameRenderer : IDisposable
         bool retainTriangleScratch=!emptyScene&&D3D12RayGiRenderer.UsesTriangleScratch(scene,rayGiOptions,capture);
         rayGiRenderer?.BeginFrame(retainTriangleScratch);
         pathTracingRenderer?.BeginFrame();
+        originalRecorder.ResetClusteredLightStatistics();
         if (width is < 1 or > 4096 || height is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(width));
         ulong diffusionReservation=D3D12DiffusionMemoryBudget.Measure(runtime,width,height,diffusionActive,
             alphaCoverage:frame.Options?.AlphaOutput==FrameAlphaOutput.Straight);
@@ -733,8 +734,9 @@ public sealed class D3D12FrameRenderer : IDisposable
     {
         if (frame.Options?.PipelineMode == RenderPipelineMode.PathTracing)
         {
-            if (spatialMode != D3D12SpatialUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) != 1 || frame.Options?.Antialiasing != FrameAntialiasing.Off)
-                throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing, spatial supersampling and spatial upscaling to be disabled.");
+            if (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off
+                || (frame.Options?.SpatialSamples ?? 1) != 1 || frame.Options?.Antialiasing != FrameAntialiasing.Off)
+                throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and progressive accumulation, and requires raster antialiasing, spatial supersampling, spatial upscaling and temporal upscaling to be disabled.");
         }
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
         {

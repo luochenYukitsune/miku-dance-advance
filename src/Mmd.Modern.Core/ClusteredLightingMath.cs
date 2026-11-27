@@ -94,13 +94,13 @@ public static class ClusteredLightingMath
         float sliceF;
         if (orthographic)
         {
-            float normalized = Math.Clamp((positiveDepth - near) / MathF.Max(far - near, 1e-6f), 0f, 1f);
+            float normalized = Math.Clamp((positiveDepth - near) / MathF.Max(far - near, 1e-30f), 0f, 1f);
             sliceF = normalized * gridZ;
         }
         else
         {
             float clamped = MathF.Max(positiveDepth, near);
-            float logRatio = MathF.Max(MathF.Log(far / near), 1e-6f);
+            float logRatio = MathF.Max(MathF.Log(far / near), 1e-30f);
             sliceF = MathF.Log(clamped / near) / logRatio * gridZ;
         }
         int slice = (int)MathF.Floor(sliceF);
@@ -150,7 +150,7 @@ public static class ClusteredLightingMath
         {
             if (orthographic)
                 return new Vector3(nearPoint.X, nearPoint.Y, targetViewZ);
-            float scale = MathF.Abs(nearPoint.Z) > 1e-8f ? targetViewZ / nearPoint.Z : 1f;
+            float scale = MathF.Abs(nearPoint.Z) > 1e-30f ? targetViewZ / nearPoint.Z : 1f;
             return nearPoint * scale;
         }
 

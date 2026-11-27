@@ -172,6 +172,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
     private int committedAccumulatedFrames;
     private PathTracingHistoryKey? pendingKey;
     private int pendingAccumulatedFrames;
+    private D3D12PathTracingStatistics? pendingStatistics;
     private bool hasPendingCommit;
     private string invalidationReason = "FirstFrame";
     private bool disposed;
@@ -187,7 +188,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         return capabilities = D3D12HardwareRayGi.Inspect(runtime, available);
     }
 
-    internal void BeginFrame() => LastStatistics = null;
+    internal void BeginFrame() => pendingStatistics = null;
 
     internal void CommitFrame()
     {
@@ -206,8 +207,10 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         pendingStateRestore = null;
         committedKey = pendingKey;
         committedAccumulatedFrames = pendingAccumulatedFrames;
+        LastStatistics = pendingStatistics;
         pendingKey = null;
         pendingAccumulatedFrames = 0;
+        pendingStatistics = null;
         hasPendingCommit = false;
         invalidationReason = "FirstFrame";
     }
@@ -227,12 +230,14 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         }
         pendingKey = null;
         pendingAccumulatedFrames = 0;
+        pendingStatistics = null;
         hasPendingCommit = false;
     }
 
     internal void InvalidateHistory(string reason = "ModeChanged")
     {
         AbortFrame();
+        LastStatistics = null;
         committedKey = null;
         committedAccumulatedFrames = 0;
         invalidationReason = reason;
@@ -277,9 +282,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
 
         if (sceneSnapshot.Indices.Length == 0)
         {
-            var clearColor = straightAlpha
-                ? new Color4(background.X * background.W, background.Y * background.W, background.Z * background.W, background.W)
-                : new Color4(background.X, background.Y, background.Z, background.W);
+            var clearColor = ResolveEmptyBackground(background, options.ShadingMode, straightAlpha);
             context.Transition(output, ResourceStates.RenderTarget);
             context.Transition(depth, ResourceStates.DepthWrite);
             context.Commands.ClearRenderTargetView(output.Handle, clearColor);
@@ -289,7 +292,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
             pendingKey = currentKey;
             pendingAccumulatedFrames = 1;
             hasPendingCommit = true;
-            LastStatistics = new D3D12PathTracingStatistics(
+            pendingStatistics = new D3D12PathTracingStatistics(
                 Active: true,
                 UsedHardwareRayTracing: useHardware,
                 BackendIdentity: useHardware ? "PathTracing-DXR" : (runtime.IsWarp ? "PathTracing-SoftwareBVH-WARP" : "PathTracing-SoftwareBVH"),
@@ -517,7 +520,7 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
         pendingAccumulatedFrames = nextAccumulated;
         hasPendingCommit = true;
 
-        LastStatistics = new D3D12PathTracingStatistics(
+        pendingStatistics = new D3D12PathTracingStatistics(
             Active: true,
             UsedHardwareRayTracing: useHardware,
             BackendIdentity: backendIdentity,
@@ -535,6 +538,37 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
             Width: width,
             Height: height,
             DispatchCount: dispatches);
+    }
+
+    internal static Color4 ResolveEmptyBackground(Vector4 background, PathTracingShadingMode shadingMode, bool straightAlpha)
+    {
+        static float AcesFilmChannel(float x)
+        {
+            x = MathF.Max(x, 0f);
+            return Math.Clamp((x * (2.51f * x + 0.03f)) / (x * (2.43f * x + 0.59f) + 0.14f), 0f, 1f);
+        }
+
+        if (!float.IsFinite(background.X) || !float.IsFinite(background.Y) || !float.IsFinite(background.Z) || !float.IsFinite(background.W))
+            background = new Vector4(0f, 0f, 0f, 1f);
+        float a = Math.Clamp(background.W, 0f, 1f);
+        float r = MathF.Max(background.X, 0f);
+        float g = MathF.Max(background.Y, 0f);
+        float b = MathF.Max(background.Z, 0f);
+        if (straightAlpha && a <= 1e-4f)
+            return new Color4(0f, 0f, 0f, a);
+        if (shadingMode == PathTracingShadingMode.Physical)
+        {
+            r = AcesFilmChannel(r);
+            g = AcesFilmChannel(g);
+            b = AcesFilmChannel(b);
+        }
+        else
+        {
+            r = Math.Clamp(r, 0f, 1f);
+            g = Math.Clamp(g, 0f, 1f);
+            b = Math.Clamp(b, 0f, 1f);
+        }
+        return straightAlpha ? new Color4(r * a, g * a, b * a, a) : new Color4(r, g, b, a);
     }
 
     private PersistentHistoryBuffers AcquireHistoryBuffers(D3D12RecordingContext context, int width, int height)

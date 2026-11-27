@@ -295,11 +295,29 @@ public sealed class ClusteredLightingAndPathTracingMathTests
     }
 
     [Fact]
+    public void PathTracingShaderSourceEnforcesCoreContracts()
+    {
+        string traceSrc = D3D12PathTracingShaders.TraceShaderSource(hardware: false, textureMorph: false, subTexture: false);
+        Assert.Contains("ray.TMax = rayLen;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("if (toonMode && PtLightColorEnv.w > 0.0)", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("bool keepPreviousGuide = !hasGuide && !resetHistory && progressive && PtConfig.z > 0u;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("PtHitPosition(", traceSrc, StringComparison.Ordinal);
+        Assert.DoesNotContain(".TMin = PtTuning.x;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("max(PT_PI * d * d, 1e-12)", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("float pSpec = clamp(max(F.x, max(F.y, F.z)), 0.05, 0.95);", traceSrc, StringComparison.Ordinal);
+        Assert.DoesNotContain("roughness < 0.95", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
+        Assert.Contains("straightAlpha ? (filteredRgb * center.a) : filteredRgb", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
+        Assert.Contains("1e-30", OriginalClusteredLightShader.HlslHeader, StringComparison.Ordinal);
+        Assert.Contains("abs(nearPoint.z) > 1e-30", D3D12ClusteredLightPass.BuildSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PathTracingComputeAndDenoiserShadersCompileCleanlyWithDxc()
     {
         string? dxcPath;
         try { dxcPath = DxcShaderCompiler.ResolveCompilerPath(); }
-        catch { return; }
+        catch (Exception ex) { Assert.Skip($"DXC compiler unavailable: {ex.Message}"); return; }
         Assert.False(string.IsNullOrWhiteSpace(dxcPath));
 
         var compiler = new DxcShaderCompiler(dxcPath);
@@ -320,17 +338,97 @@ public sealed class ClusteredLightingAndPathTracingMathTests
 
         var denoise = compiler.CompileCompute(D3D12PathTracingShaders.DenoiserSource, "CSDenoise", "cs_6_0");
         Assert.NotEmpty(denoise.Dxil);
+    }
 
-        // Verify shader contracts for distant primary rays, progressive guide preservation,
-        // straight-alpha unpremultiplied denoising, and Physical-mode environment gating.
-        string traceSrc = D3D12PathTracingShaders.TraceShaderSource(hardware: false, textureMorph: false, subTexture: false);
-        Assert.Contains("ray.TMax = rayLen;", traceSrc, StringComparison.Ordinal);
-        Assert.Contains("if (toonMode && PtLightColorEnv.w > 0.0)", traceSrc, StringComparison.Ordinal);
-        Assert.Contains("bool keepPreviousGuide = !hasGuide && !resetHistory && progressive && PtConfig.z > 0u;", traceSrc, StringComparison.Ordinal);
-        Assert.Contains("PtHitPosition(", traceSrc, StringComparison.Ordinal);
-        Assert.DoesNotContain(".TMin = PtTuning.x;", traceSrc, StringComparison.Ordinal);
-        Assert.Contains("float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
-        Assert.Contains("straightAlpha ? (filteredRgb * center.a) : filteredRgb", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
+    [Fact]
+    public void ClusteredMathHandlesTinyClipSpansAndSmallPerspectiveNear()
+    {
+        // Tiny positive span (Near=1, Far=1+4 ULP) must distribute across all slices without clamping denominator to 1e-6.
+        float tinyNear = 1f;
+        float tinyFar = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(tinyNear) + 4);
+        float midDepth = 0.5f * (tinyNear + tinyFar);
+
+        Assert.Equal(0, ClusteredLightingMath.SliceFromViewDepth(tinyNear, tinyNear, tinyFar, 8, orthographic: true));
+        Assert.InRange(ClusteredLightingMath.SliceFromViewDepth(midDepth, tinyNear, tinyFar, 8, orthographic: true), 3, 5);
+        Assert.Equal(7, ClusteredLightingMath.SliceFromViewDepth(tinyFar, tinyNear, tinyFar, 8, orthographic: true));
+
+        Assert.Equal(0, ClusteredLightingMath.SliceFromViewDepth(tinyNear, tinyNear, tinyFar, 8, orthographic: false));
+        Assert.InRange(ClusteredLightingMath.SliceFromViewDepth(midDepth, tinyNear, tinyFar, 8, orthographic: false), 3, 5);
+        Assert.Equal(7, ClusteredLightingMath.SliceFromViewDepth(tinyFar, tinyNear, tinyFar, 8, orthographic: false));
+
+        // Small valid perspective Near (1e-9) must still project slices onto their target view Z instead of falling back to scale=1.
+        var grid = new ClusterGridDimensions(4, 4, 8, 32);
+        var tinyNearCamera = new SceneCamera(
+            Eye: new Vector3(0, 0, -5f),
+            Target: Vector3.Zero,
+            Up: Vector3.UnitY,
+            OrthographicHeight: 4f,
+            Near: 1e-9f,
+            Far: 1f,
+            VerticalFovDegrees: 45f);
+        var proj = ClusteredLightingMath.CreateProjectionMatrix(tinyNearCamera, 128, 128);
+        Assert.True(Matrix4x4.Invert(proj, out var invProj));
+        var farSliceAabb = ClusteredLightingMath.BuildClusterAabb(1, 1, 7, grid, invProj, tinyNearCamera.Near, tinyNearCamera.Far, tinyNearCamera.LeftHanded, orthographic: false);
+        var (expectedNear, expectedFar) = ClusteredLightingMath.SliceDepthBounds(7, tinyNearCamera.Near, tinyNearCamera.Far, 8, orthographic: false);
+        Assert.InRange(-farSliceAabb.Max.Z, expectedNear * 0.99f, expectedNear * 1.01f);
+        Assert.InRange(-farSliceAabb.Min.Z, expectedFar * 0.99f, expectedFar * 1.01f);
+    }
+
+    [Fact]
+    public void ClusteredStyleShaderPreservesPluginCommentsContainingNativeLoopAnchor()
+    {
+        const string commentAnchor = "// [loop] for(uint i=0;i<(uint)NativeInfo.x;i++) {";
+        const string commentNativeDirect = "// float3 NativeDirect(SurfaceOutput v)";
+        var plugin = new D3D12PluginShaderModule(
+            ModuleId: "comment-anchor-test",
+            HlslSource: $"{commentAnchor}\n{commentNativeDirect}\nfloat MdaStyleLightResponse(SurfaceOutput v, float3 n, float3 l, float visibility) {{ return MdaLightResponseDefault(v, n, l, visibility); }}",
+            Hooks: D3D12StyleShaderHookMask.LightResponse);
+
+        string assembled = D3D12StyleShaderAssembler.AssemblePixelSource(
+            "PSSurfaceNative", plugin, plugin.EffectiveHooks, D3D12StyleGeometryRequirements.None,
+            nativeLights: true, gi: false, textureMorph: false, subTexture: false,
+            characterToon: false, preserveDirectLightPalette: false, clusteredLights: true);
+
+        Assert.Contains(commentAnchor, assembled, StringComparison.Ordinal);
+        Assert.Contains(commentNativeDirect, assembled, StringComparison.Ordinal);
+        Assert.Contains("ComputeClusterIndex(v.Position.xy, v.WorldPosition)", assembled, StringComparison.Ordinal);
+
+        byte[] bytecode = D3D12StyleShaderAssembler.CompilePixel(
+            "comment-anchor-test", "PSSurfaceNative", plugin, plugin.EffectiveHooks, D3D12StyleGeometryRequirements.None,
+            nativeLights: true, gi: false, textureMorph: false, subTexture: false,
+            characterToon: false, preserveDirectLightPalette: false, clusteredLights: true);
+        Assert.NotEmpty(bytecode);
+    }
+
+    [Fact]
+    public void EmptySceneBackgroundResolverMatchesPathTracingResolveContract()
+    {
+        var bg = new Vector4(0.5f, 0.3f, 0.8f, 1f);
+        var toon = D3D12PathTracingRenderer.ResolveEmptyBackground(bg, PathTracingShadingMode.ToonHybrid, straightAlpha: false);
+        Assert.Equal(0.5f, toon.R, 5);
+        Assert.Equal(0.3f, toon.G, 5);
+        Assert.Equal(0.8f, toon.B, 5);
+        Assert.Equal(1f, toon.A, 5);
+
+        static float Aces(float x) => Math.Clamp((x * (2.51f * x + 0.03f)) / (x * (2.43f * x + 0.59f) + 0.14f), 0f, 1f);
+        var physical = D3D12PathTracingRenderer.ResolveEmptyBackground(bg, PathTracingShadingMode.Physical, straightAlpha: false);
+        Assert.Equal(Aces(0.5f), physical.R, 5);
+        Assert.Equal(Aces(0.3f), physical.G, 5);
+        Assert.Equal(Aces(0.8f), physical.B, 5);
+        Assert.Equal(1f, physical.A, 5);
+
+        var semi = new Vector4(0.5f, 0.3f, 0.8f, 0.5f);
+        var physicalStraight = D3D12PathTracingRenderer.ResolveEmptyBackground(semi, PathTracingShadingMode.Physical, straightAlpha: true);
+        Assert.Equal(Aces(0.5f) * 0.5f, physicalStraight.R, 5);
+        Assert.Equal(Aces(0.3f) * 0.5f, physicalStraight.G, 5);
+        Assert.Equal(Aces(0.8f) * 0.5f, physicalStraight.B, 5);
+        Assert.Equal(0.5f, physicalStraight.A, 5);
+
+        var transparent = D3D12PathTracingRenderer.ResolveEmptyBackground(new Vector4(0.5f, 0.5f, 0.5f, 0f), PathTracingShadingMode.Physical, straightAlpha: true);
+        Assert.Equal(0f, transparent.R, 5);
+        Assert.Equal(0f, transparent.G, 5);
+        Assert.Equal(0f, transparent.B, 5);
+        Assert.Equal(0f, transparent.A, 5);
     }
 
     [Fact]

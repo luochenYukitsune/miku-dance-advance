@@ -149,6 +149,7 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
         preflightCpu.Dispose();
         if(frame.Options is not null)
             return RecordFrame(device,commands,GetFramePipelines(frame,depth.Format,gi is not null,surfaceStyles?.HasAnyPluginSpace2==true),frame,width,height,vb,ib,srvHeap,srvStride,color.Handle,depth.Handle,depth.Format,UploadBuffer,Own,value=>context.Own(value),ref prepared,slotBase,context,cache,gi,surfaceStyles);
+        ResetClusteredLightStatistics();
         var selected=GetPipelines(style.Profile.TextureSampling,depth.Format,textureMorph,subTexture,D3D12RasterWinding.FrontCounterClockwise(frame));var root=selected.Root;
         commands.SetGraphicsRootSignature(root);commands.SetDescriptorHeaps(srvHeap);commands.OMSetRenderTargets(color.Handle,depth.Handle);
         commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);

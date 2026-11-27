@@ -233,11 +233,8 @@ internal static class D3D12StyleShaderAssembler
             sb.AppendLine("// --- End Plugin Shader Module ---");
         }
 
-        AppendPixelHostPostPlugin(sb, entryPoint, hooks, geometry, gi, nativeLights, preserveDirectLightPalette);
-        string assembled = PruneInactivePreprocessorBranches(sb.ToString());
-        if (nativeLights && clusteredLights)
-            assembled = OriginalClusteredLightShader.Apply(assembled);
-        return assembled;
+        AppendPixelHostPostPlugin(sb, entryPoint, hooks, geometry, gi, nativeLights, preserveDirectLightPalette, clusteredLights);
+        return PruneInactivePreprocessorBranches(sb.ToString());
     }
 
     private static string PruneInactivePreprocessorBranches(string source)
@@ -725,7 +722,8 @@ internal static class D3D12StyleShaderAssembler
         D3D12StyleGeometryRequirements geometry,
         bool gi,
         bool nativeLights,
-        bool preserveDirectLightPalette)
+        bool preserveDirectLightPalette,
+        bool clusteredLights)
     {
         if (!hooks.HasFlag(D3D12StyleShaderHookMask.LightResponse))
         {
@@ -1066,6 +1064,10 @@ internal static class D3D12StyleShaderAssembler
                 float NativeVisibility(uint index, NativeLight light, float3 position, float3 normal, float3 towardLight) {
                     return NativeVisibility(index, light, position, normal, towardLight, 0, 0, 0);
                 }
+                """);
+            if (clusteredLights)
+                sb.AppendLine(OriginalClusteredLightShader.HlslHeader);
+            sb.AppendLine("""
                 float3 NativeDirect(SurfaceOutput v) {
                     float3 worldDx = ddx(v.WorldPosition), worldDy = ddy(v.WorldPosition);
                     float3 n = normalize(v.Normal);
@@ -1081,7 +1083,11 @@ internal static class D3D12StyleShaderAssembler
                     if (multiplySphere) diffuse *= MorphSphere(SphereMap.Sample(SelectedSampler, MdaGetSphereUv(v)).rgb, false);
                     float3 result = 0;
                     if (NativeAtlasLayout.z > 0) result = diffuse * NativeAtlasLayout.z;
-                    [loop] for (uint i = 0; i < (uint)NativeInfo.x; i++) {
+                """);
+            sb.AppendLine(clusteredLights
+                ? OriginalClusteredLightShader.ClusteredLoopReplacement
+                : "    [loop] for (uint i = 0; i < (uint)NativeInfo.x; i++) {");
+            sb.AppendLine("""
                         if ((NativeInfo.y & (1u << i)) == 0) continue;
                         NativeLight source = NativeLights[i];
                         [loop] for (uint sample = 0; sample < (source.PositionKind.w == 3 ? 4u : 1u); sample++) {

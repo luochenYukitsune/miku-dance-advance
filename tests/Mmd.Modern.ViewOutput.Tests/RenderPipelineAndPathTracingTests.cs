@@ -105,7 +105,7 @@ public sealed class RenderPipelineAndPathTracingTests
         Assert.Equal(PathTracingShadingMode.Physical, applied.PathTracing!.ShadingMode);
         OriginalFrameMath.Validate(applied);
 
-        // PathTracing rejects raster AA, spatial supersampling, and spatial upscaling.
+        // PathTracing rejects raster AA, spatial supersampling, spatial upscaling, and temporal upscaling.
         Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
             Antialiasing: FrameAntialiasing.Smaa1X,
             PipelineMode: RenderPipelineMode.PathTracing).Validate());
@@ -114,6 +114,15 @@ public sealed class RenderPipelineAndPathTracingTests
             PipelineMode: RenderPipelineMode.PathTracing).Validate());
         Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
             Upscaling: new() { Mode = ViewUpscalingMode.Fsr1 },
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            TemporalUpscaling: new() { Mode = ViewTemporalUpscalingMode.Fsr },
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            TemporalUpscaling: new() { Mode = ViewTemporalUpscalingMode.XeSs },
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            TemporalUpscaling: new() { Mode = ViewTemporalUpscalingMode.Dlss },
             PipelineMode: RenderPipelineMode.PathTracing).Validate());
 
         // Inherited scene SMAA / SSAA must also be rejected when PathTracing leaves overrides null.

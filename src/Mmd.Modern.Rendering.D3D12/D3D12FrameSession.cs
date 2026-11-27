@@ -73,12 +73,7 @@ public sealed class D3D12FrameSession:IDisposable
     {
         ArgumentNullException.ThrowIfNull(spec);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed), this);
-        DxcShaderCompiler? compiler = null;
-        if (spec.Gi || spec.PipelineMode == RenderPipelineMode.PathTracing || spec.IncludeGpuSkinning)
-        {
-            try { compiler = Runtime.GetOrCreateDxcCompiler(); } catch { }
-        }
-        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, compiler, cancellationToken);
+        return D3D12ShaderPrewarmer.PrewarmAsync(spec, maxParallelism, explicitDxcCompiler: null, cancellationToken);
     }
     internal void StartBackgroundPrewarm(D3D12ShaderWarmupSpec spec)
     {

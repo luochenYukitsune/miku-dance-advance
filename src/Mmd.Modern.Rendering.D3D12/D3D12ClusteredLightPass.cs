@@ -37,9 +37,9 @@ internal static class OriginalClusteredLightShader
             float depth = viewZ * ClusterViewport.z;
             float sliceF;
             if (ClusterParams.w > 0.5) {
-                sliceF = saturate((depth - ClusterParams.x) / max(ClusterParams.y - ClusterParams.x, 1e-6)) * ClusterGridDims.z;
+                sliceF = saturate((depth - ClusterParams.x) / max(ClusterParams.y - ClusterParams.x, 1e-30)) * ClusterGridDims.z;
             } else {
-                sliceF = log(max(depth, ClusterParams.x) / ClusterParams.x) / max(ClusterParams.z, 1e-6) * ClusterGridDims.z;
+                sliceF = log(max(depth, ClusterParams.x) / ClusterParams.x) / max(ClusterParams.z, 1e-30) * ClusterGridDims.z;
             }
             uint cz = min((uint)max(floor(sliceF), 0.0), ClusterGridDims.z - 1u);
             return (cz * ClusterGridDims.y + cy) * ClusterGridDims.x + cx;
@@ -49,7 +49,7 @@ internal static class OriginalClusteredLightShader
     private const string CompactLoopAnchor = "[loop] for(uint i=0;i<(uint)NativeInfo.x;i++) {";
     private const string SpacedLoopAnchor = "[loop] for (uint i = 0; i < (uint)NativeInfo.x; i++) {";
 
-    private const string ClusteredLoopReplacement = """
+    internal const string ClusteredLoopReplacement = """
         uint mdaClusterIndex = ComputeClusterIndex(v.Position.xy, v.WorldPosition);
         uint2 mdaClusterRange = ClusterLightGrid[mdaClusterIndex];
         [loop] for (uint mdaClusterSlot = 0; mdaClusterSlot < mdaClusterRange.y; mdaClusterSlot++) {
@@ -58,18 +58,32 @@ internal static class OriginalClusteredLightShader
 
     internal static string Apply(string source)
     {
-        string anchor = source.Contains(CompactLoopAnchor, StringComparison.Ordinal)
-            ? CompactLoopAnchor
-            : source.Contains(SpacedLoopAnchor, StringComparison.Ordinal)
-                ? SpacedLoopAnchor
-                : throw new InvalidOperationException("Clustered light shader loop anchor missing.");
-
         int insertAt = source.IndexOf("float3 NativeDirect(", StringComparison.Ordinal);
         if (insertAt < 0)
             throw new InvalidOperationException("Clustered light shader NativeDirect anchor missing.");
 
-        source = source.Insert(insertAt, HlslHeader + "\n");
-        return source.Replace(anchor, ClusteredLoopReplacement, StringComparison.Ordinal);
+        string anchor;
+        int loopAt = source.IndexOf(CompactLoopAnchor, insertAt, StringComparison.Ordinal);
+        if (loopAt >= 0)
+        {
+            anchor = CompactLoopAnchor;
+        }
+        else
+        {
+            loopAt = source.IndexOf(SpacedLoopAnchor, insertAt, StringComparison.Ordinal);
+            if (loopAt < 0)
+                throw new InvalidOperationException("Clustered light shader loop anchor missing.");
+            anchor = SpacedLoopAnchor;
+        }
+
+        var sb = new System.Text.StringBuilder(source.Length + HlslHeader.Length + ClusteredLoopReplacement.Length + 1);
+        sb.Append(source, 0, insertAt);
+        sb.Append(HlslHeader);
+        sb.Append('\n');
+        sb.Append(source, insertAt, loopAt - insertAt);
+        sb.Append(ClusteredLoopReplacement);
+        sb.Append(source, loopAt + anchor.Length, source.Length - (loopAt + anchor.Length));
+        return sb.ToString();
     }
 }
 
@@ -276,7 +290,7 @@ internal sealed class D3D12ClusteredLightPass(D3D12GpuRuntime runtime, D3D12GpuC
 
         float3 ProjectToDepth(float3 nearPoint, float targetViewZ, bool orthographic) {
             if (orthographic) return float3(nearPoint.x, nearPoint.y, targetViewZ);
-            float scale = abs(nearPoint.z) > 1e-8 ? targetViewZ / nearPoint.z : 1.0;
+            float scale = abs(nearPoint.z) > 1e-30 ? targetViewZ / nearPoint.z : 1.0;
             return nearPoint * scale;
         }
 

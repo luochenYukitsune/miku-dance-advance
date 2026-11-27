@@ -73,10 +73,16 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         var fwdImg = session.Capture(forward, 96, 72);
         var cluImg = session.Capture(clustered, 96, 72);
         Assert.True(session.ClusteredLightStatistics?.Active);
+        Assert.Equal(4, session.ClusteredLightStatistics!.DispatchCount);
         int maxDiff = 0;
         for (int i = 0; i < fwdImg.Rgba.Length; i++)
             maxDiff = Math.Max(maxDiff, Math.Abs(fwdImg.Rgba[i] - cluImg.Rgba[i]));
         Assert.InRange(maxDiff, 0, 1);
+
+        // Legacy Options == null Forward frame must clear previous ClusteredForward statistics.
+        var legacyNullOptionsFrame = new OriginalFrameScene(baseFrame.Surface);
+        _ = session.Capture(legacyNullOptionsFrame, 96, 72);
+        Assert.Null(session.ClusteredLightStatistics);
     }
 
     [Theory]
@@ -210,17 +216,21 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         Assert.Equal(1, renderer.PathTracingStatistics!.AccumulatedFrames);
 
         // 2. Abort a same-size recording after PathTracingRenderer.Record has transitioned persistent history buffers.
+        //    Aborted frames must NOT publish incremented AccumulatedFrames in PathTracingStatistics.
         Assert.Throws<InvalidOperationException>(() =>
             renderer.RecordGpu(frame, 64, 48, null, (_, _) => throw new InvalidOperationException("simulated same-size abort")));
+        Assert.Equal(1, renderer.PathTracingStatistics!.AccumulatedFrames);
 
         // 3. Subsequent same-size frame must recover cleanly without barrier mismatch and continue accumulation.
         _ = renderer.Render(frame, 64, 48);
         Assert.False(renderer.PathTracingStatistics!.HistoryReset);
         Assert.Equal(2, renderer.PathTracingStatistics.AccumulatedFrames);
 
-        // 4. Abort a resized recording (80x60) before Submit; prior 64x48 history buffers & states must remain intact.
+        // 4. Abort a resized recording (80x60) before Submit; prior 64x48 history buffers, states, and stats must remain intact.
         Assert.Throws<InvalidOperationException>(() =>
             renderer.RecordGpu(frame, 80, 60, null, (_, _) => throw new InvalidOperationException("simulated resize abort")));
+        Assert.Equal(2, renderer.PathTracingStatistics!.AccumulatedFrames);
+        Assert.Equal(64, renderer.PathTracingStatistics.Width);
 
         // 5. Rendering at 64x48 again continues cleanly from accumulated frame 2 -> 3.
         _ = renderer.Render(frame, 64, 48);
@@ -235,7 +245,7 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
     }
 
     [Fact]
-    public async Task ViewRendererExecutesClusteredForwardAndPathTracingThroughViewQualityOptions()
+    public async Task ViewRendererExecutesClusteredForwardThroughViewQualityOptions()
     {
         var baseScene = CreateLitBoxScene(withOccluder: true);
         var ct = TestContext.Current.CancellationToken;
@@ -246,13 +256,28 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         var clusteredReq = new ViewRenderRequest(64, 48, new ViewQualityOptions(
             Antialiasing: FrameAntialiasing.Smaa1X,
             PipelineMode: RenderPipelineMode.ClusteredForward));
-        await using (var renderer = new D3D12ViewRenderer(clusteredReq))
+        await using var renderer = new D3D12ViewRenderer(clusteredReq);
+        using var lease = await renderer.CaptureAsync(offline, ct);
+        Assert.Equal(64, lease.Width);
+        Assert.Equal(48, lease.Height);
+        Assert.True(renderer.ClusteredLightStatistics?.Active);
+    }
+
+    [Fact]
+    public async Task ViewRendererExecutesPathTracingThroughViewQualityOptions()
+    {
+        using (var probe = new D3D12FrameSession())
         {
-            using var lease = await renderer.CaptureAsync(offline, ct);
-            Assert.Equal(64, lease.Width);
-            Assert.Equal(48, lease.Height);
-            Assert.True(renderer.ClusteredLightStatistics?.Active);
+            var caps = probe.QueryRayGiCapabilities();
+            if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+                Assert.Skip(caps.UnavailableReason ?? "Path tracing requires Shader Model 6.0 compute and DXC.");
         }
+
+        var baseScene = CreateLitBoxScene(withOccluder: true);
+        var ct = TestContext.Current.CancellationToken;
+        var offline = new Mmd.Modern.Application.OfflineFrame(
+            new Mmd.Modern.Application.OfflineFrameSample(0, new(0, 30), new(0, 1), new(0, 1)),
+            64, 48, baseScene, null, null, null);
 
         var ptReq = new ViewRenderRequest(64, 48, new ViewQualityOptions(
             Gi: new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: 4f, SamplesPerPixel: 4),
@@ -260,14 +285,64 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
             SpatialSamples: 1,
             PipelineMode: RenderPipelineMode.PathTracing,
             PathTracing: new PathTracingOptions(SamplesPerFrame: 2, MaxBounces: 3, UseHardwareRayTracing: false)));
-        await using (var ptRenderer = new D3D12ViewRenderer(ptReq))
-        {
-            using var lease = await ptRenderer.CaptureAsync(offline, ct);
-            Assert.Equal(64, lease.Width);
-            Assert.Equal(48, lease.Height);
-            Assert.True(ptRenderer.PathTracingStatistics?.Active);
-            Assert.Null(ptRenderer.RayGiStatistics);
-        }
+        await using var ptRenderer = new D3D12ViewRenderer(ptReq);
+        using var lease = await ptRenderer.CaptureAsync(offline, ct);
+        Assert.Equal(64, lease.Width);
+        Assert.Equal(48, lease.Height);
+        Assert.True(ptRenderer.PathTracingStatistics?.Active);
+        Assert.Null(ptRenderer.RayGiStatistics);
+    }
+
+    [Fact]
+    public void PathTracingRejectsTemporalUpscalingAndMatchesEmptyScenePhysicalBackground()
+    {
+        using var session = new D3D12FrameSession();
+        var caps = session.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            Assert.Skip(caps.UnavailableReason ?? "Path tracing requires Shader Model 6.0 compute and DXC.");
+
+        var baseScene = CreateLitBoxScene(withOccluder: false);
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.Physical,
+            SamplesPerFrame: 1,
+            MaxBounces: 2,
+            ProgressiveAccumulation: false,
+            Denoiser: RayGiDenoiser.Off,
+            UseHardwareRayTracing: false);
+        var bg = new Vector4(0.5f, 0.3f, 0.8f, 1f);
+        var ptFrame = new OriginalFrameScene(baseScene.Surface,
+            options: baseScene.Options! with { PipelineMode = RenderPipelineMode.PathTracing, PathTracing = ptOptions, BackgroundColor = bg },
+            materials: baseScene.Materials);
+
+        // Temporal upscaling must be rejected for PathTracing directly at D3D12FrameRenderer.
+        Assert.Throws<NotSupportedException>(() =>
+            session.Capture(ptFrame, 64, 48, temporalUpscaling: new D3D12TemporalUpscalingOptions { Mode = D3D12TemporalUpscalingMode.Fsr }));
+
+        // Empty scene (Indices.Length == 0) must match off-screen geometry miss pixel resolved by PSResolve in Physical mode.
+        var camera = baseScene.Surface.Snapshot.Camera;
+        var emptySnapshot = new SceneSnapshot([], [], [], camera: camera);
+        var emptyFrame = new OriginalFrameScene(
+            new OriginalStyleScene(emptySnapshot, [], OriginalStyleProfile.SelectedReference),
+            options: ptFrame.Options);
+
+        SceneVertex[] behindVerts =
+        [
+            new(new(-1f, -1f, -20f), -Vector3.UnitZ, new(0, 1)),
+            new(new(1f, -1f, -20f), -Vector3.UnitZ, new(1, 1)),
+            new(new(0f, 1f, -20f), -Vector3.UnitZ, new(0.5f, 0)),
+        ];
+        var behindSnapshot = new SceneSnapshot(behindVerts, [0u, 1u, 2u],
+            [new SceneMaterial("behind", 0, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 4f)], camera: camera);
+        var behindFrame = new OriginalFrameScene(
+            new OriginalStyleScene(behindSnapshot, [new OriginalStyleMaterialBinding(ToonShadowColor: Vector3.Zero, DoubleSided: true)], OriginalStyleProfile.SelectedReference),
+            options: ptFrame.Options,
+            materials: [new OriginalFrameMaterialFlags(false, false, false)]);
+
+        var emptyImg = session.Capture(emptyFrame, 64, 48);
+        var missImg = session.Capture(behindFrame, 64, 48);
+        int center = (24 * 64 + 32) * 4;
+        for (int c = 0; c < 4; c++)
+            Assert.InRange(Math.Abs(emptyImg.Rgba[center + c] - missImg.Rgba[center + c]), 0, 1);
     }
 
     [Fact]

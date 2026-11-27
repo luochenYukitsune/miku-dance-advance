@@ -31,8 +31,9 @@ public sealed record ViewQualityOptions(RayGiOptions? Gi = null, FrameAntialiasi
             throw new NotSupportedException("Temporal reconstruction currently requires spatial upscaling, SMAA and supersampling to be disabled.");
         if (PipelineMode == RenderPipelineMode.PathTracing
             && (Antialiasing is not (null or FrameAntialiasing.Off) || SpatialSamples is > 1
-                || EffectiveUpscaling.Mode != ViewUpscalingMode.Off))
-            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and requires raster antialiasing, spatial supersampling and spatial upscaling to be disabled.");
+                || EffectiveUpscaling.Mode != ViewUpscalingMode.Off
+                || EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off))
+            throw new NotSupportedException("Path tracing provides stochastic subpixel antialiasing and progressive accumulation, and requires raster antialiasing, spatial supersampling, spatial upscaling and temporal upscaling to be disabled.");
     }
 
     /// <summary>Returns a per-view copy. Scene settings and other views are never modified.</summary>

@@ -99,6 +99,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     internal const int NativeShadowTileSize = NativeLightShadowAtlasLayout.TileSize;
     public D3D12NativeLightStatistics? LastNativeLightStatistics { get; private set; }
     public D3D12ClusteredLightStatistics? LastClusteredLightStatistics { get; private set; }
+    internal void ResetClusteredLightStatistics() { LastClusteredLightStatistics = null; }
     internal void ResetNativeLightStatistics() { LastNativeLightStatistics = null; LastClusteredLightStatistics = null; }
     internal void SetNativeGiParticipation(bool active)
     {

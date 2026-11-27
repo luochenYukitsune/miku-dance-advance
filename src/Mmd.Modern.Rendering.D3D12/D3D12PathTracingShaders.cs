@@ -247,7 +247,7 @@ internal static class D3D12PathTracingShaders
         float PtD_GGX(float nDotH, float alpha) {
             float a2 = alpha * alpha;
             float d = (nDotH * nDotH) * (a2 - 1.0) + 1.0;
-            return a2 / max(PT_PI * d * d, 1e-6);
+            return a2 / max(PT_PI * d * d, 1e-12);
         }
 
         float PtG1_Schlick(float nDotX, float k) {
@@ -625,7 +625,7 @@ internal static class D3D12PathTracingShaders
 
                         // Importance-sample GGX specular or cosine-weighted diffuse lobe
                         float3 F = PtFresnelSchlick(max(dot(hn, hv), 0.0), f0);
-                        float pSpec = roughness < 0.95 ? clamp(max(F.x, max(F.y, F.z)), 0.05, 0.95) : 0.0;
+                        float pSpec = clamp(max(F.x, max(F.y, F.z)), 0.05, 0.95);
                         float3 nextDir;
                         if (PtRand(rng) < pSpec) {
                             float3 h = PtSampleGgxHalfVector(hn, roughness, PtRand(rng), PtRand(rng));

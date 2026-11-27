@@ -205,7 +205,15 @@ public sealed partial class D3D12OriginalStyleRenderer
             {
                 clustered = (clusteredLightPass ??= new D3D12ClusteredLightPass(runtime, cache)).Record(
                     context, camera, width, height, ready.Native.FrameAddress, ready.Native.Count);
-                LastClusteredLightStatistics = clustered.Statistics;
+                var sampleStats = clustered.Statistics;
+                LastClusteredLightStatistics = LastClusteredLightStatistics is { Active: true } prior
+                    ? prior with
+                    {
+                        ActiveLightCount = Math.Max(prior.ActiveLightCount, sampleStats.ActiveLightCount),
+                        MaxLightsPerCluster = Math.Max(prior.MaxLightsPerCluster, sampleStats.MaxLightsPerCluster),
+                        DispatchCount = prior.DispatchCount + sampleStats.DispatchCount,
+                    }
+                    : sampleStats;
             }
             else
             {
@@ -214,8 +222,11 @@ public sealed partial class D3D12OriginalStyleRenderer
         }
         else if (clusteredRequested)
         {
-            var defaultGrid = ClusterGridDimensions.Default;
-            LastClusteredLightStatistics = new(true, defaultGrid.X, defaultGrid.Y, defaultGrid.Z, defaultGrid.TotalClusters, 0, defaultGrid.MaxLightsPerCluster, 0);
+            if (LastClusteredLightStatistics is null)
+            {
+                var defaultGrid = ClusterGridDimensions.Default;
+                LastClusteredLightStatistics = new(true, defaultGrid.X, defaultGrid.Y, defaultGrid.Z, defaultGrid.TotalClusters, 0, defaultGrid.MaxLightsPerCluster, 0);
+            }
         }
         else
         {
