@@ -31,6 +31,7 @@ public partial class EditorPreviewSettingsWindow : Window
         ArgumentNullException.ThrowIfNull(viewModel);
         this.queryCapabilities = queryCapabilities;
         InitializeComponent(); DataContext = viewModel;
+        WireHelpTopicHandlers();
         if (this.queryCapabilities is not null)
             viewModel.CanRefreshCapabilities = true;
         Opened += (_, _) =>
@@ -200,4 +201,16 @@ public partial class EditorPreviewSettingsWindow : Window
     }
 
     private void CancelSettings(object? sender, RoutedEventArgs args) => Close(null);
+
+    private void WireHelpTopicHandlers()
+    {
+        foreach (var control in this.GetLogicalDescendants().OfType<Control>())
+        {
+            if (PreviewHelp.GetTopic(control) is not string topic || string.IsNullOrWhiteSpace(topic))
+                continue;
+            control.GotFocus += (_, _) => ViewModel.SelectHelpTopic(topic);
+            control.PointerEntered += (_, _) => ViewModel.SelectHelpTopic(topic);
+            control.PointerPressed += (_, _) => ViewModel.SelectHelpTopic(topic);
+        }
+    }
 }

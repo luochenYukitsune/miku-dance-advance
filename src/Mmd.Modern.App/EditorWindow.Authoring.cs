@@ -127,7 +127,8 @@ public partial class EditorWindow
     private static ViewQualityOptions StripPreviewOnlyForExport(ViewQualityOptions quality)
     {
         var gi = quality.Gi is { PreviewAcceleration: true } g ? g with { PreviewAcceleration = false } : quality.Gi;
-        return gi == quality.Gi ? quality : quality with { Gi = gi };
+        var pt = quality.PathTracing is { } p ? p.StripRuntimeState() : null;
+        return quality with { Gi = gi, PathTracing = pt };
     }
 
     internal void ApplyPreviewQuality(EditorViewportHost viewport, ViewQualityOptions quality)

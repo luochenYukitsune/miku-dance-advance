@@ -98,6 +98,44 @@ public sealed class ViewQualityPresetsAndCompatibilityTests
     }
 
     [Fact]
+    public void CompatibilityEvaluatorCoversPr2AndPr3Conflicts()
+    {
+        var pr2Conflict = new ViewQualityOptions(
+            Gi: new RayGiOptions(LightingMode.SoftwareRayTracing, OcclusionStrength: 0.4f),
+            Antialiasing: FrameAntialiasing.Taa,
+            SpatialSamples: 2,
+            Upscaling: new ViewUpscalingOptions { Mode = ViewUpscalingMode.Fsr1 })
+        {
+            AnisotropicFiltering = 3,
+            ShadowFilter = (ShadowFilterMode)99,
+            ShadowSoftness = 5.0f,
+            Sharpening = new ViewSharpeningOptions(true, 3.0f),
+            ScreenSpaceAo = new ScreenSpaceAoOptions(true, 0.5f, 1.5f, 8)
+        };
+        var pr2Report = ViewQualityCompatibility.Evaluate(pr2Conflict);
+        var pr2Codes = pr2Report.Issues.Select(i => i.Code).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("AnisotropicFiltering", pr2Codes);
+        Assert.Contains("ShadowFilter", pr2Codes);
+        Assert.Contains("ShadowSoftness", pr2Codes);
+        Assert.Contains("SharpeningRange", pr2Codes);
+        Assert.Contains("TaaConflict", pr2Codes);
+        Assert.Contains("SsaoWithRayGiOcclusion", pr2Codes);
+
+        var msaaConflict = new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Msaa4X,
+            SpatialSamples: 4);
+        Assert.Contains("MsaaConflict", ViewQualityCompatibility.Evaluate(msaaConflict).Issues.Select(i => i.Code));
+
+        var ptConflict = new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Fxaa,
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: new PathTracingOptions(SamplesPerFrame: 0, MaxBounces: 12, FireflyClamp: 2000f));
+        var ptCodes = ViewQualityCompatibility.Evaluate(ptConflict).Issues.Select(i => i.Code).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("PathTracingRange", ptCodes);
+        Assert.Contains("PathTracingExcludesRasterAaAndUpscaling", ptCodes);
+    }
+
+    [Fact]
     public void BuiltInPresetsMatchSpecAndAlwaysDisableDiffusion()
     {
         foreach (var kind in Enum.GetValues<BuiltInPreviewPresetKind>())
@@ -115,19 +153,29 @@ public sealed class ViewQualityPresetsAndCompatibilityTests
 
         var perf = ViewQualityPresets.Create(BuiltInPreviewPresetKind.Performance);
         Assert.Equal(LightingMode.Legacy, perf.EffectiveGi.Mode);
+        Assert.Equal(FrameAntialiasing.Fxaa, perf.Antialiasing);
         Assert.Equal(SmaaQuality.Low, perf.SmaaQuality);
+        Assert.Equal(4, perf.EffectiveAnisotropicFiltering);
         Assert.Equal(1024, perf.EffectiveShadow.Resolution);
+        Assert.Equal(ShadowFilterMode.Linear, perf.ShadowFilter);
         Assert.False(perf.UseEnvironmentMipmaps);
 
         var balanced = ViewQualityPresets.Create(BuiltInPreviewPresetKind.Balanced);
+        Assert.Equal(FrameAntialiasing.Smaa1X, balanced.Antialiasing);
         Assert.Equal(SmaaQuality.High, balanced.SmaaQuality);
+        Assert.Equal(8, balanced.EffectiveAnisotropicFiltering);
         Assert.Equal(2048, balanced.EffectiveShadow.Resolution);
+        Assert.Equal(ShadowFilterMode.Linear, balanced.ShadowFilter);
         Assert.False(balanced.UseEnvironmentMipmaps);
 
         var high = ViewQualityPresets.Create(BuiltInPreviewPresetKind.High);
+        Assert.Equal(FrameAntialiasing.Msaa4X, high.Antialiasing);
         Assert.Equal(SmaaQuality.Ultra, high.SmaaQuality);
-        Assert.Equal(2, high.SpatialSamples);
+        Assert.Equal(1, high.SpatialSamples);
+        Assert.Equal(16, high.EffectiveAnisotropicFiltering);
         Assert.Equal(4096, high.EffectiveShadow.Resolution);
+        Assert.Equal(ShadowFilterMode.PcfSoft, high.ShadowFilter);
+        Assert.Equal(1.25f, high.EffectiveShadowSoftness);
         Assert.True(high.UseEnvironmentMipmaps);
 
         var ultraDxr = ViewQualityPresets.Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: true, softwareGiAvailable: true);
@@ -139,7 +187,16 @@ public sealed class ViewQualityPresetsAndCompatibilityTests
         Assert.Equal(0.35f, ultraDxr.EffectiveGi.OcclusionStrength);
         Assert.Equal(1.0f, ultraDxr.EffectiveGi.OcclusionRadius);
         Assert.Equal(4096, ultraDxr.EffectiveShadow.Resolution);
+        Assert.Equal(ShadowFilterMode.PcfSoft, ultraDxr.ShadowFilter);
+        Assert.Equal(16, ultraDxr.EffectiveAnisotropicFiltering);
         Assert.True(ultraDxr.UseEnvironmentMipmaps);
+
+        // Altering PR2/PR3 fields breaks built-in preset matching.
+        Assert.False(ViewQualityPresets.TryMatchBuiltIn(balanced with { PipelineMode = RenderPipelineMode.ClusteredForward }, out _));
+        Assert.False(ViewQualityPresets.TryMatchBuiltIn(balanced with { AnisotropicFiltering = 16 }, out _));
+        Assert.False(ViewQualityPresets.TryMatchBuiltIn(balanced with { ScreenSpaceAo = new ScreenSpaceAoOptions(true) }, out _));
+        Assert.False(ViewQualityPresets.TryMatchBuiltIn(balanced with { Sharpening = new ViewSharpeningOptions(true, 0.2f) }, out _));
+        Assert.False(ViewQualityPresets.TryMatchBuiltIn(high with { ShadowSoftness = 2.0f }, out _));
 
         var ultraSw = ViewQualityPresets.Create(BuiltInPreviewPresetKind.UltraRayTraced, hardwareGiAvailable: false, softwareGiAvailable: true);
         Assert.Equal(LightingMode.SoftwareRayTracing, ultraSw.EffectiveGi.Mode);

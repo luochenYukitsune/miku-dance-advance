@@ -60,6 +60,7 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     private int _captureMemoryIndex;
     private int _mediaKindIndex = 2, _encoderIndex = 2, _rateControlIndex, _speedIndex = 1, _profileIndex, _levelIndex;
     private int _antialiasingIndex, _smaaIndex, _spatialIndex, _surfaceOrderIndex;
+    private bool _antialiasingChanged;
     private int _giIndex, _giCompositionIndex, _giDenoiserIndex;
     private decimal? _giStrength, _giSamples;
     private EditorPreviewCapabilities _giCapabilities = new();
@@ -226,7 +227,7 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
     public int SpeedIndex { get => _speedIndex; set => Set(ref _speedIndex, value); }
     public int ProfileIndex { get => _profileIndex; set => Set(ref _profileIndex, value); }
     public int LevelIndex { get => _levelIndex; set => Set(ref _levelIndex, value); }
-    public int AntialiasingIndex { get => _antialiasingIndex; set => Set(ref _antialiasingIndex, value); }
+    public int AntialiasingIndex { get => _antialiasingIndex; set { if (Set(ref _antialiasingIndex, value)) _antialiasingChanged = true; } }
     public int SmaaIndex { get => _smaaIndex; set => Set(ref _smaaIndex, value); }
     public int SurfaceOrderIndex { get => _surfaceOrderIndex; set => Set(ref _surfaceOrderIndex, value); }
     public int CaptureMemoryIndex { get => _captureMemoryIndex; set => Set(ref _captureMemoryIndex, value); }
@@ -338,7 +339,15 @@ public sealed class OutputSettingsViewModel : INotifyPropertyChanged
             var quality = _sourceQuality with
             {
                 Gi = gi == _sourceQuality.EffectiveGi ? _sourceQuality.Gi : gi,
-                Antialiasing = AntialiasingIndex switch { 0 => null, 1 => FrameAntialiasing.Off, 2 => FrameAntialiasing.Smaa1X, _ => throw Error("请选择抗锯齿模式。") },
+                Antialiasing = AntialiasingIndex switch
+                {
+                    0 => null,
+                    1 => FrameAntialiasing.Off,
+                    2 => !_antialiasingChanged && _sourceQuality.Antialiasing is { } preserved && preserved is not (FrameAntialiasing.Off or FrameAntialiasing.Smaa1X)
+                        ? preserved
+                        : FrameAntialiasing.Smaa1X,
+                    _ => throw Error("请选择抗锯齿模式。")
+                },
                 SmaaQuality = SmaaIndex == 0 ? null : Choice<SmaaQuality>(SmaaIndex - 1, "SMAA 质量"),
                 SpatialSamples = SpatialIndex == 0 ? null : SpatialIndex > 0 && SpatialIndex <= SpatialValues.Length
                     ? SpatialValues[SpatialIndex - 1] : throw Error("请选择 SSAA 采样数。"),

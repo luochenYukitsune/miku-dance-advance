@@ -3,7 +3,7 @@
         xmlns:local="using:Mmd.Modern.App"
         x:Class="Mmd.Modern.App.EditorPreviewSettingsWindow"
         x:DataType="local:EditorPreviewSettingsViewModel"
-        Title="{Binding Title}" Width="920" Height="680" MinWidth="800" MinHeight="560"
+        Title="{Binding Title}" Width="1140" Height="740" MinWidth="980" MinHeight="580"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{DynamicResource OutputSurface}" Foreground="{DynamicResource OutputText}"
         FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
@@ -19,6 +19,11 @@
           <SolidColorBrush x:Key="OutputHover" Color="#222A34" /><SolidColorBrush x:Key="OutputSelected" Color="#19302A" />
           <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="OutputCard" Color="#151A20" />
           <SolidColorBrush x:Key="OutputWarningBg" Color="#2D2312" /><SolidColorBrush x:Key="OutputWarningBorder" Color="#6B501D" /><SolidColorBrush x:Key="OutputWarningText" Color="#F2C97D" />
+          <SolidColorBrush x:Key="OutputDangerBg" Color="#34171A" /><SolidColorBrush x:Key="OutputDangerBorder" Color="#7D2D34" /><SolidColorBrush x:Key="OutputDangerText" Color="#F29B9B" />
+          <SolidColorBrush x:Key="LoadLightBg" Color="#173025" /><SolidColorBrush x:Key="LoadLightFg" Color="#6EE7B7" />
+          <SolidColorBrush x:Key="LoadModerateBg" Color="#1A2B3C" /><SolidColorBrush x:Key="LoadModerateFg" Color="#7DD3FC" />
+          <SolidColorBrush x:Key="LoadHighBg" Color="#332613" /><SolidColorBrush x:Key="LoadHighFg" Color="#FCD34D" />
+          <SolidColorBrush x:Key="LoadHeavyBg" Color="#371A1D" /><SolidColorBrush x:Key="LoadHeavyFg" Color="#FCA5A5" />
           <SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
@@ -28,6 +33,11 @@
           <SolidColorBrush x:Key="OutputHover" Color="#E9EDF2" /><SolidColorBrush x:Key="OutputSelected" Color="#DFF2E7" />
           <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="OutputCard" Color="#FFFFFF" />
           <SolidColorBrush x:Key="OutputWarningBg" Color="#FFF6E5" /><SolidColorBrush x:Key="OutputWarningBorder" Color="#E5C07B" /><SolidColorBrush x:Key="OutputWarningText" Color="#8A5A00" />
+          <SolidColorBrush x:Key="OutputDangerBg" Color="#FDECEC" /><SolidColorBrush x:Key="OutputDangerBorder" Color="#E59A9A" /><SolidColorBrush x:Key="OutputDangerText" Color="#9F1D1D" />
+          <SolidColorBrush x:Key="LoadLightBg" Color="#E0F5EA" /><SolidColorBrush x:Key="LoadLightFg" Color="#0E7342" />
+          <SolidColorBrush x:Key="LoadModerateBg" Color="#E3F0FB" /><SolidColorBrush x:Key="LoadModerateFg" Color="#0B5CAD" />
+          <SolidColorBrush x:Key="LoadHighBg" Color="#FFF3DB" /><SolidColorBrush x:Key="LoadHighFg" Color="#9A5B00" />
+          <SolidColorBrush x:Key="LoadHeavyBg" Color="#FCE7E7" /><SolidColorBrush x:Key="LoadHeavyFg" Color="#B42318" />
           <SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
@@ -43,7 +53,7 @@
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
     <Style Selector="TextBlock.caption"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
     <Style Selector="TextBlock.hintWarn"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="{DynamicResource OutputWarningText}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
-    <Style Selector="TextBlock.label"><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
+    <Style Selector="TextBlock.label"><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
       <Setter Property="CornerRadius" Value="4" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="1" />
@@ -229,7 +239,7 @@
       <Setter Property="Padding" Value="8,12" />
     </Style>
     <Style Selector="ListBox.previewNav ListBoxItem">
-      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="Padding" Value="10,9" />
       <Setter Property="Margin" Value="0,2" />
       <Setter Property="CornerRadius" Value="4" />
       <Setter Property="Foreground" Value="{DynamicResource OutputMuted}" />
@@ -244,6 +254,25 @@
       <Setter Property="Foreground" Value="{DynamicResource OutputText}" />
       <Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" />
       <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
+
+    <Style Selector="Border.loadBadge.loadLight"><Setter Property="Background" Value="{DynamicResource LoadLightBg}" /></Style>
+    <Style Selector="Border.loadBadge.loadLight TextBlock"><Setter Property="Foreground" Value="{DynamicResource LoadLightFg}" /></Style>
+    <Style Selector="Border.loadBadge.loadModerate"><Setter Property="Background" Value="{DynamicResource LoadModerateBg}" /></Style>
+    <Style Selector="Border.loadBadge.loadModerate TextBlock"><Setter Property="Foreground" Value="{DynamicResource LoadModerateFg}" /></Style>
+    <Style Selector="Border.loadBadge.loadHigh"><Setter Property="Background" Value="{DynamicResource LoadHighBg}" /></Style>
+    <Style Selector="Border.loadBadge.loadHigh TextBlock"><Setter Property="Foreground" Value="{DynamicResource LoadHighFg}" /></Style>
+    <Style Selector="Border.loadBadge.loadHeavy"><Setter Property="Background" Value="{DynamicResource LoadHeavyBg}" /></Style>
+    <Style Selector="Border.loadBadge.loadHeavy TextBlock"><Setter Property="Foreground" Value="{DynamicResource LoadHeavyFg}" /></Style>
+
+    <Style Selector="ProgressBar.vramBar">
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource OutputInput}" />
+      <Setter Property="Foreground" Value="{DynamicResource MdaAccent}" />
+    </Style>
+    <Style Selector="ProgressBar.vramBar.overBudget">
+      <Setter Property="Foreground" Value="{DynamicResource OutputDangerText}" />
     </Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -298,13 +327,16 @@
       </StackPanel>
     </Border>
 
-    <!-- Main 6-Category Split -->
-    <Grid Grid.Row="2" ColumnDefinitions="200,*">
+    <!-- Main 3-Column Layout: Left Nav | Middle Quality Settings | Right Help & VRAM Sidebar -->
+    <Grid Grid.Row="2" ColumnDefinitions="188,*,276">
+      <!-- Left Column: 6-Category Navigation -->
       <Border BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,0,1,0">
         <ListBox Name="PreviewCategoryList" Classes="previewNav" ItemsSource="{Binding Categories}" SelectedIndex="{Binding SelectedCategoryIndex, Mode=TwoWay}" />
       </Border>
-      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="24,20,24,24" Spacing="18">
+
+      <!-- Middle Column: Quality Controls -->
+      <ScrollViewer Name="MiddleSettingsScroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20,18,20,24" Spacing="16">
           <TextBlock Name="PreviewCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
 
           <!-- Category 0: Overview & Presets -->
@@ -312,7 +344,7 @@
             <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="14,12">
               <StackPanel Spacing="6">
                 <TextBlock Text="{Binding OverviewTitle}" Classes="section" />
-                <Grid ColumnDefinitions="140,*">
+                <Grid ColumnDefinitions="120,*">
                   <TextBlock Text="{Binding ActivePresetLabel}" Classes="label" />
                   <TextBlock Name="ActivePresetSummaryText" Grid.Column="1" Text="{Binding ActivePresetSummary}" />
                 </Grid>
@@ -329,17 +361,17 @@
 
             <StackPanel Spacing="8">
               <TextBlock Text="{Binding BuiltInPresetsTitle}" Classes="section" />
-              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
-                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetPerformanceLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetPerformanceDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyPerformancePreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10" local:PreviewHelp.Topic="help.preset.performance">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2" Margin="0,0,10,0"><TextBlock Text="{Binding PresetPerformanceLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetPerformanceDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyPerformancePreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
               </Border>
-              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
-                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetBalancedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetBalancedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyBalancedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10" local:PreviewHelp.Topic="help.preset.balanced">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2" Margin="0,0,10,0"><TextBlock Text="{Binding PresetBalancedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetBalancedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyBalancedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
               </Border>
-              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
-                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetHighLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetHighDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyHighPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10" local:PreviewHelp.Topic="help.preset.high">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2" Margin="0,0,10,0"><TextBlock Text="{Binding PresetHighLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetHighDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyHighPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
               </Border>
-              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
-                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetUltraRayTracedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetUltraRayTracedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyUltraRayTracedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10" local:PreviewHelp.Topic="help.preset.ultra">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2" Margin="0,0,10,0"><TextBlock Text="{Binding PresetUltraRayTracedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetUltraRayTracedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyUltraRayTracedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
               </Border>
             </StackPanel>
           </StackPanel>
@@ -348,30 +380,79 @@
           <StackPanel Name="CategoryAntialiasingPanel" Spacing="16" IsVisible="{Binding IsCategoryAntialiasing}">
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding AntialiasingLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewAntialiasingBox" Grid.Column="1" ItemsSource="{Binding AntialiasingModes}" SelectedIndex="{Binding AntialiasingIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" AutomationProperties.Name="{Binding AntialiasingLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SmaaLabel}" Classes="label" /><ComboBox Name="PreviewSmaaQualityBox" Grid.Column="1" ItemsSource="{Binding SmaaQualities}" SelectedIndex="{Binding SmaaIndex}" IsEnabled="{Binding IsSmaa}" AutomationProperties.Name="{Binding SmaaLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SpatialLabel}" Classes="label" /><ComboBox Name="PreviewSpatialSamplesBox" Grid.Column="1" ItemsSource="{Binding SpatialSamples}" SelectedIndex="{Binding SpatialIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" AutomationProperties.Name="{Binding SpatialLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding RenderScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewRenderScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding RenderScale}" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" IsEnabled="{Binding IsRenderScaleEditable}" AutomationProperties.Name="{Binding RenderScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" Number="{Binding RenderScale, Mode=TwoWay}" IsEnabled="{Binding IsRenderScaleEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding RenderScaleLabel}" /></Grid>
-              <TextBlock Text="{Binding RenderScaleHint}" Classes="caption" Margin="188,0,0,0" />
-              <TextBlock Name="RenderScaleConflictHintText" Text="{Binding RenderScaleConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding HasRenderScaleConflictHint}" />
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="aa.mode">
+                <TextBlock Text="{Binding ModeLabel}" Classes="label" />
+                <ComboBox Name="PreviewAntialiasingBox" Grid.Column="1" ItemsSource="{Binding AntialiasingModes}" SelectedIndex="{Binding AntialiasingIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" local:PreviewHelp.Topic="aa.mode" AutomationProperties.Name="{Binding AntialiasingLabel}" />
+              </Grid>
+              <TextBlock Name="AntialiasingConflictHintText" Text="{Binding AntialiasingConflictHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding HasAntialiasingConflictHint}" />
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.aa.smaaQuality">
+                <TextBlock Text="{Binding SmaaLabel}" Classes="label" />
+                <ComboBox Name="PreviewSmaaQualityBox" Grid.Column="1" ItemsSource="{Binding SmaaQualities}" SelectedIndex="{Binding SmaaIndex}" IsEnabled="{Binding IsSmaa}" local:PreviewHelp.Topic="help.aa.smaaQuality" AutomationProperties.Name="{Binding SmaaLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.aa.ssaa">
+                <TextBlock Text="{Binding SpatialLabel}" Classes="label" />
+                <ComboBox Name="PreviewSpatialSamplesBox" Grid.Column="1" ItemsSource="{Binding SpatialSamples}" SelectedIndex="{Binding SpatialIndex}" IsEnabled="{Binding IsSpatialSamplesEditable}" local:PreviewHelp.Topic="help.aa.ssaa" AutomationProperties.Name="{Binding SpatialLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.aa.renderScale">
+                <TextBlock Text="{Binding RenderScaleLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewRenderScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding RenderScale}" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" IsEnabled="{Binding IsRenderScaleEditable}" local:PreviewHelp.Topic="help.aa.renderScale" AutomationProperties.Name="{Binding RenderScaleLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" Number="{Binding RenderScale, Mode=TwoWay}" IsEnabled="{Binding IsRenderScaleEditable}" local:PreviewHelp.Topic="help.aa.renderScale" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding RenderScaleLabel}" />
+              </Grid>
+              <TextBlock Text="{Binding RenderScaleHint}" Classes="caption" Margin="164,0,0,0" />
+              <TextBlock Name="RenderScaleConflictHintText" Text="{Binding RenderScaleConflictHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding HasRenderScaleConflictHint}" />
               <TextBlock Text="{Binding SamplingHint}" Classes="caption" />
             </StackPanel>
             <Separator />
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding TemporalLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ReconstructionLabel}" Classes="label" /><ComboBox Name="PreviewTemporalModeBox" Grid.Column="1" ItemsSource="{Binding TemporalModes}" SelectedIndex="{Binding TemporalIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding TemporalLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding QualityLabel}" Classes="label" /><ComboBox Name="PreviewTemporalQualityBox" Grid.Column="1" ItemsSource="{Binding TemporalQualities}" SelectedIndex="{Binding TemporalQualityIndex}" IsEnabled="{Binding IsTemporalEnabled}" AutomationProperties.Name="{Binding QualityLabel}" /></Grid>
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="temporal.mode">
+                <TextBlock Text="{Binding ReconstructionLabel}" Classes="label" />
+                <ComboBox Name="PreviewTemporalModeBox" Grid.Column="1" ItemsSource="{Binding TemporalModes}" SelectedIndex="{Binding TemporalIndex}" IsEnabled="{Binding IsTemporalModeEditable}" local:PreviewHelp.Topic="temporal.mode" AutomationProperties.Name="{Binding TemporalLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.temporal.quality">
+                <TextBlock Text="{Binding QualityLabel}" Classes="label" />
+                <ComboBox Name="PreviewTemporalQualityBox" Grid.Column="1" ItemsSource="{Binding TemporalQualities}" SelectedIndex="{Binding TemporalQualityIndex}" IsEnabled="{Binding IsTemporalEnabled}" local:PreviewHelp.Topic="help.temporal.quality" AutomationProperties.Name="{Binding QualityLabel}" />
+              </Grid>
               <TextBlock Name="TemporalConflictHintText" Text="{Binding TemporalConflictHint}" Classes="hintWarn" IsVisible="{Binding HasTemporalConflictHint}" />
               <TextBlock Text="{Binding ReconstructionHint}" Classes="caption" />
             </StackPanel>
+            <Separator />
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding StandaloneSharpeningSectionLabel}" Classes="section" />
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.sharpening.enabled">
+                <CheckBox Name="PreviewStandaloneRcasEnabledBox" Grid.Column="1" Content="{Binding StandaloneSharpeningEnabledLabel}" IsChecked="{Binding StandaloneRcasEnabled}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.sharpening.enabled" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.sharpening.amount">
+                <TextBlock Text="{Binding StandaloneSharpeningAmountLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewStandaloneRcasSharpnessBox" Grid.Column="1" MenuDefaultValue="0.2" Value="{Binding StandaloneRcasSharpness}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsStandaloneRcasSharpnessEditable}" local:PreviewHelp.Topic="help.sharpening.amount" AutomationProperties.Name="{Binding StandaloneSharpeningAmountLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="0.2" Number="{Binding StandaloneRcasSharpness, Mode=TwoWay}" IsEnabled="{Binding IsStandaloneRcasSharpnessEditable}" local:PreviewHelp.Topic="help.sharpening.amount" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StandaloneSharpeningAmountLabel}" />
+              </Grid>
+              <TextBlock Name="StandaloneRcasFsrNoticeText" Text="{Binding StandaloneRcasFsrNotice}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowStandaloneRcasFsrNotice}" />
+              <TextBlock Text="{Binding StandaloneSharpeningHint}" Classes="caption" Margin="164,0,0,0" />
+            </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedSampling" Header="{Binding AdvancedSamplingLabel}" IsExpanded="False">
               <StackPanel Spacing="12">
-                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding Fsr1Label}" Classes="label" /><ComboBox Name="PreviewUpscalingModeBox" Grid.Column="1" ItemsSource="{Binding UpscalingModes}" SelectedIndex="{Binding UpscalingIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" AutomationProperties.Name="{Binding Fsr1Label}" /></Grid>
-                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding QualityLabel}" Classes="label" /><ComboBox Name="PreviewFsr1QualityBox" Grid.Column="1" ItemsSource="{Binding Fsr1Qualities}" SelectedIndex="{Binding Fsr1QualityIndex}" IsEnabled="{Binding IsFsr1}" AutomationProperties.Name="{Binding QualityLabel}" /></Grid>
-                <CheckBox Name="PreviewRcasEnabledBox" Content="{Binding RcasLabel}" IsChecked="{Binding RcasEnabled}" IsEnabled="{Binding IsFsr1}" Margin="188,0,0,0" />
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding SharpnessLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewRcasSharpnessBox" Grid.Column="1" MenuDefaultValue="0.2" Value="{Binding RcasSharpness}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsRcas}" AutomationProperties.Name="{Binding SharpnessLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="0.2" Number="{Binding RcasSharpness, Mode=TwoWay}" IsEnabled="{Binding IsRcas}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding SharpnessLabel}" /></Grid>
-                <TextBlock Text="{Binding RcasHint}" Classes="caption" Margin="188,0,0,0" />
-                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SurfaceOrderLabel}" Classes="label" /><ComboBox Name="PreviewSurfaceOrderBox" Grid.Column="1" ItemsSource="{Binding SurfaceOrders}" SelectedIndex="{Binding SurfaceOrderIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding SurfaceOrderLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSurfaceOrderChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
+                <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="fsr1.mode">
+                  <TextBlock Text="{Binding Fsr1Label}" Classes="label" />
+                  <ComboBox Name="PreviewUpscalingModeBox" Grid.Column="1" ItemsSource="{Binding UpscalingModes}" SelectedIndex="{Binding UpscalingIndex}" IsEnabled="{Binding IsFsr1ModeEditable}" local:PreviewHelp.Topic="fsr1.mode" AutomationProperties.Name="{Binding Fsr1Label}" />
+                </Grid>
+                <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.fsr1.quality">
+                  <TextBlock Text="{Binding QualityLabel}" Classes="label" />
+                  <ComboBox Name="PreviewFsr1QualityBox" Grid.Column="1" ItemsSource="{Binding Fsr1Qualities}" SelectedIndex="{Binding Fsr1QualityIndex}" IsEnabled="{Binding IsFsr1}" local:PreviewHelp.Topic="help.fsr1.quality" AutomationProperties.Name="{Binding QualityLabel}" />
+                </Grid>
+                <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.fsr1.rcasEnabled">
+                  <CheckBox Name="PreviewRcasEnabledBox" Grid.Column="1" Content="{Binding RcasLabel}" IsChecked="{Binding RcasEnabled}" IsEnabled="{Binding IsFsr1}" local:PreviewHelp.Topic="help.fsr1.rcasEnabled" />
+                </Grid>
+                <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.fsr1.rcasSharpness">
+                  <TextBlock Text="{Binding SharpnessLabel}" Classes="label" />
+                  <validated:EditorNumericUpDown Name="PreviewRcasSharpnessBox" Grid.Column="1" MenuDefaultValue="0.2" Value="{Binding RcasSharpness}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsRcas}" local:PreviewHelp.Topic="help.fsr1.rcasSharpness" AutomationProperties.Name="{Binding SharpnessLabel}" />
+                  <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="0.2" Number="{Binding RcasSharpness, Mode=TwoWay}" IsEnabled="{Binding IsRcas}" local:PreviewHelp.Topic="help.fsr1.rcasSharpness" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding SharpnessLabel}" />
+                </Grid>
+                <TextBlock Text="{Binding RcasHint}" Classes="caption" Margin="164,0,0,0" />
+                <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="surface.order">
+                  <TextBlock Text="{Binding SurfaceOrderLabel}" Classes="label" />
+                  <ComboBox Name="PreviewSurfaceOrderBox" Grid.Column="1" ItemsSource="{Binding SurfaceOrders}" SelectedIndex="{Binding SurfaceOrderIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="surface.order" AutomationProperties.Name="{Binding SurfaceOrderLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSurfaceOrderChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                </Grid>
               </StackPanel>
             </Expander>
           </StackPanel>
@@ -380,50 +461,208 @@
           <StackPanel Name="CategoryShadowsPanel" Spacing="16" IsVisible="{Binding IsCategoryShadowDetail}">
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding ShadowsSectionLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ShadowResolutionLabel}" Classes="label" /><ComboBox Name="PreviewShadowResolutionBox" Grid.Column="1" ItemsSource="{Binding ShadowResolutionChoices}" SelectedIndex="{Binding ShadowResolutionIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding ShadowResolutionLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ShadowSamplingLabel}" Classes="label" /><ComboBox Name="PreviewShadowSamplingBox" Grid.Column="1" ItemsSource="{Binding ShadowSamplingChoices}" SelectedIndex="{Binding ShadowSamplingIndex}" IsEnabled="{Binding IsShadowEnabled}" AutomationProperties.Name="{Binding ShadowSamplingLabel}" /></Grid>
-              <TextBlock Name="ShadowDisabledHintText" Text="{Binding ShadowDisabledHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding IsShadowDisabled}" />
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.shadow.res">
+                <TextBlock Text="{Binding ShadowResolutionLabel}" Classes="label" />
+                <ComboBox Name="PreviewShadowResolutionBox" Grid.Column="1" ItemsSource="{Binding ShadowResolutionChoices}" SelectedIndex="{Binding ShadowResolutionIndex}" IsEnabled="{Binding IsShadowResolutionEditable}" local:PreviewHelp.Topic="help.shadow.res" AutomationProperties.Name="{Binding ShadowResolutionLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="shadow.filter">
+                <TextBlock Text="{Binding ShadowSamplingLabel}" Classes="label" />
+                <ComboBox Name="PreviewShadowFilterBox" Grid.Column="1" ItemsSource="{Binding ShadowFilterChoices}" SelectedIndex="{Binding ShadowFilterIndex}" IsEnabled="{Binding IsShadowEnabled}" local:PreviewHelp.Topic="shadow.filter" AutomationProperties.Name="{Binding ShadowSamplingLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.shadow.softness">
+                <TextBlock Text="{Binding ShadowSoftnessLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewShadowSoftnessBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding ShadowSoftness}" Minimum="0" Maximum="4" Increment="0.05" FormatString="0.##" IsEnabled="{Binding IsShadowSoftnessEditable}" local:PreviewHelp.Topic="help.shadow.softness" AutomationProperties.Name="{Binding ShadowSoftnessLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.05" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding ShadowSoftness, Mode=TwoWay}" IsEnabled="{Binding IsShadowSoftnessEditable}" local:PreviewHelp.Topic="help.shadow.softness" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding ShadowSoftnessLabel}" />
+              </Grid>
+              <TextBlock Name="ShadowSoftnessHintText" Text="{Binding ShadowSoftnessHint}" Classes="caption" Margin="164,0,0,0" IsVisible="{Binding ShowShadowSoftnessHint}" />
+              <TextBlock Name="ShadowDisabledHintText" Text="{Binding ShadowDisabledHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding IsShadowDisabled}" />
+            </StackPanel>
+            <Separator />
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding SsaoSectionLabel}" Classes="section" />
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.ssao.enabled">
+                <CheckBox Name="PreviewSsaoEnabledBox" Grid.Column="1" Content="{Binding SsaoEnabledLabel}" IsChecked="{Binding SsaoEnabled}" IsEnabled="{Binding IsSsaoToggleEnabled}" local:PreviewHelp.Topic="help.ssao.enabled" />
+              </Grid>
+              <TextBlock Name="SsaoNoticeText" Text="{Binding SsaoNotice}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowSsaoNotice}" />
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.ssao.strength">
+                <TextBlock Text="{Binding SsaoStrengthLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewSsaoStrengthBox" Grid.Column="1" MenuDefaultValue="0.4" Value="{Binding SsaoStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.##" IsEnabled="{Binding IsSsaoEditable}" local:PreviewHelp.Topic="help.ssao.strength" AutomationProperties.Name="{Binding SsaoStrengthLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.2" Step="0.02" DefaultValue="0.4" Number="{Binding SsaoStrength, Mode=TwoWay}" IsEnabled="{Binding IsSsaoEditable}" local:PreviewHelp.Topic="help.ssao.strength" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding SsaoStrengthLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.ssao.radius">
+                <TextBlock Text="{Binding SsaoRadiusLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewSsaoRadiusBox" Grid.Column="1" MenuDefaultValue="1.5" Value="{Binding SsaoRadius}" Minimum="0.1" Maximum="8" Increment="0.1" FormatString="0.##" IsEnabled="{Binding IsSsaoEditable}" local:PreviewHelp.Topic="help.ssao.radius" AutomationProperties.Name="{Binding SsaoRadiusLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.1" Maximum="8" SmallChange="0.1" LargeChange="1" Step="0.1" DefaultValue="1.5" Number="{Binding SsaoRadius, Mode=TwoWay}" IsEnabled="{Binding IsSsaoEditable}" local:PreviewHelp.Topic="help.ssao.radius" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding SsaoRadiusLabel}" />
+              </Grid>
+              <TextBlock Text="{Binding SsaoHint}" Classes="caption" Margin="164,0,0,0" />
             </StackPanel>
             <Separator />
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding DetailSectionLabel}" Classes="section" />
-              <CheckBox Name="PreviewEnvironmentMipmapsBox" Content="{Binding EnvironmentMipmapsLabel}" IsChecked="{Binding UseEnvironmentMipmaps}" IsEnabled="{Binding IsModernEngine}" Margin="188,0,0,0" />
-              <TextBlock Text="{Binding EnvironmentMipmapsHint}" Classes="caption" Margin="188,0,0,0" />
-              <CheckBox Name="PreviewOutlineEnabledBox" Content="{Binding PreviewOutlineEnabledLabel}" IsChecked="{Binding PreviewOutlineEnabled}" IsEnabled="{Binding IsModernEngine}" Margin="188,0,0,0" />
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding PreviewOutlineWidthScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewOutlineWidthScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PreviewOutlineWidthScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsPreviewOutlineEditable}" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.05" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding PreviewOutlineWidthScale, Mode=TwoWay}" IsEnabled="{Binding IsPreviewOutlineEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" /></Grid>
-              <TextBlock Text="{Binding PreviewOutlineHint}" Classes="caption" Margin="188,0,0,0" />
-              <TextBlock Name="PreviewOutlineDisabledHintText" Text="{Binding PreviewOutlineDisabledHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding IsPreviewOutlineDisabled}" />
+              <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="aniso">
+                <TextBlock Text="{Binding AnisotropicFilteringLabel}" Classes="label" />
+                <ComboBox Name="PreviewAnisotropicFilteringBox" Grid.Column="1" ItemsSource="{Binding AnisotropicFilteringChoices}" SelectedIndex="{Binding AnisotropicFilteringIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="aniso" AutomationProperties.Name="{Binding AnisotropicFilteringLabel}" />
+              </Grid>
+              <TextBlock Text="{Binding AnisotropicFilteringHint}" Classes="caption" Margin="164,0,0,0" />
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.detail.envMipmaps">
+                <CheckBox Name="PreviewEnvironmentMipmapsBox" Grid.Column="1" Content="{Binding EnvironmentMipmapsLabel}" IsChecked="{Binding UseEnvironmentMipmaps}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.detail.envMipmaps" />
+              </Grid>
+              <TextBlock Text="{Binding EnvironmentMipmapsHint}" Classes="caption" Margin="164,0,0,0" />
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.detail.outlineEnabled">
+                <CheckBox Name="PreviewOutlineEnabledBox" Grid.Column="1" Content="{Binding PreviewOutlineEnabledLabel}" IsChecked="{Binding PreviewOutlineEnabled}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.detail.outlineEnabled" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.detail.outlineScale">
+                <TextBlock Text="{Binding PreviewOutlineWidthScaleLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewOutlineWidthScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PreviewOutlineWidthScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsPreviewOutlineEditable}" local:PreviewHelp.Topic="help.detail.outlineScale" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.05" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding PreviewOutlineWidthScale, Mode=TwoWay}" IsEnabled="{Binding IsPreviewOutlineEditable}" local:PreviewHelp.Topic="help.detail.outlineScale" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" />
+              </Grid>
+              <TextBlock Text="{Binding PreviewOutlineHint}" Classes="caption" Margin="164,0,0,0" />
+              <TextBlock Name="PreviewOutlineDisabledHintText" Text="{Binding PreviewOutlineDisabledHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding IsPreviewOutlineDisabled}" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedShadowDetail" Header="{Binding AdvancedShadowDetailLabel}" IsExpanded="False">
-              <TextBlock Text="{Binding SceneAppearanceHint}" Classes="caption" />
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="164,210,*" Background="Transparent" local:PreviewHelp.Topic="help.ssao.samples">
+                  <TextBlock Text="{Binding SsaoSampleCountLabel}" Classes="label" />
+                  <ComboBox Name="PreviewSsaoSampleCountBox" Grid.Column="1" ItemsSource="{Binding SsaoSampleCountChoices}" SelectedIndex="{Binding SsaoSampleCountIndex}" IsEnabled="{Binding IsSsaoEditable}" local:PreviewHelp.Topic="help.ssao.samples" AutomationProperties.Name="{Binding SsaoSampleCountLabel}" />
+                </Grid>
+                <TextBlock Text="{Binding SceneAppearanceHint}" Classes="caption" />
+              </StackPanel>
             </Expander>
           </StackPanel>
 
-          <!-- Category 3: Global Illumination -->
+          <!-- Category 3: Rendering Pipeline & Global Illumination -->
           <StackPanel Name="CategoryGiPanel" Spacing="16" IsVisible="{Binding IsCategoryGlobalIllumination}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding PipelineSectionLabel}" Classes="section" />
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="pipeline.mode">
+                <TextBlock Text="{Binding PipelineModeLabel}" Classes="label" />
+                <ComboBox Name="PreviewPipelineModeBox" Grid.Column="1" ItemsSource="{Binding PipelineModeChoices}" SelectedIndex="{Binding PipelineModeIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="pipeline.mode" AutomationProperties.Name="{Binding PipelineModeLabel}" />
+              </Grid>
+              <TextBlock Text="{Binding PipelineModeHint}" Classes="caption" Margin="164,0,0,0" />
+            </StackPanel>
+            <Separator />
+
+            <!-- Path Tracing Common Section -->
+            <StackPanel Name="PathTracingSettingsPanel" Spacing="10" IsVisible="{Binding IsPathTracing}">
+              <TextBlock Text="{Binding PathTracingSectionLabel}" Classes="section" />
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="pt.shading">
+                <TextBlock Text="{Binding PtShadingModeLabel}" Classes="label" />
+                <ComboBox Name="PreviewPtShadingModeBox" Grid.Column="1" ItemsSource="{Binding PtShadingModeChoices}" SelectedIndex="{Binding PtShadingModeIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="pt.shading" AutomationProperties.Name="{Binding PtShadingModeLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.samples">
+                <TextBlock Text="{Binding PtSamplesPerFrameLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewPtSamplesPerFrameBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtSamplesPerFrame}" Minimum="1" Maximum="64" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.samples" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="64" SmallChange="1" LargeChange="8" Step="1" DefaultValue="1" Number="{Binding PtSamplesPerFrame, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.samples" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtSamplesPerFrameLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.bounces">
+                <TextBlock Text="{Binding PtMaxBouncesLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewPtMaxBouncesBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding PtMaxBounces}" Minimum="1" Maximum="8" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.bounces" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="8" SmallChange="1" LargeChange="2" Step="1" DefaultValue="4" Number="{Binding PtMaxBounces, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.bounces" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtMaxBouncesLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.progressive">
+                <CheckBox Name="PreviewPtProgressiveBox" Grid.Column="1" Content="{Binding PtProgressiveLabel}" IsChecked="{Binding PtProgressiveAccumulation}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.progressive" />
+              </Grid>
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="pt.denoiser">
+                <TextBlock Text="{Binding PtDenoiserLabel}" Classes="label" />
+                <ComboBox Name="PreviewPtDenoiserBox" Grid.Column="1" ItemsSource="{Binding PtDenoiserChoices}" SelectedIndex="{Binding PtDenoiserIndex}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="pt.denoiser" AutomationProperties.Name="{Binding PtDenoiserLabel}" />
+              </Grid>
+              <Separator />
+            </StackPanel>
+
+            <!-- Standalone One-Bounce Ray GI -->
             <StackPanel Spacing="12">
               <TextBlock Text="{Binding GiLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding GiLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiStrengthBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="10" SmallChange="0.1" LargeChange="1" Step="0.05" DefaultValue="4" Number="{Binding GiStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
-              <CheckBox Name="PreviewGiAccelerationBox" Content="{Binding PreviewGiAccelerationLabel}" IsChecked="{Binding PreviewGiAcceleration}" IsEnabled="{Binding IsGiEnabled}" Margin="188,0,0,0" />
-              <TextBlock Text="{Binding PreviewGiAccelerationHint}" Classes="caption" Margin="188,0,0,0" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding CompositionLabel}" Classes="label" /><ComboBox Name="PreviewGiCompositionBox" Grid.Column="1" ItemsSource="{Binding GiCompositions}" SelectedIndex="{Binding GiCompositionIndex}" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding CompositionLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding GiToonResponseLabel}" Classes="label" /><ComboBox Name="PreviewGiToonResponseBox" Grid.Column="1" ItemsSource="{Binding GiToonResponses}" SelectedIndex="{Binding GiToonResponseIndex}" IsEnabled="{Binding IsGiToonPaletteEnabled}" AutomationProperties.Name="{Binding GiToonResponseLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding DenoiserLabel}" Classes="label" /><ComboBox Name="PreviewGiDenoiserBox" Grid.Column="1" ItemsSource="{Binding GiDenoisers}" SelectedIndex="{Binding GiDenoiserIndex}" IsEnabled="{Binding IsGiDenoiserEnabled}" AutomationProperties.Name="{Binding DenoiserLabel}" /></Grid>
-              <TextBlock Name="GiPaletteConflictHintText" Text="{Binding GiPaletteConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding ShowGiPaletteConflictHint}" />
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiOcclusionStrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiOcclusionStrengthBox" Grid.Column="1" MenuDefaultValue="0" Value="{Binding GiOcclusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.2" Step="0.01" DefaultValue="0" Number="{Binding GiOcclusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiOcclusionRadiusLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiOcclusionRadiusBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiOcclusionRadius}" Minimum="0.001" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.05" Maximum="10" SmallChange="0.05" LargeChange="1" Step="0.05" DefaultValue="1" Number="{Binding GiOcclusionRadius, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" /></Grid>
-              <TextBlock Name="GiOcclusionConflictHintText" Text="{Binding GiOcclusionConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding HasGiOcclusionConflict}" />
+              <TextBlock Name="PathTracingLocksGiHintText" Text="{Binding PathTracingLocksGiNotice}" Classes="hintWarn" IsVisible="{Binding ShowPathTracingLocksGiNotice}" />
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="gi.mode">
+                <TextBlock Text="{Binding ModeLabel}" Classes="label" />
+                <ComboBox Name="PreviewGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" IsEnabled="{Binding IsGiSectionEnabled}" local:PreviewHelp.Topic="gi.mode" AutomationProperties.Name="{Binding GiLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.strength">
+                <TextBlock Text="{Binding StrengthLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewGiStrengthBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.strength" AutomationProperties.Name="{Binding StrengthLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="10" SmallChange="0.1" LargeChange="1" Step="0.05" DefaultValue="4" Number="{Binding GiStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.strength" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.acceleration">
+                <CheckBox Name="PreviewGiAccelerationBox" Grid.Column="1" Content="{Binding PreviewGiAccelerationLabel}" IsChecked="{Binding PreviewGiAcceleration}" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.acceleration" />
+              </Grid>
+              <TextBlock Text="{Binding PreviewGiAccelerationHint}" Classes="caption" Margin="164,0,0,0" />
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="gi.comp">
+                <TextBlock Text="{Binding CompositionLabel}" Classes="label" />
+                <ComboBox Name="PreviewGiCompositionBox" Grid.Column="1" ItemsSource="{Binding GiCompositions}" SelectedIndex="{Binding GiCompositionIndex}" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="gi.comp" AutomationProperties.Name="{Binding CompositionLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.toonResponse">
+                <TextBlock Text="{Binding GiToonResponseLabel}" Classes="label" />
+                <ComboBox Name="PreviewGiToonResponseBox" Grid.Column="1" ItemsSource="{Binding GiToonResponses}" SelectedIndex="{Binding GiToonResponseIndex}" IsEnabled="{Binding IsGiToonPaletteEnabled}" local:PreviewHelp.Topic="help.gi.toonResponse" AutomationProperties.Name="{Binding GiToonResponseLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="164,220,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.denoiser">
+                <TextBlock Text="{Binding DenoiserLabel}" Classes="label" />
+                <ComboBox Name="PreviewGiDenoiserBox" Grid.Column="1" ItemsSource="{Binding GiDenoisers}" SelectedIndex="{Binding GiDenoiserIndex}" IsEnabled="{Binding IsGiDenoiserEnabled}" local:PreviewHelp.Topic="help.gi.denoiser" AutomationProperties.Name="{Binding DenoiserLabel}" />
+              </Grid>
+              <TextBlock Name="GiPaletteConflictHintText" Text="{Binding GiPaletteConflictHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowGiPaletteConflictHint}" />
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.occlusionStrength">
+                <TextBlock Text="{Binding GiOcclusionStrengthLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewGiOcclusionStrengthBox" Grid.Column="1" MenuDefaultValue="0" Value="{Binding GiOcclusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsGiOcclusionStrengthEditable}" local:PreviewHelp.Topic="help.gi.occlusionStrength" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.2" Step="0.01" DefaultValue="0" Number="{Binding GiOcclusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiOcclusionStrengthEditable}" local:PreviewHelp.Topic="help.gi.occlusionStrength" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" />
+              </Grid>
+              <TextBlock Name="GiOcclusionLockedBySsaoHintText" Text="{Binding GiOcclusionLockedBySsaoHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowGiOcclusionLockedBySsaoHint}" />
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.occlusionRadius">
+                <TextBlock Text="{Binding GiOcclusionRadiusLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewGiOcclusionRadiusBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiOcclusionRadius}" Minimum="0.001" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.occlusionRadius" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" />
+                <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.05" Maximum="10" SmallChange="0.05" LargeChange="1" Step="0.05" DefaultValue="1" Number="{Binding GiOcclusionRadius, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.occlusionRadius" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" />
+              </Grid>
+              <TextBlock Name="GiOcclusionConflictHintText" Text="{Binding GiOcclusionConflictHint}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding HasGiOcclusionConflict}" />
               <TextBlock Name="PreviewGiCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
               <TextBlock Text="{Binding GiHint}" Classes="caption" />
             </StackPanel>
+
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedLighting" Header="{Binding AdvancedLightingLabel}" IsExpanded="False">
               <StackPanel Spacing="12">
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiSamplesLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" MenuDefaultValue="16" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSamplesLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiMaxRayDistanceLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiMaxRayDistanceBox" Grid.Column="1" MenuDefaultValue="1000" Value="{Binding GiMaxRayDistance}" Minimum="0.01" Maximum="1000000" Increment="10" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiMaxRayDistanceLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiDirectScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiDirectScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiDirectScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiDirectScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.1" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding GiDirectScale, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiDirectScaleLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiRayEpsilonLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiRayEpsilonBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding GiRayEpsilon}" Minimum="0.0001" Maximum="100" Increment="0.001" FormatString="0.#####" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiRayEpsilonLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiSeedLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiSeedBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiSeed}" Minimum="0" Maximum="4294967295" Increment="1" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSeedLabel}" /></Grid>
+                <!-- Path Tracing Expert Controls -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsPathTracing}">
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.maxAccum">
+                    <TextBlock Text="{Binding PtMaxAccumulatedFramesLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewPtMaxAccumulatedFramesBox" Grid.Column="1" MenuDefaultValue="256" Value="{Binding PtMaxAccumulatedFrames}" Minimum="1" Maximum="4096" Increment="16" FormatString="0" IsEnabled="{Binding IsPtProgressiveMaxFramesEditable}" local:PreviewHelp.Topic="help.pt.maxAccum" AutomationProperties.Name="{Binding PtMaxAccumulatedFramesLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.interactiveSamples">
+                    <TextBlock Text="{Binding PtInteractiveSamplesLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewPtInteractiveSamplesBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PtInteractiveSamplesPerFrame}" Minimum="1" Maximum="16" Increment="1" FormatString="0" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.interactiveSamples" AutomationProperties.Name="{Binding PtInteractiveSamplesLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.firefly">
+                    <TextBlock Text="{Binding PtFireflyClampLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewPtFireflyClampBox" Grid.Column="1" MenuDefaultValue="10" Value="{Binding PtFireflyClamp}" Minimum="1" Maximum="1000" Increment="1" FormatString="0.##" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.firefly" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
+                    <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="1" Maximum="100" SmallChange="1" LargeChange="10" Step="1" DefaultValue="10" Number="{Binding PtFireflyClamp, Mode=TwoWay}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.firefly" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PtFireflyClampLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,*" Background="Transparent" local:PreviewHelp.Topic="help.pt.hardwareRt">
+                    <CheckBox Name="PreviewPtUseHardwareRtBox" Grid.Column="1" Content="{Binding PtUseHardwareRtLabel}" IsChecked="{Binding PtUseHardwareRayTracing}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.pt.hardwareRt" />
+                  </Grid>
+                  <TextBlock Text="{Binding PtUseHardwareRtHint}" Classes="caption" Margin="164,0,0,0" />
+                  <TextBlock Name="PtHardwareFallbackNoticeText" Text="{Binding PtHardwareFallbackNotice}" Classes="hintWarn" Margin="164,0,0,0" IsVisible="{Binding ShowPtHardwareFallbackNotice}" />
+                </StackPanel>
+
+                <!-- Ray GI Expert Controls -->
+                <StackPanel Spacing="12" IsVisible="{Binding IsRasterPipeline}">
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.samples">
+                    <TextBlock Text="{Binding GiSamplesLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" MenuDefaultValue="16" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.samples" AutomationProperties.Name="{Binding GiSamplesLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.maxRayDist">
+                    <TextBlock Text="{Binding GiMaxRayDistanceLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewGiMaxRayDistanceBox" Grid.Column="1" MenuDefaultValue="1000" Value="{Binding GiMaxRayDistance}" Minimum="0.01" Maximum="1000000" Increment="10" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.maxRayDist" AutomationProperties.Name="{Binding GiMaxRayDistanceLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.directScale">
+                    <TextBlock Text="{Binding GiDirectScaleLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewGiDirectScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiDirectScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.directScale" AutomationProperties.Name="{Binding GiDirectScaleLabel}" />
+                    <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.1" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding GiDirectScale, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.directScale" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiDirectScaleLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.rayEpsilon">
+                    <TextBlock Text="{Binding GiRayEpsilonLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewGiRayEpsilonBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding GiRayEpsilon}" Minimum="0.0001" Maximum="100" Increment="0.001" FormatString="0.#####" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.rayEpsilon" AutomationProperties.Name="{Binding GiRayEpsilonLabel}" />
+                  </Grid>
+                  <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.gi.seed">
+                    <TextBlock Text="{Binding GiSeedLabel}" Classes="label" />
+                    <validated:EditorNumericUpDown Name="PreviewGiSeedBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiSeed}" Minimum="0" Maximum="4294967295" Increment="1" FormatString="0" IsEnabled="{Binding IsGiEnabled}" local:PreviewHelp.Topic="help.gi.seed" AutomationProperties.Name="{Binding GiSeedLabel}" />
+                  </Grid>
+                </StackPanel>
               </StackPanel>
             </Expander>
           </StackPanel>
@@ -431,10 +670,19 @@
           <!-- Category 4: Post & Diffusion -->
           <StackPanel Name="CategoryPostPanel" Spacing="16" IsVisible="{Binding IsCategoryPostDiffusion}">
             <TextBlock Text="{Binding DiffusionLabel}" Classes="section" />
-            <CheckBox Name="PreviewDiffusionEnabledBox" Content="{Binding DiffusionEnabledLabel}" IsChecked="{Binding DiffusionEnabled}" IsEnabled="{Binding IsModernEngine}" />
-            <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionStrengthBox" Grid.Column="1" MenuDefaultValue="0.7" Value="{Binding DiffusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsDiffusionEditable}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.7" Number="{Binding DiffusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsDiffusionEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
+            <Grid Background="Transparent" local:PreviewHelp.Topic="help.diffusion.enabled">
+              <CheckBox Name="PreviewDiffusionEnabledBox" Content="{Binding DiffusionEnabledLabel}" IsChecked="{Binding DiffusionEnabled}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.diffusion.enabled" />
+            </Grid>
+            <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.diffusion.strength">
+              <TextBlock Text="{Binding StrengthLabel}" Classes="label" />
+              <validated:EditorNumericUpDown Name="PreviewDiffusionStrengthBox" Grid.Column="1" MenuDefaultValue="0.7" Value="{Binding DiffusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsDiffusionEditable}" local:PreviewHelp.Topic="help.diffusion.strength" AutomationProperties.Name="{Binding StrengthLabel}" />
+              <validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.7" Number="{Binding DiffusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsDiffusionEditable}" local:PreviewHelp.Topic="help.diffusion.strength" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" />
+            </Grid>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedDiffusion" Header="{Binding AdvancedDiffusionLabel}" IsExpanded="False">
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding ExtentLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionExtentBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding DiffusionExtent}" Minimum="0" Maximum="0.01" Increment="0.0005" FormatString="0.####" IsEnabled="{Binding IsDiffusionEditable}" AutomationProperties.Name="{Binding ExtentLabel}" /></Grid>
+              <Grid ColumnDefinitions="164,130,*" Background="Transparent" local:PreviewHelp.Topic="help.diffusion.extent">
+                <TextBlock Text="{Binding ExtentLabel}" Classes="label" />
+                <validated:EditorNumericUpDown Name="PreviewDiffusionExtentBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding DiffusionExtent}" Minimum="0" Maximum="0.01" Increment="0.0005" FormatString="0.####" IsEnabled="{Binding IsDiffusionEditable}" local:PreviewHelp.Topic="help.diffusion.extent" AutomationProperties.Name="{Binding ExtentLabel}" />
+              </Grid>
             </Expander>
             <TextBlock Text="{Binding DiffusionHint}" Classes="caption" />
           </StackPanel>
@@ -443,7 +691,9 @@
           <StackPanel Name="CategoryDiagnosticsPanel" Spacing="16" IsVisible="{Binding IsCategoryDiagnostics}">
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding VramSectionLabel}" Classes="section" />
-              <CheckBox Name="PreviewAdaptiveVramSamplingBox" Content="{Binding AdaptiveVramSamplingLabel}" IsChecked="{Binding AdaptiveVramSampling}" IsEnabled="{Binding IsModernEngine}" />
+              <Grid Background="Transparent" local:PreviewHelp.Topic="help.diag.adaptiveVram">
+                <CheckBox Name="PreviewAdaptiveVramSamplingBox" Content="{Binding AdaptiveVramSamplingLabel}" IsChecked="{Binding AdaptiveVramSampling}" IsEnabled="{Binding IsModernEngine}" local:PreviewHelp.Topic="help.diag.adaptiveVram" />
+              </Grid>
               <TextBlock Text="{Binding AdaptiveVramSamplingHint}" Classes="caption" />
             </StackPanel>
             <Separator />
@@ -463,6 +713,68 @@
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
+
+      <!-- Right Column: Fixed Info Sidebar (Upper: Plain-Language Help | Lower: Live VRAM & Load Estimate) -->
+      <Border Name="RightInfoSidebar" Grid.Column="2" Background="{DynamicResource OutputCard}"
+              BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1,0,0,0" Padding="14,16">
+        <Grid RowDefinitions="*,Auto,Auto">
+          <!-- Upper: Option Help Card -->
+          <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="8">
+              <TextBlock Text="{Binding HelpCardHeader}" Classes="caption" FontWeight="SemiBold" />
+              <TextBlock Name="HelpTopicTitleText" Text="{Binding ActiveHelpTitle}" Classes="section" TextWrapping="Wrap" />
+              <TextBlock Name="HelpTopicBodyText" Text="{Binding ActiveHelpBody}" Classes="caption" TextWrapping="Wrap" />
+            </StackPanel>
+          </ScrollViewer>
+
+          <Separator Grid.Row="1" Margin="0,12" />
+
+          <!-- Lower: VRAM & Resource Estimate -->
+          <StackPanel Grid.Row="2" Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding EstimateHeader}" Classes="section" VerticalAlignment="Center" />
+              <Border Grid.Column="1" Name="PerformanceLoadBadge" Classes="loadBadge" CornerRadius="4" Padding="8,2"
+                      Classes.loadLight="{Binding IsLoadLight}"
+                      Classes.loadModerate="{Binding IsLoadModerate}"
+                      Classes.loadHigh="{Binding IsLoadHigh}"
+                      Classes.loadHeavy="{Binding IsLoadHeavy}">
+                <TextBlock Name="PerformanceLoadBadgeText" Text="{Binding PerformanceLoadBadgeText}" FontSize="12" FontWeight="SemiBold" />
+              </Border>
+            </Grid>
+
+            <TextBlock Name="EstimateClassicNoticeText" Text="{Binding EstimateClassicNotice}" Classes="hintWarn" IsVisible="{Binding IsClassicEngine}" />
+
+            <StackPanel Spacing="6" IsVisible="{Binding IsModernEngine}">
+              <StackPanel Spacing="2">
+                <TextBlock Text="{Binding EstimateAdapterLabel}" Classes="caption" />
+                <TextBlock Name="EstimateAdapterText" Text="{Binding EstimateAdapterText}" FontSize="12" TextWrapping="Wrap" />
+              </StackPanel>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock Text="{Binding EstimateViewportLabel}" Classes="caption" />
+                <TextBlock Name="EstimateViewportText" Grid.Column="1" Text="{Binding EstimateViewportText}" FontSize="12" HorizontalAlignment="Right" />
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock Text="{Binding EstimateInternalResolutionLabel}" Classes="caption" />
+                <TextBlock Name="EstimateInternalResolutionText" Grid.Column="1" Text="{Binding EstimateInternalResolutionText}" FontSize="12" HorizontalAlignment="Right" />
+              </Grid>
+              <StackPanel Spacing="4" Margin="0,2,0,0">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding EstimateVramLabel}" Classes="caption" />
+                  <TextBlock Name="EstimateVramText" Grid.Column="1" Text="{Binding EstimateVramText}" FontSize="12" FontWeight="SemiBold" />
+                </Grid>
+                <ProgressBar Name="EstimateVramProgressBar" Classes="vramBar" Classes.overBudget="{Binding IsOverVramBudget}"
+                             Minimum="0" Maximum="100" Value="{Binding EstimateVramProgressPercent}" />
+                <TextBlock Name="EstimateVramBudgetUnavailableText" Text="{Binding EstimateBudgetSourceNote}" Classes="caption"
+                           IsVisible="{Binding HasEstimateBudgetUnavailableNote}" />
+                <TextBlock Name="VramOverBudgetWarningText" Text="{Binding VramOverBudgetWarning}" Classes="hintWarn"
+                           IsVisible="{Binding IsOverVramBudget}" />
+              </StackPanel>
+            </StackPanel>
+
+            <TextBlock Name="EstimateDisclaimerText" Text="{Binding EstimateDisclaimer}" Classes="caption" />
+          </StackPanel>
+        </Grid>
+      </Border>
     </Grid>
 
     <!-- Footer Action Bar -->
