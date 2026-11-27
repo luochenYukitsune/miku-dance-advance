@@ -92,6 +92,7 @@ public sealed partial class D3D12OriginalStyleRenderer
         bool hasFrontFace = effectiveGeometry.HasFlag(D3D12StyleGeometryRequirements.FrontFace);
 
         var both = RasterizerDescription.CullNone;
+        both.MultisampleEnable = key.SampleCount > 1;
         if (hasFrontFace) both.FrontCounterClockwise = key.FrontCounterClockwise;
         var back = both;
         back.CullMode = CullMode.Back;
@@ -137,7 +138,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                 RenderTargetFormats = [key.AlphaOutput == FrameAlphaOutput.Straight ? Format.R16G16B16A16_Float : Format.R8G8B8A8_UNorm],
                 DepthStencilFormat = key.Depth,
-                SampleDescription = new(1, 0),
+                SampleDescription = new(key.SampleCount, 0),
             });
         }
 

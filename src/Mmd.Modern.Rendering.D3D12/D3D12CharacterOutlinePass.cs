@@ -16,7 +16,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     private readonly record struct CharacterOutlineConstants(Matrix4x4 WorldViewProjection, Vector4 Color, Vector4 Options);
     private readonly record struct CharacterOutlinePipelineKey(OriginalTextureSampling Sampling, OriginalTextureSampling ShadowSampling,
         Format Depth, OriginalAlphaBlendMode Blend, bool WriteDepth, bool Stencil, FrameAlphaOutput AlphaOutput, bool Simple, bool SubTexture,
-        bool FrontCounterClockwise);
+        bool FrontCounterClockwise, int SampleCount = 1, int AnisotropicFiltering = 1);
     private sealed record CharacterOutlinePipeline(ID3D12RootSignature Root, ID3D12PipelineState State);
     private readonly Dictionary<CharacterOutlinePipelineKey, CharacterOutlinePipeline> characterOutlinePipelines = [];
     private readonly Dictionary<bool, (byte[] Vertex, byte[] Pixel)> characterOutlineShaders = [];
@@ -40,7 +40,7 @@ public sealed partial class D3D12OriginalStyleRenderer
     private int RecordCharacterOutline(OriginalFrameScene frame, int width, int height, ID3D12Resource sharedSurfaceBuffer, ID3D12Resource sharedIndexBuffer,
         ID3D12DescriptorHeap srvHeap, int srvStride, int slotBase, Format depthFormat,
         D3D12RecordingContext context, D3D12GpuCache cache, int firstMaterial = 0, int materialCount = int.MaxValue,
-        D3D12SurfaceStyleMap? surfaceStyles = null)
+        D3D12SurfaceStyleMap? surfaceStyles = null, int sampleCount = 1)
     {
         using var outlineCpu=MeasureSceneCpu(SceneCpuStage.ModernOutline);
         if (!frame.Materials.Any(flags => flags.CharacterOutlineStyle is not null)) return 0;
@@ -52,11 +52,17 @@ public sealed partial class D3D12OriginalStyleRenderer
         ID3D12Resource? buffer = null;
         ID3D12Resource? scaleSource = null;
         var commands = context.Commands;
+        var shadowSampling = options?.SelfShadow is { } selfShadow
+            ? (options.ResolveShadowFilter(selfShadow) == ShadowFilterMode.Point
+                ? OriginalTextureSampling.PointClamp
+                : OriginalTextureSampling.LinearClamp)
+            : OriginalTextureSampling.LinearClamp;
         var pipeline = GetCharacterOutlinePipeline(new(frame.Surface.Profile.TextureSampling,
-            options?.SelfShadow?.Sampling ?? OriginalTextureSampling.LinearClamp, depthFormat,
+            shadowSampling, depthFormat,
             options?.BlendMode ?? OriginalAlphaBlendMode.Normal, options?.WriteDepth ?? true,
             options?.GroundShadow?.UseStencil == true, options?.AlphaOutput ?? FrameAlphaOutput.LegacyMax,
-            options is null, HasSubTexture(frame), D3D12RasterWinding.FrontCounterClockwise(frame)));
+            options is null, HasSubTexture(frame), D3D12RasterWinding.FrontCounterClockwise(frame),
+            sampleCount, options?.AnisotropicFiltering ?? 1));
         commands.SetGraphicsRootSignature(pipeline.Root); commands.SetPipelineState(pipeline.State);
         commands.SetDescriptorHeaps(srvHeap); commands.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
         commands.IASetIndexBuffer(new IndexBufferView(sharedIndexBuffer.GPUVirtualAddress, checked(scene.Indices.Length * 4), Format.R32_UInt));
@@ -121,11 +127,19 @@ public sealed partial class D3D12OriginalStyleRenderer
     {
         using var pipelineCpu=MeasureSceneCpu(SceneCpuStage.Pipelines);
         if (characterOutlinePipelines.TryGetValue(key, out var found)) return found;
-        StaticSamplerDescription Sampler(OriginalTextureSampling sampling, int register) => new(ShaderVisibility.Pixel, register, 0) {
-            Filter = sampling is OriginalTextureSampling.LinearClamp or OriginalTextureSampling.LinearWrap ? Filter.MinMagMipLinear : Filter.MinMagMipPoint,
-            AddressU = sampling is OriginalTextureSampling.LinearWrap or OriginalTextureSampling.PointWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
-            AddressV = sampling is OriginalTextureSampling.LinearWrap or OriginalTextureSampling.PointWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
-            AddressW = TextureAddressMode.Clamp };
+        StaticSamplerDescription Sampler(OriginalTextureSampling sampling, int register, int maxAnisotropy = 1)
+        {
+            bool linear = sampling is OriginalTextureSampling.LinearClamp or OriginalTextureSampling.LinearWrap;
+            bool anisotropic = linear && maxAnisotropy > 1;
+            return new(ShaderVisibility.Pixel, register, 0)
+            {
+                Filter = anisotropic ? Filter.Anisotropic : (linear ? Filter.MinMagMipLinear : Filter.MinMagMipPoint),
+                MaxAnisotropy = anisotropic ? maxAnisotropy : 0,
+                AddressU = sampling is OriginalTextureSampling.LinearWrap or OriginalTextureSampling.PointWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
+                AddressV = sampling is OriginalTextureSampling.LinearWrap or OriginalTextureSampling.PointWrap ? TextureAddressMode.Wrap : TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+            };
+        }
         RootParameter[] parameters = [new(RootParameterType.ConstantBufferView, new RootDescriptor(0, 0), ShaderVisibility.All),
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0)), ShaderVisibility.Pixel),
             new(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 1)), ShaderVisibility.Pixel),
@@ -133,7 +147,7 @@ public sealed partial class D3D12OriginalStyleRenderer
             new(RootParameterType.ConstantBufferView, new RootDescriptor(3, 0), ShaderVisibility.Pixel),
             new(RootParameterType.ConstantBufferView, new RootDescriptor(4, 0), ShaderVisibility.All)];
         var root = runtime.CreateRootSignature(new RootSignatureDescription(
-            RootSignatureFlags.AllowInputAssemblerInputLayout, parameters, [Sampler(key.Sampling, 0), Sampler(key.ShadowSampling, 1)]), RootSignatureVersion.Version10);
+            RootSignatureFlags.AllowInputAssemblerInputLayout, parameters, [Sampler(key.Sampling, 0, key.AnisotropicFiltering), Sampler(key.ShadowSampling, 1)]), RootSignatureVersion.Version10);
         try
         {
             if (!characterOutlineShaders.TryGetValue(key.SubTexture, out var shader))
@@ -142,6 +156,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 characterOutlineShaders.Add(key.SubTexture, shader); runtime.ShaderCompilations += 2;
             }
             var raster = RasterizerDescription.CullNone; raster.CullMode = CullMode.Front; raster.FrontCounterClockwise = key.FrontCounterClockwise;
+            raster.MultisampleEnable = key.SampleCount > 1;
             raster = CharacterOutlineRasterization.Biased(raster);
             var depth = DepthStencilDescription.Default;
             depth.DepthFunc = key.Simple ? ComparisonFunction.Less : ComparisonFunction.LessEqual;
@@ -161,7 +176,7 @@ public sealed partial class D3D12OriginalStyleRenderer
                 BlendState = key.Simple ? BlendDescription.Opaque : FrameBlend(key.Blend, key.AlphaOutput), SampleMask = uint.MaxValue,
                 RasterizerState = raster, DepthStencilState = depth, PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                 RenderTargetFormats = [key.AlphaOutput == FrameAlphaOutput.Straight ? Format.R16G16B16A16_Float : Format.R8G8B8A8_UNorm],
-                DepthStencilFormat = key.Depth, SampleDescription = new(1, 0) });
+                DepthStencilFormat = key.Depth, SampleDescription = new(key.SampleCount, 0) });
             runtime.PipelineCreations++;
             var result = new CharacterOutlinePipeline(root, state); characterOutlinePipelines.Add(key, result); return result;
         }

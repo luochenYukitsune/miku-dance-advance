@@ -64,6 +64,8 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     public D3D12ClusteredLightStatistics? ClusteredLightStatistics=>session.ClusteredLightStatistics;
     public D3D12PathTracingStatistics? PathTracingStatistics=>session.PathTracingStatistics;
     public D3D12TemporalUpscalingStatistics? TemporalUpscalingStatistics=>session.TemporalUpscalingStatistics;
+    internal bool LastNativeTaaReset => session.LastNativeTaaReset;
+    internal int NativeTaaPhase => session.NativeTaaPhase;
     public string? RayGiBackendIdentity => session.RayGiBackendIdentity;
     public D3D12RayGiCapabilities QueryRayGiCapabilities() => session.QueryRayGiCapabilities();
     public D3D12PresentationStatistics Statistics => new(presents, captures, resizeCount, idleWaitCount, width, height, backbuffers.Length,
@@ -109,19 +111,24 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     public ValueTask WaitForNextFrameAsync(CancellationToken cancellationToken = default)
         => framePermit.WaitAsync(cancellationToken);
 
-    public bool Present(OriginalFrameScene frame, int width, int height, RayGiOptions? rayGiOptions = null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
-        => PresentCore(frame, width, height, rayGiOptions, upscaling, temporalUpscaling, surfaceStyles, diffusion, null);
+    public bool Present(OriginalFrameScene frame, int width, int height, RayGiOptions? rayGiOptions = null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12SharpeningOptions? sharpening=null)
+        => PresentCore(frame, width, height, rayGiOptions, upscaling, temporalUpscaling, surfaceStyles, diffusion, sharpening, null);
 
     /// <summary>Record CPU commands for offscreen targets while the last frame is on the GPU.
     /// Wait for both gates before accessing the swapchain or executing this list.</summary>
     internal bool PresentRecordedAhead(OriginalFrameScene frame, int width, int height, RayGiOptions rayGiOptions,
         D3D12SpatialUpscalingOptions upscaling, D3D12SurfaceStyleMap? surfaceStyles, D3D12DiffusionOptions diffusion,
-        CancellationToken cancellationToken)
-        => PresentCore(frame, width, height, rayGiOptions, upscaling, null, surfaceStyles, diffusion, cancellationToken);
+        CancellationToken cancellationToken, D3D12SharpeningOptions? sharpening = null,
+        D3D12TemporalUpscalingOptions? temporalUpscaling = null)
+    {
+        if (temporalUpscaling is { Mode: not D3D12TemporalUpscalingMode.Off })
+            throw new NotSupportedException("Recording ahead does not support vendor temporal upscaling.");
+        return PresentCore(frame, width, height, rayGiOptions, upscaling, temporalUpscaling, surfaceStyles, diffusion, sharpening, cancellationToken);
+    }
 
     private bool PresentCore(OriginalFrameScene frame, int width, int height, RayGiOptions? rayGiOptions,
         D3D12SpatialUpscalingOptions? upscaling, D3D12TemporalUpscalingOptions? temporalUpscaling,
-        D3D12SurfaceStyleMap? surfaceStyles, D3D12DiffusionOptions? diffusion, CancellationToken? recordAhead)
+        D3D12SurfaceStyleMap? surfaceStyles, D3D12DiffusionOptions? diffusion, D3D12SharpeningOptions? sharpening, CancellationToken? recordAhead)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
@@ -156,7 +163,7 @@ public sealed class D3D12SwapchainPresenter : IDisposable
             context.Commands.CopyResource(backbuffer, target.Resource);
             context.Commands.ResourceBarrierTransition(backbuffer, ResourceStates.CopyDest, ResourceStates.Present);
             recordAhead?.ThrowIfCancellationRequested();
-        },upscaling,temporalUpscaling,surfaceStyles,diffusion);
+        },upscaling,temporalUpscaling,surfaceStyles,diffusion,sharpening);
         double recordAndSubmit = totalWatch.Elapsed.TotalMilliseconds;
         var presentWatch = Stopwatch.StartNew();
         var result = swapchain.Present(1, PresentFlags.None);
@@ -172,10 +179,10 @@ public sealed class D3D12SwapchainPresenter : IDisposable
         return true;
     }
 
-    public RenderedFrame Capture(OriginalFrameScene frame, RayGiOptions? rayGiOptions = null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null)
+    public RenderedFrame Capture(OriginalFrameScene frame, RayGiOptions? rayGiOptions = null,D3D12SpatialUpscalingOptions? upscaling=null,D3D12TemporalUpscalingOptions? temporalUpscaling=null,D3D12SurfaceStyleMap? surfaceStyles=null,D3D12DiffusionOptions? diffusion=null,D3D12SharpeningOptions? sharpening=null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        var result = session.Capture(frame, width, height, rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion);
+        var result = session.Capture(frame, width, height, rayGiOptions,upscaling,temporalUpscaling,surfaceStyles,diffusion,sharpening:sharpening);
         captures++;
         return result;
     }

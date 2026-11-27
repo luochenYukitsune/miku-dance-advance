@@ -676,15 +676,53 @@ internal static class D3D12StyleShaderAssembler
             """);
         sb.AppendLine(OriginalFrameShaders.PmxMaterialTreatmentHlsl);
         sb.AppendLine("""
+            float MdaSamplePrimaryShadowVisibility(float2 uv, float receiverDepth, float2 screenPos) {
+                float3 uvd = float3(uv, receiverDepth);
+                float3 duvdX = ddx(uvd), duvdY = ddy(uvd);
+                precise float delta = max(receiverDepth - ShadowMap.Sample(ShadowSampler, uv), 0);
+                precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
+                if (ShadowOptions.y > 0) weighted = weighted * uv.y;
+                precise float centerVis = 1 - saturate(weighted - .3);
+                if (ShadowOptions.x <= 0) return centerVis;
+                float det = duvdX.x * duvdY.y - duvdX.y * duvdY.x;
+                float detScale = max(abs(duvdX.x * duvdY.y) + abs(duvdX.y * duvdY.x), 1e-20);
+                float2 receiverGrad = 0;
+                if (abs(det) > detScale * 1e-5) {
+                    float2 grad = float2(duvdX.z * duvdY.y - duvdX.y * duvdY.z, duvdX.x * duvdY.z - duvdX.z * duvdY.x) / det;
+                    if (all(isfinite(grad))) receiverGrad = grad;
+                }
+                uint sw, sh; ShadowMap.GetDimensions(sw, sh);
+                float2 radius = ShadowOptions.x * 1.5 / max(float2(sw, sh), float2(1, 1));
+                float maxSlopeBias = min(max(radius.x, radius.y) * 2.5, 0.15);
+                float angle = frac(52.9829189 * frac(dot(screenPos, float2(0.06711056, 0.00583715)))) * 6.2831853;
+                float s = sin(angle), cRot = cos(angle);
+                static const float2 kPcf[12] = {
+                    float2(-0.326212, -0.405810), float2(-0.840144, -0.073580),
+                    float2(-0.695914,  0.457137), float2(-0.203345,  0.620716),
+                    float2( 0.962340, -0.194983), float2( 0.473434, -0.480026),
+                    float2( 0.519456,  0.767022), float2( 0.185461, -0.893124),
+                    float2( 0.507431,  0.064425), float2( 0.896420,  0.412458),
+                    float2(-0.321940, -0.932615), float2(-0.791559, -0.597710)
+                };
+                float sum = centerVis;
+                [unroll] for (int t = 0; t < 12; t++) {
+                    float2 r = float2(kPcf[t].x * cRot - kPcf[t].y * s, kPcf[t].x * s + kPcf[t].y * cRot);
+                    float2 suv = saturate(uv + r * radius);
+                    float expectedDepth = saturate(receiverDepth + clamp(dot(receiverGrad, suv - uv), -maxSlopeBias, maxSlopeBias));
+                    float sd = ShadowMap.SampleLevel(ShadowSampler, suv, 0);
+                    float d = max(expectedDepth - sd, 0);
+                    float w = d * (ShadowOptions.y > 0 ? 8000 : 1500);
+                    if (ShadowOptions.y > 0) w *= suv.y;
+                    sum += 1 - saturate(w - .3);
+                }
+                return sum / 13.0;
+            }
             float MdaPrimaryShadowVisibility(SurfaceOutput v) {
                 if (ShadowOptions.z <= 0) return 1;
                 float3 q = v.LightClip.xyz / v.LightClip.w;
                 float2 uv = float2(.5 + .5 * q.x, .5 - .5 * q.y);
                 if (any(uv < 0) || any(uv > 1)) return 1;
-                precise float delta = max(q.z - ShadowMap.Sample(ShadowSampler, uv), 0);
-                precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
-                if (ShadowOptions.y > 0) weighted = weighted * uv.y;
-                return 1 - saturate(weighted - .3);
+                return MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
             }
             float MdaLightResponseDefault(SurfaceOutput v, float3 n, float3 l, float visibility) {
                 float c = min(saturate(dot(n, l) * 3), visibility);
@@ -809,10 +847,7 @@ internal static class D3D12StyleShaderAssembler
                 bool inShadowMap = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
                 precise float visibility = 1;
                 if (inShadowMap) {
-                    precise float delta = max(q.z - ShadowMap.Sample(ShadowSampler, uv), 0);
-                    precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
-                    if (ShadowOptions.y > 0) weighted = weighted * uv.y;
-                    visibility = 1 - saturate(weighted - .3);
+                    visibility = MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
                 }
                 float nDotL = dot(n, l);
                 float originalC = inShadowMap ? min(saturate(nDotL * 3), visibility) : 1;
@@ -887,10 +922,7 @@ internal static class D3D12StyleShaderAssembler
                     bool inShadowMap = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
                     precise float visibility = 1;
                     if (inShadowMap) {
-                        precise float delta = max(q.z - ShadowMap.Sample(ShadowSampler, uv), 0);
-                        precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
-                        if (ShadowOptions.y > 0) weighted = weighted * uv.y;
-                        visibility = 1 - saturate(weighted - .3);
+                        visibility = MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
                     }
                     float c = MdaStyleLightResponse(v, n, l, visibility);
                 #ifdef MDA_STYLE_HOOK_PALETTE_FACTOR
@@ -908,10 +940,7 @@ internal static class D3D12StyleShaderAssembler
                     float2 uv = float2(.5 + .5 * q.x, .5 - .5 * q.y);
                     precise float visibility = 1;
                     if (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) {
-                        precise float delta = max(q.z - ShadowMap.Sample(ShadowSampler, uv), 0);
-                        precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
-                        if (ShadowOptions.y > 0) weighted = weighted * uv.y;
-                        visibility = 1 - saturate(weighted - .3);
+                        visibility = MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
                     }
                     float3 n = normalize(v.Normal);
                     float3 l = IncomingLight.xyz;
@@ -1127,10 +1156,7 @@ internal static class D3D12StyleShaderAssembler
                         float2 uv = float2(.5 + .5 * q.x, .5 - .5 * q.y);
                         precise float visibility = 1;
                         if (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) {
-                            precise float delta = max(q.z - ShadowMap.Sample(ShadowSampler, uv), 0);
-                            precise float weighted = delta * (ShadowOptions.y > 0 ? 8000 : 1500);
-                            if (ShadowOptions.y > 0) weighted = weighted * uv.y;
-                            visibility = 1 - saturate(weighted - .3);
+                            visibility = MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
                         }
                         float3 n = normalize(v.Normal);
                         float3 l = IncomingLight.xyz;

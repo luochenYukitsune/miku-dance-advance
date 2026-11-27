@@ -85,6 +85,44 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         Assert.Null(session.ClusteredLightStatistics);
     }
 
+    [Fact]
+    public void ClusteredForwardSupportsMsaaPcfSoftSsaoAndRenderScaleTogether()
+    {
+        using var session = new D3D12FrameSession();
+        var baseFrame = CreateLitBoxScene(withOccluder: true);
+        var lightProj = Matrix4x4.CreateLookAt(new Vector3(0f, 3f, -4f), new Vector3(0f, 0f, 2f), Vector3.UnitY)
+            * Matrix4x4.CreateOrthographic(12f, 12f, 0.1f, 20f);
+        var selfShadow = new OriginalSelfShadowOptions(lightProj, 512, 512, Generate: true, PartialFar: false,
+            OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
+        {
+            FilterMode = ShadowFilterMode.PcfSoft,
+            ShadowSoftness = 1.25f,
+        };
+        var combinedFrame = new OriginalFrameScene(
+            baseFrame.Surface,
+            options: baseFrame.Options! with
+            {
+                PipelineMode = RenderPipelineMode.ClusteredForward,
+                Antialiasing = FrameAntialiasing.Msaa4X,
+                SelfShadow = selfShadow,
+                RenderScale = 0.75f,
+                AnisotropicFiltering = 8,
+                ShadowFilter = ShadowFilterMode.PcfSoft,
+                ShadowSoftness = 1.25f,
+                ScreenSpaceAo = new ScreenSpaceAoOptions(Enabled: true, Strength: 0.6f, Radius: 0.4f, SampleCount: 8),
+            },
+            materials: baseFrame.Materials,
+            lighting: baseFrame.Lighting);
+
+        var img = session.Capture(combinedFrame, 128, 96);
+        Assert.Equal(128, img.Width);
+        Assert.Equal(96, img.Height);
+        Assert.True(session.ClusteredLightStatistics?.Active);
+        Assert.Equal(2, session.ClusteredLightStatistics!.DispatchCount);
+        int center = (48 * 128 + 64) * 4;
+        Assert.True(img.Rgba[center] + img.Rgba[center + 1] + img.Rgba[center + 2] > 20);
+    }
+
     [Theory]
     [InlineData(PathTracingShadingMode.ToonHybrid, false)]
     [InlineData(PathTracingShadingMode.Physical, false)]

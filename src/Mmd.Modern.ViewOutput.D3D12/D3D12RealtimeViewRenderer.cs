@@ -33,6 +33,8 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     public ViewRendererCapabilities Capabilities { get; }
     public string AdapterName => presenter.AdapterName;
     public bool IsWarp => presenter.IsWarp;
+    internal bool LastNativeTaaReset => presenter.LastNativeTaaReset;
+    internal int NativeTaaPhase => presenter.NativeTaaPhase;
     public D3D12PresentationStatistics Statistics => presenter.Statistics with
     {
         RequestedSpatialSamples = previewSampling.LastRequestedSpatialSamples,
@@ -116,7 +118,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             if (frame.Width != request.Width || frame.Height != request.Height) throw new InvalidOperationException("Resize the realtime renderer before presenting new dimensions.");
             var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow, frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
             var style = styleCache.Resolve(scene, frame.RenderingStyles, frame.SceneInputs);
-            scene = style.Scene;
+            scene = D3D12ViewScene.ApplyPostStyleOutlineOverrides(style.Scene, request.EffectiveQuality, frame.RenderingStyles, outlineWidths);
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
             previewSampling.Prepare(frame.Width, frame.Height, request.EffectiveQuality, scene, style.SurfaceStyles);
             while (true)
@@ -130,16 +132,17 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                             prepared.Materials, prepared.Lighting, prepared.EditorOverlay);
                     var gi = D3D12ViewQuality.Gi(request.EffectiveQuality, frame.TemporalState, allowPreviewAcceleration: true);
                     var upscaling = D3D12ViewQuality.Upscaling(request.EffectiveQuality);
+                    var temporal = D3D12ViewQuality.Temporal(request.EffectiveQuality, frame.TemporalState, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory);
                     var diffusion = D3D12ViewQuality.Diffusion(request.EffectiveQuality);
+                    var sharpening = D3D12ViewQuality.Sharpening(request.EffectiveQuality);
                     if (recordAhead)
                     {
                         if (request.EffectiveQuality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off)
                             throw new InvalidOperationException("Recording ahead requires vendor temporal upscaling to be off.");
-                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken);
+                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken, sharpening, temporal);
                     }
-                    else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling,
-                        D3D12ViewQuality.Temporal(request.EffectiveQuality, frame.TemporalState, fsrLoaderPath, xessLibraryPath, dlssBridgePath, dlssSdkDirectory),
-                        style.SurfaceStyles, diffusion);
+                    else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling, temporal,
+                        style.SurfaceStyles, diffusion, sharpening);
                     previewSampling.CommitPresentation();
                     break;
                 }

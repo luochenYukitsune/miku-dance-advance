@@ -114,7 +114,7 @@ internal sealed class EditorUserDataPaths
                     .WithRecoveryDirectoryHistory(new EditorPreferences { RecoveryDirectory = sourceRecovery });
                 copies.Add(new(null, Path.Combine(ConfigDirectory, "editor-preferences.json"), preferences.SerializeForStorage()));
             }
-            foreach (string name in new[] { "editor-preview.json", "editor-output.json" })
+            foreach (string name in new[] { "editor-preview.json", "editor-preview-presets.json", "editor-output.json" })
             {
                 string source = Path.Combine(sourceConfig, name);
                 if (SourceFileExists(source)) copies.Add(new(source, Path.Combine(ConfigDirectory, name)));

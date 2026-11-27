@@ -74,6 +74,8 @@ internal static class D3D12ViewScene
         var surface = scene.Surface;
         var options = quality.ApplyTo(scene.Options);
         var outline = scene.OutlineOptions;
+        if (!quality.PreviewOutlineEnabled && outline is not null)
+            outline = outline with { Eligible = false };
         if (resolvedCamera is not null || cameraPose is not null)
         {
             if (resolvedCamera is null && cameraPose is { ParentModelIndex: >= 0 })
@@ -88,9 +90,8 @@ internal static class D3D12ViewScene
             surface = LightingCache.GetValue(surface.Snapshot, static _ => new()).Get(surface, light);
         bool sceneShadow = scene.UsesSceneLighting && !surface.Snapshot.IsEmpty
             && scene.Materials.Any(flags => flags.UseSceneLighting && flags.ReceiveSelfShadow);
-        if (options.PipelineMode == RenderPipelineMode.PathTracing)
+        if (options.PipelineMode == RenderPipelineMode.PathTracing || quality.Shadow is { Resolution: 0 } || shadowPose is { Mode: 0 })
             options = options with { SelfShadow = null };
-        else if (shadowPose is { Mode: 0 }) options = options with { SelfShadow = null };
         else if (sceneShadow)
         {
             // Resolve after the sampled main light above. Fit the complete composed world geometry,
@@ -100,6 +101,9 @@ internal static class D3D12ViewScene
             {
                 var selected = options.SelfShadow ?? new OriginalSelfShadowOptions(Matrix4x4.Identity, 2048, 2048,
                     true, false, OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual);
+                if (quality.Shadow is { } shadowOverride)
+                    selected = selected with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
+                selected = ApplyShadowFilterOverrides(selected, quality);
                 options = options with { SelfShadow = selected with {
                     LightViewProjection = ModernDirectionalShadowProjection.Fit(surface.Snapshot), Generate = true, PartialFar = false } };
             }
@@ -111,9 +115,95 @@ internal static class D3D12ViewScene
             if (resolvedCamera is not null && (shadowCamera.ParentModelIndex < 0 || cameraParentTransform is not null)
                 && resolvedCamera != shadowCamera.CreateCamera(cameraParentTransform))
                 throw new NotSupportedException("Resolved camera differs from the sampled original camera. Supply a validated explicit projection instead of guessing its original shadow space.");
-            options = options with { SelfShadow = PmmOriginalSelfShadowAdapter.Create(shadowCamera, shadowLight,
-                shadow, surface.Snapshot.World, options.SelfShadow, cameraParentTransform) };
+            var createdShadow = PmmOriginalSelfShadowAdapter.Create(shadowCamera, shadowLight,
+                shadow, surface.Snapshot.World, options.SelfShadow, cameraParentTransform);
+            if (createdShadow is not null)
+            {
+                if (quality.Shadow is { } shadowOverride)
+                    createdShadow = createdShadow with { Width = shadowOverride.Resolution, Height = shadowOverride.Resolution, Sampling = shadowOverride.Sampling };
+                createdShadow = ApplyShadowFilterOverrides(createdShadow, quality);
+            }
+            options = options with { SelfShadow = createdShadow };
         }
-        return new(surface, scene.Outline, outline, options, scene.Materials, scene.Lighting, scene.EditorOverlay);
+        var materials = ApplyViewMaterialOverrides(scene.Materials, quality);
+        return new(surface, scene.Outline, outline, options, materials, scene.Lighting, scene.EditorOverlay);
+    }
+
+    private static OriginalSelfShadowOptions ApplyShadowFilterOverrides(OriginalSelfShadowOptions target, ViewQualityOptions quality)
+    {
+        if (quality.ShadowFilter is null && quality.ShadowSoftness is null) return target;
+        var effectiveMode = quality.ShadowFilter ?? target.EffectiveFilterMode;
+        return target with
+        {
+            FilterMode = quality.ShadowFilter ?? target.FilterMode,
+            Sampling = effectiveMode == ShadowFilterMode.Point
+                ? OriginalTextureSampling.PointClamp
+                : OriginalTextureSampling.LinearClamp,
+            ShadowSoftness = quality.ShadowSoftness ?? target.ShadowSoftness,
+        };
+    }
+
+    internal static IEnumerable<OriginalFrameMaterialFlags> ApplyViewMaterialOverrides(
+        IReadOnlyList<OriginalFrameMaterialFlags> source,
+        ViewQualityOptions quality,
+        bool applyMipmaps = true,
+        bool applyOutlineScale = true)
+    {
+        float outlineScale = quality.PreviewOutlineEnabled ? quality.PreviewOutlineWidthScale : 0f;
+        OriginalFrameMaterialFlags[]? updated = null;
+        for (int i = 0; i < source.Count; i++)
+        {
+            var flags = source[i];
+            var next = flags;
+            if (applyMipmaps)
+            {
+                bool isCharacter = flags.PreserveDirectLightPalette
+                    || flags.CharacterToonResponse is not null
+                    || flags.CharacterOutlineStyle is not null
+                    || flags.GiToonResponseOverride == RayGiToonResponse.PreservePaletteBands;
+                bool effectiveMipmaps = quality.UseEnvironmentMipmaps && !isCharacter && flags.UseMipmaps;
+                if (next.UseMipmaps != effectiveMipmaps)
+                    next = next with { UseMipmaps = effectiveMipmaps };
+            }
+            if (applyOutlineScale && outlineScale != 1f)
+            {
+                float effectiveScale = Math.Clamp(next.OutlineWidthScale * outlineScale, 0f, 4f);
+                if (BitConverter.SingleToInt32Bits(next.OutlineWidthScale) != BitConverter.SingleToInt32Bits(effectiveScale))
+                    next = next with { OutlineWidthScale = effectiveScale };
+            }
+            if (!ReferenceEquals(next, flags))
+            {
+                updated ??= source.ToArray();
+                updated[i] = next;
+            }
+        }
+        return updated ?? source;
+    }
+
+    internal static OriginalFrameScene ApplyPostStyleOutlineOverrides(
+        OriginalFrameScene styledScene,
+        ViewQualityOptions quality,
+        IReadOnlyList<SceneRenderingStyleBinding> objects,
+        IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths)
+    {
+        if (outlineWidths.Count == 0) return styledScene;
+        float outlineScale = quality.PreviewOutlineEnabled ? quality.PreviewOutlineWidthScale : 0f;
+        if (outlineScale == 1f) return styledScene;
+        var scales = D3D12ViewOutlineWidths.Resolve(objects, outlineWidths);
+        if (scales.Length == 0) return styledScene;
+        OriginalFrameMaterialFlags[]? updated = null;
+        foreach (var entry in scales)
+        {
+            var flags = styledScene.Materials[entry.MaterialIndex];
+            float scaled = Math.Clamp(entry.Scale * outlineScale, 0f, 4f);
+            if (BitConverter.SingleToInt32Bits(flags.OutlineWidthScale) == BitConverter.SingleToInt32Bits(scaled))
+                continue;
+            updated ??= styledScene.Materials.ToArray();
+            updated[entry.MaterialIndex] = flags with { OutlineWidthScale = scaled };
+        }
+        return updated is null
+            ? styledScene
+            : new(styledScene.Surface, styledScene.Outline, styledScene.OutlineOptions, styledScene.Options,
+                updated, styledScene.Lighting, styledScene.EditorOverlay);
     }
 }

@@ -282,6 +282,7 @@ public sealed class ClusteredLightingAndPathTracingMathTests
         Assert.NotEmpty(OriginalFrameShaders.CompileSubTexture("PSSurfaceNative", vertex: false, native: true, gi: false, clustered: true));
         Assert.NotEmpty(OriginalFrameShaders.CompileCharacterToon("PSSurfaceNative", native: true, gi: false, textureMorph: false, subTexture: false, clustered: true));
         Assert.NotEmpty(OriginalFrameShaders.CompileCharacterDirectPalette("PSSurfaceNative", gi: false, textureMorph: false, subTexture: false, characterToon: true, clustered: true));
+        Assert.NotEmpty(OriginalFrameShaders.CompilePcfShadow("PSSurfaceNative", native: true, gi: false, textureMorph: false, subTexture: false, characterToon: false, characterDirectPalette: false, clustered: true));
         Assert.NotEmpty(D3D12StyleShaderAssembler.CompilePixel(
             "stylized-test", "PSSurfaceNative", D3D12StyleShaderAssembler.DefaultStylizedHostModule,
             D3D12StyleShaderAssembler.DefaultStylizedHostModule.EffectiveHooks,

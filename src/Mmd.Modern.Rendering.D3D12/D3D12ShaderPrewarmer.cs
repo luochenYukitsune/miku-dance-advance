@@ -29,7 +29,13 @@ public sealed record D3D12ShaderWarmupSpec
     public IReadOnlyList<D3D12ShaderStyleWarmupVariant> StylizedVariants { get; init; } = [];
     public SmaaQuality? SmaaQuality { get; init; }
     public bool SmaaAlphaCoverage { get; init; }
+    public bool IncludeFxaa { get; init; }
+    public bool IncludeFxaaAlphaCoverage { get; init; }
+    public bool IncludeNativeTaa { get; init; }
+    public bool IncludeStandaloneRcas { get; init; }
+    public bool IncludeScreenSpaceAo { get; init; }
     public bool IncludeFsr1 { get; init; }
+    public bool IncludeRenderScale { get; init; }
     public bool IncludeTemporalInputs { get; init; }
     public bool IncludeTemporalCharacter { get; init; }
     public bool IncludeTemporalReactive { get; init; }
@@ -81,8 +87,18 @@ public static class D3D12ShaderPrewarmer
 
         if (spec.SmaaQuality is { } smaaQuality)
             fxcRequests.AddRange(D3D12SmaaPass.GetPrewarmRequests(smaaQuality, spec.SmaaAlphaCoverage));
+        if (spec.IncludeFxaa)
+            fxcRequests.AddRange(D3D12FxaaPass.GetPrewarmRequests(spec.IncludeFxaaAlphaCoverage));
+        if (spec.IncludeNativeTaa)
+            fxcRequests.AddRange(D3D12NativeTaaPass.GetPrewarmRequests());
+        if (spec.IncludeStandaloneRcas)
+            fxcRequests.AddRange(D3D12RcasPass.GetPrewarmRequests());
+        if (spec.IncludeScreenSpaceAo)
+            fxcRequests.AddRange(D3D12ScreenSpaceAoPass.GetPrewarmRequests());
         if (spec.IncludeFsr1)
             fxcRequests.AddRange(D3D12Fsr1Pass.GetPrewarmRequests());
+        if (spec.IncludeRenderScale)
+            fxcRequests.AddRange(D3D12RenderScalePass.GetPrewarmRequests());
         if (spec.IncludeDiffusion)
             fxcRequests.AddRange(D3D12DiffusionPass.GetPrewarmRequests(spec.IncludeDiffusionAlphaCoverage));
         if (spec.IncludeExposure)
@@ -162,7 +178,8 @@ public static class D3D12ShaderPrewarmer
         D3D12SpatialUpscalingOptions? spatialUpscaling = null,
         D3D12TemporalUpscalingOptions? temporalUpscaling = null,
         D3D12DiffusionOptions? diffusion = null,
-        bool includeLightGizmos = false)
+        bool includeLightGizmos = false,
+        D3D12SharpeningOptions? sharpening = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var o = frame.Options;
@@ -234,9 +251,15 @@ public static class D3D12ShaderPrewarmer
             StylizedVariants = variants,
             SmaaQuality = !pathTracing && o?.Antialiasing == FrameAntialiasing.Smaa1X ? o.SmaaQuality : null,
             SmaaAlphaCoverage = straightAlpha,
+            IncludeFxaa = !pathTracing && o?.Antialiasing == FrameAntialiasing.Fxaa,
+            IncludeFxaaAlphaCoverage = straightAlpha,
+            IncludeNativeTaa = !pathTracing && o?.Antialiasing == FrameAntialiasing.Taa,
+            IncludeStandaloneRcas = sharpening is { IsActive: true },
+            IncludeScreenSpaceAo = !pathTracing && o?.ScreenSpaceAo is { IsActive: true },
             IncludeFsr1 = !pathTracing && spatialUpscaling is { Mode: not D3D12SpatialUpscalingMode.Off },
-            IncludeTemporalInputs = temporal || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
-            IncludeTemporalCharacter = (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
+            IncludeRenderScale = (o?.RenderScale ?? 1f) != 1f,
+            IncludeTemporalInputs = temporal || (!pathTracing && o?.Antialiasing == FrameAntialiasing.Taa) || (includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false)),
+            IncludeTemporalCharacter = (!pathTracing && o?.Antialiasing == FrameAntialiasing.Taa) || (temporal && (characterOutline || subTexture || textureMorph || surfaceStyles is not null)),
             IncludeTemporalReactive = temporal && temporalUpscaling?.Mode == D3D12TemporalUpscalingMode.XeSs,
             IncludeTemporalEditorVisibility = includeLightGizmos || (frame.EditorOverlay?.Lines.Any(line => line.DeviceDepth is not null) ?? false),
             IncludeTemporalColorTransfer = temporal,

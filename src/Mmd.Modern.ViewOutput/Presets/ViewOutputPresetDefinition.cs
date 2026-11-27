@@ -102,6 +102,8 @@ public sealed class ViewOutputPresetDefinition
     private static ViewQualityOptions? PortableQuality(ViewQualityOptions? quality) => quality is null ? null : quality with
     {
         Diffusion = quality.Diffusion is { } diffusion ? diffusion with { } : null,
+        Sharpening = quality.Sharpening is { } sharpening ? sharpening with { } : null,
+        ScreenSpaceAo = quality.ScreenSpaceAo is { } ssao ? ssao with { } : null,
         Gi = quality.Gi is { } gi ? gi with
         { TemporalHistoryGeneration = 0, TemporalCameraCutKey = 0, ResetTemporalHistory = false } : null,
         PathTracing = quality.PathTracing is { } pathTracing ? pathTracing.StripRuntimeState() : null,

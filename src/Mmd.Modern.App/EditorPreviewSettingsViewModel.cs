@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Mmd.Modern.Core;
@@ -247,45 +248,147 @@ public sealed record EditorPreviewCapabilities(
 public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
 {
     private static readonly int[] SampleValues = [1, 2, 4, 8, 16, 32];
-    private readonly ViewQualityOptions source;
+    private static readonly int[] ShadowResolutions = [0, 512, 1024, 2048, 4096];
+    private readonly ViewQualityOptions appliedOptions;
+    private ViewQualityOptions baseline;
     private readonly EditorPreviewRuntimeInfo? runtime;
+    private readonly string? customPresetsPath;
+    private readonly bool persistCustomPresets;
+    private readonly Func<ViewQualityOptions?>? getExportQuality;
+    private readonly Action<ViewQualityOptions>? copyToExportQuality;
+    private readonly ObservableCollection<EditorPreviewCustomPreset> customPresets = [];
     private EditorPreviewCapabilities capabilities;
     private LightingMode[] giValues;
     private ViewTemporalUpscalingMode[] temporalValues;
+    private int selectedCategoryIndex;
+    private int customPresetIndex = -1;
+    private string customPresetName = "";
     private int giIndex, antialiasingIndex, smaaIndex, spatialIndex, upscalingIndex, fsr1QualityIndex, surfaceOrderIndex;
-    private int temporalIndex, temporalQualityIndex, giCompositionIndex, giDenoiserIndex;
-    private decimal? giStrength, giSamples, diffusionStrength, diffusionExtent, rcasSharpness;
-    private bool previewGiAcceleration, diffusionEnabled, rcasEnabled, refreshingLocalization;
+    private int temporalIndex, temporalQualityIndex, giCompositionIndex, giDenoiserIndex, giToonResponseIndex;
+    private int shadowResolutionIndex, shadowSamplingIndex;
+    private decimal? giStrength, giSamples, giOcclusionStrength, giOcclusionRadius, giMaxRayDistance, giDirectScale, giRayEpsilon, giSeed;
+    private decimal? diffusionStrength, diffusionExtent, rcasSharpness, renderScale, previewOutlineWidthScale;
+    private bool previewGiAcceleration, diffusionEnabled, rcasEnabled, useEnvironmentMipmaps, adaptiveVramSampling, previewOutlineEnabled;
+    private bool refreshingLocalization, suppressCustomPresetLoad, pendingUltraGiFallback, hasExplicitShadow;
+    private ViewTemporalUpscalingOptions loadedTemporalBaseline = ViewTemporalUpscalingOptions.Off;
     private bool isProbingCapabilities, canRefreshCapabilities;
     private Exception? validationError;
     private string validationMessage = "";
+    private string statusMessage = "";
+    private string statusTemplate = "";
+    private object?[] statusArgs = [];
 
-    public EditorPreviewSettingsViewModel(ViewQualityOptions? current = null, EditorPreviewCapabilities? capabilities = null,
-        EditorPreviewRuntimeInfo? runtime = null, bool capabilitiesPending = false)
+    public EditorPreviewSettingsViewModel(
+        ViewQualityOptions? current = null,
+        EditorPreviewCapabilities? capabilities = null,
+        EditorPreviewRuntimeInfo? runtime = null,
+        bool capabilitiesPending = false,
+        bool isClassicEngine = false,
+        string? customPresetsPath = null,
+        Func<ViewQualityOptions?>? getExportQuality = null,
+        Action<ViewQualityOptions>? copyToExportQuality = null,
+        bool persistCustomPresets = true)
     {
-        source = current ?? new(); source.Validate();
+        appliedOptions = current ?? new();
+        appliedOptions.Validate();
+        baseline = appliedOptions;
         this.capabilities = capabilities ?? new();
         this.runtime = runtime;
+        IsClassicEngine = isClassicEngine;
+        this.customPresetsPath = customPresetsPath;
+        this.getExportQuality = getExportQuality;
+        this.copyToExportQuality = copyToExportQuality;
+        this.persistCustomPresets = persistCustomPresets;
         isProbingCapabilities = capabilitiesPending;
-        giValues = BuildGiValues(this.capabilities, source.EffectiveGi.Mode);
-        giIndex = Array.IndexOf(giValues, source.EffectiveGi.Mode);
-        temporalValues = BuildTemporalValues(this.capabilities, source.EffectiveTemporalUpscaling.Mode);
-        temporalIndex = Array.IndexOf(temporalValues, source.EffectiveTemporalUpscaling.Mode);
-        temporalQualityIndex = InitialTemporalQualityIndex;
-        antialiasingIndex = source.Antialiasing switch { null => 0, FrameAntialiasing.Off => 1, _ => 2 };
-        smaaIndex = source.SmaaQuality is { } smaa ? (int)smaa + 1 : 0;
-        surfaceOrderIndex = source.SurfaceOrder == SurfaceDrawOrder.OpaqueFirst ? 0 : 1;
-        spatialIndex = source.SpatialSamples is { } samples ? Array.IndexOf(SampleValues, samples) + 1 : 0;
-        upscalingIndex = source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 ? 1 : 0;
-        fsr1QualityIndex = (int)source.EffectiveUpscaling.QualityPreset;
-        rcasEnabled = source.EffectiveUpscaling.EnableRcas; rcasSharpness = (decimal)source.EffectiveUpscaling.RcasSharpness;
-        giStrength = (decimal)source.EffectiveGi.Strength; giSamples = source.EffectiveGi.SamplesPerPixel;
-        giCompositionIndex = (int)source.EffectiveGi.Composition; giDenoiserIndex = (int)source.EffectiveGi.Denoiser;
-        previewGiAcceleration = source.EffectiveGi.PreviewAcceleration;
-        diffusionEnabled = source.EffectiveDiffusion.Enabled;
-        diffusionStrength = (decimal)source.EffectiveDiffusion.Strength; diffusionExtent = (decimal)source.EffectiveDiffusion.Extent;
+        giValues = [];
+        temporalValues = [];
+        LoadFromOptions(appliedOptions, resetCustomSelection: true);
+        if (persistCustomPresets)
+        {
+            foreach (var preset in EditorPreferences.LoadCustomPreviewPresets(out _, customPresetsPath))
+                customPresets.Add(preset);
+        }
         Observe(this, static model => model.RefreshLocalization());
     }
+
+    private void LoadFromOptions(ViewQualityOptions options, bool resetCustomSelection)
+    {
+        bool previousSuppress = refreshingLocalization;
+        refreshingLocalization = true;
+        try
+        {
+            baseline = options;
+            var effectiveGi = options.EffectiveGi;
+            loadedTemporalBaseline = options.EffectiveTemporalUpscaling;
+            hasExplicitShadow = options.Shadow is not null;
+            giValues = BuildGiValues(capabilities, appliedOptions.EffectiveGi.Mode, effectiveGi.Mode);
+            giIndex = Array.IndexOf(giValues, effectiveGi.Mode);
+            temporalValues = BuildTemporalValues(capabilities, appliedOptions.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode);
+            temporalIndex = Array.IndexOf(temporalValues, loadedTemporalBaseline.Mode);
+            temporalQualityIndex = InitialTemporalQualityIndexFrom(options);
+            antialiasingIndex = options.Antialiasing switch { null => 0, FrameAntialiasing.Off => 1, _ => 2 };
+            smaaIndex = options.SmaaQuality is { } smaa ? (int)smaa + 1 : 0;
+            surfaceOrderIndex = options.SurfaceOrder == SurfaceDrawOrder.OpaqueFirst ? 0 : 1;
+            spatialIndex = options.SpatialSamples is { } samples ? Array.IndexOf(SampleValues, samples) + 1 : 0;
+            upscalingIndex = options.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 ? 1 : 0;
+            fsr1QualityIndex = (int)options.EffectiveUpscaling.QualityPreset;
+            rcasEnabled = options.EffectiveUpscaling.EnableRcas;
+            rcasSharpness = (decimal)options.EffectiveUpscaling.RcasSharpness;
+            renderScale = (decimal)options.RenderScale;
+
+            var shadow = options.EffectiveShadow;
+            shadowResolutionIndex = Math.Max(0, Array.IndexOf(ShadowResolutions, shadow.Resolution));
+            shadowSamplingIndex = shadow.Sampling == OriginalTextureSampling.PointClamp ? 1 : 0;
+            useEnvironmentMipmaps = options.UseEnvironmentMipmaps;
+            adaptiveVramSampling = options.AdaptiveVramSampling;
+            previewOutlineEnabled = options.PreviewOutlineEnabled;
+            previewOutlineWidthScale = (decimal)options.PreviewOutlineWidthScale;
+
+            giStrength = (decimal)effectiveGi.Strength;
+            giSamples = effectiveGi.SamplesPerPixel;
+            giCompositionIndex = (int)effectiveGi.Composition;
+            giDenoiserIndex = (int)effectiveGi.Denoiser;
+            giToonResponseIndex = (int)effectiveGi.ToonResponse;
+            giOcclusionStrength = (decimal)effectiveGi.OcclusionStrength;
+            giOcclusionRadius = (decimal)effectiveGi.OcclusionRadius;
+            giMaxRayDistance = (decimal)effectiveGi.MaxRayDistance;
+            giDirectScale = (decimal)effectiveGi.DirectScale;
+            giRayEpsilon = (decimal)effectiveGi.RayEpsilon;
+            giSeed = effectiveGi.Seed;
+            previewGiAcceleration = effectiveGi.PreviewAcceleration;
+
+            diffusionEnabled = options.EffectiveDiffusion.Enabled;
+            diffusionStrength = (decimal)options.EffectiveDiffusion.Strength;
+            diffusionExtent = (decimal)options.EffectiveDiffusion.Extent;
+
+            if (resetCustomSelection)
+            {
+                suppressCustomPresetLoad = true;
+                try { customPresetIndex = -1; }
+                finally { suppressCustomPresetLoad = false; }
+            }
+        }
+        finally { refreshingLocalization = previousSuppress; }
+    }
+
+    private void NotifyAllChanged()
+    {
+        bool prev = refreshingLocalization;
+        refreshingLocalization = true;
+        try { Changed(null); }
+        finally { refreshingLocalization = prev; }
+        foreach (string name in IndexProperties) Changed(name);
+    }
+
+    private static readonly string[] IndexProperties =
+    [
+        nameof(SelectedCategoryIndex), nameof(CustomPresetIndex),
+        nameof(GiIndex), nameof(AntialiasingIndex), nameof(SmaaIndex), nameof(SpatialIndex),
+        nameof(SurfaceOrderIndex), nameof(UpscalingIndex), nameof(Fsr1QualityIndex),
+        nameof(TemporalIndex), nameof(TemporalQualityIndex),
+        nameof(GiCompositionIndex), nameof(GiDenoiserIndex), nameof(GiToonResponseIndex),
+        nameof(ShadowResolutionIndex), nameof(ShadowSamplingIndex)
+    ];
 
     private static LightingMode[] BuildGiValues(EditorPreviewCapabilities caps, params LightingMode[] preserve)
     {
@@ -308,6 +411,10 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         return temporal.ToArray();
     }
 
+    public bool IsClassicEngine { get; }
+    public bool IsModernEngine => !IsClassicEngine;
+    public string ClassicEngineNotice => Text("Mda.Text.Preview.ClassicNotice");
+
     public bool IsProbingCapabilities => isProbingCapabilities;
     public bool CapabilitiesReady => !isProbingCapabilities;
     public bool CanRefreshCapabilities
@@ -323,10 +430,168 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string CapabilityProbingNotice => Text("Mda.Text.Ux.Preview.ProbingCapabilities");
     public string RefreshCapabilitiesLabel => Text("Mda.Text.Ux.Preview.RefreshCapabilities");
     public bool NeedsCapabilitiesForApply => isProbingCapabilities && (
-        (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != source.EffectiveGi.Mode)
-        || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != source.EffectiveTemporalUpscaling.Mode)
-        || (IsFsr1 && source.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
+        (CurrentGiMode != LightingMode.Legacy && CurrentGiMode != appliedOptions.EffectiveGi.Mode)
+        || (CurrentTemporalMode != ViewTemporalUpscalingMode.Off && CurrentTemporalMode != appliedOptions.EffectiveTemporalUpscaling.Mode)
+        || (IsFsr1 && appliedOptions.EffectiveUpscaling.Mode != ViewUpscalingMode.Fsr1));
 
+    // 6-category left navigation
+    public IReadOnlyList<string> Categories =>
+    [
+        Text("Mda.Text.Preview.Cat.Overview"),
+        Text("Mda.Text.Preview.Cat.Antialiasing"),
+        Text("Mda.Text.Preview.Cat.Shadows"),
+        Text("Mda.Text.Preview.Cat.Gi"),
+        Text("Mda.Text.Preview.Cat.Post"),
+        Text("Mda.Text.Preview.Cat.Diagnostics")
+    ];
+    public int SelectedCategoryIndex
+    {
+        get => selectedCategoryIndex;
+        set
+        {
+            if (refreshingLocalization) return;
+            int clamped = Math.Clamp(value, 0, 5);
+            if (selectedCategoryIndex == clamped) return;
+            selectedCategoryIndex = clamped;
+            Changed(nameof(SelectedCategoryIndex));
+            Changed(nameof(IsCategoryOverview));
+            Changed(nameof(IsCategoryAntialiasing));
+            Changed(nameof(IsCategoryShadowDetail));
+            Changed(nameof(IsCategoryGlobalIllumination));
+            Changed(nameof(IsCategoryPostDiffusion));
+            Changed(nameof(IsCategoryDiagnostics));
+        }
+    }
+    public bool IsCategoryOverview => selectedCategoryIndex == 0;
+    public bool IsCategoryAntialiasing => selectedCategoryIndex == 1;
+    public bool IsCategoryShadowDetail => selectedCategoryIndex == 2;
+    public bool IsCategoryGlobalIllumination => selectedCategoryIndex == 3;
+    public bool IsCategoryPostDiffusion => selectedCategoryIndex == 4;
+    public bool IsCategoryDiagnostics => selectedCategoryIndex == 5;
+
+    // Presets & Export Sync Labels
+    public string PresetsLabel => Text("Mda.Text.Preview.PresetsLabel");
+    public string PresetPerformanceLabel => Text("Mda.Text.Preview.Preset.Performance");
+    public string PresetBalancedLabel => Text("Mda.Text.Preview.Preset.Balanced");
+    public string PresetHighLabel => Text("Mda.Text.Preview.Preset.High");
+    public string PresetUltraRayTracedLabel => Text("Mda.Text.Preview.Preset.UltraRayTraced");
+    public string PresetPerformanceDesc => Text("Mda.Text.Preview.Preset.PerformanceDesc");
+    public string PresetBalancedDesc => Text("Mda.Text.Preview.Preset.BalancedDesc");
+    public string PresetHighDesc => Text("Mda.Text.Preview.Preset.HighDesc");
+    public string PresetUltraRayTracedDesc => Text("Mda.Text.Preview.Preset.UltraRayTracedDesc");
+    public string CustomPresetLabel => Text("Mda.Text.Preview.CustomPresetLabel");
+    public string CustomPresetPlaceholder => Text("Mda.Text.Preview.CustomPresetPlaceholder");
+    public string CustomPresetNameWatermark => Text("Mda.Text.Preview.CustomPresetNameWatermark");
+    public string CustomPresetSaveNewLabel => Text("Mda.Text.Preview.CustomPresetSaveNew");
+    public string CustomPresetOverwriteLabel => Text("Mda.Text.Preview.CustomPresetOverwrite");
+    public string CustomPresetRenameLabel => Text("Mda.Text.Preview.CustomPresetRename");
+    public string CustomPresetDeleteLabel => Text("Mda.Text.Preview.CustomPresetDelete");
+    public string CopyToExportLabel => Text("Mda.Text.Preview.CopyToExport");
+    public string LoadFromExportLabel => Text("Mda.Text.Preview.LoadFromExport");
+    public string OverviewTitle => Text("Mda.Text.Preview.OverviewTitle");
+    public string ActivePresetLabel => Text("Mda.Text.Preview.ActivePresetLabel");
+    public string BuiltInPresetsTitle => Text("Mda.Text.Preview.BuiltInPresetsTitle");
+    public string ApplyPresetActionLabel => Text("Mda.Text.Preview.ApplyPresetAction");
+
+    public ObservableCollection<EditorPreviewCustomPreset> CustomPresets => customPresets;
+    public int CustomPresetIndex
+    {
+        get => customPresetIndex;
+        set
+        {
+            if (refreshingLocalization || customPresetIndex == value) return;
+            customPresetIndex = value;
+            Changed(nameof(CustomPresetIndex));
+            Changed(nameof(HasSelectedCustomPreset));
+            Changed(nameof(CanOverwriteCustomPreset));
+            Changed(nameof(CanRenameCustomPreset));
+            Changed(nameof(CanDeleteCustomPreset));
+            if (!suppressCustomPresetLoad && value >= 0 && value < customPresets.Count)
+            {
+                var chosen = customPresets[value];
+                CustomPresetName = chosen.Name;
+                pendingUltraGiFallback = false;
+                LoadFromOptions(chosen.Quality, resetCustomSelection: false);
+                ClearStatusAndValidation();
+                NotifyAllChanged();
+            }
+        }
+    }
+    public string CustomPresetName
+    {
+        get => customPresetName;
+        set
+        {
+            if (refreshingLocalization || customPresetName == value) return;
+            customPresetName = value ?? "";
+            Changed(nameof(CustomPresetName));
+            Changed(nameof(CanSaveCustomPreset));
+            Changed(nameof(CanRenameCustomPreset));
+        }
+    }
+    public bool HasSelectedCustomPreset => customPresetIndex >= 0 && customPresetIndex < customPresets.Count;
+    public bool CanSaveCustomPreset => IsModernEngine && !string.IsNullOrWhiteSpace(customPresetName);
+    public bool CanOverwriteCustomPreset => IsModernEngine && HasSelectedCustomPreset;
+    public bool CanRenameCustomPreset => IsModernEngine && HasSelectedCustomPreset && !string.IsNullOrWhiteSpace(customPresetName);
+    public bool CanDeleteCustomPreset => IsModernEngine && HasSelectedCustomPreset;
+    public bool CanCopyToExport => IsModernEngine && copyToExportQuality is not null;
+    public bool CanLoadFromExport => IsModernEngine && getExportQuality is not null;
+
+    public bool IsPerformancePresetActive => TryGetMatchedBuiltIn(out var kind) && kind == BuiltInPreviewPresetKind.Performance;
+    public bool IsBalancedPresetActive => TryGetMatchedBuiltIn(out var kind) && kind == BuiltInPreviewPresetKind.Balanced;
+    public bool IsHighPresetActive => TryGetMatchedBuiltIn(out var kind) && kind == BuiltInPreviewPresetKind.High;
+    public bool IsUltraRayTracedPresetActive => TryGetMatchedBuiltIn(out var kind) && kind == BuiltInPreviewPresetKind.UltraRayTraced;
+
+    public string ActivePresetSummary
+    {
+        get
+        {
+            if (TryGetMatchedBuiltIn(out var kind))
+            {
+                return kind switch
+                {
+                    BuiltInPreviewPresetKind.Performance => PresetPerformanceLabel,
+                    BuiltInPreviewPresetKind.Balanced => PresetBalancedLabel,
+                    BuiltInPreviewPresetKind.High => PresetHighLabel,
+                    BuiltInPreviewPresetKind.UltraRayTraced => PresetUltraRayTracedLabel,
+                    _ => Text("Mda.Text.Preview.Preset.CustomActive")
+                };
+            }
+            if (HasSelectedCustomPreset && TryBuildDraft(out var draft, validateCompatibility: false) && draft is not null
+                && ViewQualityPresets.AreEquivalent(draft, customPresets[customPresetIndex].Quality))
+                return customPresets[customPresetIndex].Name;
+            return Text("Mda.Text.Preview.Preset.CustomActive");
+        }
+    }
+
+    public string OverviewConfigurationSummary
+    {
+        get
+        {
+            string aa = CurrentTemporalMode != ViewTemporalUpscalingMode.Off
+                ? TemporalModes[Math.Clamp(temporalIndex, 0, TemporalModes.Count - 1)]
+                : IsFsr1
+                    ? "FSR 1"
+                    : AntialiasingIndex == 2
+                        ? $"SMAA ({SmaaQualities[Math.Clamp(smaaIndex, 0, SmaaQualities.Count - 1)]})"
+                        : AntialiasingModes[Math.Clamp(antialiasingIndex, 0, AntialiasingModes.Count - 1)];
+            string ssaa = SpatialSamples[Math.Clamp(spatialIndex, 0, SpatialSamples.Count - 1)];
+            string shadow = ShadowResolutions[Math.Clamp(shadowResolutionIndex, 0, ShadowResolutions.Length - 1)] is int r && r > 0
+                ? $"{r}×{r}" : Text("Mda.Text.Context.OptionOff");
+            string gi = GiModes[Math.Clamp(giIndex, 0, GiModes.Count - 1)];
+            string diff = DiffusionEnabled ? Text("Mda.Text.1251a1baefb5") : Text("Mda.Text.Context.OptionOff");
+            return $"{aa} · SSAA {ssaa} · {RenderScaleLabel} {(renderScale ?? 1m):0.##}× · {ShadowResolutionLabel} {shadow} · GI {gi} · {DiffusionLabel} {diff}";
+        }
+    }
+
+    private bool TryGetMatchedBuiltIn(out BuiltInPreviewPresetKind kind)
+    {
+        kind = default;
+        return TryBuildDraft(out var draft, validateCompatibility: false) && draft is not null
+            && ViewQualityPresets.TryMatchBuiltIn(draft, out kind);
+    }
+
+    // Core UI labels
     public string Title => Text("预览画质");
     public string RuntimeLabel => Text("当前视口");
     public string PerformanceDetailsLabel => Text("性能记录");
@@ -343,11 +608,20 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string SurfaceOrderLabel => Text("Mda.Text.SurfaceOrder.Label");
     public string SpatialLabel => Text("精细采样");
     public string SamplingHint => Text("流畅编辑建议使用边缘平滑，精细采样保持 1×；提高采样会重复渲染场景。");
+    public string RenderScaleLabel => Text("Mda.Text.Preview.RenderScaleLabel");
+    public string RenderScaleHint => Text("Mda.Text.Preview.RenderScaleHint");
     public string GiLabel => Text("一次间接光照（GI）");
     public string StrengthLabel => Text("强度");
     public string GiSamplesLabel => Text("每像素采样");
     public string CompositionLabel => Text("受光方式");
     public string DenoiserLabel => Text("GI 降噪");
+    public string GiToonResponseLabel => Text("Mda.Text.Preview.GiToonResponseLabel");
+    public string GiOcclusionStrengthLabel => Text("Mda.Text.Preview.GiOcclusionStrengthLabel");
+    public string GiOcclusionRadiusLabel => Text("Mda.Text.Preview.GiOcclusionRadiusLabel");
+    public string GiMaxRayDistanceLabel => Text("Mda.Text.Preview.GiMaxRayDistanceLabel");
+    public string GiDirectScaleLabel => Text("Mda.Text.Preview.GiDirectScaleLabel");
+    public string GiRayEpsilonLabel => Text("Mda.Text.Preview.GiRayEpsilonLabel");
+    public string GiSeedLabel => Text("Mda.Text.Preview.GiSeedLabel");
     public string PreviewGiAccelerationLabel => Text("Mda.Text.Preview.GiAccelerationLabel");
     public string PreviewGiAccelerationHint => Text("Mda.Text.Preview.GiAccelerationHint");
     public string GiHint => Text("降噪用于卡通色阶受光；角色保持中性补光。");
@@ -358,6 +632,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string AdvancedSamplingLabel => Text("高级采样与空间超分");
     public string AdvancedLightingLabel => Text("高级光照设置");
     public string AdvancedDiffusionLabel => Text("柔光细节");
+    public string AdvancedShadowDetailLabel => Text("Mda.Text.Preview.AdvancedShadowDetailLabel");
     public string LightingLabel => Text("光照");
     public string SceneAppearanceHint => Text("场景阴影与模型描边沿用工程数据；预览画质不会改写材质或画风。");
     public string QualityLabel => Text("画质");
@@ -374,19 +649,50 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     public string DiffusionEnabledLabel => Text("Mda.Text.1251a1baefb5");
     public string ExtentLabel => Text("范围");
     public string DiffusionHint => Text("最后处理场景画面，辅助标记保持清晰。");
+    public string ShadowsSectionLabel => Text("Mda.Text.Preview.ShadowsSection");
+    public string ShadowResolutionLabel => Text("Mda.Text.Preview.ShadowResolutionLabel");
+    public string ShadowSamplingLabel => Text("Mda.Text.Preview.ShadowSamplingLabel");
+    public string ShadowDisabledHint => Text("Mda.Text.Preview.ShadowDisabledHint");
+    public string DetailSectionLabel => Text("Mda.Text.Preview.DetailSection");
+    public string EnvironmentMipmapsLabel => Text("Mda.Text.Preview.EnvironmentMipmapsLabel");
+    public string EnvironmentMipmapsHint => Text("Mda.Text.Preview.EnvironmentMipmapsHint");
+    public string PreviewOutlineEnabledLabel => Text("Mda.Text.Preview.PreviewOutlineEnabledLabel");
+    public string PreviewOutlineWidthScaleLabel => Text("Mda.Text.Preview.PreviewOutlineWidthScaleLabel");
+    public string PreviewOutlineHint => Text("Mda.Text.Preview.PreviewOutlineHint");
+    public string PreviewOutlineDisabledHint => Text("Mda.Text.Preview.PreviewOutlineDisabledHint");
+    public string VramSectionLabel => Text("Mda.Text.Preview.VramSection");
+    public string AdaptiveVramSamplingLabel => Text("Mda.Text.Preview.AdaptiveVramSamplingLabel");
+    public string AdaptiveVramSamplingHint => Text("Mda.Text.Preview.AdaptiveVramSamplingHint");
     public string LocalHint => Text("仅保存在本机，不修改工程；输出画质在输出窗口单独设置。");
     public string ApplyLabel => Text("应用");
     public string CancelLabel => Text("取消");
 
+    // Inline mutual-exclusion hints
+    public bool HasTemporalConflictHint => IsTemporal;
+    public string TemporalConflictHint => Text("Mda.Text.Preview.Hint.TemporalLocksSpatial");
+    public bool HasUpscalingOrSsaa => IsTemporal || IsFsr1 || CurrentSpatialSamples > 1;
+    public bool HasRenderScaleConflictHint => HasUpscalingOrSsaa || (renderScale is { } s && s != 1m && HasUpscalingOrSsaa);
+    public string RenderScaleConflictHint => renderScale is { } s && s != 1m && HasUpscalingOrSsaa
+        ? Text(IsTemporal || IsFsr1 ? "Mda.Text.Preview.Conflict.RenderScaleWithUpscaling" : "Mda.Text.Preview.Conflict.RenderScaleWithSsaa")
+        : Text("Mda.Text.Preview.Hint.UpscalingLocksRenderScale");
+    public bool ShowGiPaletteConflictHint => IsGiEnabled && GiCompositionIndex != (int)RayGiComposition.ToonPalette;
+    public string GiPaletteConflictHint => Text("Mda.Text.Preview.Hint.GiRequiresToonPalette");
+    public bool HasGiOcclusionConflict => IsGiEnabled && giOcclusionStrength is > 0m && giOcclusionRadius is { } r && giRayEpsilon is { } e && r <= e;
+    public string GiOcclusionConflictHint => Text("Mda.Text.Preview.Conflict.GiOcclusionRadius");
+
+    // Lists
     public IReadOnlyList<string> AntialiasingModes => [Text("沿用场景"), Text("Mda.Text.Context.OptionOff"), Text("边缘平滑（SMAA）")];
     public IReadOnlyList<string> SmaaQualities => [Text("沿用场景"), Text("低"), Text("中"), Text("高"), Text("超高")];
     public IReadOnlyList<EditorSurfaceOrderChoice> SurfaceOrders { get; } = EditorSurfaceOrderChoice.Create();
     public IReadOnlyList<string> SpatialSamples => [Text("沿用场景"), Text("1× · 关闭"), "2×", "4×", "8×", "16×", "32×"];
+    public IReadOnlyList<string> ShadowResolutionChoices => [Text("Mda.Text.Preview.ShadowResolutionOff"), "512 × 512", "1024 × 1024", "2048 × 2048", "4096 × 4096"];
+    public IReadOnlyList<string> ShadowSamplingChoices => [Text("Mda.Text.Preview.ShadowSamplingLinear"), Text("Mda.Text.Preview.ShadowSamplingPoint")];
     public IReadOnlyList<string> GiModes => giValues.Select(mode => WithAvailability(mode switch
     { LightingMode.Legacy => Text("Mda.Text.Context.OptionOff"), LightingMode.SoftwareRayTracing => Text("软件一次 GI"), _ => Text("硬件一次 GI") }, GiAvailable(mode))).ToArray();
     public IReadOnlyList<string> GiCompositions => [Text("原色叠加"), Text("卡通色阶")];
     public IReadOnlyList<string> GiDenoisers => [Text("Mda.Text.Context.OptionOff"), Text("空间降噪"), Text("时空降噪")];
-    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || isProbingCapabilities || source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
+    public IReadOnlyList<string> GiToonResponses => [Text("Mda.Text.Preview.GiToonResponseContinuous"), Text("Mda.Text.Preview.GiToonResponsePreserve")];
+    public IReadOnlyList<string> UpscalingModes => capabilities.SpatialUpscalingAvailable || isProbingCapabilities || appliedOptions.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1
         ? [Text("Mda.Text.Context.OptionOff"), WithAvailability("FSR 1", isProbingCapabilities || capabilities.SpatialUpscalingAvailable)]
         : [Text("Mda.Text.Context.OptionOff")];
     public IReadOnlyList<string> Fsr1Qualities => [Text("超画质"), Text("画质"), Text("均衡"), Text("性能")];
@@ -394,12 +700,37 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     { ViewTemporalUpscalingMode.Off => Text("Mda.Text.Context.OptionOff"), ViewTemporalUpscalingMode.Fsr => "FSR", ViewTemporalUpscalingMode.XeSs => "XeSS", _ => "DLSS" }, TemporalAvailable(mode))).ToArray();
     public IReadOnlyList<string> TemporalQualities => CurrentTemporalQualityValues.Select(value => WithAvailability(TemporalQualityName(value), TemporalQualityAvailable(value))).ToArray();
 
-    public int GiIndex { get => giIndex; set => Set(ref giIndex, value); }
+    // Editable Properties
+    public int GiIndex { get => giIndex; set { if (Set(ref giIndex, value)) pendingUltraGiFallback = false; } }
     public int AntialiasingIndex { get => antialiasingIndex; set => Set(ref antialiasingIndex, value); }
     public int SmaaIndex { get => smaaIndex; set => Set(ref smaaIndex, value); }
     public int SurfaceOrderIndex { get => surfaceOrderIndex; set => Set(ref surfaceOrderIndex, value); }
-    public int SpatialIndex { get => spatialIndex; set => Set(ref spatialIndex, value); }
-    public int UpscalingIndex { get => upscalingIndex; set => Set(ref upscalingIndex, value); }
+    public int SpatialIndex
+    {
+        get => spatialIndex;
+        set
+        {
+            if (!Set(ref spatialIndex, value)) return;
+            if (CurrentSpatialSamples > 1 && renderScale != 1m)
+            {
+                renderScale = 1m;
+                Changed(nameof(RenderScale));
+            }
+        }
+    }
+    public int UpscalingIndex
+    {
+        get => upscalingIndex;
+        set
+        {
+            if (!Set(ref upscalingIndex, value)) return;
+            if (upscalingIndex == 1 && renderScale != 1m)
+            {
+                renderScale = 1m;
+                Changed(nameof(RenderScale));
+            }
+        }
+    }
     public int Fsr1QualityIndex { get => fsr1QualityIndex; set => Set(ref fsr1QualityIndex, value); }
     public int TemporalIndex
     {
@@ -408,30 +739,70 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         {
             if (!Set(ref temporalIndex, value)) return;
             temporalQualityIndex = InitialTemporalQualityIndex;
+            if (IsTemporal && renderScale != 1m)
+            {
+                renderScale = 1m;
+                Changed(nameof(RenderScale));
+            }
             Changed(nameof(TemporalQualities)); Changed(nameof(TemporalQualityIndex));
         }
     }
     public int TemporalQualityIndex { get => temporalQualityIndex; set => Set(ref temporalQualityIndex, value); }
     public int GiCompositionIndex { get => giCompositionIndex; set => Set(ref giCompositionIndex, value); }
     public int GiDenoiserIndex { get => giDenoiserIndex; set => Set(ref giDenoiserIndex, value); }
+    public int GiToonResponseIndex { get => giToonResponseIndex; set => Set(ref giToonResponseIndex, value); }
+    public int ShadowResolutionIndex
+    {
+        get => shadowResolutionIndex;
+        set { if (Set(ref shadowResolutionIndex, value)) hasExplicitShadow = true; }
+    }
+    public int ShadowSamplingIndex
+    {
+        get => shadowSamplingIndex;
+        set { if (Set(ref shadowSamplingIndex, value)) hasExplicitShadow = true; }
+    }
     public decimal? GiStrength { get => giStrength; set => Set(ref giStrength, value); }
     public decimal? GiSamples { get => giSamples; set => Set(ref giSamples, value); }
+    public decimal? GiOcclusionStrength { get => giOcclusionStrength; set => Set(ref giOcclusionStrength, value); }
+    public decimal? GiOcclusionRadius { get => giOcclusionRadius; set => Set(ref giOcclusionRadius, value); }
+    public decimal? GiMaxRayDistance { get => giMaxRayDistance; set => Set(ref giMaxRayDistance, value); }
+    public decimal? GiDirectScale { get => giDirectScale; set => Set(ref giDirectScale, value); }
+    public decimal? GiRayEpsilon { get => giRayEpsilon; set => Set(ref giRayEpsilon, value); }
+    public decimal? GiSeed { get => giSeed; set => Set(ref giSeed, value); }
     public decimal? DiffusionStrength { get => diffusionStrength; set => Set(ref diffusionStrength, value); }
     public decimal? DiffusionExtent { get => diffusionExtent; set => Set(ref diffusionExtent, value); }
     public decimal? RcasSharpness { get => rcasSharpness; set => Set(ref rcasSharpness, value); }
+    public decimal? RenderScale { get => renderScale; set => Set(ref renderScale, value); }
+    public decimal? PreviewOutlineWidthScale { get => previewOutlineWidthScale; set => Set(ref previewOutlineWidthScale, value); }
     public bool PreviewGiAcceleration { get => previewGiAcceleration; set => Set(ref previewGiAcceleration, value); }
     public bool DiffusionEnabled { get => diffusionEnabled; set => Set(ref diffusionEnabled, value); }
     public bool RcasEnabled { get => rcasEnabled; set => Set(ref rcasEnabled, value); }
-    public bool IsGiEnabled => giIndex >= 0 && giIndex < giValues.Length && giValues[giIndex] != LightingMode.Legacy;
-    public bool IsGiDenoiserEnabled => IsGiEnabled && GiCompositionIndex == (int)RayGiComposition.ToonPalette;
+    public bool UseEnvironmentMipmaps { get => useEnvironmentMipmaps; set => Set(ref useEnvironmentMipmaps, value); }
+    public bool AdaptiveVramSampling { get => adaptiveVramSampling; set => Set(ref adaptiveVramSampling, value); }
+    public bool PreviewOutlineEnabled { get => previewOutlineEnabled; set => Set(ref previewOutlineEnabled, value); }
+
+    // Derived enabling states
+    public bool IsGiEnabled => IsModernEngine && giIndex >= 0 && giIndex < giValues.Length && giValues[giIndex] != LightingMode.Legacy;
+    public bool IsGiToonPaletteEnabled => IsGiEnabled && GiCompositionIndex == (int)RayGiComposition.ToonPalette;
+    public bool IsGiDenoiserEnabled => IsGiToonPaletteEnabled;
     public bool IsTemporal => CurrentTemporalMode != ViewTemporalUpscalingMode.Off;
-    public bool IsSpatialAaEnabled => !IsTemporal;
-    public bool IsSmaa => !IsTemporal && AntialiasingIndex == 2;
-    public bool IsFsr1 => !IsTemporal && UpscalingIndex == 1;
+    public bool IsTemporalEnabled => IsModernEngine && IsTemporal;
+    public bool IsSpatialAaEnabled => IsModernEngine && !IsTemporal;
+    public bool IsSmaa => IsModernEngine && !IsTemporal && AntialiasingIndex == 2;
+    public bool IsFsr1 => IsModernEngine && !IsTemporal && UpscalingIndex == 1;
     public bool IsRcas => IsFsr1 && RcasEnabled;
+    public bool IsRenderScaleEditable => IsModernEngine && (!HasUpscalingOrSsaa || (renderScale is { } s && s != 1m));
+    public bool IsShadowEnabled => IsModernEngine && ShadowResolutionIndex > 0;
+    public bool IsShadowDisabled => shadowResolutionIndex == 0;
+    public bool IsPreviewOutlineEditable => IsModernEngine && PreviewOutlineEnabled;
+    public bool IsPreviewOutlineDisabled => !PreviewOutlineEnabled;
+    public bool IsDiffusionEditable => IsModernEngine && DiffusionEnabled;
     public string ValidationMessage => validationError?.Message ?? Text(validationMessage);
     public bool HasValidationMessage => ValidationMessage.Length > 0;
+    public string StatusMessage => string.IsNullOrEmpty(statusTemplate) ? statusMessage : Format(statusTemplate, statusArgs);
+    public bool HasStatusMessage => StatusMessage.Length > 0;
 
+    private int CurrentSpatialSamples => spatialIndex > 0 && spatialIndex <= SampleValues.Length ? SampleValues[spatialIndex - 1] : 1;
     private LightingMode CurrentGiMode => giIndex >= 0 && giIndex < giValues.Length ? giValues[giIndex] : LightingMode.Legacy;
     private ViewTemporalUpscalingMode CurrentTemporalMode => temporalIndex >= 0 && temporalIndex < temporalValues.Length
         ? temporalValues[temporalIndex] : ViewTemporalUpscalingMode.Off;
@@ -447,23 +818,33 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
                 _ => Enum.GetValues<ViewTemporalQualityPreset>().Select(value => (int)value)
             };
             var result = values.Distinct().Order().ToList();
-            // A previously saved unsupported selection stays visible, but Apply requires a supported replacement.
-            int sourceValue = SourceTemporalQuality;
-            if (CurrentTemporalMode == source.EffectiveTemporalUpscaling.Mode && !result.Contains(sourceValue)) result.Add(sourceValue);
+            // A previously saved or loaded unsupported selection stays visible, but Apply requires a supported replacement.
+            int baselineValue = BaselineTemporalQuality;
+            if (CurrentTemporalMode == loadedTemporalBaseline.Mode && !result.Contains(baselineValue)) result.Add(baselineValue);
             return result.ToArray();
         }
     }
-    private int SourceTemporalQuality => CurrentTemporalMode switch
-    { ViewTemporalUpscalingMode.XeSs => (int)source.EffectiveTemporalUpscaling.XeSsQuality,
-      ViewTemporalUpscalingMode.Dlss => (int)source.EffectiveTemporalUpscaling.DlssQuality,
-      _ => (int)source.EffectiveTemporalUpscaling.QualityPreset };
-    private int InitialTemporalQualityIndex => Math.Max(0, Array.IndexOf(CurrentTemporalQualityValues, SourceTemporalQuality));
+    private int BaselineTemporalQuality => CurrentTemporalMode switch
+    { ViewTemporalUpscalingMode.XeSs => (int)loadedTemporalBaseline.XeSsQuality,
+      ViewTemporalUpscalingMode.Dlss => (int)loadedTemporalBaseline.DlssQuality,
+      _ => (int)loadedTemporalBaseline.QualityPreset };
+    private int InitialTemporalQualityIndex => Math.Max(0, Array.IndexOf(CurrentTemporalQualityValues, BaselineTemporalQuality));
+    private int InitialTemporalQualityIndexFrom(ViewQualityOptions options)
+    {
+        int value = options.EffectiveTemporalUpscaling.Mode switch
+        {
+            ViewTemporalUpscalingMode.XeSs => (int)options.EffectiveTemporalUpscaling.XeSsQuality,
+            ViewTemporalUpscalingMode.Dlss => (int)options.EffectiveTemporalUpscaling.DlssQuality,
+            _ => (int)options.EffectiveTemporalUpscaling.QualityPreset
+        };
+        return Math.Max(0, Array.IndexOf(CurrentTemporalQualityValues, value));
+    }
     private bool ActualGiAvailable(LightingMode mode) => mode switch
     { LightingMode.Legacy => true, LightingMode.SoftwareRayTracing => capabilities.Gi?.SoftwareAvailable == true, _ => capabilities.Gi?.HardwareAvailable == true };
-    private bool GiAvailable(LightingMode mode) => ActualGiAvailable(mode) || (isProbingCapabilities && mode == source.EffectiveGi.Mode);
+    private bool GiAvailable(LightingMode mode) => ActualGiAvailable(mode) || (isProbingCapabilities && (mode == appliedOptions.EffectiveGi.Mode || mode == baseline.EffectiveGi.Mode)) || (isProbingCapabilities && pendingUltraGiFallback && mode == LightingMode.HardwareRayTracing);
     private bool ActualTemporalAvailable(ViewTemporalUpscalingMode mode) => mode switch
     { ViewTemporalUpscalingMode.Off => true, ViewTemporalUpscalingMode.Fsr => capabilities.FsrAvailable, ViewTemporalUpscalingMode.XeSs => capabilities.XeSsAvailable, _ => capabilities.DlssAvailable };
-    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => ActualTemporalAvailable(mode) || (isProbingCapabilities && mode == source.EffectiveTemporalUpscaling.Mode);
+    private bool TemporalAvailable(ViewTemporalUpscalingMode mode) => ActualTemporalAvailable(mode) || (isProbingCapabilities && (mode == appliedOptions.EffectiveTemporalUpscaling.Mode || mode == baseline.EffectiveTemporalUpscaling.Mode || mode == loadedTemporalBaseline.Mode));
     private bool ActualTemporalQualityAvailable(int value) => CurrentTemporalMode switch
     {
         ViewTemporalUpscalingMode.XeSs => (capabilities.XeSsQueries ?? []).Any(query => query.Initialized && query.Failure is null
@@ -472,7 +853,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         _ => true
     };
     private bool TemporalQualityAvailable(int value) => ActualTemporalQualityAvailable(value)
-        || (isProbingCapabilities && CurrentTemporalMode == source.EffectiveTemporalUpscaling.Mode && value == SourceTemporalQuality);
+        || (isProbingCapabilities && CurrentTemporalMode == loadedTemporalBaseline.Mode && value == BaselineTemporalQuality);
     private string TemporalQualityName(int value) => CurrentTemporalMode switch
     {
         ViewTemporalUpscalingMode.XeSs => Text(((ViewXeSsQuality)value) switch
@@ -485,6 +866,221 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     private static string WithAvailability(string name, bool available) => available ? name : Format("{0}（不可用）", name);
 
     public void SetValidationMessage(string message) { validationError = null; validationMessage = message; Changed(nameof(ValidationMessage)); Changed(nameof(HasValidationMessage)); }
+    private void SetStatus(string template, params object?[] args)
+    {
+        statusTemplate = template;
+        statusArgs = args;
+        statusMessage = "";
+        Changed(nameof(StatusMessage));
+        Changed(nameof(HasStatusMessage));
+    }
+    private void ClearStatusAndValidation()
+    {
+        validationError = null;
+        validationMessage = "";
+        statusTemplate = "";
+        statusArgs = [];
+        statusMessage = "";
+        Changed(nameof(ValidationMessage));
+        Changed(nameof(HasValidationMessage));
+        Changed(nameof(StatusMessage));
+        Changed(nameof(HasStatusMessage));
+    }
+
+    public void ApplyBuiltInPreset(BuiltInPreviewPresetKind kind)
+    {
+        if (IsClassicEngine) return;
+        ClearStatusAndValidation();
+        if (kind == BuiltInPreviewPresetKind.UltraRayTraced)
+        {
+            bool hwAvailable = isProbingCapabilities || capabilities.Gi?.HardwareAvailable == true;
+            bool swAvailable = isProbingCapabilities || capabilities.Gi?.SoftwareAvailable == true;
+            pendingUltraGiFallback = isProbingCapabilities;
+            var preset = ViewQualityPresets.Create(kind, hwAvailable, swAvailable);
+            LoadFromOptions(preset, resetCustomSelection: true);
+            NotifyAllChanged();
+            if (!isProbingCapabilities)
+            {
+                if (!hwAvailable && swAvailable)
+                    SetStatus("Mda.Text.Preview.Preset.UltraFallbackNotice");
+                else if (!hwAvailable && !swAvailable)
+                    SetStatus("Mda.Text.Preview.Preset.UltraUnavailableNotice");
+            }
+            return;
+        }
+        pendingUltraGiFallback = false;
+        LoadFromOptions(ViewQualityPresets.Create(kind), resetCustomSelection: true);
+        NotifyAllChanged();
+    }
+
+    public bool SaveNewCustomPreset()
+    {
+        if (IsClassicEngine) return false;
+        if (!TryCreate(out var quality) || quality is null) return false;
+        try
+        {
+            string name = EditorPreferences.ValidateCustomPresetName(customPresetName);
+            EditorPreviewCustomPreset created;
+            if (persistCustomPresets)
+                created = EditorPreferences.SaveCustomPreviewPreset(name, quality, existingId: null, path: customPresetsPath);
+            else
+                created = new("custom-" + Guid.NewGuid().ToString("N"), name, quality);
+            bool prevRefreshing = refreshingLocalization;
+            refreshingLocalization = true;
+            suppressCustomPresetLoad = true;
+            try
+            {
+                customPresets.Add(created);
+                customPresetIndex = customPresets.Count - 1;
+                customPresetName = created.Name;
+            }
+            finally { suppressCustomPresetLoad = false; refreshingLocalization = prevRefreshing; }
+            SetValidationMessage("");
+            SetStatus("Mda.Text.Preview.CustomPresetSaved", created.Name);
+            NotifyAllChanged();
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or NotSupportedException)
+        {
+            validationError = error;
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
+            return false;
+        }
+    }
+
+    public bool OverwriteSelectedCustomPreset()
+    {
+        if (IsClassicEngine || !HasSelectedCustomPreset) return false;
+        if (!TryCreate(out var quality) || quality is null) return false;
+        try
+        {
+            var existing = customPresets[customPresetIndex];
+            EditorPreviewCustomPreset updated = persistCustomPresets
+                ? EditorPreferences.SaveCustomPreviewPreset(existing.Name, quality, existing.Id, customPresetsPath)
+                : existing with { Quality = quality };
+            bool prevRefreshing = refreshingLocalization;
+            refreshingLocalization = true;
+            suppressCustomPresetLoad = true;
+            try
+            {
+                customPresets[customPresetIndex] = updated;
+            }
+            finally { suppressCustomPresetLoad = false; refreshingLocalization = prevRefreshing; }
+            SetValidationMessage("");
+            SetStatus("Mda.Text.Preview.CustomPresetOverwritten", updated.Name);
+            NotifyAllChanged();
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or NotSupportedException)
+        {
+            validationError = error;
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
+            return false;
+        }
+    }
+
+    public bool RenameSelectedCustomPreset()
+    {
+        if (IsClassicEngine || !HasSelectedCustomPreset) return false;
+        try
+        {
+            string newName = EditorPreferences.ValidateCustomPresetName(customPresetName);
+            var existing = customPresets[customPresetIndex];
+            if (persistCustomPresets)
+                _ = EditorPreferences.RenameCustomPreviewPreset(existing.Id, newName, customPresetsPath);
+            bool prevRefreshing = refreshingLocalization;
+            refreshingLocalization = true;
+            suppressCustomPresetLoad = true;
+            try
+            {
+                customPresets[customPresetIndex] = existing with { Name = newName };
+                customPresetName = newName;
+            }
+            finally { suppressCustomPresetLoad = false; refreshingLocalization = prevRefreshing; }
+            SetValidationMessage("");
+            SetStatus("Mda.Text.Preview.CustomPresetRenamed", newName);
+            NotifyAllChanged();
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or KeyNotFoundException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            validationError = error;
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
+            return false;
+        }
+    }
+
+    public bool DeleteSelectedCustomPreset()
+    {
+        if (IsClassicEngine || !HasSelectedCustomPreset) return false;
+        try
+        {
+            int index = customPresetIndex;
+            var existing = customPresets[index];
+            if (persistCustomPresets)
+                _ = EditorPreferences.DeleteCustomPreviewPreset(existing.Id, customPresetsPath);
+            bool prevRefreshing = refreshingLocalization;
+            refreshingLocalization = true;
+            suppressCustomPresetLoad = true;
+            try
+            {
+                customPresets.RemoveAt(index);
+                customPresetIndex = -1;
+            }
+            finally { suppressCustomPresetLoad = false; refreshingLocalization = prevRefreshing; }
+            SetValidationMessage("");
+            SetStatus("Mda.Text.Preview.CustomPresetDeleted", existing.Name);
+            NotifyAllChanged();
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            validationError = error;
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
+            return false;
+        }
+    }
+
+    public bool CopyToExport()
+    {
+        if (!CanCopyToExport || copyToExportQuality is null) return false;
+        if (!TryCreate(out var quality) || quality is null) return false;
+        try
+        {
+            copyToExportQuality(quality);
+            SetValidationMessage("");
+            SetStatus("Mda.Text.Preview.CopiedToExport");
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            validationError = error;
+            Changed(nameof(ValidationMessage));
+            Changed(nameof(HasValidationMessage));
+            return false;
+        }
+    }
+
+    public bool LoadFromExport()
+    {
+        if (!CanLoadFromExport || getExportQuality is null) return false;
+        var exportQuality = getExportQuality();
+        if (exportQuality is null)
+        {
+            SetValidationMessage("Mda.Text.Preview.ExportLoadUnavailable");
+            return false;
+        }
+        pendingUltraGiFallback = false;
+        LoadFromOptions(exportQuality, resetCustomSelection: true);
+        SetValidationMessage("");
+        SetStatus("Mda.Text.Preview.LoadedFromExport");
+        NotifyAllChanged();
+        return true;
+    }
 
     public void BeginCapabilitiesProbe()
     {
@@ -496,25 +1092,40 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
     {
         ArgumentNullException.ThrowIfNull(updatedCapabilities);
         var selectedGi = CurrentGiMode;
+        if (pendingUltraGiFallback && selectedGi == LightingMode.HardwareRayTracing && updatedCapabilities.Gi?.HardwareAvailable != true)
+        {
+            if (updatedCapabilities.Gi?.SoftwareAvailable == true)
+            {
+                selectedGi = LightingMode.SoftwareRayTracing;
+                SetStatus("Mda.Text.Preview.Preset.UltraFallbackNotice");
+            }
+            else
+            {
+                selectedGi = LightingMode.Legacy;
+                SetStatus("Mda.Text.Preview.Preset.UltraUnavailableNotice");
+            }
+        }
+        pendingUltraGiFallback = false;
+
         var selectedTemporal = CurrentTemporalMode;
         int[] priorQualities = CurrentTemporalQualityValues;
         int selectedTemporalQuality = temporalQualityIndex >= 0 && temporalQualityIndex < priorQualities.Length
-            ? priorQualities[temporalQualityIndex] : SourceTemporalQuality;
+            ? priorQualities[temporalQualityIndex] : BaselineTemporalQuality;
         bool selectedFsr1 = !IsTemporal && upscalingIndex == 1;
 
         capabilities = updatedCapabilities;
         isProbingCapabilities = false;
-        giValues = BuildGiValues(updatedCapabilities, source.EffectiveGi.Mode, selectedGi);
+        giValues = BuildGiValues(updatedCapabilities, appliedOptions.EffectiveGi.Mode, selectedGi);
         giIndex = Array.IndexOf(giValues, selectedGi);
-        temporalValues = BuildTemporalValues(updatedCapabilities, source.EffectiveTemporalUpscaling.Mode, selectedTemporal);
+        temporalValues = BuildTemporalValues(updatedCapabilities, appliedOptions.EffectiveTemporalUpscaling.Mode, loadedTemporalBaseline.Mode, selectedTemporal);
         temporalIndex = Array.IndexOf(temporalValues, selectedTemporal);
 
         int[] updatedQualities = CurrentTemporalQualityValues;
         int qualityMatch = Array.IndexOf(updatedQualities, selectedTemporalQuality);
         temporalQualityIndex = qualityMatch >= 0
             ? qualityMatch
-            : Math.Max(0, Array.IndexOf(updatedQualities, SourceTemporalQuality));
-        upscalingIndex = selectedFsr1 && (updatedCapabilities.SpatialUpscalingAvailable || source.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1)
+            : Math.Max(0, Array.IndexOf(updatedQualities, BaselineTemporalQuality));
+        upscalingIndex = selectedFsr1 && (updatedCapabilities.SpatialUpscalingAvailable || appliedOptions.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1 || baseline.EffectiveUpscaling.Mode == ViewUpscalingMode.Fsr1)
             ? 1 : 0;
 
         NotifyCapabilitiesUpdated();
@@ -543,60 +1154,160 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         foreach (string property in DerivedProperties) Changed(property);
     }
 
-    public bool TryCreate(out ViewQualityOptions? result)
+    public bool TryCreate(out ViewQualityOptions? result) => TryBuildDraft(out result, validateCompatibility: true);
+
+    private bool TryBuildDraft(out ViewQualityOptions? result, bool validateCompatibility)
     {
         result = null;
         try
         {
-            if (giIndex < 0 || giIndex >= giValues.Length || (!isProbingCapabilities && !GiAvailable(giValues[giIndex]))) throw Error("请选择当前设备可用的 GI 模式。");
-            if (temporalIndex < 0 || temporalIndex >= temporalValues.Length || (!isProbingCapabilities && !TemporalAvailable(CurrentTemporalMode))) throw Error("请选择当前设备可用的时域重建模式。");
-            if (!IsTemporal && (UpscalingIndex < 0 || UpscalingIndex > 1 || (!isProbingCapabilities && UpscalingIndex == 1 && !capabilities.SpatialUpscalingAvailable))) throw Error("请选择当前设备可用的空间超分模式。");
-            var gi = source.EffectiveGi with { Mode = giValues[giIndex], PreviewAcceleration = PreviewGiAcceleration };
-            if (IsGiEnabled)
+            if (validateCompatibility)
             {
-                decimal samples = Number(GiSamples, 1, 1024, "每像素采样");
-                if (decimal.Truncate(samples) != samples) throw Error("{0}需要整数。", Label("每像素采样"));
-                var composition = Choice<RayGiComposition>(GiCompositionIndex, "受光方式");
-                gi = gi with { Strength = FloatNumber(GiStrength, 0, 100, "GI 强度", gi.Strength), SamplesPerPixel = (int)samples,
-                    Composition = composition,
-                    Denoiser = composition == RayGiComposition.ToonPalette ? Choice<RayGiDenoiser>(GiDenoiserIndex, "GI 降噪") : RayGiDenoiser.Off,
-                    ToonResponse = composition == RayGiComposition.ToonPalette ? gi.ToonResponse : RayGiToonResponse.Continuous };
+                if (giIndex < 0 || giIndex >= giValues.Length || (!isProbingCapabilities && !GiAvailable(giValues[giIndex])))
+                    throw Error("请选择当前设备可用的 GI 模式。");
+                if (temporalIndex < 0 || temporalIndex >= temporalValues.Length || (!isProbingCapabilities && !TemporalAvailable(CurrentTemporalMode)))
+                    throw Error("请选择当前设备可用的时域重建模式。");
+                if (!IsTemporal && (UpscalingIndex < 0 || UpscalingIndex > 1 || (!isProbingCapabilities && UpscalingIndex == 1 && !capabilities.SpatialUpscalingAvailable)))
+                    throw Error("请选择当前设备可用的空间超分模式。");
             }
-            var temporal = source.EffectiveTemporalUpscaling with { Mode = CurrentTemporalMode };
+
+            var gi = baseline.EffectiveGi with { Mode = CurrentGiMode, PreviewAcceleration = PreviewGiAcceleration };
+            if (CurrentGiMode != LightingMode.Legacy)
+            {
+                if (validateCompatibility)
+                {
+                    decimal samples = Number(GiSamples, 1, 1024, "每像素采样");
+                    if (decimal.Truncate(samples) != samples) throw Error("{0}需要整数。", Label("每像素采样"));
+                    decimal seedDec = Number(GiSeed, 0, uint.MaxValue, "Mda.Text.Preview.GiSeedLabel");
+                    if (decimal.Truncate(seedDec) != seedDec) throw Error("{0}需要整数。", Label("Mda.Text.Preview.GiSeedLabel"));
+                    var composition = Choice<RayGiComposition>(GiCompositionIndex, "受光方式");
+                    float maxRay = FloatNumber(GiMaxRayDistance, 0.001m, 1000000m, "Mda.Text.Preview.GiMaxRayDistanceLabel", gi.MaxRayDistance);
+                    float rayEps = FloatNumber(GiRayEpsilon, 0.00001m, 1000m, "Mda.Text.Preview.GiRayEpsilonLabel", gi.RayEpsilon);
+                    float occStrength = FloatNumber(GiOcclusionStrength, 0m, 1m, "Mda.Text.Preview.GiOcclusionStrengthLabel", gi.OcclusionStrength);
+                    float occRadius = FloatNumber(GiOcclusionRadius, 0.0001m, 1000m, "Mda.Text.Preview.GiOcclusionRadiusLabel", gi.OcclusionRadius);
+                    float directScale = FloatNumber(GiDirectScale, 0m, 4m, "Mda.Text.Preview.GiDirectScaleLabel", gi.DirectScale);
+                    gi = gi with
+                    {
+                        Strength = FloatNumber(GiStrength, 0, 100, "GI 强度", gi.Strength),
+                        SamplesPerPixel = (int)samples,
+                        Seed = (uint)seedDec,
+                        MaxRayDistance = maxRay,
+                        RayEpsilon = rayEps,
+                        DirectScale = directScale,
+                        OcclusionStrength = occStrength,
+                        OcclusionRadius = occRadius,
+                        Composition = composition,
+                        Denoiser = composition == RayGiComposition.ToonPalette ? Choice<RayGiDenoiser>(GiDenoiserIndex, "GI 降噪") : RayGiDenoiser.Off,
+                        ToonResponse = composition == RayGiComposition.ToonPalette ? Choice<RayGiToonResponse>(GiToonResponseIndex, "Mda.Text.Preview.GiToonResponseLabel") : RayGiToonResponse.Continuous
+                    };
+                }
+                else
+                {
+                    var composition = Enum.IsDefined(typeof(RayGiComposition), GiCompositionIndex) ? (RayGiComposition)GiCompositionIndex : gi.Composition;
+                    gi = gi with
+                    {
+                        Strength = (float)(giStrength ?? (decimal)gi.Strength),
+                        SamplesPerPixel = (int)(giSamples ?? gi.SamplesPerPixel),
+                        Seed = (uint)Math.Clamp(giSeed ?? gi.Seed, 0m, uint.MaxValue),
+                        MaxRayDistance = (float)(giMaxRayDistance ?? (decimal)gi.MaxRayDistance),
+                        RayEpsilon = (float)(giRayEpsilon ?? (decimal)gi.RayEpsilon),
+                        DirectScale = (float)(giDirectScale ?? (decimal)gi.DirectScale),
+                        OcclusionStrength = (float)(giOcclusionStrength ?? (decimal)gi.OcclusionStrength),
+                        OcclusionRadius = (float)(giOcclusionRadius ?? (decimal)gi.OcclusionRadius),
+                        Composition = composition,
+                        Denoiser = composition == RayGiComposition.ToonPalette && Enum.IsDefined(typeof(RayGiDenoiser), GiDenoiserIndex) ? (RayGiDenoiser)GiDenoiserIndex : RayGiDenoiser.Off,
+                        ToonResponse = composition == RayGiComposition.ToonPalette && Enum.IsDefined(typeof(RayGiToonResponse), GiToonResponseIndex) ? (RayGiToonResponse)GiToonResponseIndex : RayGiToonResponse.Continuous
+                    };
+                }
+            }
+
+            var temporal = baseline.EffectiveTemporalUpscaling with { Mode = CurrentTemporalMode };
             if (IsTemporal)
             {
                 int[] values = CurrentTemporalQualityValues;
-                if (TemporalQualityIndex < 0 || TemporalQualityIndex >= values.Length || (!isProbingCapabilities && !TemporalQualityAvailable(values[TemporalQualityIndex]))) throw Error("请选择当前设备可用的重建画质。");
-                int value = values[TemporalQualityIndex];
+                if (validateCompatibility && (TemporalQualityIndex < 0 || TemporalQualityIndex >= values.Length || (!isProbingCapabilities && !TemporalQualityAvailable(values[TemporalQualityIndex]))))
+                    throw Error("请选择当前设备可用的重建画质。");
+                int value = TemporalQualityIndex >= 0 && TemporalQualityIndex < values.Length ? values[TemporalQualityIndex] : BaselineTemporalQuality;
                 temporal = CurrentTemporalMode switch
                 { ViewTemporalUpscalingMode.XeSs => temporal with { XeSsQuality = (ViewXeSsQuality)value },
                   ViewTemporalUpscalingMode.Dlss => temporal with { DlssQuality = (ViewDlssQuality)value },
                   _ => temporal with { QualityPreset = (ViewTemporalQualityPreset)value } };
             }
-            var upscaling = source.EffectiveUpscaling with { Mode = IsFsr1 ? ViewUpscalingMode.Fsr1 : ViewUpscalingMode.Off };
-            if (IsFsr1) upscaling = upscaling with { QualityPreset = Choice<ViewFsr1QualityPreset>(Fsr1QualityIndex, "画质"), EnableRcas = RcasEnabled,
-                RcasSharpness = RcasEnabled ? FloatNumber(RcasSharpness, 0, 2, "锐化衰减", upscaling.RcasSharpness) : upscaling.RcasSharpness };
-            var diffusion = source.EffectiveDiffusion with { Enabled = DiffusionEnabled,
-                Strength = DiffusionEnabled ? FloatNumber(DiffusionStrength, 0, 1, "柔光强度", source.EffectiveDiffusion.Strength) : source.EffectiveDiffusion.Strength,
-                Extent = DiffusionEnabled ? FloatNumber(DiffusionExtent, 0, .01m, "柔光范围", source.EffectiveDiffusion.Extent) : source.EffectiveDiffusion.Extent };
-            var quality = source with
+
+            var upscaling = baseline.EffectiveUpscaling with { Mode = IsFsr1 ? ViewUpscalingMode.Fsr1 : ViewUpscalingMode.Off };
+            if (IsFsr1)
+            {
+                upscaling = upscaling with
+                {
+                    QualityPreset = validateCompatibility ? Choice<ViewFsr1QualityPreset>(Fsr1QualityIndex, "画质") : (ViewFsr1QualityPreset)Math.Clamp(Fsr1QualityIndex, 0, 3),
+                    EnableRcas = RcasEnabled,
+                    RcasSharpness = RcasEnabled && validateCompatibility
+                        ? FloatNumber(RcasSharpness, 0, 2, "锐化衰减", upscaling.RcasSharpness)
+                        : RcasEnabled ? (float)(rcasSharpness ?? (decimal)upscaling.RcasSharpness) : upscaling.RcasSharpness
+                };
+            }
+
+            var diffusion = baseline.EffectiveDiffusion with
+            {
+                Enabled = DiffusionEnabled,
+                Strength = DiffusionEnabled && validateCompatibility
+                    ? FloatNumber(DiffusionStrength, 0, 1, "柔光强度", baseline.EffectiveDiffusion.Strength)
+                    : (float)(diffusionStrength ?? (decimal)baseline.EffectiveDiffusion.Strength),
+                Extent = DiffusionEnabled && validateCompatibility
+                    ? FloatNumber(DiffusionExtent, 0, .01m, "柔光范围", baseline.EffectiveDiffusion.Extent)
+                    : (float)(diffusionExtent ?? (decimal)baseline.EffectiveDiffusion.Extent)
+            };
+
+            int shadowRes = shadowResolutionIndex >= 0 && shadowResolutionIndex < ShadowResolutions.Length ? ShadowResolutions[shadowResolutionIndex] : 2048;
+            var shadowSampling = shadowSamplingIndex == 1 ? OriginalTextureSampling.PointClamp : OriginalTextureSampling.LinearClamp;
+            var shadow = new ViewShadowOptions(shadowRes, shadowSampling);
+
+            float resolvedRenderScale = validateCompatibility
+                ? FloatNumber(RenderScale, 0.5m, 1.5m, "Mda.Text.Preview.RenderScaleLabel", baseline.RenderScale)
+                : (float)(renderScale ?? (decimal)baseline.RenderScale);
+            float resolvedOutlineScale = PreviewOutlineEnabled && validateCompatibility
+                ? FloatNumber(PreviewOutlineWidthScale, 0m, 4m, "Mda.Text.Preview.PreviewOutlineWidthScaleLabel", baseline.PreviewOutlineWidthScale)
+                : (float)(previewOutlineWidthScale ?? (decimal)baseline.PreviewOutlineWidthScale);
+
+            var quality = baseline with
             {
                 // Preserve absent overrides and untouched float values exactly, including filter-only edits.
-                Gi = gi == source.EffectiveGi ? source.Gi : gi,
-                TemporalUpscaling = temporal == source.EffectiveTemporalUpscaling ? source.TemporalUpscaling : temporal,
-                Upscaling = upscaling == source.EffectiveUpscaling ? source.Upscaling : upscaling,
+                Gi = gi == baseline.EffectiveGi ? baseline.Gi : gi,
+                TemporalUpscaling = temporal == baseline.EffectiveTemporalUpscaling ? baseline.TemporalUpscaling : temporal,
+                Upscaling = upscaling == baseline.EffectiveUpscaling ? baseline.Upscaling : upscaling,
                 Antialiasing = IsTemporal ? FrameAntialiasing.Off : AntialiasingIndex switch { 0 => null, 1 => FrameAntialiasing.Off, 2 => FrameAntialiasing.Smaa1X, _ => throw Error("请选择抗锯齿模式。") },
                 SmaaQuality = SmaaIndex == 0 ? null : Choice<SmaaQuality>(SmaaIndex - 1, "SMAA 质量"),
                 SpatialSamples = IsTemporal ? 1 : SpatialIndex == 0 ? null : SpatialIndex > 0 && SpatialIndex <= SampleValues.Length ? SampleValues[SpatialIndex - 1] : throw Error("请选择 SSAA 采样数。"),
                 SurfaceOrder = SurfaceOrderIndex switch { 0 => SurfaceDrawOrder.OpaqueFirst, 1 => SurfaceDrawOrder.Original, _ => throw Error("Mda.Text.SurfaceOrder.Invalid") },
-                Diffusion = diffusion == source.EffectiveDiffusion ? source.Diffusion : diffusion
+                Diffusion = diffusion == baseline.EffectiveDiffusion ? baseline.Diffusion : diffusion,
+                Shadow = (hasExplicitShadow || shadow != baseline.EffectiveShadow) ? shadow : baseline.Shadow,
+                UseEnvironmentMipmaps = UseEnvironmentMipmaps,
+                AdaptiveVramSampling = AdaptiveVramSampling,
+                RenderScale = resolvedRenderScale,
+                PreviewOutlineEnabled = PreviewOutlineEnabled,
+                PreviewOutlineWidthScale = resolvedOutlineScale
             };
-            quality.Validate(); result = quality; SetValidationMessage(""); return true;
+
+            if (validateCompatibility)
+            {
+                var report = ViewQualityCompatibility.Evaluate(quality);
+                if (!report.IsValid)
+                    throw Error(report.Issues[0].LocalizationKey);
+                quality.Validate();
+                SetValidationMessage("");
+            }
+
+            result = quality;
+            return true;
         }
         catch (Exception error) when (error is ArgumentException or NotSupportedException or OverflowException)
         {
-            validationError = error is EditorLocalizedArgumentException ? error : Error("配置未通过检查，请调整画质选项。");
-            Changed(nameof(ValidationMessage)); Changed(nameof(HasValidationMessage)); return false;
+            if (validateCompatibility)
+            {
+                validationError = error is EditorLocalizedArgumentException ? error : Error("配置未通过检查，请调整画质选项。");
+                Changed(nameof(ValidationMessage)); Changed(nameof(HasValidationMessage));
+            }
+            return false;
         }
     }
 
@@ -616,7 +1327,17 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         foreach (string property in DerivedProperties) Changed(property);
         return true;
     }
-    private static readonly string[] DerivedProperties = [nameof(IsGiEnabled), nameof(IsGiDenoiserEnabled), nameof(IsTemporal), nameof(IsSpatialAaEnabled), nameof(IsSmaa), nameof(IsFsr1), nameof(IsRcas)];
+    private static readonly string[] DerivedProperties =
+    [
+        nameof(IsGiEnabled), nameof(IsGiToonPaletteEnabled), nameof(IsGiDenoiserEnabled),
+        nameof(IsTemporal), nameof(IsTemporalEnabled), nameof(IsSpatialAaEnabled), nameof(IsSmaa), nameof(IsFsr1), nameof(IsRcas),
+        nameof(IsRenderScaleEditable), nameof(IsShadowEnabled), nameof(IsShadowDisabled),
+        nameof(IsPreviewOutlineEditable), nameof(IsPreviewOutlineDisabled), nameof(IsDiffusionEditable),
+        nameof(HasTemporalConflictHint), nameof(HasUpscalingOrSsaa), nameof(HasRenderScaleConflictHint), nameof(RenderScaleConflictHint),
+        nameof(ShowGiPaletteConflictHint), nameof(HasGiOcclusionConflict),
+        nameof(IsPerformancePresetActive), nameof(IsBalancedPresetActive), nameof(IsHighPresetActive), nameof(IsUltraRayTracedPresetActive),
+        nameof(ActivePresetSummary), nameof(OverviewConfigurationSummary)
+    ];
     private void Changed(string? name) => PropertyChanged?.Invoke(this, new(name));
     private void RefreshLocalization()
     {
@@ -624,7 +1345,7 @@ public sealed class EditorPreviewSettingsViewModel : INotifyPropertyChanged
         refreshingLocalization = true;
         try { Changed(null); }
         finally { refreshingLocalization = false; }
-        foreach (string name in new[] { nameof(GiIndex), nameof(AntialiasingIndex), nameof(SmaaIndex), nameof(SpatialIndex), nameof(SurfaceOrderIndex), nameof(UpscalingIndex), nameof(Fsr1QualityIndex), nameof(TemporalIndex), nameof(TemporalQualityIndex), nameof(GiCompositionIndex), nameof(GiDenoiserIndex) }) Changed(name);
+        foreach (string name in IndexProperties) Changed(name);
     }
     public event PropertyChangedEventHandler? PropertyChanged;
 }

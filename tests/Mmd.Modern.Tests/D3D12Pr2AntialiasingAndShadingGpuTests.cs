@@ -1,0 +1,751 @@
+using System.Numerics;
+using System.Runtime.InteropServices;
+using Mmd.Modern.Core;
+using Mmd.Modern.Rendering.D3D12;
+using Mmd.Modern.ViewOutput;
+using Mmd.Modern.ViewOutput.D3D12;
+using Xunit;
+
+namespace Mmd.Modern.Tests;
+
+[Trait("Category", "Gpu")]
+public sealed class D3D12Pr2AntialiasingAndShadingGpuTests
+{
+    [Theory]
+    [InlineData(FrameAntialiasing.Msaa2X, 2)]
+    [InlineData(FrameAntialiasing.Msaa4X, 4)]
+    [InlineData(FrameAntialiasing.Msaa8X, 8)]
+    public void HardwareMsaaSmoothsDiagonalAndKeepsOffExact(FrameAntialiasing mode, int expectedMaxSamples)
+    {
+        using var session = new D3D12FrameSession();
+        var baseFrame = DiagonalTriangleScene();
+        var baseline = session.Capture(baseFrame, 97, 73);
+        var msaaFrame = WithOptions(baseFrame, baseFrame.Options! with { Antialiasing = mode });
+        var resolved = session.Capture(msaaFrame, 97, 73);
+
+        Assert.Equal(mode, session.Statistics!.Antialiasing);
+        Assert.InRange(session.Statistics.MsaaSampleCount, 2, expectedMaxSamples);
+        Assert.Contains("msaa:resolve", session.LastRecordings.Select(r => r.Channel));
+        Assert.NotEqual(baseline.Rgba, resolved.Rgba);
+
+        // Intermediate fractional edge pixels must appear after hardware MSAA resolve.
+        int intermediate = CountIntermediateGrayPixels(resolved.Rgba);
+        Assert.True(intermediate >= 10, $"Expected MSAA intermediate edge pixels, got {intermediate}.");
+
+        // Returning to Off restores exact baseline bytes.
+        Assert.Equal(baseline.Rgba, session.Capture(baseFrame, 97, 73).Rgba);
+        Assert.Equal(1, session.Statistics.MsaaSampleCount);
+    }
+
+    [Fact]
+    public void HardwareMsaaWorksWithRayGiGBufferAndWithSsao1xDepthResolve()
+    {
+        using var session = new D3D12FrameSession();
+        var corner = ConcaveCornerScene();
+
+        // MSAA 4x + Software Ray GI (1x G-Buffer alignment).
+        var gi = new RayGiOptions(LightingMode.SoftwareRayTracing, Strength: 2f, SamplesPerPixel: 4, OcclusionStrength: 0f);
+        var msaaGiFrame = WithOptions(corner, corner.Options! with { Antialiasing = FrameAntialiasing.Msaa4X, RayGi = gi });
+        var msaaGi = session.Capture(msaaGiFrame, 96, 72, rayGiOptions: gi);
+        Assert.Equal(96 * 72 * 4, msaaGi.Rgba.Length);
+        Assert.Contains("msaa:resolve", session.LastRecordings.Select(r => r.Channel));
+        Assert.NotNull(session.RayGiStatistics);
+
+        // MSAA 4x + SSAO (1x depth resolve + GTAO).
+        var msaaSsaoFrame = WithOptions(corner, corner.Options! with
+        {
+            Antialiasing = FrameAntialiasing.Msaa4X,
+            ScreenSpaceAo = new(Enabled: true, Strength: 0.8f, Radius: 2.0f, SampleCount: 8),
+        });
+        var msaaSsao = session.Capture(msaaSsaoFrame, 96, 72);
+        Assert.Equal(96 * 72 * 4, msaaSsao.Rgba.Length);
+        Assert.Contains("msaa:resolve", session.LastRecordings.Select(r => r.Channel));
+        Assert.Contains("msaa:depth-resolve", session.LastRecordings.Select(r => r.Channel));
+        Assert.Contains("ssao:raw", session.LastRecordings.Select(r => r.Channel));
+        Assert.Contains("ssao:composite", session.LastRecordings.Select(r => r.Channel));
+        Assert.Equal(3, session.Statistics!.ScreenSpaceAoPassDrawCalls);
+    }
+
+    [Fact]
+    public void SinglePassFxaa311SmoothsDiagonalAndPreservesConstantSurface()
+    {
+        using var session = new D3D12FrameSession();
+        var baseFrame = DiagonalTriangleScene();
+        var baseline = session.Capture(baseFrame, 97, 73);
+        var fxaaFrame = WithOptions(baseFrame, baseFrame.Options! with { Antialiasing = FrameAntialiasing.Fxaa });
+        var filtered = session.Capture(fxaaFrame, 97, 73);
+
+        Assert.Equal(FrameAntialiasing.Fxaa, session.Statistics!.Antialiasing);
+        Assert.Equal(1, session.Statistics.AntialiasingPassDrawCalls);
+        Assert.Contains("fxaa:apply", session.LastRecordings.Select(r => r.Channel));
+        Assert.NotEqual(baseline.Rgba, filtered.Rgba);
+        Assert.True(CountIntermediateGrayPixels(filtered.Rgba) >= 10);
+
+        // Straight-alpha FXAA executes cleanly without errors.
+        var straightFrame = WithOptions(baseFrame, baseFrame.Options! with
+        {
+            Antialiasing = FrameAntialiasing.Fxaa,
+            AlphaOutput = FrameAlphaOutput.Straight,
+            BackgroundColor = new(0, 0, 0, 0),
+        });
+        var straight = session.Capture(straightFrame, 64, 48);
+        Assert.Equal(64 * 48 * 4, straight.Rgba.Length);
+    }
+
+    [Fact]
+    public void NativeTaaAccumulatesOverFramesResetsCleanlyAndPairsWithStandaloneRcas()
+    {
+        using var session = new D3D12FrameSession();
+        var baseFrame = DiagonalTriangleScene();
+        var taaFrame = WithOptions(baseFrame, baseFrame.Options! with { Antialiasing = FrameAntialiasing.Taa });
+
+        // First frame resets history; subsequent static frames accumulate jittered subpixel samples.
+        var frame0 = session.Capture(taaFrame, 97, 73);
+        Assert.Equal(FrameAntialiasing.Taa, session.Statistics!.Antialiasing);
+        Assert.Equal(1, session.Statistics.AntialiasingPassDrawCalls);
+        Assert.Contains("taa:resolve", session.LastRecordings.Select(r => r.Channel));
+
+        RenderedFrame accumulated = frame0;
+        for (int i = 0; i < 6; i++)
+            accumulated = session.Capture(taaFrame, 97, 73);
+
+        Assert.NotEqual(frame0.Rgba, accumulated.Rgba);
+        Assert.True(CountIntermediateGrayPixels(accumulated.Rgba) >= 10);
+
+        // Explicit reset restores first-frame behavior cleanly.
+        var resetFrame = session.Capture(taaFrame, 97, 73,
+            temporalUpscaling: new D3D12TemporalUpscalingOptions { ResetHistory = true });
+        Assert.Equal(frame0.Rgba, resetFrame.Rgba);
+
+        // Standalone RCAS sharpening compared against TAA-without-RCAS at the exact same reset + 6-frame accumulation.
+        RenderedFrame unsharpenedSameCount = resetFrame;
+        for (int i = 0; i < 6; i++)
+            unsharpenedSameCount = session.Capture(taaFrame, 97, 73);
+
+        var resetForSharp = session.Capture(taaFrame, 97, 73,
+            temporalUpscaling: new D3D12TemporalUpscalingOptions { ResetHistory = true });
+        for (int i = 0; i < 5; i++)
+            _ = session.Capture(taaFrame, 97, 73);
+        var sharpenedSameCount = session.Capture(taaFrame, 97, 73, sharpening: new D3D12SharpeningOptions(true, 0.2f));
+
+        Assert.Equal(1, session.Statistics.SharpeningPassDrawCalls);
+        Assert.Contains("sharpening:rcas", session.LastRecordings.Select(r => r.Channel));
+        Assert.NotEqual(unsharpenedSameCount.Rgba, sharpenedSameCount.Rgba);
+    }
+
+    [Fact]
+    public void SpatialSupersamplingWorksWithScreenSpaceAo()
+    {
+        using var session = new D3D12FrameSession();
+        var corner = ConcaveCornerScene();
+        var ssaaNoAo = WithOptions(corner, corner.Options! with { SpatialSamples = 2 });
+        var ssaaWithAo = WithOptions(corner, corner.Options! with
+        {
+            SpatialSamples = 2,
+            ScreenSpaceAo = new(Enabled: true, Strength: 0.8f, Radius: 2.0f, SampleCount: 8),
+        });
+
+        var baseline = session.Capture(ssaaNoAo, 80, 60);
+        var occluded = session.Capture(ssaaWithAo, 80, 60);
+        Assert.Equal(2, session.Statistics!.SpatialSamples);
+        Assert.Equal(4, session.Statistics.ScreenSpaceAoPassDrawCalls);
+        Assert.NotEqual(baseline.Rgba, occluded.Rgba);
+    }
+
+    [Fact]
+    public void StraightAlphaFxaaSmoothsOpaqueInteriorLumaEdge()
+    {
+        using var session = new D3D12FrameSession();
+        // Full-screen opaque dark quad (alpha=1) with an opaque bright diagonal triangle in front (alpha=1),
+        // rendered under Straight alpha output so alpha is uniformly 1 across the interior luma edge.
+        SceneVertex[] vertices =
+        [
+            new(new(-3f, -3f, 0.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(3f, -3f, 0.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(3f, 3f, 0.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-3f, 3f, 0.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.8f, -0.7f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.8f, -0.4f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.5f, 0.9f, 0f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6];
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [
+                new("backdrop", 0, 6, new Vector4(0.05f, 0.05f, 0.05f, 1f), Vector3.Zero, Vector3.Zero, 1),
+                new("triangle", 6, 3, Vector4.One, Vector3.Zero, Vector3.One, 1),
+            ],
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f),
+            lightDirection: -Vector3.UnitZ);
+        var style = new OriginalStyleScene(snapshot,
+            [new(new Vector3(0.05f), DoubleSided: true), new(Vector3.One, DoubleSided: true)]);
+        var offFrame = new OriginalFrameScene(style, options: new(OriginalAlphaBlendMode.Normal, true, false,
+            Antialiasing: FrameAntialiasing.Off, AlphaOutput: FrameAlphaOutput.Straight, BackgroundColor: new(0, 0, 0, 0)));
+        var fxaaFrame = WithOptions(offFrame, offFrame.Options! with { Antialiasing = FrameAntialiasing.Fxaa });
+
+        var off = session.Capture(offFrame, 97, 73);
+        var fxaa = session.Capture(fxaaFrame, 97, 73);
+        Assert.NotEqual(off.Rgba, fxaa.Rgba);
+        Assert.True(CountIntermediateGrayPixels(fxaa.Rgba) > CountIntermediateGrayPixels(off.Rgba));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PcfSoftShadowDoesNotSelfShadowUnoccludedSlopedSurface(bool useStylizedPipeline)
+    {
+        using var session = new D3D12FrameSession();
+        // Single unoccluded sloped plane casting and receiving self-shadow (no occluder in front)
+        // at 128x128 shadow map with max ShadowSoftness = 4.0f (radius ~ 0.047 UV) where a fixed ±0.02
+        // clamp would clip valid slope depth offsets and cause false self-shadowing.
+        SceneVertex[] vertices =
+        [
+            new(new(-2f, -2f, -0.8f), Vector3.Normalize(new(0.5f, 0.2f, -1f)), Vector2.Zero),
+            new(new(2f, -2f, 0.8f), Vector3.Normalize(new(0.5f, 0.2f, -1f)), Vector2.Zero),
+            new(new(2f, 2f, 0.8f), Vector3.Normalize(new(0.5f, 0.2f, -1f)), Vector2.Zero),
+            new(new(-2f, 2f, -0.8f), Vector3.Normalize(new(0.5f, 0.2f, -1f)), Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+        var lightDir = Vector3.Normalize(new(0.6f, 0.3f, -1f));
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [new("slope", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1)],
+            camera: new(new(0f, 0f, -5f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 40f),
+            lightDirection: lightDir);
+        var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+        var surfaceStyles = useStylizedPipeline
+            ? new D3D12SurfaceStyleMap(["genshin"], null, TestStylePlugins.AllPresetCatalog)
+            : null;
+        OriginalFrameScene Build(ShadowFilterMode mode, float softness)
+        {
+            var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, true, false,
+                OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
+            { FilterMode = mode, ShadowSoftness = softness };
+            return new(new(snapshot, [new(new Vector3(0.2f), DoubleSided: true)]),
+                options: new(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: shadow)
+                { ShadowFilter = mode, ShadowSoftness = softness },
+                materials: [new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false)]);
+        }
+
+        var linear = session.Capture(Build(ShadowFilterMode.Linear, 1.0f), 96, 96, surfaceStyles: surfaceStyles);
+        var pcf = session.Capture(Build(ShadowFilterMode.PcfSoft, 4.0f), 96, 96, surfaceStyles: surfaceStyles);
+
+        // Interior pixels of the unoccluded sloped quad must stay unshadowed under PcfSoft (no slope acne).
+        int darkAcnePixels = 0;
+        for (int y = 24; y < 72; y++)
+            for (int x = 24; x < 72; x++)
+            {
+                int idx = (y * 96 + x) * 4;
+                if (linear.Rgba[idx] >= 180 && pcf.Rgba[idx] + 8 < linear.Rgba[idx])
+                    darkAcnePixels++;
+            }
+        Assert.Equal(0, darkAcnePixels);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PcfSoftShadowBoundsExtremeSilhouetteGradientAndPreservesShadowContract(bool useStylizedPipeline)
+    {
+        using var session = new D3D12FrameSession();
+        // Flat receiver with an extreme grazing silhouette fin standing on one side (huge ddx/ddy gradient)
+        // plus an elevated occluder casting a real shadow onto the receiver center.
+        SceneVertex[] vertices =
+        [
+            // Receiver quad at z = 0
+            new(new(-2.2f, -2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2.2f, -2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2.2f, 2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-2.2f, 2.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            // Nearly edge-on grazing fin on the right side (extreme light-space depth gradient)
+            new(new(0.85f, -1.2f, -1.4f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.95f, -1.2f, 0.0f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.95f, 1.2f, 0.0f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            new(new(0.85f, 1.2f, -1.4f), Vector3.Normalize(new(-0.08f, 0f, -1f)), Vector2.Zero),
+            // Elevated occluder casting a solid umbra onto the receiver center-left
+            new(new(-1.1f, -0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.1f, -0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.1f, 0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-1.1f, 0.8f, -1.5f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11];
+        var lightDir = Vector3.Normalize(new(0.25f, 0.15f, -1f));
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [
+                new("receiver", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+                new("grazing-fin", 6, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+                new("occluder", 12, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1),
+            ],
+            camera: new(new(0.15f, 0.05f, -5.2f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 42f),
+            lightDirection: lightDir);
+        var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+        var surfaceStyles = useStylizedPipeline
+            ? new D3D12SurfaceStyleMap(["genshin", "genshin", "genshin"], null, TestStylePlugins.AllPresetCatalog)
+            : null;
+
+        OriginalFrameScene Build(ShadowFilterMode mode, float softness)
+        {
+            var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, true, false,
+                OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
+            { FilterMode = mode, ShadowSoftness = softness };
+            var style = new OriginalStyleScene(snapshot,
+            [
+                new(new Vector3(0.2f), DoubleSided: true),
+                new(new Vector3(0.2f), DoubleSided: true),
+                new(new Vector3(0.2f), DoubleSided: true),
+            ]);
+            return new(style,
+                options: new(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: shadow)
+                { ShadowFilter = mode, ShadowSoftness = softness },
+                materials:
+                [
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false),
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false),
+                    new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: false, CastGroundShadow: false),
+                ]);
+        }
+
+        var linear = session.Capture(Build(ShadowFilterMode.Linear, 1.0f), 96, 96, surfaceStyles: surfaceStyles);
+        var pcf = session.Capture(Build(ShadowFilterMode.PcfSoft, 4.0f), 96, 96, surfaceStyles: surfaceStyles);
+
+        // Real cast shadow must remain shadowed (bounded slope bias never punches bright holes in umbra),
+        // and PcfSoft must visibly soften the shadow boundary relative to Linear.
+        Assert.NotEqual(linear.Rgba, pcf.Rgba);
+        int linearShadowed = 0, pcfShadowed = 0;
+        for (int y = 16; y < 80; y++)
+            for (int x = 16; x < 80; x++)
+            {
+                int idx = (y * 96 + x) * 4;
+                if (linear.Rgba[idx] < 120) linearShadowed++;
+                if (pcf.Rgba[idx] < 120) pcfShadowed++;
+            }
+        Assert.True(linearShadowed >= 40, $"Expected baseline cast shadow pixels, got {linearShadowed}.");
+        Assert.True(pcfShadowed >= linearShadowed / 2, $"Expected bounded PCF to retain cast shadow umbra (linear={linearShadowed}, pcf={pcfShadowed}).");
+    }
+
+    [Fact]
+    public void PcfSoftShadowDoesNotDarkenNonReceivingSteepSurfaceNearFarDepth()
+    {
+        using var session = new D3D12FrameSession();
+        // Steep quad pushed near the far depth of the light frustum (z ~ 0.99) so unclamped
+        // receiver-plane gradient extrapolation would exceed 1.0 against the 1.0 fallback/cleared shadow map.
+        SceneVertex[] vertices =
+        [
+            new(new(-2f, -2f, 0.2f), Vector3.Normalize(new(0.4f, 0.1f, -1f)), Vector2.Zero),
+            new(new(2f, -2f, 1.95f), Vector3.Normalize(new(0.4f, 0.1f, -1f)), Vector2.Zero),
+            new(new(2f, 2f, 1.95f), Vector3.Normalize(new(0.4f, 0.1f, -1f)), Vector2.Zero),
+            new(new(-2f, 2f, 0.2f), Vector3.Normalize(new(0.4f, 0.1f, -1f)), Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+        var lightDir = Vector3.Normalize(new(0.2f, 0.1f, -1f));
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [new("steep-far", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1)],
+            camera: new(new(0f, 0f, -5f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 40f),
+            lightDirection: lightDir);
+        var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+
+        OriginalFrameScene Build(ShadowFilterMode mode, bool generate, bool receive, bool cast)
+        {
+            var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, generate, false,
+                OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual)
+            { FilterMode = mode, ShadowSoftness = 4.0f };
+            return new(new(snapshot, [new(new Vector3(0.2f), DoubleSided: true)]),
+                options: new(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: shadow)
+                { ShadowFilter = mode, ShadowSoftness = 4.0f },
+                materials: [new OriginalFrameMaterialFlags(CastSelfShadow: cast, ReceiveSelfShadow: receive, CastGroundShadow: false)]);
+        }
+
+        // Case A: ReceiveSelfShadow = false (uses 1x1 White fallback texture)
+        Assert.Equal(
+            session.Capture(Build(ShadowFilterMode.Linear, generate: true, receive: false, cast: true), 96, 96).Rgba,
+            session.Capture(Build(ShadowFilterMode.PcfSoft, generate: true, receive: false, cast: true), 96, 96).Rgba);
+
+        // Case B: SelfShadow.Generate = false (uses 1x1 White fallback texture)
+        Assert.Equal(
+            session.Capture(Build(ShadowFilterMode.Linear, generate: false, receive: true, cast: true), 96, 96).Rgba,
+            session.Capture(Build(ShadowFilterMode.PcfSoft, generate: false, receive: true, cast: true), 96, 96).Rgba);
+
+        // Case C: Generate = true & Receive = true with no casters (cleared 1.0 shadow background; tests saturate(expectedDepth))
+        Assert.Equal(
+            session.Capture(Build(ShadowFilterMode.Linear, generate: true, receive: true, cast: false), 96, 96).Rgba,
+            session.Capture(Build(ShadowFilterMode.PcfSoft, generate: true, receive: true, cast: false), 96, 96).Rgba);
+    }
+
+    [Fact]
+    public void StandaloneRcasWithStraightAlphaProducesNoSilhouetteHalo()
+    {
+        using var session = new D3D12FrameSession();
+        // Flat mid-gray opaque quad over transparent (0,0,0,0) background under Straight alpha output.
+        SceneVertex[] flatVerts =
+        [
+            new(new(-0.6f, -0.6f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.6f, -0.6f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.6f, 0.6f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.6f, 0.6f, 0f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        var flatSnapshot = new SceneSnapshot(flatVerts, [0u, 1u, 2u, 0u, 2u, 3u],
+            [new("flat", 0, 6, new Vector4(0.5f, 0.5f, 0.5f, 1f), Vector3.Zero, Vector3.Zero, 1)],
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f),
+            lightDirection: -Vector3.UnitZ);
+        var flatScene = new OriginalFrameScene(
+            new OriginalStyleScene(flatSnapshot, [new(new Vector3(0.5f), DoubleSided: true)]),
+            options: new(OriginalAlphaBlendMode.Normal, true, false,
+                Antialiasing: FrameAntialiasing.Off, AlphaOutput: FrameAlphaOutput.Straight, BackgroundColor: new(0, 0, 0, 0)));
+
+        var unsharpened = session.Capture(flatScene, 96, 96, sharpening: D3D12SharpeningOptions.Off);
+        var sharpened = session.Capture(flatScene, 96, 96, sharpening: new D3D12SharpeningOptions(true, 0.0f));
+
+        byte maxUnsharpenedForeground = 0;
+        int opaqueCount = 0;
+        for (int i = 0; i < unsharpened.Rgba.Length; i += 4)
+        {
+            byte a = unsharpened.Rgba[i + 3];
+            Assert.Equal(a, sharpened.Rgba[i + 3]);
+            if (a == 0)
+            {
+                Assert.Equal(0, sharpened.Rgba[i]);
+                Assert.Equal(0, sharpened.Rgba[i + 1]);
+                Assert.Equal(0, sharpened.Rgba[i + 2]);
+            }
+            else
+            {
+                opaqueCount++;
+                maxUnsharpenedForeground = Math.Max(maxUnsharpenedForeground, unsharpened.Rgba[i]);
+            }
+        }
+        Assert.True(opaqueCount > 100);
+        for (int i = 0; i < sharpened.Rgba.Length; i += 4)
+        {
+            if (sharpened.Rgba[i + 3] > 0)
+            {
+                // Zero bright silhouette halo: no foreground edge pixel may overshoot the flat interior color.
+                Assert.True(sharpened.Rgba[i] <= maxUnsharpenedForeground + 1,
+                    $"Unexpected RCAS bright halo at pixel {i / 4}: sharpened={sharpened.Rgba[i]}, maxBaseline={maxUnsharpenedForeground}");
+            }
+        }
+
+        // Opaque interior contrast edge inside a Straight-alpha object must still be sharpened.
+        SceneVertex[] splitVerts =
+        [
+            new(new(-0.8f, -0.8f, 0.2f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.8f, -0.8f, 0.2f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.8f, 0.8f, 0.2f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.8f, 0.8f, 0.2f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.4f, -0.5f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.4f, -0.2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.2f, 0.5f, 0f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        var splitSnapshot = new SceneSnapshot(splitVerts, [0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u],
+            [
+                new("dark", 0, 6, new Vector4(0.25f, 0.25f, 0.25f, 1f), Vector3.Zero, Vector3.Zero, 1),
+                new("bright", 6, 3, new Vector4(0.85f, 0.85f, 0.85f, 1f), Vector3.Zero, Vector3.Zero, 1),
+            ],
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f),
+            lightDirection: -Vector3.UnitZ);
+        var splitScene = new OriginalFrameScene(
+            new OriginalStyleScene(splitSnapshot, [new(new Vector3(0.25f), DoubleSided: true), new(new Vector3(0.85f), DoubleSided: true)]),
+            options: new(OriginalAlphaBlendMode.Normal, true, false,
+                Antialiasing: FrameAntialiasing.Smaa1X, AlphaOutput: FrameAlphaOutput.Straight, BackgroundColor: new(0, 0, 0, 0)));
+        var splitOff = session.Capture(splitScene, 96, 96, sharpening: D3D12SharpeningOptions.Off);
+        var splitRcas = session.Capture(splitScene, 96, 96, sharpening: new D3D12SharpeningOptions(true, 0.0f));
+        Assert.NotEqual(splitOff.Rgba, splitRcas.Rgba);
+    }
+
+    [Fact]
+    public async Task PresentRecordedAheadForwardsTemporalResetsToNativeTaa()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var token = TestContext.Current.CancellationToken;
+        // Keep CreateWindowExW and DestroyWindow on the same thread (Win32 requirement).
+        await Task.Run(() => CheckPresentRecordedAheadNativeTaaResets(token), token);
+    }
+
+    private static void CheckPresentRecordedAheadNativeTaaResets(CancellationToken token)
+    {
+        static void Wait(ValueTask task, CancellationToken ct)
+            => task.AsTask().WaitAsync(TimeSpan.FromSeconds(15), ct).GetAwaiter().GetResult();
+
+        // WS_POPUP without WS_VISIBLE; never call ShowWindow.
+        nint window = CreateWindowExW(0, "STATIC", "MDA PR2 TAA record-ahead", 0x80000000, 0, 0, 96, 72, 0, 0, 0, 0);
+        Assert.NotEqual(0, window);
+        try
+        {
+            var scene = DiagonalTriangleScene();
+            using (var presenter = new D3D12SwapchainPresenter(window, 96, 72))
+            {
+                Wait(presenter.WaitForNextFrameAsync(token), token);
+                Assert.True(presenter.Present(scene, 96, 72));
+                Assert.Throws<NotSupportedException>(() => presenter.PresentRecordedAhead(
+                    scene, 96, 72, RayGiOptions.Off, D3D12SpatialUpscalingOptions.Off, null, D3D12DiffusionOptions.Off, token,
+                    temporalUpscaling: new D3D12TemporalUpscalingOptions { Mode = D3D12TemporalUpscalingMode.Fsr }));
+            }
+
+            var request = new ViewRenderRequest(96, 72, new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa));
+            var renderer = new D3D12RealtimeViewRenderer(window, request);
+            try
+            {
+                PreviewFrame MakeFrame(double f, ViewTemporalFrameState state)
+                    => new(96, 72, f, scene, null, null, null) { TemporalState = state };
+
+                Wait(renderer.WaitForNextFrameAsync(token), token);
+                Wait(renderer.PresentAsync(MakeFrame(0, new() { HistoryGeneration = 1, CameraCutKey = 10 }), token), token);
+                Assert.True(renderer.LastNativeTaaReset);
+                Assert.Equal(1, renderer.NativeTaaPhase);
+
+                Wait(renderer.PresentRecordedAheadAsync(MakeFrame(1, new() { HistoryGeneration = 1, CameraCutKey = 10 }), token), token);
+                Assert.False(renderer.LastNativeTaaReset);
+                Assert.Equal(2, renderer.NativeTaaPhase);
+
+                // Seek / restart (HistoryGeneration bump) must reset Native TAA under record-ahead.
+                Wait(renderer.PresentRecordedAheadAsync(MakeFrame(2, new() { HistoryGeneration = 2, CameraCutKey = 10 }), token), token);
+                Assert.True(renderer.LastNativeTaaReset);
+                Assert.Equal(1, renderer.NativeTaaPhase);
+
+                Wait(renderer.PresentRecordedAheadAsync(MakeFrame(3, new() { HistoryGeneration = 2, CameraCutKey = 10 }), token), token);
+                Assert.False(renderer.LastNativeTaaReset);
+                Assert.Equal(2, renderer.NativeTaaPhase);
+
+                // Camera cut must reset Native TAA under record-ahead.
+                Wait(renderer.PresentRecordedAheadAsync(MakeFrame(4, new() { HistoryGeneration = 2, CameraCutKey = 11 }), token), token);
+                Assert.True(renderer.LastNativeTaaReset);
+                Assert.Equal(1, renderer.NativeTaaPhase);
+
+                // Explicit ResetHistory must reset Native TAA under record-ahead.
+                Wait(renderer.PresentRecordedAheadAsync(MakeFrame(5, new() { HistoryGeneration = 2, CameraCutKey = 11, ResetHistory = true }), token), token);
+                Assert.True(renderer.LastNativeTaaReset);
+                Assert.Equal(1, renderer.NativeTaaPhase);
+            }
+            finally
+            {
+                Wait(renderer.DisposeAsync(), token);
+            }
+        }
+        finally
+        {
+            Assert.True(DestroyWindow(window));
+        }
+    }
+
+    [Fact]
+    public void StandaloneRcasWorksDecoupledFromFsr1AcrossAaModes()
+    {
+        using var session = new D3D12FrameSession();
+        var baseFrame = DiagonalTriangleScene();
+        var smaaFrame = WithOptions(baseFrame, baseFrame.Options! with { Antialiasing = FrameAntialiasing.Smaa1X });
+
+        var unsharpened = session.Capture(smaaFrame, 97, 73);
+        var sharpened = session.Capture(smaaFrame, 97, 73, sharpening: new D3D12SharpeningOptions(true, 0.1f));
+
+        Assert.Equal(D3D12SpatialUpscalingMode.Off, session.Statistics!.SpatialUpscaling);
+        Assert.Equal(1, session.Statistics.SharpeningPassDrawCalls);
+        Assert.Contains("sharpening:rcas", session.LastRecordings.Select(r => r.Channel));
+        Assert.NotEqual(unsharpened.Rgba, sharpened.Rgba);
+
+        // Off sharpening returns exact unsharpened bytes.
+        var offAgain = session.Capture(smaaFrame, 97, 73, sharpening: D3D12SharpeningOptions.Off);
+        Assert.Equal(0, session.Statistics.SharpeningPassDrawCalls);
+        Assert.Equal(unsharpened.Rgba, offAgain.Rgba);
+    }
+
+    [Fact]
+    public void AnisotropicFilteringChangesObliqueMipmappedPlane()
+    {
+        using var session = new D3D12FrameSession();
+        var plane = ObliqueCheckerPlaneScene();
+
+        var aniso1 = session.Capture(plane, 128, 96);
+        Assert.Equal(1, session.Statistics!.AnisotropicFiltering);
+
+        var aniso16Frame = WithOptions(plane, plane.Options! with { AnisotropicFiltering = 16 });
+        var aniso16 = session.Capture(aniso16Frame, 128, 96);
+        Assert.Equal(16, session.Statistics.AnisotropicFiltering);
+        Assert.NotEqual(aniso1.Rgba, aniso16.Rgba);
+    }
+
+    [Fact]
+    public void PcfSoftShadowSoftensSelfShadowEdgeComparedToPointAndLinear()
+    {
+        using var session = new D3D12FrameSession();
+        var shadowScene = SelfShadowScene(ShadowFilterMode.Linear, 1.0f);
+        var linear = session.Capture(shadowScene, 96, 96);
+        Assert.Equal(ShadowFilterMode.Linear, session.Statistics!.ShadowFilter);
+
+        var point = session.Capture(SelfShadowScene(ShadowFilterMode.Point, 1.0f), 96, 96);
+        Assert.Equal(ShadowFilterMode.Point, session.Statistics.ShadowFilter);
+
+        var pcf = session.Capture(SelfShadowScene(ShadowFilterMode.PcfSoft, 2.5f), 96, 96);
+        Assert.Equal(ShadowFilterMode.PcfSoft, session.Statistics.ShadowFilter);
+
+        Assert.NotEqual(point.Rgba, pcf.Rgba);
+        Assert.NotEqual(linear.Rgba, pcf.Rgba);
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(8)]
+    [InlineData(16)]
+    public void ScreenSpaceAoDarkensConcaveCornerWhilePreservingBackground(int sampleCount)
+    {
+        using var session = new D3D12FrameSession();
+        var corner = ConcaveCornerScene();
+        var withoutAo = session.Capture(corner, 96, 72);
+        var withAoFrame = WithOptions(corner, corner.Options! with
+        {
+            ScreenSpaceAo = new(Enabled: true, Strength: 0.9f, Radius: 2.5f, SampleCount: sampleCount),
+        });
+        var withAo = session.Capture(withAoFrame, 96, 72);
+
+        Assert.Equal(2, session.Statistics!.ScreenSpaceAoPassDrawCalls);
+        Assert.Contains("ssao:raw", session.LastRecordings.Select(r => r.Channel));
+        Assert.Contains("ssao:composite", session.LastRecordings.Select(r => r.Channel));
+
+        // Background top-left pixel (0, 0) must remain completely unchanged.
+        for (int c = 0; c < 4; c++)
+            Assert.Equal(withoutAo.Rgba[c], withAo.Rgba[c]);
+
+        // Interior crease pixels must be measurably darker than without SSAO.
+        long sumBefore = 0, sumAfter = 0;
+        int darkened = 0;
+        for (int i = 0; i < withoutAo.Rgba.Length; i += 4)
+        {
+            sumBefore += withoutAo.Rgba[i];
+            sumAfter += withAo.Rgba[i];
+            if (withAo.Rgba[i] + 3 < withoutAo.Rgba[i]) darkened++;
+        }
+        Assert.True(sumAfter < sumBefore, $"Expected SSAO to darken concave corner (before={sumBefore}, after={sumAfter}).");
+        Assert.True(darkened >= 20, $"Expected at least 20 darkened crease pixels, got {darkened}.");
+    }
+
+    private static int CountIntermediateGrayPixels(byte[] rgba)
+    {
+        int count = 0;
+        for (int i = 0; i < rgba.Length; i += 4)
+            if (rgba[i] is > 25 and < 245) count++;
+        return count;
+    }
+
+    private static OriginalFrameScene WithOptions(OriginalFrameScene frame, OriginalFrameOptions options)
+        => new(frame.Surface, frame.Outline, frame.OutlineOptions, options, frame.Materials, frame.Lighting, frame.EditorOverlay);
+
+    private static OriginalFrameScene DiagonalTriangleScene()
+    {
+        SceneVertex[] vertices =
+        [
+            new(new(-0.8f, -0.7f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.8f, -0.4f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.5f, 0.9f, 0f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        var snapshot = new SceneSnapshot(vertices, [0u, 1u, 2u],
+            [new("white", 0, 3, Vector4.One, Vector3.Zero, Vector3.One, 1)],
+            camera: new(new(0, 0, -5), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f),
+            lightDirection: -Vector3.UnitZ);
+        return new(new(snapshot, [new(Vector3.One, DoubleSided: true)]),
+            options: new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new(0, 0, 0, 1)));
+    }
+
+    private static OriginalFrameScene ConcaveCornerScene()
+    {
+        // Two perpendicular white quads meeting along y=0, z=0 forming a 90-degree interior corner.
+        SceneVertex[] vertices =
+        [
+            // Floor quad (y = 0, z in [-2, 0])
+            new(new(-2f, 0f, -2f), Vector3.UnitY, Vector2.Zero),
+            new(new(2f, 0f, -2f), Vector3.UnitY, Vector2.Zero),
+            new(new(2f, 0f, 0f), Vector3.UnitY, Vector2.Zero),
+            new(new(-2f, 0f, 0f), Vector3.UnitY, Vector2.Zero),
+            // Back wall quad (z = 0, y in [0, 2])
+            new(new(-2f, 0f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2f, 0f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2f, 2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-2f, 2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [new("corner", 0, indices.Length, new Vector4(0.9f, 0.9f, 0.9f, 1f), Vector3.Zero, Vector3.One, 1)],
+            camera: new(new(0f, 2.2f, -4.5f), new(0f, 0.4f, 0f), Vector3.UnitY, 4f, 0.1f, 30f, VerticalFovDegrees: 45f),
+            lightDirection: Vector3.Normalize(new(0f, 1f, -1f)));
+        return new(new(snapshot, [new(new Vector3(0.8f), DoubleSided: true)]),
+            options: new(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new(0.1f, 0.15f, 0.2f, 1f)));
+    }
+
+    private static OriginalFrameScene ObliqueCheckerPlaneScene()
+    {
+        const int size = 64;
+        var checker = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                bool white = ((x / 4) + (y / 4)) % 2 == 0;
+                byte v = white ? (byte)255 : (byte)20;
+                int idx = (y * size + x) * 4;
+                checker[idx] = v; checker[idx + 1] = v; checker[idx + 2] = v; checker[idx + 3] = 255;
+            }
+        var tex = new SceneTexture("checker", size, size, checker, SceneTextureKind.Image);
+        SceneVertex[] vertices =
+        [
+            new(new(-8f, 0f, -1f), Vector3.UnitY, new(0f, 0f)),
+            new(new(8f, 0f, -1f), Vector3.UnitY, new(16f, 0f)),
+            new(new(8f, 0f, 30f), Vector3.UnitY, new(16f, 32f)),
+            new(new(-8f, 0f, 30f), Vector3.UnitY, new(0f, 32f)),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [new("plane", 0, 6, Vector4.One, Vector3.Zero, Vector3.One, 1, DiffuseTexture: 0)],
+            textures: [tex],
+            camera: new(new(0f, 0.8f, -2.5f), new(0f, 0.0f, 8f), Vector3.UnitY, 4f, 0.1f, 60f, VerticalFovDegrees: 45f),
+            lightDirection: Vector3.UnitY);
+        var style = new OriginalStyleScene(snapshot, [new(Vector3.One, DoubleSided: true)],
+            OriginalStyleProfile.SelectedReference with { TextureSampling = OriginalTextureSampling.LinearWrap });
+        return new(style,
+            options: new(OriginalAlphaBlendMode.Normal, true, false),
+            materials: [new OriginalFrameMaterialFlags(false, false, false) { UseMipmaps = true }]);
+    }
+
+    private static OriginalFrameScene SelfShadowScene(ShadowFilterMode filterMode, float softness)
+    {
+        // Receiver quad at z = 0 and smaller occluder quad at z = -1 casting shadow onto receiver.
+        SceneVertex[] vertices =
+        [
+            // Receiver
+            new(new(-2f, -2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2f, -2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(2f, 2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-2f, 2f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            // Caster
+            new(new(-0.6f, -0.6f, -1f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.6f, -0.4f, -1f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.5f, 0.7f, -1f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.7f, 0.5f, -1f), -Vector3.UnitZ, Vector2.Zero),
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
+        var lightDir = Vector3.Normalize(new(0.25f, 0.2f, -1f));
+        var snapshot = new SceneSnapshot(vertices, indices,
+            [
+                new("receiver", 0, 6, Vector4.One, Vector3.Zero, Vector3.One, 1),
+                new("caster", 6, 6, Vector4.One, Vector3.Zero, Vector3.One, 1),
+            ],
+            camera: new(new(0.3f, 0.1f, -5f), Vector3.Zero, Vector3.UnitY, 4f, 0.1f, 20f, VerticalFovDegrees: 40f),
+            lightDirection: lightDir);
+        var shadowVp = ModernDirectionalShadowProjection.Fit(snapshot);
+        var shadow = new OriginalSelfShadowOptions(shadowVp, 128, 128, true, false,
+            filterMode == ShadowFilterMode.Point ? OriginalTextureSampling.PointClamp : OriginalTextureSampling.LinearClamp,
+            OriginalDepthComparison.LessEqual)
+        { FilterMode = filterMode, ShadowSoftness = softness };
+        var style = new OriginalStyleScene(snapshot,
+            [new(new Vector3(0.2f, 0.2f, 0.2f), DoubleSided: true), new(new Vector3(0.2f, 0.2f, 0.2f), DoubleSided: true)]);
+        return new(style,
+            options: new(OriginalAlphaBlendMode.Normal, true, false, SelfShadow: shadow)
+            { ShadowFilter = filterMode, ShadowSoftness = softness },
+            materials:
+            [
+                new OriginalFrameMaterialFlags(CastSelfShadow: false, ReceiveSelfShadow: true, CastGroundShadow: false),
+                new OriginalFrameMaterialFlags(CastSelfShadow: true, ReceiveSelfShadow: false, CastGroundShadow: false),
+            ]);
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint CreateWindowExW(uint extended, string className, string name, uint style,
+        int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyWindow(nint window);
+}

@@ -84,6 +84,74 @@ public sealed class RenderPipelineAndPathTracingTests
         Assert.Equal(FrameAntialiasing.Smaa1X, applied.Antialiasing);
         Assert.Equal(2, applied.SpatialSamples);
         OriginalFrameMath.Validate(applied);
+
+        // ClusteredForward composes cleanly with PR1/PR2 features: MSAA, TAA, FXAA, PCF, AF, SSAO, RenderScale, RCAS.
+        var clusteredPr12 = new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Msaa4X,
+            PipelineMode: RenderPipelineMode.ClusteredForward)
+        {
+            Shadow = new(2048, OriginalTextureSampling.LinearClamp),
+            UseEnvironmentMipmaps = true,
+            RenderScale = 0.75f,
+            PreviewOutlineWidthScale = 1.25f,
+            Sharpening = new(true, 0.35f),
+            AnisotropicFiltering = 16,
+            ShadowFilter = ShadowFilterMode.PcfSoft,
+            ShadowSoftness = 1.5f,
+            ScreenSpaceAo = new(true, 0.6f, 0.5f, 8),
+        };
+        clusteredPr12.Validate();
+        var clusteredApplied = clusteredPr12.ApplyTo(null);
+        Assert.Equal(RenderPipelineMode.ClusteredForward, clusteredApplied.PipelineMode);
+        Assert.Equal(FrameAntialiasing.Msaa4X, clusteredApplied.Antialiasing);
+        Assert.Equal(0.75f, clusteredApplied.RenderScale);
+        Assert.Equal(16, clusteredApplied.AnisotropicFiltering);
+        Assert.Equal(ShadowFilterMode.PcfSoft, clusteredApplied.ShadowFilter);
+        Assert.Equal(1.5f, clusteredApplied.ShadowSoftness);
+        Assert.True(clusteredApplied.ScreenSpaceAo?.IsActive);
+        OriginalFrameMath.Validate(clusteredApplied);
+
+        new ViewQualityOptions(Antialiasing: FrameAntialiasing.Taa, PipelineMode: RenderPipelineMode.ClusteredForward).Validate();
+        new ViewQualityOptions(Antialiasing: FrameAntialiasing.Fxaa, PipelineMode: RenderPipelineMode.ClusteredForward).Validate();
+
+        // PathTracing composes with RenderScale/Sharpening and takes over RayGi, ScreenSpaceAo, and raster SelfShadow.
+        var ptPr12 = new ViewQualityOptions(
+            Gi: new RayGiOptions(LightingMode.HardwareRayTracing, Strength: 3f, SamplesPerPixel: 4, OcclusionStrength: 0.5f),
+            Antialiasing: FrameAntialiasing.Off,
+            SpatialSamples: 1,
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: new PathTracingOptions(PathTracingShadingMode.Physical, SamplesPerFrame: 2, MaxBounces: 4))
+        {
+            RenderScale = 0.75f,
+            Sharpening = new(true, 0.25f),
+            ScreenSpaceAo = new(true, 0.5f, 0.4f, 8),
+        };
+        ptPr12.Validate();
+        var ptApplied = ptPr12.ApplyTo(null);
+        Assert.Equal(RenderPipelineMode.PathTracing, ptApplied.PipelineMode);
+        Assert.Equal(0.75f, ptApplied.RenderScale);
+        Assert.Equal(RayGiOptions.Off, ptApplied.RayGi);
+        Assert.Equal(ScreenSpaceAoOptions.Off, ptApplied.ScreenSpaceAo);
+        Assert.Null(ptApplied.SelfShadow);
+        OriginalFrameMath.Validate(ptApplied);
+
+        // Combined PR1+PR2+PR3 JSON round-trip preserves all fields cleanly.
+        var preset = new ViewOutputPresetDefinition(
+            "pr123-combined",
+            "PR123 Combined",
+            new ViewRenderRequest(1280, 720, clusteredPr12),
+            new ViewExportPreset(1920, 1080, new(60), ptPr12));
+        var roundTripped = ViewOutputPresetJson.Deserialize(ViewOutputPresetJson.Serialize(preset));
+        Assert.Equal(RenderPipelineMode.ClusteredForward, roundTripped.Preview.EffectiveQuality.PipelineMode);
+        Assert.Equal(FrameAntialiasing.Msaa4X, roundTripped.Preview.EffectiveQuality.Antialiasing);
+        Assert.Equal(ShadowFilterMode.PcfSoft, roundTripped.Preview.EffectiveQuality.ShadowFilter);
+        Assert.Equal(16, roundTripped.Preview.EffectiveQuality.AnisotropicFiltering);
+        Assert.Equal(0.75f, roundTripped.Preview.EffectiveQuality.RenderScale);
+        Assert.True(roundTripped.Preview.EffectiveQuality.EffectiveScreenSpaceAo.Enabled);
+        Assert.Equal(RenderPipelineMode.PathTracing, roundTripped.Export.Quality!.PipelineMode);
+        Assert.Equal(PathTracingShadingMode.Physical, roundTripped.Export.Quality.PathTracing!.ShadingMode);
+        Assert.Equal(0.75f, roundTripped.Export.Quality.RenderScale);
+        Assert.True(roundTripped.Export.Quality.EffectiveSharpening.Enabled);
     }
 
     [Fact]
@@ -105,9 +173,24 @@ public sealed class RenderPipelineAndPathTracingTests
         Assert.Equal(PathTracingShadingMode.Physical, applied.PathTracing!.ShadingMode);
         OriginalFrameMath.Validate(applied);
 
-        // PathTracing rejects raster AA, spatial supersampling, spatial upscaling, and temporal upscaling.
+        // PathTracing rejects raster AA (SMAA/FXAA/TAA/MSAA), spatial supersampling, spatial upscaling, and temporal upscaling.
         Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
             Antialiasing: FrameAntialiasing.Smaa1X,
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Fxaa,
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Taa,
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Msaa2X,
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Msaa4X,
+            PipelineMode: RenderPipelineMode.PathTracing).Validate());
+        Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
+            Antialiasing: FrameAntialiasing.Msaa8X,
             PipelineMode: RenderPipelineMode.PathTracing).Validate());
         Assert.Throws<NotSupportedException>(() => new ViewQualityOptions(
             SpatialSamples: 2,

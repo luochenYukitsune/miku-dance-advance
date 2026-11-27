@@ -5,8 +5,8 @@ namespace Mmd.Modern.Core;
 
 /// <summary>Top-level rendering pipeline architecture for modern views.
 /// Forward is the unchanged default; ClusteredForward accelerates multi-light forward shading while
-/// preserving SMAA 1x, spatial supersampling, transparency and style plugins; PathTracing replaces raster
-/// shading/shadows/GI with progressive multi-bounce Monte Carlo path tracing.</summary>
+/// preserving MSAA, TAA, FXAA, SMAA 1x, spatial supersampling, transparency and style plugins;
+/// PathTracing replaces raster shading/shadows/GI with progressive multi-bounce Monte Carlo path tracing.</summary>
 public enum RenderPipelineMode
 {
     Forward = 0,

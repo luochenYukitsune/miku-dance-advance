@@ -1158,6 +1158,13 @@
     "Mda.Text.ModelProps.SampleBoneButton": "Button sampling current frame bone orientation into fixed world basis.",
     "Mda.Text.ModelProps.TargetBoneLabel": "Label for bone picker in live bone tracking.",
     "Mda.Text.ModelProps.SelectedBoneRequiredError": "Validation error when live bone tracking mode has no selected bone.",
-    "Mda.Text.ModelProps.ModelStyleNoPluginNotice": "Notice shown when model's effective style {0} has no plugin modes."
+    "Mda.Text.ModelProps.ModelStyleNoPluginNotice": "Notice shown when model's effective style {0} has no plugin modes.",
+    "Mda.Text.Preview.CustomPresetInvalidData": "Error thrown when a stored custom preview quality preset entry is null or missing required Id/Name.",
+    "Mda.Text.Preview.CustomPresetDuplicateId": "Error thrown when multiple custom preview quality presets share the same Id.",
+    "Mda.Text.Preview.CustomPresetReadFailed": "Diagnostic prefix when loading custom preview quality presets from disk fails and falls back to an empty list.",
+    "Mda.Text.Preview.CustomPresetLimitExceeded": "Error thrown when saving more than 128 custom preview quality presets.",
+    "Mda.Text.Preview.CustomPresetSelectRename": "Validation error when renaming a custom preset without a valid selected Id.",
+    "Mda.Text.Preview.CustomPresetNotFound": "Error thrown when renaming a custom preset Id that no longer exists in storage.",
+    "Mda.Text.Preview.CustomPresetSelectDelete": "Validation error when deleting a custom preset without a valid selected Id."
   }
 }

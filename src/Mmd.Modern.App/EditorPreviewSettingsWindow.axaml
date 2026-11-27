@@ -3,7 +3,7 @@
         xmlns:local="using:Mmd.Modern.App"
         x:Class="Mmd.Modern.App.EditorPreviewSettingsWindow"
         x:DataType="local:EditorPreviewSettingsViewModel"
-        Title="{Binding Title}" Width="840" Height="680" MinWidth="760" MinHeight="560"
+        Title="{Binding Title}" Width="920" Height="680" MinWidth="800" MinHeight="560"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{DynamicResource OutputSurface}" Foreground="{DynamicResource OutputText}"
         FontFamily="avares://Mmd.Modern.App/Assets/Fonts#HarmonyOS Sans SC" FontSize="14"
@@ -17,13 +17,19 @@
           <SolidColorBrush x:Key="OutputMuted" Color="#A4ACB6" /><SolidColorBrush x:Key="OutputDisabled" Color="#69717B" />
           <SolidColorBrush x:Key="OutputBorder" Color="#2B333D" /><SolidColorBrush x:Key="OutputFocus" Color="#3DD68C" />
           <SolidColorBrush x:Key="OutputHover" Color="#222A34" /><SolidColorBrush x:Key="OutputSelected" Color="#19302A" />
-          <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" /></ResourceDictionary>
+          <SolidColorBrush x:Key="OutputInput" Color="#1B2129" /><SolidColorBrush x:Key="OutputCard" Color="#151A20" />
+          <SolidColorBrush x:Key="OutputWarningBg" Color="#2D2312" /><SolidColorBrush x:Key="OutputWarningBorder" Color="#6B501D" /><SolidColorBrush x:Key="OutputWarningText" Color="#F2C97D" />
+          <SolidColorBrush x:Key="MdaAccent" Color="#2BB673" /><SolidColorBrush x:Key="MdaAccentText" Color="#06140C" /><SolidColorBrush x:Key="MdaAccentHover" Color="#35C77F" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#3DD68C" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#1B2129" /><Color x:Key="SukiPrimaryColor">#2BB673</Color><SolidColorBrush x:Key="MdaButton" Color="#1F262F" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#323C48" /><SolidColorBrush x:Key="MdaButtonHover" Color="#2A333E" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#34404D" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#171C22" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#69717B" />
+        </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <SolidColorBrush x:Key="OutputSurface" Color="#F6F7F9" /><SolidColorBrush x:Key="OutputText" Color="#1A1D21" />
           <SolidColorBrush x:Key="OutputMuted" Color="#5B636E" /><SolidColorBrush x:Key="OutputDisabled" Color="#9AA1AA" />
           <SolidColorBrush x:Key="OutputBorder" Color="#D9DEE5" /><SolidColorBrush x:Key="OutputFocus" Color="#12844A" />
           <SolidColorBrush x:Key="OutputHover" Color="#E9EDF2" /><SolidColorBrush x:Key="OutputSelected" Color="#DFF2E7" />
-          <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" /></ResourceDictionary>
+          <SolidColorBrush x:Key="OutputInput" Color="#EEF1F4" /><SolidColorBrush x:Key="OutputCard" Color="#FFFFFF" />
+          <SolidColorBrush x:Key="OutputWarningBg" Color="#FFF6E5" /><SolidColorBrush x:Key="OutputWarningBorder" Color="#E5C07B" /><SolidColorBrush x:Key="OutputWarningText" Color="#8A5A00" />
+          <SolidColorBrush x:Key="MdaAccent" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentText" Color="#FFFFFF" /><SolidColorBrush x:Key="MdaAccentHover" Color="#0F7340" /><SolidColorBrush x:Key="MdaAccentSoft" Color="#12844A" /><SolidColorBrush x:Key="MdaAccentDisabled" Color="#EEF1F4" /><Color x:Key="SukiPrimaryColor">#12844A</Color><SolidColorBrush x:Key="MdaButton" Color="#F7F8FA" /><SolidColorBrush x:Key="MdaButtonBorder" Color="#CDD4DC" /><SolidColorBrush x:Key="MdaButtonHover" Color="#EEF1F4" /><SolidColorBrush x:Key="MdaButtonPressed" Color="#E3E8EE" /><SolidColorBrush x:Key="MdaButtonDisabled" Color="#EEF0F3" /><SolidColorBrush x:Key="EditorDisabledTextShared" Color="#9AA1AA" />
+        </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
   </Window.Resources>
@@ -36,6 +42,7 @@
     <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="15" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LineHeight" Value="22" /></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
     <Style Selector="TextBlock.caption"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <Style Selector="TextBlock.hintWarn"><Setter Property="FontSize" Value="12" /><Setter Property="LineHeight" Value="18" /><Setter Property="Foreground" Value="{DynamicResource OutputWarningText}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
     <Style Selector="TextBlock.label"><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" /></Style>
     <Style Selector="Button">
       <Setter Property="Height" Value="30" /><Setter Property="MinHeight" Value="24" /><Setter Property="Padding" Value="12,0" />
@@ -76,7 +83,7 @@
                               VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}"
                               IsScrollChainingEnabled="{TemplateBinding (ScrollViewer.IsScrollChainingEnabled)}">
                   <Panel>
-                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{TemplateBinding Foreground}"
+                    <TextBlock Name="watermark" Text="{TemplateBinding Watermark}" Foreground="{DynamicResource OutputMuted}"
                                FontSize="{TemplateBinding FontSize}" FontFamily="{TemplateBinding FontFamily}"
                                TextAlignment="{TemplateBinding TextAlignment}" TextWrapping="{TemplateBinding TextWrapping}"
                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
@@ -117,7 +124,6 @@
       <Setter Property="MinHeight" Value="30" /><Setter Property="Height" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="Padding" Value="8,2" />
       <Setter Property="Background" Value="{DynamicResource OutputInput}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputBorder}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="4" /><Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="PlaceholderForeground" Value="{DynamicResource OutputMuted}" />
-      <!-- Preserve Avalonia 11.3.22 ComboBox selection, popup and editable named parts without the Suki outer inset. -->
       <Setter Property="Template"><ControlTemplate>
         <Border Name="OutputComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                 BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
@@ -170,19 +176,10 @@
     <Style Selector="CheckBox"><Setter Property="MinHeight" Value="30" /><Setter Property="Margin" Value="0" /><Setter Property="FontFamily" Value="{DynamicResource OutputFont}" /><Setter Property="FontSize" Value="14" /><Setter Property="Foreground" Value="{DynamicResource OutputText}" /></Style>
     <Style Selector="CheckBox /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputText}" /></Style>
     <Style Selector="CheckBox:disabled /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Foreground" Value="{DynamicResource OutputDisabled}" /></Style>
-    <Style Selector="TabControl"><Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Background" Value="{DynamicResource OutputSurface}" /></Style>
-    <Style Selector="TabItem">
-      <Setter Property="Height" Value="38" /><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="20,0" /><Setter Property="Margin" Value="0" /><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource OutputMuted}" />
-      <Setter Property="Template"><ControlTemplate><Border Name="OutputTabSurface" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}"><ContentPresenter Content="{TemplateBinding Header}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></Setter>
-    </Style>
-    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource OutputText}" /><Setter Property="Background" Value="{DynamicResource OutputSelected}" /></Style>
-    <Style Selector="TabItem:selected /template/ Border#OutputTabSurface"><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
-    <Style Selector="TabItem:pointerover"><Setter Property="Background" Value="{DynamicResource OutputHover}" /></Style>
     <Style Selector="Expander.outputAdvanced:down">
       <Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Padding" Value="0" /><Setter Property="BorderThickness" Value="0" />
       <Setter Property="ContentTransition" Value="{x:Null}" />
-      <!-- Avalonia Simple's down-expander contract, kept flat and without a decorative container. -->
       <Setter Property="Template"><ControlTemplate><Grid RowDefinitions="Auto,Auto">
         <ToggleButton Name="PART_toggle" Classes="advanced" Content="{TemplateBinding Header}" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
         <ContentPresenter Name="PART_ContentPresenter" Grid.Row="1" Margin="0,12,0,0" Content="{TemplateBinding Content}"
@@ -205,9 +202,7 @@
     <Style Selector="ToggleButton.advanced:checked /template/ Path"><Setter Property="RenderTransform"><RotateTransform Angle="90" /></Setter></Style>
     <Style Selector="Separator"><Setter Property="Background" Value="{DynamicResource OutputBorder}" /><Setter Property="Margin" Value="0,4" /></Style>
     <StyleInclude Source="avares://Mmd.Modern.App/EditorPopupStyles.axaml" />
-  
-    <!-- MDA shared button roles (same in every window):
-         default  = input surface + border; .primary = solid brand green; .quiet = flat (cancel/close). -->
+
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter, ListBoxItem:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /></Style>
     <Style Selector="Button"><Setter Property="Background" Value="{DynamicResource MdaButton}" /><Setter Property="BorderBrush" Value="{DynamicResource MdaButtonBorder}" /><Setter Property="CornerRadius" Value="4" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
@@ -225,39 +220,148 @@
     <Style Selector="Button.primary:disabled TextBlock, Button.primary:disabled AccessText, Button[IsDefault=True]:disabled TextBlock, Button[IsDefault=True]:disabled AccessText"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
     <Style Selector="Button.quiet"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="Transparent" /></Style>
     <Style Selector="Button.quiet:pointerover"><Setter Property="Background" Value="{DynamicResource MdaButtonHover}" /></Style>
+    <Style Selector="Button.presetActive"><Setter Property="Background" Value="{DynamicResource OutputSelected}" /><Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" /></Style>
     <Style Selector="CheckBox:disabled"><Setter Property="Foreground" Value="{DynamicResource EditorDisabledTextShared}" /></Style>
-    <Style Selector="TabItem:selected"><Setter Property="Foreground" Value="{DynamicResource MdaAccentSoft}" /></Style>
-    <Style Selector="TabItem:selected /template/ Border"><Setter Property="BorderBrush" Value="{DynamicResource MdaAccentSoft}" /></Style>
+
+    <Style Selector="ListBox.previewNav">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="8,12" />
+    </Style>
+    <Style Selector="ListBox.previewNav ListBoxItem">
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="Margin" Value="0,2" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Foreground" Value="{DynamicResource OutputMuted}" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.previewNav ListBoxItem:pointerover">
+      <Setter Property="Background" Value="{DynamicResource OutputHover}" />
+      <Setter Property="Foreground" Value="{DynamicResource OutputText}" />
+    </Style>
+    <Style Selector="ListBox.previewNav ListBoxItem:selected">
+      <Setter Property="Background" Value="{DynamicResource OutputSelected}" />
+      <Setter Property="Foreground" Value="{DynamicResource OutputText}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource OutputFocus}" />
+      <Setter Property="BorderThickness" Value="2,0,0,0" />
+    </Style>
   </Window.Styles>
-  <Grid RowDefinitions="*,Auto">
-    <TabControl Name="PreviewSettingsTabs">
-      <TabItem Header="{Binding QualityLabel}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="24,22,24,28" Spacing="20">
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <!-- Classic Engine Warning Banner -->
+    <Border Grid.Row="0" Name="ClassicEngineNoticeBanner" IsVisible="{Binding IsClassicEngine}"
+            Background="{DynamicResource OutputWarningBg}" BorderBrush="{DynamicResource OutputWarningBorder}"
+            BorderThickness="0,0,0,1" Padding="18,10">
+      <TextBlock Text="{Binding ClassicEngineNotice}" Classes="hintWarn" />
+    </Border>
+
+    <!-- Top Preset Bar -->
+    <Border Grid.Row="1" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,0,0,1" Padding="16,10">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Text="{Binding PresetsLabel}" Classes="label" Margin="0,0,12,0" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Name="PresetPerformanceButton" Content="{Binding PresetPerformanceLabel}" Click="ApplyPerformancePreset"
+                    IsEnabled="{Binding IsModernEngine}" Classes.presetActive="{Binding IsPerformancePresetActive}" />
+            <Button Name="PresetBalancedButton" Content="{Binding PresetBalancedLabel}" Click="ApplyBalancedPreset"
+                    IsEnabled="{Binding IsModernEngine}" Classes.presetActive="{Binding IsBalancedPresetActive}" />
+            <Button Name="PresetHighButton" Content="{Binding PresetHighLabel}" Click="ApplyHighPreset"
+                    IsEnabled="{Binding IsModernEngine}" Classes.presetActive="{Binding IsHighPresetActive}" />
+            <Button Name="PresetUltraRayTracedButton" Content="{Binding PresetUltraRayTracedLabel}" Click="ApplyUltraRayTracedPreset"
+                    IsEnabled="{Binding IsModernEngine}" Classes.presetActive="{Binding IsUltraRayTracedPresetActive}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0">
+            <Button Name="CopyToExportButton" Content="{Binding CopyToExportLabel}" Click="CopyToExportClick" IsEnabled="{Binding CanCopyToExport}" />
+            <Button Name="LoadFromExportButton" Content="{Binding LoadFromExportLabel}" Click="LoadFromExportClick" IsEnabled="{Binding CanLoadFromExport}" />
+          </StackPanel>
+        </Grid>
+        <Grid ColumnDefinitions="Auto,190,*,Auto,Auto,Auto,Auto">
+          <TextBlock Text="{Binding CustomPresetLabel}" Classes="label" Margin="0,0,10,0" />
+          <ComboBox Name="CustomPresetBox" Grid.Column="1" ItemsSource="{Binding CustomPresets}" SelectedIndex="{Binding CustomPresetIndex, Mode=TwoWay}"
+                    PlaceholderText="{Binding CustomPresetPlaceholder}" IsEnabled="{Binding IsModernEngine}" Margin="0,0,8,0">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="local:EditorPreviewCustomPreset">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBox Name="CustomPresetNameBox" Grid.Column="2" Text="{Binding CustomPresetName, Mode=TwoWay}"
+                   Watermark="{Binding CustomPresetNameWatermark}" IsEnabled="{Binding IsModernEngine}" Margin="0,0,8,0" />
+          <Button Name="SaveNewCustomPresetButton" Grid.Column="3" Content="{Binding CustomPresetSaveNewLabel}"
+                  Click="SaveNewCustomPresetClick" IsEnabled="{Binding CanSaveCustomPreset}" Margin="0,0,6,0" />
+          <Button Name="OverwriteCustomPresetButton" Grid.Column="4" Content="{Binding CustomPresetOverwriteLabel}"
+                  Click="OverwriteCustomPresetClick" IsEnabled="{Binding CanOverwriteCustomPreset}" Margin="0,0,6,0" />
+          <Button Name="RenameCustomPresetButton" Grid.Column="5" Content="{Binding CustomPresetRenameLabel}"
+                  Click="RenameCustomPresetClick" IsEnabled="{Binding CanRenameCustomPreset}" Margin="0,0,6,0" />
+          <Button Name="DeleteCustomPresetButton" Grid.Column="6" Content="{Binding CustomPresetDeleteLabel}"
+                  Click="DeleteCustomPresetClick" IsEnabled="{Binding CanDeleteCustomPreset}" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- Main 6-Category Split -->
+    <Grid Grid.Row="2" ColumnDefinitions="200,*">
+      <Border BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,0,1,0">
+        <ListBox Name="PreviewCategoryList" Classes="previewNav" ItemsSource="{Binding Categories}" SelectedIndex="{Binding SelectedCategoryIndex, Mode=TwoWay}" />
+      </Border>
+      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24,20,24,24" Spacing="18">
+          <TextBlock Name="PreviewCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
+
+          <!-- Category 0: Overview & Presets -->
+          <StackPanel Name="CategoryOverviewPanel" Spacing="16" IsVisible="{Binding IsCategoryOverview}">
+            <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="14,12">
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding OverviewTitle}" Classes="section" />
+                <Grid ColumnDefinitions="140,*">
+                  <TextBlock Text="{Binding ActivePresetLabel}" Classes="label" />
+                  <TextBlock Name="ActivePresetSummaryText" Grid.Column="1" Text="{Binding ActivePresetSummary}" />
+                </Grid>
+                <TextBlock Name="OverviewConfigSummaryText" Text="{Binding OverviewConfigurationSummary}" Classes="caption" />
+              </StackPanel>
+            </Border>
+
             <StackPanel Spacing="6" IsVisible="{Binding HasRuntimeInfo}">
               <TextBlock Text="{Binding RuntimeLabel}" Classes="section" />
               <TextBlock Name="PreviewDeviceSummary" Text="{Binding DeviceSummary}" TextWrapping="Wrap" />
               <TextBlock Name="PreviewResolutionSummary" Text="{Binding ResolutionSummary}" Classes="caption" />
               <TextBlock Name="PreviewSamplingSummary" Text="{Binding SamplingSummary}" Classes="caption" TextWrapping="Wrap" />
-              <Expander Classes="outputAdvanced" Header="{Binding PerformanceDetailsLabel}" IsExpanded="False">
-                <StackPanel Spacing="6"><TextBlock Name="PreviewPerformanceSummary" Text="{Binding PerformanceSummary}" Classes="caption" /><TextBlock Text="{Binding PerformanceHint}" Classes="caption" /></StackPanel>
-              </Expander>
             </StackPanel>
+
+            <StackPanel Spacing="8">
+              <TextBlock Text="{Binding BuiltInPresetsTitle}" Classes="section" />
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetPerformanceLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetPerformanceDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyPerformancePreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              </Border>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetBalancedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetBalancedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyBalancedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              </Border>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetHighLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetHighDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyHighPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              </Border>
+              <Border Background="{DynamicResource OutputCard}" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="1" CornerRadius="6" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="2"><TextBlock Text="{Binding PresetUltraRayTracedLabel}" FontWeight="SemiBold" /><TextBlock Text="{Binding PresetUltraRayTracedDesc}" Classes="caption" /></StackPanel><Button Grid.Column="1" VerticalAlignment="Center" Content="{Binding ApplyPresetActionLabel}" Click="ApplyUltraRayTracedPreset" IsEnabled="{Binding IsModernEngine}" /></Grid>
+              </Border>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Category 1: Antialiasing & Upscaling -->
+          <StackPanel Name="CategoryAntialiasingPanel" Spacing="16" IsVisible="{Binding IsCategoryAntialiasing}">
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding AntialiasingLabel}" Classes="section" />
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewAntialiasingBox" Grid.Column="1" ItemsSource="{Binding AntialiasingModes}" SelectedIndex="{Binding AntialiasingIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" AutomationProperties.Name="{Binding AntialiasingLabel}" /></Grid>
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SmaaLabel}" Classes="label" /><ComboBox Name="PreviewSmaaQualityBox" Grid.Column="1" ItemsSource="{Binding SmaaQualities}" SelectedIndex="{Binding SmaaIndex}" IsEnabled="{Binding IsSmaa}" AutomationProperties.Name="{Binding SmaaLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SurfaceOrderLabel}" Classes="label" /><ComboBox Name="PreviewSurfaceOrderBox" Grid.Column="1" ItemsSource="{Binding SurfaceOrders}" SelectedIndex="{Binding SurfaceOrderIndex}" AutomationProperties.Name="{Binding SurfaceOrderLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSurfaceOrderChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
               <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SpatialLabel}" Classes="label" /><ComboBox Name="PreviewSpatialSamplesBox" Grid.Column="1" ItemsSource="{Binding SpatialSamples}" SelectedIndex="{Binding SpatialIndex}" IsEnabled="{Binding IsSpatialAaEnabled}" AutomationProperties.Name="{Binding SpatialLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding RenderScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewRenderScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding RenderScale}" Minimum="0.5" Maximum="1.5" Increment="0.05" FormatString="0.##" IsEnabled="{Binding IsRenderScaleEditable}" AutomationProperties.Name="{Binding RenderScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.5" Maximum="1.5" SmallChange="0.05" LargeChange="0.25" Step="0.05" DefaultValue="1" Number="{Binding RenderScale, Mode=TwoWay}" IsEnabled="{Binding IsRenderScaleEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding RenderScaleLabel}" /></Grid>
+              <TextBlock Text="{Binding RenderScaleHint}" Classes="caption" Margin="188,0,0,0" />
+              <TextBlock Name="RenderScaleConflictHintText" Text="{Binding RenderScaleConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding HasRenderScaleConflictHint}" />
               <TextBlock Text="{Binding SamplingHint}" Classes="caption" />
-              <TextBlock Text="{Binding TemporalHint}" Classes="caption" IsVisible="{Binding IsTemporal}" />
             </StackPanel>
             <Separator />
             <StackPanel Spacing="10">
               <TextBlock Text="{Binding TemporalLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ReconstructionLabel}" Classes="label" /><ComboBox Name="PreviewTemporalModeBox" Grid.Column="1" ItemsSource="{Binding TemporalModes}" SelectedIndex="{Binding TemporalIndex}" AutomationProperties.Name="{Binding TemporalLabel}" /></Grid>
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding QualityLabel}" Classes="label" /><ComboBox Name="PreviewTemporalQualityBox" Grid.Column="1" ItemsSource="{Binding TemporalQualities}" SelectedIndex="{Binding TemporalQualityIndex}" IsEnabled="{Binding IsTemporal}" AutomationProperties.Name="{Binding QualityLabel}" /></Grid>
-              <TextBlock Name="PreviewCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ReconstructionLabel}" Classes="label" /><ComboBox Name="PreviewTemporalModeBox" Grid.Column="1" ItemsSource="{Binding TemporalModes}" SelectedIndex="{Binding TemporalIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding TemporalLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding QualityLabel}" Classes="label" /><ComboBox Name="PreviewTemporalQualityBox" Grid.Column="1" ItemsSource="{Binding TemporalQualities}" SelectedIndex="{Binding TemporalQualityIndex}" IsEnabled="{Binding IsTemporalEnabled}" AutomationProperties.Name="{Binding QualityLabel}" /></Grid>
+              <TextBlock Name="TemporalConflictHintText" Text="{Binding TemporalConflictHint}" Classes="hintWarn" IsVisible="{Binding HasTemporalConflictHint}" />
               <TextBlock Text="{Binding ReconstructionHint}" Classes="caption" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedSampling" Header="{Binding AdvancedSamplingLabel}" IsExpanded="False">
@@ -267,60 +371,105 @@
                 <CheckBox Name="PreviewRcasEnabledBox" Content="{Binding RcasLabel}" IsChecked="{Binding RcasEnabled}" IsEnabled="{Binding IsFsr1}" Margin="188,0,0,0" />
                 <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding SharpnessLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewRcasSharpnessBox" Grid.Column="1" MenuDefaultValue="0.2" Value="{Binding RcasSharpness}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsRcas}" AutomationProperties.Name="{Binding SharpnessLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="2" SmallChange="0.05" LargeChange="0.25" Step="0.01" DefaultValue="0.2" Number="{Binding RcasSharpness, Mode=TwoWay}" IsEnabled="{Binding IsRcas}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding SharpnessLabel}" /></Grid>
                 <TextBlock Text="{Binding RcasHint}" Classes="caption" Margin="188,0,0,0" />
-              </StackPanel>
-            </Expander>
-            <Expander Classes="outputAdvanced" Header="{Binding SupportLabel}" IsExpanded="False">
-              <StackPanel Spacing="8">
-                <TextBlock Text="{Binding CapabilityHint}" Classes="caption" />
-                <Button Name="RefreshCapabilitiesButton" Classes="action" Content="{Binding RefreshCapabilitiesLabel}"
-                        Click="RefreshCapabilities" IsVisible="{Binding CanRefreshCapabilities}"
-                        IsEnabled="{Binding CapabilitiesReady}" HorizontalAlignment="Left" />
+                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding SurfaceOrderLabel}" Classes="label" /><ComboBox Name="PreviewSurfaceOrderBox" Grid.Column="1" ItemsSource="{Binding SurfaceOrders}" SelectedIndex="{Binding SurfaceOrderIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding SurfaceOrderLabel}"><ComboBox.ItemTemplate><DataTemplate x:DataType="local:EditorSurfaceOrderChoice"><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></Grid>
               </StackPanel>
             </Expander>
           </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-      <TabItem Header="{Binding LightingLabel}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="24,22,24,28" Spacing="20">
+
+          <!-- Category 2: Shadows & Detail -->
+          <StackPanel Name="CategoryShadowsPanel" Spacing="16" IsVisible="{Binding IsCategoryShadowDetail}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding ShadowsSectionLabel}" Classes="section" />
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ShadowResolutionLabel}" Classes="label" /><ComboBox Name="PreviewShadowResolutionBox" Grid.Column="1" ItemsSource="{Binding ShadowResolutionChoices}" SelectedIndex="{Binding ShadowResolutionIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding ShadowResolutionLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ShadowSamplingLabel}" Classes="label" /><ComboBox Name="PreviewShadowSamplingBox" Grid.Column="1" ItemsSource="{Binding ShadowSamplingChoices}" SelectedIndex="{Binding ShadowSamplingIndex}" IsEnabled="{Binding IsShadowEnabled}" AutomationProperties.Name="{Binding ShadowSamplingLabel}" /></Grid>
+              <TextBlock Name="ShadowDisabledHintText" Text="{Binding ShadowDisabledHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding IsShadowDisabled}" />
+            </StackPanel>
+            <Separator />
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding DetailSectionLabel}" Classes="section" />
+              <CheckBox Name="PreviewEnvironmentMipmapsBox" Content="{Binding EnvironmentMipmapsLabel}" IsChecked="{Binding UseEnvironmentMipmaps}" IsEnabled="{Binding IsModernEngine}" Margin="188,0,0,0" />
+              <TextBlock Text="{Binding EnvironmentMipmapsHint}" Classes="caption" Margin="188,0,0,0" />
+              <CheckBox Name="PreviewOutlineEnabledBox" Content="{Binding PreviewOutlineEnabledLabel}" IsChecked="{Binding PreviewOutlineEnabled}" IsEnabled="{Binding IsModernEngine}" Margin="188,0,0,0" />
+              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding PreviewOutlineWidthScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewOutlineWidthScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding PreviewOutlineWidthScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsPreviewOutlineEditable}" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.05" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding PreviewOutlineWidthScale, Mode=TwoWay}" IsEnabled="{Binding IsPreviewOutlineEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding PreviewOutlineWidthScaleLabel}" /></Grid>
+              <TextBlock Text="{Binding PreviewOutlineHint}" Classes="caption" Margin="188,0,0,0" />
+              <TextBlock Name="PreviewOutlineDisabledHintText" Text="{Binding PreviewOutlineDisabledHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding IsPreviewOutlineDisabled}" />
+            </StackPanel>
+            <Expander Classes="outputAdvanced" Name="PreviewAdvancedShadowDetail" Header="{Binding AdvancedShadowDetailLabel}" IsExpanded="False">
+              <TextBlock Text="{Binding SceneAppearanceHint}" Classes="caption" />
+            </Expander>
+          </StackPanel>
+
+          <!-- Category 3: Global Illumination -->
+          <StackPanel Name="CategoryGiPanel" Spacing="16" IsVisible="{Binding IsCategoryGlobalIllumination}">
             <StackPanel Spacing="12">
               <TextBlock Text="{Binding GiLabel}" Classes="section" />
-              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" AutomationProperties.Name="{Binding GiLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding ModeLabel}" Classes="label" /><ComboBox Name="PreviewGiModeBox" Grid.Column="1" ItemsSource="{Binding GiModes}" SelectedIndex="{Binding GiIndex}" IsEnabled="{Binding IsModernEngine}" AutomationProperties.Name="{Binding GiLabel}" /></Grid>
               <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiStrengthBox" Grid.Column="1" MenuDefaultValue="4" Value="{Binding GiStrength}" Minimum="0" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="10" SmallChange="0.1" LargeChange="1" Step="0.05" DefaultValue="4" Number="{Binding GiStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
               <CheckBox Name="PreviewGiAccelerationBox" Content="{Binding PreviewGiAccelerationLabel}" IsChecked="{Binding PreviewGiAcceleration}" IsEnabled="{Binding IsGiEnabled}" Margin="188,0,0,0" />
               <TextBlock Text="{Binding PreviewGiAccelerationHint}" Classes="caption" Margin="188,0,0,0" />
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding CompositionLabel}" Classes="label" /><ComboBox Name="PreviewGiCompositionBox" Grid.Column="1" ItemsSource="{Binding GiCompositions}" SelectedIndex="{Binding GiCompositionIndex}" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding CompositionLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding GiToonResponseLabel}" Classes="label" /><ComboBox Name="PreviewGiToonResponseBox" Grid.Column="1" ItemsSource="{Binding GiToonResponses}" SelectedIndex="{Binding GiToonResponseIndex}" IsEnabled="{Binding IsGiToonPaletteEnabled}" AutomationProperties.Name="{Binding GiToonResponseLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding DenoiserLabel}" Classes="label" /><ComboBox Name="PreviewGiDenoiserBox" Grid.Column="1" ItemsSource="{Binding GiDenoisers}" SelectedIndex="{Binding GiDenoiserIndex}" IsEnabled="{Binding IsGiDenoiserEnabled}" AutomationProperties.Name="{Binding DenoiserLabel}" /></Grid>
+              <TextBlock Name="GiPaletteConflictHintText" Text="{Binding GiPaletteConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding ShowGiPaletteConflictHint}" />
+              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiOcclusionStrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiOcclusionStrengthBox" Grid.Column="1" MenuDefaultValue="0" Value="{Binding GiOcclusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.2" Step="0.01" DefaultValue="0" Number="{Binding GiOcclusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionStrengthLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiOcclusionRadiusLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiOcclusionRadiusBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiOcclusionRadius}" Minimum="0.001" Maximum="100" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0.05" Maximum="10" SmallChange="0.05" LargeChange="1" Step="0.05" DefaultValue="1" Number="{Binding GiOcclusionRadius, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiOcclusionRadiusLabel}" /></Grid>
+              <TextBlock Name="GiOcclusionConflictHintText" Text="{Binding GiOcclusionConflictHint}" Classes="hintWarn" Margin="188,0,0,0" IsVisible="{Binding HasGiOcclusionConflict}" />
               <TextBlock Name="PreviewGiCapabilityProbingNotice" Text="{Binding CapabilityProbingNotice}" Classes="caption" IsVisible="{Binding IsProbingCapabilities}" />
               <TextBlock Text="{Binding GiHint}" Classes="caption" />
             </StackPanel>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedLighting" Header="{Binding AdvancedLightingLabel}" IsExpanded="False">
               <StackPanel Spacing="12">
-                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiSamplesLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSamplesLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding CompositionLabel}" Classes="label" /><ComboBox Name="PreviewGiCompositionBox" Grid.Column="1" ItemsSource="{Binding GiCompositions}" SelectedIndex="{Binding GiCompositionIndex}" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding CompositionLabel}" /></Grid>
-                <Grid ColumnDefinitions="188,260,*"><TextBlock Text="{Binding DenoiserLabel}" Classes="label" /><ComboBox Name="PreviewGiDenoiserBox" Grid.Column="1" ItemsSource="{Binding GiDenoisers}" SelectedIndex="{Binding GiDenoiserIndex}" IsEnabled="{Binding IsGiDenoiserEnabled}" AutomationProperties.Name="{Binding DenoiserLabel}" /></Grid>
+                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiSamplesLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiSamplesBox" Grid.Column="1" MenuDefaultValue="16" Value="{Binding GiSamples}" Minimum="1" Maximum="1024" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSamplesLabel}" /></Grid>
+                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiMaxRayDistanceLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiMaxRayDistanceBox" Grid.Column="1" MenuDefaultValue="1000" Value="{Binding GiMaxRayDistance}" Minimum="0.01" Maximum="1000000" Increment="10" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiMaxRayDistanceLabel}" /></Grid>
+                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiDirectScaleLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiDirectScaleBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiDirectScale}" Minimum="0" Maximum="4" Increment="0.1" FormatString="0.###" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiDirectScaleLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="4" SmallChange="0.1" LargeChange="0.5" Step="0.05" DefaultValue="1" Number="{Binding GiDirectScale, Mode=TwoWay}" IsEnabled="{Binding IsGiEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding GiDirectScaleLabel}" /></Grid>
+                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiRayEpsilonLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiRayEpsilonBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding GiRayEpsilon}" Minimum="0.0001" Maximum="100" Increment="0.001" FormatString="0.#####" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiRayEpsilonLabel}" /></Grid>
+                <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding GiSeedLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewGiSeedBox" Grid.Column="1" MenuDefaultValue="1" Value="{Binding GiSeed}" Minimum="0" Maximum="4294967295" Increment="1" FormatString="0" IsEnabled="{Binding IsGiEnabled}" AutomationProperties.Name="{Binding GiSeedLabel}" /></Grid>
               </StackPanel>
             </Expander>
-            <TextBlock Text="{Binding SceneAppearanceHint}" Classes="caption" />
-            <TextBlock Text="{Binding CapabilityHint}" Classes="caption" />
           </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-      <TabItem Header="{Binding DiffusionLabel}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="24,22,24,28" Spacing="16">
+
+          <!-- Category 4: Post & Diffusion -->
+          <StackPanel Name="CategoryPostPanel" Spacing="16" IsVisible="{Binding IsCategoryPostDiffusion}">
             <TextBlock Text="{Binding DiffusionLabel}" Classes="section" />
-            <CheckBox Name="PreviewDiffusionEnabledBox" Content="{Binding DiffusionEnabledLabel}" IsChecked="{Binding DiffusionEnabled}" />
-            <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionStrengthBox" Grid.Column="1" MenuDefaultValue="0.7" Value="{Binding DiffusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding DiffusionEnabled}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.7" Number="{Binding DiffusionStrength, Mode=TwoWay}" IsEnabled="{Binding DiffusionEnabled}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
+            <CheckBox Name="PreviewDiffusionEnabledBox" Content="{Binding DiffusionEnabledLabel}" IsChecked="{Binding DiffusionEnabled}" IsEnabled="{Binding IsModernEngine}" />
+            <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding StrengthLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionStrengthBox" Grid.Column="1" MenuDefaultValue="0.7" Value="{Binding DiffusionStrength}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.###" IsEnabled="{Binding IsDiffusionEditable}" AutomationProperties.Name="{Binding StrengthLabel}" /><validated:EditorValueSlider Grid.Column="2" Margin="12,0,0,0" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1" Step="0.01" DefaultValue="0.7" Number="{Binding DiffusionStrength, Mode=TwoWay}" IsEnabled="{Binding IsDiffusionEditable}" ToolTip.Tip="{DynamicResource Mda.Text.Slider.Hint}" AutomationProperties.Name="{Binding StrengthLabel}" /></Grid>
             <Expander Classes="outputAdvanced" Name="PreviewAdvancedDiffusion" Header="{Binding AdvancedDiffusionLabel}" IsExpanded="False">
-              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding ExtentLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionExtentBox" Grid.Column="1" Value="{Binding DiffusionExtent}" Minimum="0" Maximum="0.01" Increment="0.0005" FormatString="0.####" IsEnabled="{Binding DiffusionEnabled}" AutomationProperties.Name="{Binding ExtentLabel}" /></Grid>
+              <Grid ColumnDefinitions="188,140,*"><TextBlock Text="{Binding ExtentLabel}" Classes="label" /><validated:EditorNumericUpDown Name="PreviewDiffusionExtentBox" Grid.Column="1" MenuDefaultValue="0.002" Value="{Binding DiffusionExtent}" Minimum="0" Maximum="0.01" Increment="0.0005" FormatString="0.####" IsEnabled="{Binding IsDiffusionEditable}" AutomationProperties.Name="{Binding ExtentLabel}" /></Grid>
             </Expander>
             <TextBlock Text="{Binding DiffusionHint}" Classes="caption" />
           </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-    </TabControl>
-    <Border Grid.Row="1" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,1,0,0" Padding="24,12,24,16">
-      <StackPanel Spacing="12">
-        <TextBlock Name="PreviewValidationMessage" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" TextWrapping="Wrap" />
+
+          <!-- Category 5: Hardware & Diagnostics -->
+          <StackPanel Name="CategoryDiagnosticsPanel" Spacing="16" IsVisible="{Binding IsCategoryDiagnostics}">
+            <StackPanel Spacing="10">
+              <TextBlock Text="{Binding VramSectionLabel}" Classes="section" />
+              <CheckBox Name="PreviewAdaptiveVramSamplingBox" Content="{Binding AdaptiveVramSamplingLabel}" IsChecked="{Binding AdaptiveVramSampling}" IsEnabled="{Binding IsModernEngine}" />
+              <TextBlock Text="{Binding AdaptiveVramSamplingHint}" Classes="caption" />
+            </StackPanel>
+            <Separator />
+            <StackPanel Spacing="8">
+              <TextBlock Text="{Binding SupportLabel}" Classes="section" />
+              <TextBlock Text="{Binding CapabilityHint}" Classes="caption" />
+              <Button Name="RefreshCapabilitiesButton" Classes="action" Content="{Binding RefreshCapabilitiesLabel}"
+                      Click="RefreshCapabilities" IsVisible="{Binding CanRefreshCapabilities}"
+                      IsEnabled="{Binding CapabilitiesReady}" HorizontalAlignment="Left" />
+            </StackPanel>
+            <Expander Classes="outputAdvanced" Name="PreviewPerformanceExpander" Header="{Binding PerformanceDetailsLabel}" IsExpanded="False">
+              <StackPanel Spacing="6">
+                <TextBlock Name="PreviewPerformanceSummary" Text="{Binding PerformanceSummary}" Classes="caption" />
+                <TextBlock Text="{Binding PerformanceHint}" Classes="caption" />
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- Footer Action Bar -->
+    <Border Grid.Row="3" BorderBrush="{DynamicResource OutputBorder}" BorderThickness="0,1,0,0" Padding="24,12,24,16">
+      <StackPanel Spacing="8">
+        <TextBlock Name="PreviewValidationMessage" Text="{Binding ValidationMessage}" IsVisible="{Binding HasValidationMessage}" Classes="hintWarn" />
+        <TextBlock Name="PreviewStatusMessage" Text="{Binding StatusMessage}" IsVisible="{Binding HasStatusMessage}" Classes="caption" />
         <Grid ColumnDefinitions="*,Auto">
           <TextBlock Text="{Binding LocalHint}" Classes="caption" Margin="0,0,20,0" VerticalAlignment="Center" />
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Classes="quiet" Content="{Binding CancelLabel}" Click="CancelSettings" IsCancel="True" /><Button Name="ApplyPreviewSettingsButton" Classes="primary" Content="{Binding ApplyLabel}" Click="ApplySettings" IsDefault="True" /></StackPanel>
