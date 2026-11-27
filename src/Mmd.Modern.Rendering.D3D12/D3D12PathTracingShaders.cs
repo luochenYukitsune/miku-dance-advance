@@ -315,7 +315,10 @@ internal static class D3D12PathTracingShaders
         {
             uint lightCount = GiCounts.w;
             float3 result = 0.0;
-            if (PtLightColorEnv.w > 0.0) result += diffuseAlbedo * (PtLightColorEnv.w * (toonMode ? 1.0 : PT_INV_PI));
+            // Only primary ToonHybrid hits retain Forward's flat EnvironmentStrength fill;
+            // Physical mode and secondary bounces integrate environment illumination exclusively
+            // via occluded PtSkyRadiance when bounce rays escape to the sky.
+            if (toonMode && PtLightColorEnv.w > 0.0) result += diffuseAlbedo * PtLightColorEnv.w;
             if (lightCount == 0u) return result;
             uint receiverMask = 0xffffffffu;
             if ((PtConfig.w & 4u) != 0u)
@@ -410,7 +413,7 @@ internal static class D3D12PathTracingShaders
                 ray.Origin = nearWorld;
                 ray.Direction = rayLen > 1e-6 ? (rayVec / rayLen) : float3(0, 0, 1);
                 ray.TMin = 0.0;
-                ray.TMax = min(rayLen, PtLightDirDist.w);
+                ray.TMax = rayLen;
 
                 GiHit primaryHit;
                 if (!TraceClosest(ray, primaryHit)) {
@@ -664,15 +667,20 @@ internal static class D3D12PathTracingShaders
                 PtAccumulation[pixelIndex] = lerp(prev, frameMean, blend);
             }
 
-            PtGuidePosDepth[pixelIndex] = guidePosDepth;
-            PtGuideNormalMat[pixelIndex] = guideNormalMat;
-            PtGuideAlbedo[pixelIndex] = guideAlbedo;
+            // Preserve previous primary guides during progressive accumulation if jittered silhouette
+            // samples miss on frame k > 0, preventing depth/outline/denoiser flicker.
+            bool keepPreviousGuide = !hasGuide && !resetHistory && progressive && PtConfig.z > 0u;
+            if (!keepPreviousGuide) {
+                PtGuidePosDepth[pixelIndex] = guidePosDepth;
+                PtGuideNormalMat[pixelIndex] = guideNormalMat;
+                PtGuideAlbedo[pixelIndex] = guideAlbedo;
+            }
         }
         """;
 
     internal const string DenoiserSource = """
         cbuffer DenoiseConstants : register(b0) {
-            uint4 Dimensions; // x=width, y=height, z=accumulatedFrames, w=mode(1=Spatial,2=TemporalSpatial)
+            uint4 Dimensions; // x=width, y=height, z=accumulatedFrames, w=mode(1=Spatial,2=TemporalSpatial) | (4=straightAlpha)
             float4 Weights;   // x=spatialSigma, y=normalPower, z=depthThreshold, w=albedoSigma
         };
         StructuredBuffer<float4> InputColor : register(t0);
@@ -692,7 +700,9 @@ internal static class D3D12PathTracingShaders
             uint idx = thread.y * Dimensions.x + thread.x;
             float4 center = InputColor[idx];
             float4 nMat0 = GuideNormalMat[idx];
-            if (nMat0.w < 0.5 || !all(isfinite(center))) {
+            bool straightAlpha = (Dimensions.w & 4u) != 0u;
+            uint mode = Dimensions.w & 3u;
+            if (nMat0.w < 0.5 || !all(isfinite(center)) || (straightAlpha && center.a <= 1e-4)) {
                 OutputColor[idx] = center;
                 return;
             }
@@ -703,16 +713,17 @@ internal static class D3D12PathTracingShaders
             float mat0 = nMat0.w;
 
             // In TemporalSpatial mode, progressively relax spatial smoothing as accumulatedFrames converges.
-            float temporalRelax = Dimensions.w == 2u ? rsqrt(max((float)Dimensions.z, 1.0)) : 1.0;
+            float temporalRelax = mode == 2u ? rsqrt(max((float)Dimensions.z, 1.0)) : 1.0;
             float filterStrength = saturate(temporalRelax * Weights.x);
             if (filterStrength < 0.05) {
                 OutputColor[idx] = center;
                 return;
             }
 
-            float3 sumRgb = center.rgb;
+            float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;
+            float3 sumRgb = centerRgb;
             float sumWeight = 1.0;
-            float centerLum = dot(center.rgb, float3(0.2126, 0.7152, 0.0722));
+            float centerLum = dot(centerRgb, float3(0.2126, 0.7152, 0.0722));
 
             [loop] for (int dy = -2; dy <= 2; dy++) {
                 [loop] for (int dx = -2; dx <= 2; dx++) {
@@ -737,7 +748,9 @@ internal static class D3D12PathTracingShaders
 
                     float4 sampleCol = InputColor[qIdx];
                     if (!all(isfinite(sampleCol))) continue;
-                    float sLum = dot(sampleCol.rgb, float3(0.2126, 0.7152, 0.0722));
+                    if (abs(sampleCol.a - center.a) > 0.05 || (straightAlpha && sampleCol.a <= 1e-4)) continue;
+                    float3 sampleRgb = straightAlpha ? (sampleCol.rgb / sampleCol.a) : sampleCol.rgb;
+                    float sLum = dot(sampleRgb, float3(0.2126, 0.7152, 0.0722));
                     float lumDiff = abs(sLum - centerLum);
                     float wLum = exp(-lumDiff / max(0.35 + centerLum * 0.5, 0.1));
 
@@ -746,12 +759,13 @@ internal static class D3D12PathTracingShaders
                         * exp(-planeDist * planeDist / max(Weights.z * Weights.z * 0.25, 1e-6))
                         * wAlbedo * wLum * filterStrength;
                     if (w > 1e-5) {
-                        sumRgb += sampleCol.rgb * w;
+                        sumRgb += sampleRgb * w;
                         sumWeight += w;
                     }
                 }
             }
-            OutputColor[idx] = float4(sumRgb / sumWeight, center.a);
+            float3 filteredRgb = sumRgb / sumWeight;
+            OutputColor[idx] = float4(straightAlpha ? (filteredRgb * center.a) : filteredRgb, center.a);
         }
         """;
 

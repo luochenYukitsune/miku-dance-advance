@@ -320,6 +320,15 @@ public sealed class ClusteredLightingAndPathTracingMathTests
 
         var denoise = compiler.CompileCompute(D3D12PathTracingShaders.DenoiserSource, "CSDenoise", "cs_6_0");
         Assert.NotEmpty(denoise.Dxil);
+
+        // Verify shader contracts for distant primary rays, progressive guide preservation,
+        // straight-alpha unpremultiplied denoising, and Physical-mode environment gating.
+        string traceSrc = D3D12PathTracingShaders.TraceShaderSource(hardware: false, textureMorph: false, subTexture: false);
+        Assert.Contains("ray.TMax = rayLen;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("if (toonMode && PtLightColorEnv.w > 0.0)", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("bool keepPreviousGuide = !hasGuide && !resetHistory && progressive && PtConfig.z > 0u;", traceSrc, StringComparison.Ordinal);
+        Assert.Contains("float3 centerRgb = straightAlpha ? (center.rgb / center.a) : center.rgb;", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
+        Assert.Contains("straightAlpha ? (filteredRgb * center.a) : filteredRgb", D3D12PathTracingShaders.DenoiserSource, StringComparison.Ordinal);
     }
 
     [Fact]

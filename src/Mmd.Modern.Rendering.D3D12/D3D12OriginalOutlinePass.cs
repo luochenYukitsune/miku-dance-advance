@@ -9,7 +9,16 @@ namespace Mmd.Modern.Rendering.D3D12;
 
 public sealed partial class D3D12OriginalStyleRenderer
 {
-    private readonly Dictionary<(Format Depth, bool FrontCounterClockwise),OutlinePipeline> outlinePipelines=[];
+    private readonly record struct OutlinePipelineKey(
+        Format Depth,
+        Format SurfaceFormat,
+        OriginalAlphaBlendMode Blend,
+        FrameAlphaOutput AlphaOutput,
+        bool WriteDepth,
+        bool Stencil,
+        bool Simple,
+        bool FrontCounterClockwise);
+    private readonly Dictionary<OutlinePipelineKey,OutlinePipeline> outlinePipelines=[];
 
     public RenderedFrame Render(OriginalFrameScene frame,int width,int height)
     {
@@ -101,7 +110,14 @@ public sealed partial class D3D12OriginalStyleRenderer
     private OutlinePipeline GetOutlinePipeline(Format depthFormat, OriginalFrameScene frame)
     {
         using var pipelineCpu=MeasureSceneCpu(SceneCpuStage.Pipelines);
-        var key=(Depth:depthFormat,FrontCounterClockwise:D3D12RasterWinding.FrontCounterClockwise(frame));
+        var o=frame.Options;
+        bool simple=o is null;
+        var alphaOutput=o?.AlphaOutput??FrameAlphaOutput.LegacyMax;
+        var blendMode=o?.BlendMode??OriginalAlphaBlendMode.Normal;
+        var surfaceFormat=alphaOutput==FrameAlphaOutput.Straight?Format.R16G16B16A16_Float:Format.R8G8B8A8_UNorm;
+        bool writeDepth=o?.WriteDepth??true;
+        bool stencil=o?.GroundShadow?.UseStencil==true;
+        var key=new OutlinePipelineKey(depthFormat,surfaceFormat,blendMode,alphaOutput,writeDepth,stencil,simple,D3D12RasterWinding.FrontCounterClockwise(frame));
         if(outlinePipelines.TryGetValue(key,out var cached))return cached;
         RootParameter[] parameters=[new(RootParameterType.ConstantBufferView,new RootDescriptor(0,0),ShaderVisibility.All)];
         var root=runtime.CreateRootSignature(new RootSignatureDescription(RootSignatureFlags.AllowInputAssemblerInputLayout,parameters),RootSignatureVersion.Version10);
@@ -113,14 +129,20 @@ public sealed partial class D3D12OriginalStyleRenderer
             raster.FrontCounterClockwise=key.FrontCounterClockwise; raster.CullMode=CullMode.Front;
             var depth=DepthStencilDescription.Default;
             depth.DepthFunc=ComparisonFunction.LessEqual;
-            // Current opaque slice writes depth. Original complete-frame inherited depth/blend states remain separate evidence.
-            depth.DepthWriteMask=DepthWriteMask.All;
+            depth.DepthWriteMask=key.WriteDepth?DepthWriteMask.All:DepthWriteMask.Zero;
+            if(key.Stencil)
+            {
+                depth.StencilEnable=true; depth.StencilReadMask=255; depth.StencilWriteMask=255;
+                depth.FrontFace.StencilFunc=ComparisonFunction.Always; depth.FrontFace.StencilPassOp=StencilOperation.Replace;
+                depth.BackFace=depth.FrontFace;
+            }
+            var blend=key.Simple?BlendDescription.Opaque:FrameBlend(key.Blend,key.AlphaOutput);
             var description=new GraphicsPipelineStateDescription {
                 RootSignature=root,VertexShader=shader.Vertex,PixelShader=shader.Pixel,
                 InputLayout=new InputLayoutDescription([new InputElementDescription("POSITION",0,Format.R32G32B32_Float,0,0),
                     new("TEXCOORD",2,Format.R32G32B32A32_Float,0,1)]),
-                BlendState=BlendDescription.Opaque,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=depth,
-                PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[Format.R8G8B8A8_UNorm],DepthStencilFormat=depthFormat,
+                BlendState=blend,SampleMask=uint.MaxValue,RasterizerState=raster,DepthStencilState=depth,
+                PrimitiveTopologyType=PrimitiveTopologyType.Triangle,RenderTargetFormats=[key.SurfaceFormat],DepthStencilFormat=depthFormat,
                 SampleDescription=new SampleDescription(1,0),IndexBufferStripCutValue=IndexBufferStripCutValue.Disabled };
             state=runtime.CreateGraphicsPipelineState(description);
             var result=new OutlinePipeline(root,state);outlinePipelines.Add(key,result);return result;

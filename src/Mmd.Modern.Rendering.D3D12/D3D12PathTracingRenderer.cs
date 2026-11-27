@@ -398,11 +398,12 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
                 | (hasPrimaryLight ? 32u : 0u);
 
             uint frameSeed = unchecked((uint)previousAccumulated * 0x9e3779b9u ^ 0x517cc1b7u);
+            float maxRayDistance = MathF.Max(1000f, camera.Far);
             var constants = new PtConstantsGpu(
                 Dispatch: new((uint)width, (uint)height, (uint)effectiveSpp, frameSeed),
                 Counts: new((uint)ptScene.TriangleCount, (uint)ptScene.Materials.Length, (uint)nodes.Length, (uint)nativeLights.Values.Length),
                 Config: new((uint)options.MaxBounces, (uint)options.ShadingMode, (uint)previousAccumulated, flags),
-                LightDirDist: new(lightDir, 1000f),
+                LightDirDist: new(lightDir, maxRayDistance),
                 LightColorEnv: new(primaryColor, nativeLights.EnvironmentStrength),
                 Tuning: new(0.002f, options.FireflyClamp, 0.026f, options.MaxAccumulatedFrames),
                 Background: background,
@@ -467,8 +468,10 @@ internal sealed class D3D12PathTracingRenderer(D3D12GpuRuntime runtime, D3D12Gpu
             TransitionBuffer(cmds, buffers.GuideAlbedo, ref buffers.GuideAlbedoState, ResourceStates.NonPixelShaderResource);
             TransitionBuffer(cmds, buffers.Denoised, ref buffers.DenoisedState, ResourceStates.UnorderedAccess);
 
+            uint denoiseModeFlags = (options.Denoiser == RayGiDenoiser.TemporalSpatial ? 2u : 1u)
+                | (straightAlpha ? 4u : 0u);
             var denoiseCb = new DenoiseConstantsGpu(
-                new((uint)width, (uint)height, (uint)nextAccumulated, options.Denoiser == RayGiDenoiser.TemporalSpatial ? 2u : 1u),
+                new((uint)width, (uint)height, (uint)nextAccumulated, denoiseModeFlags),
                 new(1.0f, 32.0f, 0.25f, 0.08f));
             cmds.SetComputeRootSignature(denoisePipe.Root);
             cmds.SetPipelineState(denoisePipe.State);

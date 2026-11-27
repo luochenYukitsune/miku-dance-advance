@@ -270,6 +270,303 @@ public sealed class D3D12ClusteredAndPathTracingGpuTests
         }
     }
 
+    [Fact]
+    public void PathTracingToonHybridWithStraightAlphaAndCharacterOutlineRendersCleanly()
+    {
+        using var renderer = new D3D12FrameRenderer();
+        var caps = renderer.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            return;
+
+        var vertices = new List<SceneVertex>();
+        var outlineVertices = new List<OriginalOutlineVertex>();
+        var indices = new List<uint>();
+
+        static void AddBox(
+            List<SceneVertex> verts,
+            List<OriginalOutlineVertex> outVerts,
+            List<uint> idx,
+            Vector3 min,
+            Vector3 max,
+            int materialIndex)
+        {
+            void AddFace(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal)
+            {
+                uint b = (uint)verts.Count;
+                Vector3[] pts = [p0, p1, p2, p3];
+                Vector2[] uvs = [new(0, 1), new(1, 1), new(1, 0), new(0, 0)];
+                for (int i = 0; i < 4; i++)
+                {
+                    verts.Add(new SceneVertex(pts[i], normal, uvs[i]));
+                    outVerts.Add(new OriginalOutlineVertex(pts[i], normal, OriginalOutlineVertexMode.Expand, 1f, materialIndex));
+                }
+                idx.AddRange([b, b + 1, b + 2, b, b + 2, b + 3]);
+            }
+
+            AddFace(new(min.X, min.Y, min.Z), new(max.X, min.Y, min.Z), new(max.X, max.Y, min.Z), new(min.X, max.Y, min.Z), -Vector3.UnitZ);
+            AddFace(new(max.X, min.Y, max.Z), new(min.X, min.Y, max.Z), new(min.X, max.Y, max.Z), new(max.X, max.Y, max.Z), Vector3.UnitZ);
+            AddFace(new(min.X, min.Y, max.Z), new(min.X, min.Y, min.Z), new(min.X, max.Y, min.Z), new(min.X, max.Y, max.Z), -Vector3.UnitX);
+            AddFace(new(max.X, min.Y, min.Z), new(max.X, min.Y, max.Z), new(max.X, max.Y, max.Z), new(max.X, max.Y, min.Z), Vector3.UnitX);
+            AddFace(new(min.X, max.Y, min.Z), new(max.X, max.Y, min.Z), new(max.X, max.Y, max.Z), new(min.X, max.Y, max.Z), Vector3.UnitY);
+            AddFace(new(min.X, min.Y, max.Z), new(max.X, min.Y, max.Z), new(max.X, min.Y, min.Z), new(min.X, min.Y, min.Z), -Vector3.UnitY);
+        }
+
+        // Material 0 (left box): original outline pass; Material 1 (right box): modern character outline pass.
+        AddBox(vertices, outlineVertices, indices, new(-1.4f, -0.8f, 1.5f), new(-0.15f, 0.8f, 2.5f), 0);
+        int mat0IndexCount = indices.Count;
+        AddBox(vertices, outlineVertices, indices, new(0.15f, -0.8f, 1.5f), new(1.4f, 0.8f, 2.5f), 1);
+        int mat1IndexCount = indices.Count - mat0IndexCount;
+
+        SceneMaterial[] materials =
+        [
+            new("orig-outline-box", 0, mat0IndexCount, new Vector4(0.85f, 0.82f, 0.78f, 1f),
+                new Vector3(0.2f, 0.2f, 0.2f), new Vector3(0.3f, 0.3f, 0.3f), 8f),
+            new("char-outline-box", mat0IndexCount, mat1IndexCount, new Vector4(0.78f, 0.85f, 0.92f, 1f),
+                new Vector3(0.2f, 0.2f, 0.2f), new Vector3(0.3f, 0.3f, 0.3f), 8f),
+        ];
+        OriginalStyleMaterialBinding[] bindings =
+        [
+            new(ToonShadowColor: new Vector3(0.4f, 0.4f, 0.45f), DoubleSided: true),
+            new(ToonShadowColor: new Vector3(0.38f, 0.42f, 0.48f), DoubleSided: true),
+        ];
+        OriginalFrameMaterialFlags[] flags =
+        [
+            new(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false) { OutlineWidthScale = 1f },
+            new(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false)
+            {
+                OutlineWidthScale = 1f,
+                CharacterOutlineStyle = new CharacterOutlineStyle(Width: 0.35f, Color: new Vector4(0.1f, 0.2f, 0.85f, 1f), Enabled: true),
+            },
+        ];
+        OriginalOutlineMaterial[] outlineMaterials =
+        [
+            new(Width: 1.2f, Color: new Vector4(0.08f, 0.06f, 0.1f, 1f), DrawEnabled: true),
+            new(Width: 1.2f, Color: new Vector4(0.08f, 0.06f, 0.1f, 1f), DrawEnabled: true),
+        ];
+
+        var camera = new SceneCamera(
+            Eye: new Vector3(0f, 0f, -6.5f),
+            Target: new Vector3(0f, 0f, 2f),
+            Up: Vector3.UnitY,
+            OrthographicHeight: 7f,
+            Near: 0.1f,
+            Far: 50f,
+            VerticalFovDegrees: 50f);
+        var snapshot = new SceneSnapshot(vertices.ToArray(), indices.ToArray(), materials,
+            camera: camera, lightDirection: Vector3.Normalize(new Vector3(0.2f, 0.6f, -0.8f)));
+        var style = new OriginalStyleScene(snapshot, bindings, OriginalStyleProfile.SelectedReference);
+        var outline = new OriginalOutlineData(outlineVertices, outlineMaterials);
+        var outlineOptions = new OriginalOutlineOptions(
+            ReferencePoint: new Vector4(0f, 0f, 2f, 1f),
+            DistanceTransform: Matrix4x4.Identity,
+            CameraPosition: camera.Eye,
+            FovDegrees: 50f,
+            ModelWidth: 1f,
+            Eligible: true);
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: PathTracingShadingMode.ToonHybrid,
+            SamplesPerFrame: 2,
+            MaxBounces: 2,
+            ProgressiveAccumulation: true,
+            MaxAccumulatedFrames: 8,
+            FireflyClamp: 10f,
+            Denoiser: RayGiDenoiser.TemporalSpatial,
+            UseHardwareRayTracing: false);
+        var options = new OriginalFrameOptions(
+            OriginalAlphaBlendMode.Normal,
+            WriteDepth: true,
+            Transp: false,
+            BackgroundColor: new Vector4(0f, 0f, 0f, 0f),
+            AlphaOutput: FrameAlphaOutput.Straight,
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: ptOptions);
+        var frame = new OriginalFrameScene(style, outline, outlineOptions, options, flags);
+
+        var img1 = renderer.Render(frame, 96, 72);
+        Assert.True(renderer.PathTracingStatistics!.Active);
+        Assert.Equal(1, renderer.PathTracingStatistics.AccumulatedFrames);
+        Assert.True(renderer.LastSceneDrawCalls >= 2, $"Expected both original & character outline draws, got {renderer.LastSceneDrawCalls}");
+
+        var img2 = renderer.Render(frame, 96, 72);
+        Assert.Equal(2, renderer.PathTracingStatistics!.AccumulatedFrames);
+
+        // Background corner remains clean transparent zero (no premultiplied bleed or alpha corruption).
+        int corner = (2 * 96 + 2) * 4;
+        Assert.Equal(0, img2.Rgba[corner + 3]);
+        Assert.Equal(0, img2.Rgba[corner]);
+        Assert.Equal(0, img2.Rgba[corner + 1]);
+        Assert.Equal(0, img2.Rgba[corner + 2]);
+
+        // Both boxes are opaque and lit; frame 1 and frame 2 both stay valid.
+        int leftBox = (36 * 96 + 38) * 4;
+        int rightBox = (36 * 96 + 58) * 4;
+        Assert.True(img1.Rgba[leftBox + 3] >= 250 && img2.Rgba[leftBox + 3] >= 250);
+        Assert.True(img1.Rgba[rightBox + 3] >= 250 && img2.Rgba[rightBox + 3] >= 250);
+        Assert.True(img2.Rgba[leftBox] + img2.Rgba[leftBox + 1] + img2.Rgba[leftBox + 2] > 40);
+        Assert.True(img2.Rgba[rightBox] + img2.Rgba[rightBox + 1] + img2.Rgba[rightBox + 2] > 40);
+    }
+
+    [Theory]
+    [InlineData(PathTracingShadingMode.ToonHybrid)]
+    [InlineData(PathTracingShadingMode.Physical)]
+    public void PathTracingRendersDistantGeometryBeyondThousandUnits(PathTracingShadingMode shadingMode)
+    {
+        using var session = new D3D12FrameSession();
+        var caps = session.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            return;
+
+        const float dist = 2500f;
+        const float half = 1500f;
+        SceneVertex[] vertices =
+        [
+            new(new(-half, -half, dist), -Vector3.UnitZ, new(0, 1)),
+            new(new(half, -half, dist), -Vector3.UnitZ, new(1, 1)),
+            new(new(half, half, dist), -Vector3.UnitZ, new(1, 0)),
+            new(new(-half, half, dist), -Vector3.UnitZ, new(0, 0)),
+        ];
+        uint[] indices = [0u, 1u, 2u, 0u, 2u, 3u];
+        SceneMaterial[] materials =
+        [
+            new("distant-quad", 0, 6, new Vector4(0.95f, 0.9f, 0.85f, 1f),
+                new Vector3(0.3f, 0.3f, 0.3f), new Vector3(0.2f, 0.2f, 0.2f), 8f),
+        ];
+        OriginalStyleMaterialBinding[] bindings =
+        [
+            new(ToonShadowColor: new Vector3(0.45f, 0.45f, 0.45f), DoubleSided: true),
+        ];
+        OriginalFrameMaterialFlags[] flags =
+        [
+            new(CastSelfShadow: false, ReceiveSelfShadow: false, CastGroundShadow: false),
+        ];
+        var camera = new SceneCamera(
+            Eye: Vector3.Zero,
+            Target: new Vector3(0f, 0f, dist),
+            Up: Vector3.UnitY,
+            OrthographicHeight: 2000f,
+            Near: 0.5f,
+            Far: 10000f,
+            VerticalFovDegrees: 50f);
+        var snapshot = new SceneSnapshot(vertices, indices, materials,
+            camera: camera, lightDirection: Vector3.Normalize(new Vector3(0f, 0.2f, -1f)));
+        var style = new OriginalStyleScene(snapshot, bindings, OriginalStyleProfile.SelectedReference);
+        var ptOptions = new PathTracingOptions(
+            ShadingMode: shadingMode,
+            SamplesPerFrame: 2,
+            MaxBounces: 2,
+            ProgressiveAccumulation: false,
+            FireflyClamp: 10f,
+            Denoiser: RayGiDenoiser.Off,
+            UseHardwareRayTracing: false);
+        var options = new OriginalFrameOptions(
+            OriginalAlphaBlendMode.Normal,
+            WriteDepth: true,
+            Transp: false,
+            BackgroundColor: new Vector4(0f, 0f, 0f, 1f),
+            PipelineMode: RenderPipelineMode.PathTracing,
+            PathTracing: ptOptions);
+        var frame = new OriginalFrameScene(style, options: options, materials: flags);
+
+        var img = session.Capture(frame, 64, 48);
+        int center = (24 * 64 + 32) * 4;
+        Assert.True(img.Rgba[center] > 60 && img.Rgba[center + 1] > 60 && img.Rgba[center + 2] > 60,
+            $"Expected distant geometry at z={dist} to be hit rather than clipped at 1000 (RGBA={img.Rgba[center]},{img.Rgba[center + 1]},{img.Rgba[center + 2]},{img.Rgba[center + 3]}).");
+    }
+
+    [Fact]
+    public void PathTracingPhysicalEnclosedBoxDoesNotLeakEnvironmentStrength()
+    {
+        using var session = new D3D12FrameSession();
+        var caps = session.QueryRayGiCapabilities();
+        if (!caps.Compute || caps.ShaderModel < 60 || !caps.CompilerAvailable)
+            return;
+
+        static OriginalFrameScene BuildRoomScene(bool enclosed)
+        {
+            var verts = new List<SceneVertex>();
+            var idx = new List<uint>();
+            void AddWall(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Vector3 normal)
+            {
+                uint b = (uint)verts.Count;
+                verts.AddRange([
+                    new(p0, normal, new(0, 1)),
+                    new(p1, normal, new(1, 1)),
+                    new(p2, normal, new(1, 0)),
+                    new(p3, normal, new(0, 0)),
+                ]);
+                idx.AddRange([b, b + 1, b + 2, b, b + 2, b + 3]);
+            }
+
+            const float s = 4f;
+            // Front wall facing the camera at z = +s (inward normal = -Z)
+            AddWall(new(-s, -s, s), new(s, -s, s), new(s, s, s), new(-s, s, s), -Vector3.UnitZ);
+            if (enclosed)
+            {
+                // Back, left, right, floor, ceiling completely enclosing the camera at (0, 0, -1.5)
+                AddWall(new(s, -s, -s), new(-s, -s, -s), new(-s, s, -s), new(s, s, -s), Vector3.UnitZ);
+                AddWall(new(-s, -s, -s), new(-s, -s, s), new(-s, s, s), new(-s, s, -s), Vector3.UnitX);
+                AddWall(new(s, -s, s), new(s, -s, -s), new(s, s, -s), new(s, s, s), -Vector3.UnitX);
+                AddWall(new(-s, -s, -s), new(s, -s, -s), new(s, -s, s), new(-s, -s, s), Vector3.UnitY);
+                AddWall(new(-s, s, s), new(s, s, s), new(s, s, -s), new(-s, s, -s), -Vector3.UnitY);
+            }
+
+            SceneMaterial[] materials =
+            [
+                new("room-wall", 0, idx.Count, new Vector4(0.9f, 0.9f, 0.9f, 1f),
+                    Vector3.Zero, Vector3.Zero, 4f),
+            ];
+            OriginalStyleMaterialBinding[] bindings =
+            [
+                new(ToonShadowColor: Vector3.Zero, DoubleSided: true),
+            ];
+            OriginalFrameMaterialFlags[] flags =
+            [
+                new(CastSelfShadow: true, ReceiveSelfShadow: true, CastGroundShadow: false),
+            ];
+            var camera = new SceneCamera(
+                Eye: new Vector3(0f, 0f, -1.5f),
+                Target: new Vector3(0f, 0f, s),
+                Up: Vector3.UnitY,
+                OrthographicHeight: 6f,
+                Near: 0.1f,
+                Far: 50f,
+                VerticalFovDegrees: 50f);
+            // Primary light comes from behind the front wall (+Z) so open single-wall NEE sun is 0,
+            // isolating occluded sky bounces vs unoccluded environment leak.
+            var snapshot = new SceneSnapshot(verts.ToArray(), idx.ToArray(), materials,
+                camera: camera, lightDirection: Vector3.UnitZ);
+            var style = new OriginalStyleScene(snapshot, bindings, OriginalStyleProfile.SelectedReference);
+            var ptOptions = new PathTracingOptions(
+                ShadingMode: PathTracingShadingMode.Physical,
+                SamplesPerFrame: 4,
+                MaxBounces: 4,
+                ProgressiveAccumulation: false,
+                FireflyClamp: 10f,
+                Denoiser: RayGiDenoiser.Off,
+                UseHardwareRayTracing: false);
+            var options = new OriginalFrameOptions(
+                OriginalAlphaBlendMode.Normal,
+                WriteDepth: true,
+                Transp: false,
+                BackgroundColor: new Vector4(0f, 0f, 0f, 1f),
+                PipelineMode: RenderPipelineMode.PathTracing,
+                PathTracing: ptOptions);
+            var lighting = new SceneLightingSnapshot([], settings: new SceneLightingSettings(EnvironmentStrength: 2.0f));
+            return new OriginalFrameScene(style, options: options, materials: flags, lighting: lighting);
+        }
+
+        var closedImg = session.Capture(BuildRoomScene(enclosed: true), 64, 48);
+        int maxClosedChannel = 0;
+        for (int i = 0; i < closedImg.Rgba.Length; i += 4)
+            maxClosedChannel = Math.Max(maxClosedChannel, Math.Max(closedImg.Rgba[i], Math.Max(closedImg.Rgba[i + 1], closedImg.Rgba[i + 2])));
+        Assert.True(maxClosedChannel <= 1, $"Enclosed physical room must not leak EnvironmentStrength; max RGB channel was {maxClosedChannel}.");
+
+        var openImg = session.Capture(BuildRoomScene(enclosed: false), 64, 48);
+        int center = (24 * 64 + 32) * 4;
+        int openLuma = openImg.Rgba[center] + openImg.Rgba[center + 1] + openImg.Rgba[center + 2];
+        Assert.True(openLuma > 30, $"Open physical wall should still receive occluded sky bounce from EnvironmentStrength; center luma was {openLuma}.");
+    }
+
     private static OriginalFrameScene CreateLitBoxScene(bool withOccluder = false, bool orthographic = false)
     {
         static SceneVertex[] Quad(float z, float half, Vector3 normal) =>

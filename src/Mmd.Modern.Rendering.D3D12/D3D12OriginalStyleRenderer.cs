@@ -184,8 +184,15 @@ public sealed partial class D3D12OriginalStyleRenderer : IDisposable
     {
         ObjectDisposedException.ThrowIf(disposed,this);
         if(frame.Outline is null||frame.OutlineOptions is not {Eligible:true,ModelWidth:>0})return 0;
+        var scene=frame.Surface.Snapshot;
+        int whiteSlot=slotBase+scene.Textures.Count+2;
+        int realSlot=whiteSlot+1;
+        var whiteShadow=D3D12ShadowTargets.White(context,cache);
+        device.CreateShaderResourceView(whiteShadow,null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(whiteSlot,srvStride));
+        device.CreateShaderResourceView(whiteShadow,null,srvHeap.GetCPUDescriptorHandleForHeapStart().Offset(realSlot,srvStride));
         var commands=context.Commands;
         commands.OMSetRenderTargets(color.Handle,depth.Handle);
+        commands.OMSetStencilRef(1);
         commands.RSSetViewport(0,0,color.Width,color.Height,0,1);
         commands.RSSetScissorRect(new RawRect(0,0,color.Width,color.Height));
         commands.SetDescriptorHeaps(srvHeap);
