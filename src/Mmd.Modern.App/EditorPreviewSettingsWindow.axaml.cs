@@ -108,6 +108,19 @@ public partial class EditorPreviewSettingsWindow : Window
         await EnsureCapabilitiesAsync(forceRefresh: true);
     }
 
+    private void ApplyPerformancePreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Performance);
+    private void ApplyBalancedPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.Balanced);
+    private void ApplyHighPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.High);
+    private void ApplyUltraRayTracedPreset(object? sender, RoutedEventArgs args) => ViewModel.ApplyBuiltInPreset(BuiltInPreviewPresetKind.UltraRayTraced);
+
+    private void SaveNewCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.SaveNewCustomPreset();
+    private void OverwriteCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.OverwriteSelectedCustomPreset();
+    private void RenameCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.RenameSelectedCustomPreset();
+    private void DeleteCustomPresetClick(object? sender, RoutedEventArgs args) => ViewModel.DeleteSelectedCustomPreset();
+
+    private void CopyToExportClick(object? sender, RoutedEventArgs args) => ViewModel.CopyToExport();
+    private void LoadFromExportClick(object? sender, RoutedEventArgs args) => ViewModel.LoadFromExport();
+
     private async void ApplySettings(object? sender, RoutedEventArgs args)
     {
         if (this.GetVisualDescendants().OfType<Control>().Any(control =>

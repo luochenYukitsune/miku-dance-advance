@@ -34,6 +34,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     private D3D12RayGiRenderer? rayGiRenderer;
     private D3D12SmaaPass? smaaPass;
     private D3D12Fsr1Pass? fsr1Pass;
+    private D3D12RenderScalePass? renderScalePass;
     private D3D12DiffusionPass? diffusionPass;
     private D3D12ExposurePass? exposurePass;
     private D3D12SpatialAccumulationPass? spatialPass;
@@ -184,9 +185,14 @@ public sealed class D3D12FrameRenderer : IDisposable
             ? new D3D12SpatialUpscalingDimensions(width,height,width,height) : temporalUpscaling.GetDimensions(width,height);
         bool temporal=temporalUpscaling.Mode!=D3D12TemporalUpscalingMode.Off;
         bool straightAlpha=frame.Options?.AlphaOutput==FrameAlphaOutput.Straight;
-        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode);
+        float renderScale=frame.Options?.RenderScale??1f;
+        ValidateOutputModes(frame, capture, upscaling.Mode, temporalUpscaling.Mode, renderScale);
         if (temporal) dimensions = temporalDimensions;
         bool upscale=upscaling.Mode==D3D12SpatialUpscalingMode.Fsr1;
+        bool useRenderScale=!upscale&&!temporal&&renderScale!=1f;
+        if(useRenderScale)
+            dimensions=new(Math.Clamp((int)MathF.Round(width*renderScale),1,4096),
+                Math.Clamp((int)MathF.Round(height*renderScale),1,4096),width,height);
         int displayWidth=width,displayHeight=height;
         width=dimensions.RenderWidth;height=dimensions.RenderHeight;
         int spatialSamples=frame.Options?.SpatialSamples??1;
@@ -576,6 +582,13 @@ public sealed class D3D12FrameRenderer : IDisposable
                 targetRecorder.Add(output);
                 upscalingDrawCalls=2;
             }
+            if(useRenderScale&&(output.Width!=displayWidth||output.Height!=displayHeight))
+            {
+                output=(renderScalePass??=new(runtime,cache)).Record(context,output,displayWidth,displayHeight);
+                Recorded("render-scale",output,defaultDepth);
+                targetRecorder.Add(output);
+                upscalingDrawCalls=1;
+            }
             if(diffusionActive)
             {
                 var filtered=(diffusionPass??=new(runtime,cache)).Record(context,output,diffusion!);
@@ -697,8 +710,12 @@ public sealed class D3D12FrameRenderer : IDisposable
     }
 
     private static void ValidateOutputModes(OriginalFrameScene frame, bool capture,
-        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode)
+        D3D12SpatialUpscalingMode spatialMode, D3D12TemporalUpscalingMode temporalMode, float renderScale = 1f)
     {
+        if (!float.IsFinite(renderScale) || renderScale is < 0.5f or > 1.5f)
+            throw new ArgumentOutOfRangeException(nameof(renderScale), "Render scale must be finite and between 0.5 and 1.5.");
+        if (renderScale != 1f && (spatialMode != D3D12SpatialUpscalingMode.Off || temporalMode != D3D12TemporalUpscalingMode.Off || (frame.Options?.SpatialSamples ?? 1) > 1))
+            throw new NotSupportedException("Render scale requires spatial upscaling, temporal reconstruction and spatial supersampling (>1x) to be disabled.");
         if (frame.Options?.AlphaOutput == FrameAlphaOutput.Straight)
         {
             D3D12AlphaResolvePass.ValidateCoverage(frame);

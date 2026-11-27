@@ -95,6 +95,8 @@ public sealed record EditorPreferences
     [JsonIgnore]
     public static string DefaultOutputPath => Path.Combine(DirectoryPath, "editor-output.json");
     [JsonIgnore]
+    public static string DefaultPreviewPresetsPath => Path.Combine(DirectoryPath, "editor-preview-presets.json");
+    [JsonIgnore]
     public static string DefaultRecoveryDirectory => EditorUserDataPaths.Current.RecoveryDirectory;
 
     /// <summary>Editor-only first-run preset. Backend goldens, project settings and exports retain their own defaults.</summary>
@@ -117,6 +119,111 @@ public sealed record EditorPreferences
         var preset = new ViewOutputPresetDefinition("local.editor-preview", "Editor preview",
             new ViewRenderRequest(1280, 720, quality), new(1920, 1080, new(30, 1)));
         WriteAtomic(path ?? Path.Combine(DirectoryPath, "editor-preview.json"), ViewOutputPresetJson.Serialize(preset));
+    }
+
+    public static IReadOnlyList<EditorPreviewCustomPreset> LoadCustomPreviewPresets(out string? diagnostic, string? path = null)
+    {
+        diagnostic = null;
+        try
+        {
+            byte[]? bytes = ReadBounded(path ?? DefaultPreviewPresetsPath);
+            if (bytes is null) return [];
+            var snapshot = JsonSerializer.Deserialize<LocalCustomPreviewPresetsSnapshot>(bytes, JsonOptions)
+                ?? throw new InvalidDataException(EditorLocalization.Text("设置文件内容为空。"));
+            if (snapshot.SchemaVersion != CurrentSchemaVersion)
+                throw new NotSupportedException(EditorLocalization.Text("编辑器设置版本不受支持。"));
+            var result = new List<EditorPreviewCustomPreset>(snapshot.Presets.Count);
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var entry in snapshot.Presets)
+            {
+                if (entry is null || string.IsNullOrWhiteSpace(entry.Id) || string.IsNullOrWhiteSpace(entry.Name))
+                    throw new InvalidDataException(EditorLocalization.Text("自定义预设数据无效。"));
+                var decoded = DecodePreset(entry.PresetJson);
+                var quality = decoded.Preview.EffectiveQuality;
+                quality.Validate();
+                if (!seenIds.Add(entry.Id))
+                    throw new InvalidDataException(EditorLocalization.Text("自定义预设标识重复。"));
+                result.Add(new(entry.Id, ValidateCustomPresetName(entry.Name), quality));
+            }
+            return result;
+        }
+        catch (Exception error) when (IsStorageFailure(error))
+        {
+            diagnostic = EditorLocalization.Text("无法读取自定义画质预设，已使用空列表；原文件未改动。") + error.Message;
+            return [];
+        }
+    }
+
+    public static void SaveCustomPreviewPresets(IEnumerable<EditorPreviewCustomPreset> presets, string? path = null)
+    {
+        ArgumentNullException.ThrowIfNull(presets);
+        var entries = new List<LocalCustomPreviewPresetEntry>();
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var preset in presets)
+        {
+            ArgumentNullException.ThrowIfNull(preset);
+            preset.Quality.Validate();
+            string name = ValidateCustomPresetName(preset.Name);
+            string id = string.IsNullOrWhiteSpace(preset.Id) ? "custom-" + Guid.NewGuid().ToString("N") : preset.Id.Trim();
+            if (!seenIds.Add(id))
+                throw new ArgumentException(EditorLocalization.Text("自定义预设标识重复。"), nameof(presets));
+            var definition = new ViewOutputPresetDefinition(id, name,
+                new ViewRenderRequest(1280, 720, preset.Quality), new(1920, 1080, new(30, 1)));
+            entries.Add(new(id, name, EncodePreset(definition)));
+            if (entries.Count > 128)
+                throw new ArgumentException(EditorLocalization.Text("自定义预设数量已达上限（128）。"), nameof(presets));
+        }
+        var snapshot = new LocalCustomPreviewPresetsSnapshot(CurrentSchemaVersion, entries);
+        WriteAtomic(path ?? DefaultPreviewPresetsPath, JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions));
+    }
+
+    public static EditorPreviewCustomPreset SaveCustomPreviewPreset(string name, ViewQualityOptions quality,
+        string? existingId = null, string? path = null)
+    {
+        quality.Validate();
+        string validatedName = ValidateCustomPresetName(name);
+        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        string id = string.IsNullOrWhiteSpace(existingId) ? "custom-" + Guid.NewGuid().ToString("N") : existingId.Trim();
+        var updated = new EditorPreviewCustomPreset(id, validatedName, quality);
+        int index = current.FindIndex(item => StringComparer.Ordinal.Equals(item.Id, id));
+        if (index >= 0) current[index] = updated;
+        else current.Add(updated);
+        SaveCustomPreviewPresets(current, path);
+        return updated;
+    }
+
+    public static IReadOnlyList<EditorPreviewCustomPreset> RenameCustomPreviewPreset(string id, string newName, string? path = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException(EditorLocalization.Text("请选择要重命名的自定义预设。"), nameof(id));
+        string validatedName = ValidateCustomPresetName(newName);
+        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        int index = current.FindIndex(item => StringComparer.Ordinal.Equals(item.Id, id));
+        if (index < 0)
+            throw new KeyNotFoundException(EditorLocalization.Text("找不到指定的自定义预设。"));
+        current[index] = current[index] with { Name = validatedName };
+        SaveCustomPreviewPresets(current, path);
+        return current;
+    }
+
+    public static IReadOnlyList<EditorPreviewCustomPreset> DeleteCustomPreviewPreset(string id, string? path = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException(EditorLocalization.Text("请选择要删除的自定义预设。"), nameof(id));
+        var current = LoadCustomPreviewPresets(out _, path).ToList();
+        current.RemoveAll(item => StringComparer.Ordinal.Equals(item.Id, id));
+        SaveCustomPreviewPresets(current, path);
+        return current;
+    }
+
+    internal static string ValidateCustomPresetName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw EditorLocalization.Error("Mda.Text.Preview.PresetNameEmpty");
+        string trimmed = name.Trim();
+        if (trimmed.Length > ViewOutputPresetDefinition.MaxNameLength || trimmed.Any(char.IsControl))
+            throw EditorLocalization.Error("Mda.Text.Preview.PresetNameInvalid");
+        return trimmed;
     }
 
     public void Validate(bool requireExecutableFiles = false)
@@ -329,4 +436,8 @@ public sealed record EditorPreferences
         OutputMediaKind MediaKind, string Destination, bool TransparentBackground, LocalColor Background,
         uint StartFrame, uint EndFrame, uint PhysicsPreRollFrames, bool EndFrameFollowsAnimation,
         string? VideoEncodingJson, long VideoTimeoutTicks, bool? IncludeEndFrame = null);
+    private sealed record LocalCustomPreviewPresetEntry(string Id, string Name, string PresetJson);
+    private sealed record LocalCustomPreviewPresetsSnapshot(int SchemaVersion, List<LocalCustomPreviewPresetEntry> Presets);
 }
+
+public sealed record EditorPreviewCustomPreset(string Id, string Name, ViewQualityOptions Quality);

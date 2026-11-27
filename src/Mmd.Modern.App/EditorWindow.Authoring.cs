@@ -63,8 +63,43 @@ public partial class EditorWindow
         if (!owner.IsVisible) return;
         var viewport = this.FindControl<EditorViewportHost>("SceneViewport")!;
         var runtime = CapturePreviewRuntimeInfo();
+        bool isClassic = !EditorRenderEngineOptions.UsesModernQualityPreferences(shell.Workspace.RenderEngine);
         EditorPreviewCapabilities.TryGetCached(EditorOptionalRuntimePaths.Resolve(), runtime.AdapterName, out var cached);
-        var viewModel = new EditorPreviewSettingsViewModel(viewport.Quality, cached, runtime, capabilitiesPending: cached is null);
+        ViewQualityOptions? GetExportQuality() =>
+            shell.OutputSettings?.Preset.Export.Quality
+            ?? (_persistPreferences ? EditorPreferences.LoadOutputSettings(out _)?.Preset.Export.Quality : null)
+            ?? EditorRenderEngineOptions.DefaultExportQuality(shell.Workspace.RenderEngine);
+        void CopyToExportQuality(ViewQualityOptions previewQuality)
+        {
+            var exportQuality = StripPreviewOnlyForExport(previewQuality);
+            exportQuality.Validate();
+            var baseDraft = shell.OutputSettings ?? (_persistPreferences ? EditorPreferences.LoadOutputSettings(out _) : null);
+            if (baseDraft is null)
+            {
+                if (!shell.CreateOutputSettingsViewModel().TryCreate(out baseDraft) || baseDraft is null)
+                    throw new InvalidOperationException(Text("Mda.Text.Preview.ExportCopyUnavailable"));
+            }
+            var nextExport = baseDraft.Preset.Export with { Quality = exportQuality };
+            var nextPreset = new ViewOutputPresetDefinition(baseDraft.Preset.StableId, baseDraft.Preset.Name,
+                baseDraft.Preset.Preview, nextExport, baseDraft.Preset.Encoding, baseDraft.Preset.SchemaVersion);
+            var nextRequest = nextExport.CreateRequest(baseDraft.Request.Plan.StartFrame, baseDraft.Request.Plan.EndFrame,
+                baseDraft.Request.Plan.PhysicsPreRollFrames, baseDraft.Request.Plan.IncludeEndFrame);
+            var updatedDraft = baseDraft with { Preset = nextPreset, Request = nextRequest };
+            updatedDraft.Validate();
+            shell.ApplyOutputSettings(updatedDraft);
+            if (_persistPreferences && !isClassic)
+                EditorPreferences.SaveOutputSettings(updatedDraft);
+        }
+        var viewModel = new EditorPreviewSettingsViewModel(
+            viewport.Quality,
+            cached,
+            runtime,
+            capabilitiesPending: cached is null,
+            isClassicEngine: isClassic,
+            customPresetsPath: null,
+            getExportQuality: GetExportQuality,
+            copyToExportQuality: CopyToExportQuality,
+            persistCustomPresets: _persistPreferences);
         var dialog = new EditorPreviewSettingsWindow(viewModel,
             (forceRefresh, token) => Task.Run(() =>
                 EditorPreviewCapabilities.QueryInstalledCached(runtime.Width, runtime.Height, runtime.AdapterName, forceRefresh, token), token));
@@ -72,11 +107,17 @@ public partial class EditorWindow
         if (quality is null) return;
         try
         {
-            if (_persistPreferences && EditorRenderEngineOptions.UsesModernQualityPreferences(shell.Workspace.RenderEngine))
+            if (_persistPreferences && !isClassic)
                 EditorPreferences.SavePreviewQuality(quality);
             ApplyPreviewQuality(viewport, quality);
         }
         catch (Exception error) { await ShowErrorAsync(error, owner); }
+    }
+
+    private static ViewQualityOptions StripPreviewOnlyForExport(ViewQualityOptions quality)
+    {
+        var gi = quality.Gi is { PreviewAcceleration: true } g ? g with { PreviewAcceleration = false } : quality.Gi;
+        return gi == quality.Gi ? quality : quality with { Gi = gi };
     }
 
     internal void ApplyPreviewQuality(EditorViewportHost viewport, ViewQualityOptions quality)

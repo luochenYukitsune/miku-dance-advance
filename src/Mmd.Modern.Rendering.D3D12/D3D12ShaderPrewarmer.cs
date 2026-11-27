@@ -30,6 +30,7 @@ public sealed record D3D12ShaderWarmupSpec
     public SmaaQuality? SmaaQuality { get; init; }
     public bool SmaaAlphaCoverage { get; init; }
     public bool IncludeFsr1 { get; init; }
+    public bool IncludeRenderScale { get; init; }
     public bool IncludeTemporalInputs { get; init; }
     public bool IncludeTemporalCharacter { get; init; }
     public bool IncludeTemporalReactive { get; init; }
@@ -74,6 +75,8 @@ public static class D3D12ShaderPrewarmer
             fxcRequests.AddRange(D3D12SmaaPass.GetPrewarmRequests(smaaQuality, spec.SmaaAlphaCoverage));
         if (spec.IncludeFsr1)
             fxcRequests.AddRange(D3D12Fsr1Pass.GetPrewarmRequests());
+        if (spec.IncludeRenderScale)
+            fxcRequests.AddRange(D3D12RenderScalePass.GetPrewarmRequests());
         if (spec.IncludeDiffusion)
             fxcRequests.AddRange(D3D12DiffusionPass.GetPrewarmRequests(spec.IncludeDiffusionAlphaCoverage));
         if (spec.IncludeExposure)

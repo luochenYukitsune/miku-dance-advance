@@ -84,6 +84,7 @@ public static class ViewOutputPresetJson
         options.Converters.Add(new ExactEnumConverter<ViewTemporalQualityPreset>());
         options.Converters.Add(new ExactEnumConverter<ViewXeSsQuality>());
         options.Converters.Add(new ExactEnumConverter<ViewDlssQuality>());
+        options.Converters.Add(new ExactEnumConverter<OriginalTextureSampling>());
         options.Converters.Add(new OpaqueDataConverter());
         return options;
     }
@@ -149,12 +150,35 @@ public static class ViewOutputPresetJson
     private sealed record QualityDto(GiDto? Gi, FrameAntialiasing? Antialiasing, SmaaQuality? SmaaQuality,
         int? SpatialSamples, UpscalingDto? Upscaling, TemporalDto? TemporalUpscaling,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiffusionDto? Diffusion = null,
-        SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst)
+        SurfaceDrawOrder SurfaceOrder = SurfaceDrawOrder.OpaqueFirst,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ShadowDto? Shadow = null,
+        bool UseEnvironmentMipmaps = false,
+        bool AdaptiveVramSampling = true,
+        float RenderScale = 1f,
+        bool PreviewOutlineEnabled = true,
+        float PreviewOutlineWidthScale = 1f)
     {
         internal static QualityDto? From(ViewQualityOptions? value) => value is null ? null : new(GiDto.From(value.Gi),
-            value.Antialiasing, value.SmaaQuality, value.SpatialSamples, UpscalingDto.From(value.Upscaling), TemporalDto.From(value.TemporalUpscaling), DiffusionDto.From(value.Diffusion), value.SurfaceOrder);
+            value.Antialiasing, value.SmaaQuality, value.SpatialSamples, UpscalingDto.From(value.Upscaling),
+            TemporalDto.From(value.TemporalUpscaling), DiffusionDto.From(value.Diffusion), value.SurfaceOrder,
+            ShadowDto.From(value.Shadow), value.UseEnvironmentMipmaps, value.AdaptiveVramSampling,
+            value.RenderScale, value.PreviewOutlineEnabled, value.PreviewOutlineWidthScale);
         internal ViewQualityOptions ToOptions() => new(Gi?.ToOptions(), Antialiasing, SmaaQuality, SpatialSamples,
-            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder);
+            Upscaling?.ToOptions(), TemporalUpscaling?.ToOptions(), Diffusion?.ToOptions(), SurfaceOrder)
+        {
+            Shadow = Shadow?.ToOptions(),
+            UseEnvironmentMipmaps = UseEnvironmentMipmaps,
+            AdaptiveVramSampling = AdaptiveVramSampling,
+            RenderScale = RenderScale,
+            PreviewOutlineEnabled = PreviewOutlineEnabled,
+            PreviewOutlineWidthScale = PreviewOutlineWidthScale
+        };
+    }
+
+    private sealed record ShadowDto(int Resolution = 2048, OriginalTextureSampling Sampling = OriginalTextureSampling.LinearClamp)
+    {
+        internal static ShadowDto? From(ViewShadowOptions? value) => value is null ? null : new(value.Resolution, value.Sampling);
+        internal ViewShadowOptions ToOptions() => new(Resolution, Sampling);
     }
 
     private sealed record DiffusionDto(bool Enabled, float Strength, float Extent)
