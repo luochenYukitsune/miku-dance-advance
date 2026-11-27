@@ -54,6 +54,7 @@ public sealed class D3D12SwapchainPresenter : IDisposable
     private long previousPresentTimestamp;
     private bool disposed;
     public string AdapterName => session.AdapterName;
+    public long AdapterLuid => session.AdapterLuid;
     public bool IsWarp => session.IsWarp;
     public bool DebugRequested => session.DebugRequested;
     public bool DebugLayerEnabled => session.DebugLayerEnabled;

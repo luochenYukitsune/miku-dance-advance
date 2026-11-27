@@ -396,8 +396,9 @@ public sealed class EditorPreviewSettingsUiRedesignTests : IAsyncDisposable
             getExportQuality: () => exportWithUnsupportedXeSs,
             copyToExportQuality: _ => { });
         Assert.True(temporalVm.LoadFromExport());
-        Assert.Contains(temporalVm.TemporalQualities, q => q.Contains("不可用", StringComparison.Ordinal));
-        Assert.Contains("不可用", temporalVm.TemporalQualities[temporalVm.TemporalQualityIndex], StringComparison.Ordinal);
+        string expectedUnsupportedLabel = EditorLocalization.Format("{0}（不可用）", EditorLocalization.Text("超画质+"));
+        Assert.Contains(temporalVm.TemporalQualities, q => q.Equals(expectedUnsupportedLabel, StringComparison.Ordinal));
+        Assert.Equal(expectedUnsupportedLabel, temporalVm.TemporalQualities[temporalVm.TemporalQualityIndex]);
         Assert.False(temporalVm.TryCreate(out _));
 
         // 3. Invalid NumericUpDown input blocks Save/Overwrite/CopyToExport buttons.

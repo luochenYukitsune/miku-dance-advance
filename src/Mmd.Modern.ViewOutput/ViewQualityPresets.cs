@@ -19,15 +19,21 @@ public static class ViewQualityPresets
         {
             BuiltInPreviewPresetKind.Performance => new(
                 Gi: RayGiOptions.Off,
-                Antialiasing: FrameAntialiasing.Smaa1X,
+                Antialiasing: FrameAntialiasing.Fxaa,
                 SmaaQuality: SmaaQuality.Low,
                 SpatialSamples: 1,
                 Upscaling: ViewUpscalingOptions.Off,
                 TemporalUpscaling: ViewTemporalUpscalingOptions.Off,
                 Diffusion: ViewDiffusionOptions.Off,
-                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst)
+                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst,
+                PipelineMode: RenderPipelineMode.Forward)
             {
                 Shadow = new ViewShadowOptions(1024, OriginalTextureSampling.LinearClamp),
+                ShadowFilter = ShadowFilterMode.Linear,
+                ShadowSoftness = 1f,
+                AnisotropicFiltering = 4,
+                Sharpening = ViewSharpeningOptions.Off,
+                ScreenSpaceAo = ScreenSpaceAoOptions.Off,
                 UseEnvironmentMipmaps = false,
                 AdaptiveVramSampling = true,
                 RenderScale = 1f,
@@ -43,9 +49,15 @@ public static class ViewQualityPresets
                 Upscaling: ViewUpscalingOptions.Off,
                 TemporalUpscaling: ViewTemporalUpscalingOptions.Off,
                 Diffusion: ViewDiffusionOptions.Off,
-                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst)
+                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst,
+                PipelineMode: RenderPipelineMode.Forward)
             {
                 Shadow = new ViewShadowOptions(2048, OriginalTextureSampling.LinearClamp),
+                ShadowFilter = ShadowFilterMode.Linear,
+                ShadowSoftness = 1f,
+                AnisotropicFiltering = 8,
+                Sharpening = ViewSharpeningOptions.Off,
+                ScreenSpaceAo = ScreenSpaceAoOptions.Off,
                 UseEnvironmentMipmaps = false,
                 AdaptiveVramSampling = true,
                 RenderScale = 1f,
@@ -55,15 +67,21 @@ public static class ViewQualityPresets
 
             BuiltInPreviewPresetKind.High => new(
                 Gi: RayGiOptions.Off,
-                Antialiasing: FrameAntialiasing.Smaa1X,
+                Antialiasing: FrameAntialiasing.Msaa4X,
                 SmaaQuality: SmaaQuality.Ultra,
-                SpatialSamples: 2,
+                SpatialSamples: 1,
                 Upscaling: ViewUpscalingOptions.Off,
                 TemporalUpscaling: ViewTemporalUpscalingOptions.Off,
                 Diffusion: ViewDiffusionOptions.Off,
-                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst)
+                SurfaceOrder: SurfaceDrawOrder.OpaqueFirst,
+                PipelineMode: RenderPipelineMode.Forward)
             {
                 Shadow = new ViewShadowOptions(4096, OriginalTextureSampling.LinearClamp),
+                ShadowFilter = ShadowFilterMode.PcfSoft,
+                ShadowSoftness = 1.25f,
+                AnisotropicFiltering = 16,
+                Sharpening = ViewSharpeningOptions.Off,
+                ScreenSpaceAo = ScreenSpaceAoOptions.Off,
                 UseEnvironmentMipmaps = true,
                 AdaptiveVramSampling = true,
                 RenderScale = 1f,
@@ -107,9 +125,15 @@ public static class ViewQualityPresets
             Upscaling: ViewUpscalingOptions.Off,
             TemporalUpscaling: ViewTemporalUpscalingOptions.Off,
             Diffusion: ViewDiffusionOptions.Off,
-            SurfaceOrder: SurfaceDrawOrder.OpaqueFirst)
+            SurfaceOrder: SurfaceDrawOrder.OpaqueFirst,
+            PipelineMode: RenderPipelineMode.Forward)
         {
             Shadow = new ViewShadowOptions(4096, OriginalTextureSampling.LinearClamp),
+            ShadowFilter = ShadowFilterMode.PcfSoft,
+            ShadowSoftness = 1.25f,
+            AnisotropicFiltering = 16,
+            Sharpening = ViewSharpeningOptions.Off,
+            ScreenSpaceAo = ScreenSpaceAoOptions.Off,
             UseEnvironmentMipmaps = true,
             AdaptiveVramSampling = true,
             RenderScale = 1f,
@@ -154,15 +178,22 @@ public static class ViewQualityPresets
 
     private static ViewQualityOptions Normalize(ViewQualityOptions q) => new(
         Gi: q.EffectiveGi with { TemporalHistoryGeneration = 0, TemporalCameraCutKey = 0, ResetTemporalHistory = false },
-        Antialiasing: q.Antialiasing ?? FrameAntialiasing.Off,
-        SmaaQuality: q.SmaaQuality ?? SmaaQuality.High,
-        SpatialSamples: q.SpatialSamples ?? 1,
+        Antialiasing: q.Antialiasing,
+        SmaaQuality: q.SmaaQuality,
+        SpatialSamples: q.SpatialSamples,
         Upscaling: q.EffectiveUpscaling,
         TemporalUpscaling: q.EffectiveTemporalUpscaling,
         Diffusion: q.EffectiveDiffusion,
-        SurfaceOrder: q.SurfaceOrder)
+        SurfaceOrder: q.SurfaceOrder,
+        PipelineMode: q.PipelineMode,
+        PathTracing: q.PathTracing?.StripRuntimeState())
     {
         Shadow = q.Shadow,
+        ShadowFilter = q.ShadowFilter,
+        ShadowSoftness = q.ShadowSoftness,
+        AnisotropicFiltering = q.AnisotropicFiltering,
+        Sharpening = q.EffectiveSharpening,
+        ScreenSpaceAo = q.ScreenSpaceAo,
         UseEnvironmentMipmaps = q.UseEnvironmentMipmaps,
         AdaptiveVramSampling = q.AdaptiveVramSampling,
         RenderScale = q.RenderScale,

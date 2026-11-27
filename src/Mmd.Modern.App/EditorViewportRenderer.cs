@@ -10,6 +10,7 @@ namespace Mmd.Modern.App;
 internal interface IEditorViewportRenderer : IRealtimeViewRenderer
 {
     string AdapterName { get; }
+    long AdapterLuid => 0;
     bool IsWarp { get; }
     EditorViewportPresentationStatistics Statistics { get; }
     IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
@@ -25,6 +26,7 @@ internal interface IEditorViewportRenderer : IRealtimeViewRenderer
 internal sealed class EditorViewportRenderer(D3D12RealtimeViewRenderer native) : IEditorViewportRenderer
 {
     public string AdapterName => native.AdapterName;
+    public long AdapterLuid => native.AdapterLuid;
     public bool IsWarp => native.IsWarp;
     // Full backend diagnostics stay on the modern adapter. The shared host contract
     // exposes only feedback consumed by the editor, without requiring backend-specific capabilities.

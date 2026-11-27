@@ -68,6 +68,7 @@ public sealed class D3D12FrameRenderer : IDisposable
     internal D3D12FrameOutput? LastGpuOutput {get;private set;}
     internal D3D12FrameStatistics? Statistics {get;private set;}
     public string AdapterName { get; }
+    public long AdapterLuid => runtime.Device.AdapterLuid;
     public bool IsWarp { get; }
     public FeatureLevel FeatureLevel { get; }
     public bool HasDebugQueue => debugQueue is not null;
