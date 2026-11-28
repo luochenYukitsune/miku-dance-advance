@@ -92,6 +92,7 @@ internal static class D3D12ViewShaderPrewarm
             IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
             IncludeDiffusionAlphaCoverage = effectiveStraightAlpha,
             IncludeDepthRim = enableStylizedPolish && !pathTracing && variants.Count > 0,
+            IncludeDepthRimAlphaCoverage = effectiveStraightAlpha,
             IncludeBloom = enableStylizedPolish && !pathTracing && variants.Count > 0,
             IncludeBloomAlphaCoverage = effectiveStraightAlpha,
             IncludeToneCurve = enableStylizedPolish && !pathTracing && variants.Count > 0,

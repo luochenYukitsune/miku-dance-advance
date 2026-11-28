@@ -14,24 +14,13 @@ public static class ModernDirectionalShadowProjection
         if (!float.IsFinite(paddingFraction) || paddingFraction is <= 0 or > 1)
             throw new ArgumentOutOfRangeException(nameof(paddingFraction));
 
-        Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
-        if (!scene.HasDeferredDeformation)
-        {
-            foreach (uint index in scene.Indices)
-            {
-                var position = Vector3.Transform(scene.Vertices[(int)index].Position, scene.World);
-                minimum = Vector3.Min(minimum, position); maximum = Vector3.Max(maximum, position);
-            }
-        }
-        else
-        {
-            ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
-        }
+        var (minimum, maximum) = ComputeFullSceneWorldBounds(scene);
         return FitFromWorldBounds(scene, minimum, maximum, paddingFraction);
     }
 
-    /// <summary>Fits the directional shadow projection strictly around the selected material indices
-    /// (e.g., character materials in a large stage scene) to preserve texel density on the character.</summary>
+    /// <summary>Fits the directional shadow projection XY tightly around the selected material indices
+    /// (e.g., character materials in a large stage scene) to preserve texel density on the character,
+    /// while keeping light-space near Z extended to include all upstream scene shadow casters.</summary>
     public static Matrix4x4 Fit(SceneSnapshot scene, IReadOnlyList<int> focusMaterialIndices, float paddingFraction = .03f)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -104,7 +93,27 @@ public static class ModernDirectionalShadowProjection
         if (!anyVertex)
             return Fit(scene, paddingFraction);
 
-        return FitFromWorldBounds(scene, minimum, maximum, paddingFraction);
+        var (fullMin, fullMax) = ComputeFullSceneWorldBounds(scene);
+        return FitFromWorldBounds(scene, minimum, maximum, paddingFraction, fullMin, fullMax);
+    }
+
+    private static (Vector3 Min, Vector3 Max) ComputeFullSceneWorldBounds(SceneSnapshot scene)
+    {
+        Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
+        if (!scene.HasDeferredDeformation)
+        {
+            foreach (uint index in scene.Indices)
+            {
+                var position = Vector3.Transform(scene.Vertices[(int)index].Position, scene.World);
+                minimum = Vector3.Min(minimum, position);
+                maximum = Vector3.Max(maximum, position);
+            }
+        }
+        else
+        {
+            ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
+        }
+        return (minimum, maximum);
     }
 
     private static int FindDeformationRange(IReadOnlyList<SceneDeformationRange> ranges, int vertex)
@@ -121,7 +130,13 @@ public static class ModernDirectionalShadowProjection
         return vertex < candidate.Start + candidate.Count ? lo - 1 : -1;
     }
 
-    private static Matrix4x4 FitFromWorldBounds(SceneSnapshot scene, Vector3 minimum, Vector3 maximum, float paddingFraction)
+    private static Matrix4x4 FitFromWorldBounds(
+        SceneSnapshot scene,
+        Vector3 minimum,
+        Vector3 maximum,
+        float paddingFraction,
+        Vector3? casterMin = null,
+        Vector3? casterMax = null)
     {
         Vector3 extent = maximum - minimum, center = minimum * .5f + maximum * .5f;
         float radius = extent.Length() * .5f;
@@ -142,6 +157,20 @@ public static class ModernDirectionalShadowProjection
                 (corner & 2) == 0 ? minimum.Y : maximum.Y, (corner & 4) == 0 ? minimum.Z : maximum.Z);
             var lightPosition = Vector3.Transform(position, view);
             lightMin = Vector3.Min(lightMin, lightPosition); lightMax = Vector3.Max(lightMax, lightPosition);
+        }
+        if (casterMin is { } cMin && casterMax is { } cMax)
+        {
+            if (!Finite(cMin) || !Finite(cMax))
+                throw new ArgumentException("Scene bounds exceed finite shadow projection range.", nameof(scene));
+            // Extend light-space near Z to upstream scene casters so light-side occluders are not clipped,
+            // while keeping XY strictly fitted to the focused character bounds.
+            for (int corner = 0; corner < 8; corner++)
+            {
+                var position = new Vector3((corner & 1) == 0 ? cMin.X : cMax.X,
+                    (corner & 2) == 0 ? cMin.Y : cMax.Y, (corner & 4) == 0 ? cMin.Z : cMax.Z);
+                var lightPosition = Vector3.Transform(position, view);
+                lightMin.Z = MathF.Min(lightMin.Z, lightPosition.Z);
+            }
         }
         Vector3 padding = Vector3.Max((lightMax - lightMin) * paddingFraction, new Vector3(.01f));
         lightMin -= padding; lightMax += padding;

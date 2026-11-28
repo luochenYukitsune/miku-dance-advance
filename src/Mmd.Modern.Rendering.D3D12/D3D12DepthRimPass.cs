@@ -275,6 +275,20 @@ internal sealed class D3D12DepthRimPass(D3D12GpuRuntime runtime, D3D12GpuCache c
             return worldH.xyz / max(abs(worldH.w), 1e-6) * (worldH.w < 0.0 ? -1.0 : 1.0);
         }
 
+        float EvalDepthJump(float centerDist, float zSample, float zOpp, bool isOrtho, float threshold) {
+            float expectedZ = centerDist;
+            if (isOrtho) {
+                expectedZ = max(2.0 * centerDist - zOpp, centerDist);
+            } else if (centerDist > 1e-5 && zOpp > 1e-5) {
+                // Screen-space reciprocal view depth (1/z) is linear across a flat perspective plane,
+                // preventing false rim on steep tilted surfaces even at wide WidthPixels.
+                float predInvZ = 2.0 / centerDist - 1.0 / zOpp;
+                if (predInvZ <= 1e-6) return 0.0;
+                expectedZ = max(1.0 / predInvZ, centerDist);
+            }
+            return saturate((zSample - expectedZ - threshold * 0.5) / threshold);
+        }
+
         float EvalRingRim(
             int2 coord,
             int2 size,
@@ -291,6 +305,7 @@ internal sealed class D3D12DepthRimPass(D3D12GpuRuntime runtime, D3D12GpuCache c
                 float2(-0.70710678, 0.70710678)
             };
 
+            bool isOrtho = CameraEyeAndOrtho.w > 0.5;
             float maxRim = 0.0;
             [unroll] for (int i = 0; i < 4; i++) {
                 float2 d = kDirs[i];
@@ -319,11 +334,8 @@ internal sealed class D3D12DepthRimPass(D3D12GpuRuntime runtime, D3D12GpuCache c
                     ? (centerDist + threshold * 8.0)
                     : dot(ReconstructWorldPos(uvM, rawM) - CameraEyeAndOrtho.xyz, CameraForward.xyz);
 
-                float diffP = outP ? 0.0 : (zP - centerDist);
-                float diffM = outM ? 0.0 : (zM - centerDist);
-
-                float discP = (outP || (!bgP && outM)) ? 0.0 : (bgP ? 1.0 : saturate((diffP - max(-diffM, 0.0) * 1.15 - threshold * 0.5) / threshold));
-                float discM = (outM || (!bgM && outP)) ? 0.0 : (bgM ? 1.0 : saturate((diffM - max(-diffP, 0.0) * 1.15 - threshold * 0.5) / threshold));
+                float discP = (outP || (!bgP && outM)) ? 0.0 : (bgP ? 1.0 : EvalDepthJump(centerDist, zP, zM, isOrtho, threshold));
+                float discM = (outM || (!bgM && outP)) ? 0.0 : (bgM ? 1.0 : EvalDepthJump(centerDist, zM, zP, isOrtho, threshold));
 
                 float alignP = lerp(0.75, smoothstep(-0.25, 0.45, dot(d, lightUvDir)), hasScreenLight);
                 float alignM = lerp(0.75, smoothstep(-0.25, 0.45, dot(-d, lightUvDir)), hasScreenLight);

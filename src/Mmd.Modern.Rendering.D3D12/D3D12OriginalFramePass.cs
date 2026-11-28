@@ -339,6 +339,11 @@ public sealed partial class D3D12OriginalStyleRenderer
                 var materialToon = SurfaceToon(binding, flags.UseSceneLighting);
                 if (materialTreatment is not null) materialToon = materialTreatment.TransformShade(materialToon);
 
+                bool receiveSelfShadow = flags.ReceiveSelfShadow && options.SelfShadow is { Generate: true };
+                var extraParams = stylizedShading?.ExtraParams ?? default;
+                if (!receiveSelfShadow)
+                    extraParams = new(0f, extraParams.Y, extraParams.Z, extraParams.W);
+
                 Constants(common with
                 {
                     EgColor = host.EgColor,
@@ -355,11 +360,11 @@ public sealed partial class D3D12OriginalStyleRenderer
                     StylizedWarmParams = stylizedShading?.Warm ?? default,
                     StylizedGradeParams = stylizedShading?.Grade ?? default,
                     ExtraSurfaceParams = drawData?.ExtraSurfaceParams ?? default,
-                    StylizedExtraParams = stylizedShading?.ExtraParams ?? default,
+                    StylizedExtraParams = extraParams,
                     StylizedFaceLightDir = stylizedShading?.FaceLightDir ?? default,
                     IncomingLight = new(common.IncomingLight.X, common.IncomingLight.Y, common.IncomingLight.Z, response?.TransitionWidth ?? 0),
                     ShadowOptions = new(
-                        flags.ReceiveSelfShadow && options.SelfShadow is { Generate: true } ? common.ShadowOptions.X : 0f,
+                        receiveSelfShadow ? common.ShadowOptions.X : 0f,
                         common.ShadowOptions.Y,
                         common.ShadowOptions.Z,
                         response?.Threshold ?? 0),

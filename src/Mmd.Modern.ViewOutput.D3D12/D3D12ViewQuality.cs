@@ -39,12 +39,12 @@ internal static class D3D12ViewQuality
             return (null, null, null);
 
         bool writeDepth = scene.Options?.WriteDepth ?? true;
-        bool bloomSupported = scene.Options?.AlphaOutput == FrameAlphaOutput.Straight
+        bool alphaSupported = scene.Options?.AlphaOutput == FrameAlphaOutput.Straight
             || (scene.Options?.BackgroundColor?.W ?? 1f) == 1f;
 
         return (
-            writeDepth ? D3D12StylizedPolishDefaults.DepthRim : null,
-            bloomSupported ? D3D12StylizedPolishDefaults.Bloom : null,
+            writeDepth && alphaSupported ? D3D12StylizedPolishDefaults.DepthRim : null,
+            alphaSupported ? D3D12StylizedPolishDefaults.Bloom : null,
             D3D12StylizedPolishDefaults.ToneCurve);
     }
 
@@ -59,10 +59,13 @@ internal static class D3D12ViewQuality
         var snapshot = scene.Surface.Snapshot;
         int totalMaterials = snapshot.Materials.Count;
         var focusIndices = new List<int>(totalMaterials);
-        for (int i = 0; i < totalMaterials && i < surfaceStyles.Count; i++)
+        for (int i = 0; i < totalMaterials; i++)
         {
-            if (!surfaceStyles.IsDefaultStyle(i))
+            if (i < surfaceStyles.Count && !surfaceStyles.IsDefaultStyle(i))
                 focusIndices.Add(i);
+            else if (i < scene.Materials.Count && scene.Materials[i].SurfaceEnabled && scene.Materials[i].ReceiveSelfShadow)
+                // The primary shadow map is shared across the scene; keep full-scene bounds if non-focused materials receive shadows.
+                return scene;
         }
 
         if (focusIndices.Count == 0 || focusIndices.Count >= totalMaterials)

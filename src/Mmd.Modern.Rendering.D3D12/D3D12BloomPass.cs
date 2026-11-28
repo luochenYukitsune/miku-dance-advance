@@ -20,7 +20,7 @@ internal sealed class D3D12BloomPass(D3D12GpuRuntime runtime, D3D12GpuCache cach
     private (byte[] Vertex, byte[] Prefilter, byte[] Downsample, byte[] Upsample, byte[] Composite)? shaders;
     private (byte[] Vertex, byte[] Prefilter, byte[] Downsample, byte[] Upsample, byte[] Composite)? alphaShaders;
 
-    private static List<(int Width, int Height)> ComputeMipChain(int width, int height)
+    internal static List<(int Width, int Height)> ComputeMipChain(int width, int height)
     {
         var levels = new List<(int Width, int Height)>(MaxMipLevels);
         int w = Math.Max(1, width / 2);
@@ -28,9 +28,12 @@ internal sealed class D3D12BloomPass(D3D12GpuRuntime runtime, D3D12GpuCache cach
         for (int i = 0; i < MaxMipLevels; i++)
         {
             levels.Add((w, h));
-            if (w <= 2 || h <= 2) break;
-            w = Math.Max(1, w / 2);
-            h = Math.Max(1, h / 2);
+            if (w <= 2 && h <= 2) break;
+            int nw = w <= 2 ? w : Math.Max(2, w / 2);
+            int nh = h <= 2 ? h : Math.Max(2, h / 2);
+            if (nw == w && nh == h) break;
+            w = nw;
+            h = nh;
         }
         return levels;
     }

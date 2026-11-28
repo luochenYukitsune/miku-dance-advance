@@ -51,6 +51,108 @@ public sealed class D3D12StylizedPolishUnitTests
     }
 
     [Fact]
+    public void ModernDirectionalShadowProjection_SubsetFitIncludesUpstreamCastersWithoutWideningCharacterXy()
+    {
+        var vertices = new SceneVertex[]
+        {
+            // Material 0: character around origin [-1, 1] x [0, 2] x [-1, 1]
+            new(new(-1, 0, -1), Vector3.UnitY, Vector2.Zero),
+            new(new(1, 0, -1), Vector3.UnitY, Vector2.Zero),
+            new(new(1, 2, 1), Vector3.UnitY, Vector2.Zero),
+            new(new(-1, 2, 1), Vector3.UnitY, Vector2.Zero),
+            // Material 1: upstream roof sitting between light (+Y) and character at y = 20
+            new(new(-6, 20, -6), Vector3.UnitY, Vector2.Zero),
+            new(new(6, 20, -6), Vector3.UnitY, Vector2.Zero),
+            new(new(6, 20, 6), Vector3.UnitY, Vector2.Zero),
+        };
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6];
+        var matChar = new SceneMaterial("character", 0, 6, Vector4.One, Vector3.Zero, Vector3.Zero, 1);
+        var matRoof = new SceneMaterial("roof", 6, 3, Vector4.One, Vector3.Zero, Vector3.Zero, 1);
+        var camera = new SceneCamera(new(0, 1, -8), new(0, 1, 0), Vector3.UnitY, 4, 0.1f, 100f, 35f, LeftHanded: true);
+        var lightDir = Vector3.Normalize(new Vector3(0.05f, 1f, 0.05f));
+
+        var sceneWithRoof = new SceneSnapshot(vertices, indices, [matChar, matRoof], camera: camera, lightDirection: lightDir);
+        var charOnlyScene = new SceneSnapshot(vertices[..4], indices[..6], [matChar], camera: camera, lightDirection: lightDir);
+
+        var charOnlyFit = ModernDirectionalShadowProjection.Fit(charOnlyScene);
+        var subsetFit = ModernDirectionalShadowProjection.Fit(sceneWithRoof, [0]);
+
+        // XY texel density matches character-only bounds, while roof vertex clip Z stays inside [0, 1].
+        Assert.Equal(charOnlyFit.M11, subsetFit.M11, 4);
+        Assert.Equal(charOnlyFit.M22, subsetFit.M22, 4);
+        for (int i = 4; i <= 6; i++)
+        {
+            var clip = Vector4.Transform(new Vector4(vertices[i].Position, 1f), subsetFit);
+            float ndcZ = clip.Z / clip.W;
+            Assert.InRange(ndcZ, 0f, 1f);
+        }
+    }
+
+    [Fact]
+    public void BloomPass_ComputeMipChain_ContinuesAlongLongerAxisOnNarrowTargets()
+    {
+        var narrow = D3D12BloomPass.ComputeMipChain(512, 4);
+        Assert.Equal([(256, 2), (128, 2), (64, 2), (32, 2), (16, 2)], narrow);
+
+        var shortNarrow = D3D12BloomPass.ComputeMipChain(6, 4);
+        Assert.Equal([(3, 2), (2, 2)], shortNarrow);
+
+        Assert.Equal([(1, 1)], D3D12BloomPass.ComputeMipChain(2, 2));
+        Assert.Equal([(1, 1)], D3D12BloomPass.ComputeMipChain(1, 1));
+    }
+
+    [Fact]
+    public void ViewQuality_GatesDepthRimByAlphaSupport_AndProtectsMixedSceneShadows()
+    {
+        var catalog = TestStylePlugins.AllPresetCatalog;
+        var viewCatalog = TestStylePlugins.AllViewCatalog;
+        var baseFrame = D3D12StylizedPolishTestScenes.TwoQuadShadowAndFaceScene();
+        var objectId = Guid.NewGuid();
+        var stageId = Guid.NewGuid();
+        var bindingChar = new SceneRenderingStyleBinding(objectId, new("star-rail"), ModelRole.Character, 0, 1, true);
+        var bindingStage = new SceneRenderingStyleBinding(stageId, new(D3D12SurfaceStyleMap.DefaultStyleId), ModelRole.Environment, 1, 1, true);
+        var resolved = D3D12ViewRenderingStyles.Resolve(
+            baseFrame, catalog, [bindingChar, bindingStage], styleCatalog: viewCatalog);
+
+        var transparentLegacy = new OriginalFrameScene(
+            resolved.Scene.Surface,
+            options: resolved.Scene.Options! with
+            {
+                AlphaOutput = FrameAlphaOutput.LegacyMax,
+                BackgroundColor = new Vector4(0f, 0f, 0f, 0f),
+            },
+            materials: resolved.Scene.Materials);
+
+        var quality = new ViewQualityOptions();
+        var legacyPolish = D3D12ViewQuality.ResolveStylizedPolish(true, transparentLegacy, resolved.SurfaceStyles, quality);
+        Assert.Null(legacyPolish.DepthRim);
+        Assert.Null(legacyPolish.Bloom);
+        Assert.NotNull(legacyPolish.ToneCurve);
+
+        var opaquePolish = D3D12ViewQuality.ResolveStylizedPolish(true, resolved.Scene, resolved.SurfaceStyles, quality);
+        Assert.NotNull(opaquePolish.DepthRim);
+        Assert.NotNull(opaquePolish.Bloom);
+        Assert.NotNull(opaquePolish.ToneCurve);
+
+        // When non-focused visible material receives self-shadow, keep shared shadow projection unchanged.
+        var mixedReceiveScene = new OriginalFrameScene(
+            resolved.Scene.Surface,
+            options: resolved.Scene.Options,
+            materials: [new(true, true, false), new(true, true, false)]);
+        var unchanged = D3D12ViewQuality.ApplyFocusedCharacterShadow(true, mixedReceiveScene, resolved.SurfaceStyles);
+        Assert.Equal(mixedReceiveScene.Options!.SelfShadow!.LightViewProjection, unchanged.Options!.SelfShadow!.LightViewProjection);
+
+        // When non-focused material does not receive self-shadow, focus XY on stylized character materials.
+        var charOnlyReceiveScene = new OriginalFrameScene(
+            resolved.Scene.Surface,
+            options: resolved.Scene.Options,
+            materials: [new(true, true, false), new(true, false, false)]);
+        var tightened = D3D12ViewQuality.ApplyFocusedCharacterShadow(true, charOnlyReceiveScene, resolved.SurfaceStyles);
+        var expected = ModernDirectionalShadowProjection.Fit(charOnlyReceiveScene.Surface.Snapshot, [0]);
+        Assert.Equal(expected, tightened.Options!.SelfShadow!.LightViewProjection);
+    }
+
+    [Fact]
     public void StylizedShading_ValidatesNewFieldsAndIsolatesRoles()
     {
         var baseShading = new D3D12StylizedShading(
@@ -227,8 +329,18 @@ public sealed class D3D12StylizedPolishUnitTests
         var onSpec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
             quality, styleCatalog: catalog, stylePresets: presets, enableStylizedPolish: true);
         Assert.True(onSpec.IncludeDepthRim);
+        Assert.False(onSpec.IncludeDepthRimAlphaCoverage);
         Assert.True(onSpec.IncludeBloom);
+        Assert.False(onSpec.IncludeBloomAlphaCoverage);
         Assert.True(onSpec.IncludeToneCurve);
+
+        var straightSpec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
+            quality, straightAlpha: true, styleCatalog: catalog, stylePresets: presets, enableStylizedPolish: true);
+        Assert.True(straightSpec.IncludeDepthRim);
+        Assert.True(straightSpec.IncludeDepthRimAlphaCoverage);
+        Assert.True(straightSpec.IncludeBloom);
+        Assert.True(straightSpec.IncludeBloomAlphaCoverage);
+        Assert.True(straightSpec.IncludeToneCurve);
 
         var noVariantsSpec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
             quality, styleCatalog: D3D12ViewStyleCatalog.Empty, stylePresets: D3D12StylePresetCatalog.BuiltIn, enableStylizedPolish: true);
@@ -245,6 +357,7 @@ public sealed class D3D12StylizedPolishUnitTests
     }
 }
 
+[Collection(RayGiTimingEnvironmentCollection.Name)]
 [Trait("Category", "Gpu")]
 public sealed class D3D12StylizedPolishGpuTests
 {
@@ -315,7 +428,7 @@ public sealed class D3D12StylizedPolishGpuTests
             new(objectId, 0, D3D12CharacterMaterialRole.Body),
             new(objectId, 1, D3D12CharacterMaterialRole.Face,
                 StylizedShading: D3D12StylizedShadingCatalog.ResolveForRole(
-                    baseShading with { FaceLightDirection = Vector3.Normalize(new Vector3(0.95f, 0f, -0.3f)) },
+                    baseShading with { FaceLightDirection = Vector3.Normalize(new Vector3(-0.6f, 0f, -0.8f)) },
                     D3D12CharacterMaterialRole.Face)),
         };
         var explicitResolved = D3D12ViewRenderingStyles.Resolve(
@@ -327,11 +440,13 @@ public sealed class D3D12StylizedPolishGpuTests
 
         Assert.NotEqual(offPixels.Rgba, defaultPixels.Rgba);
 
-        // Verify left (Body shadow receiver) changed automatically by style defaults and right (Face) changed with directional face light.
+        // Verify left (Body shadow receiver) changed automatically by style defaults and right (Face) responds to both default FaceLightStrength and explicit FaceLightDirection.
         int bodyDelta = MaxRegionDelta(offPixels.Rgba, defaultPixels.Rgba, 128, 8, 56, 20, 76);
-        int faceDelta = MaxRegionDelta(offPixels.Rgba, explicitPixels.Rgba, 128, 72, 120, 20, 76);
+        int faceStrengthDelta = MaxRegionDelta(offPixels.Rgba, defaultPixels.Rgba, 128, 72, 120, 20, 76);
+        int faceDirDelta = MaxRegionDelta(defaultPixels.Rgba, explicitPixels.Rgba, 128, 72, 120, 20, 76);
         Assert.True(bodyDelta > 5, $"Expected default cast shadow difference on Body quad, got delta={bodyDelta}.");
-        Assert.True(faceDelta > 5, $"Expected face light difference on Face quad, got delta={faceDelta}.");
+        Assert.True(faceStrengthDelta > 5, $"Expected default face light difference on Face quad, got delta={faceStrengthDelta}.");
+        Assert.True(faceDirDelta > 5, $"Expected FaceLightDirection change on Face quad vs default direction, got delta={faceDirDelta}.");
         Assert.Empty(session.LastDebugMessages);
     }
 
@@ -430,6 +545,22 @@ public sealed class D3D12StylizedPolishGpuTests
             Assert.Equal(shadersAfterFirst, session.Statistics.ShaderCompilations);
             Assert.Equal(pipelinesAfterFirst, session.Statistics.PipelineCreations);
         }
+
+        // Verify RenderScale < 1 still executes Bloom and ToneCurve after upscaling at display resolution 128x96.
+        var scaledFrame = new OriginalFrameScene(
+            frame.Surface,
+            options: frame.Options! with { RenderScale = 0.5f },
+            materials: frame.Materials);
+        var scaledResult = session.Capture(scaledFrame, 128, 96, bloom: bloom, toneCurve: tone);
+        Assert.Equal(128 * 96 * 4, scaledResult.Rgba.Length);
+        var channels = session.LastRecordings.Select(r => r.Channel).ToList();
+        int scaleIdx = channels.IndexOf("render-scale");
+        int bloomIdx = channels.IndexOf("bloom:composite");
+        int toneIdx = channels.IndexOf("tone-curve:apply");
+        Assert.True(scaleIdx >= 0 && bloomIdx > scaleIdx && toneIdx > bloomIdx,
+            $"Expected render-scale before bloom/tone-curve, got: {string.Join(" -> ", channels)}");
+        Assert.Contains(session.LastTargets, t => t.Name == "$bloom-composite" && t.Width == 128 && t.Height == 96);
+        Assert.Contains(session.LastTargets, t => t.Name == "$tone-curve" && t.Width == 128 && t.Height == 96);
         Assert.Empty(session.LastDebugMessages);
     }
 
@@ -492,6 +623,7 @@ public sealed class D3D12StylizedPolishGpuTests
         using var session = new D3D12FrameSession();
         var rimStandard = new D3D12DepthRimOptions(Enabled: true, Strength: 0.85f, WidthPixels: 2.0f, DepthThreshold: 0.06f, LightBias: 0f);
         var rimNarrow = rimStandard with { WidthPixels = 0.75f };
+        var rimWide = rimStandard with { WidthPixels = 8.0f };
 
         foreach (bool straightAlpha in new[] { false, true })
         {
@@ -499,7 +631,7 @@ public sealed class D3D12StylizedPolishGpuTests
             {
                 var tilted = D3D12StylizedPolishTestScenes.TiltedFullscreenQuadScene(topCloser, straightAlpha);
                 var baseline = session.Capture(tilted, 96, 96);
-                foreach (var rim in new[] { rimStandard, rimNarrow })
+                foreach (var rim in new[] { rimStandard, rimNarrow, rimWide })
                 {
                     var withRim = session.Capture(tilted, 96, 96, depthRim: rim);
                     Assert.Empty(session.LastDebugMessages);
@@ -639,6 +771,79 @@ public sealed class D3D12StylizedPolishGpuTests
                 Assert.Equal(0, starRailOn[i + 3]);
             }
         }
+    }
+
+    [Fact]
+    public void ToneCurve_CompressesHighlightsMonotonically_AndPreservesZeroAlphaRgbInLegacyMax()
+    {
+        using var session = new D3D12FrameSession();
+        var shoulderOne = new D3D12ToneCurveOptions(Enabled: true, Contrast: 0f, Shoulder: 1.0f, Saturation: 1f);
+
+        // ~0.90 gray quad with colored zero-alpha LegacyMax background.
+        var coloredBg = new Vector4(0.25f, 0.50f, 0.75f, 0f);
+        var highGray = D3D12StylizedPolishTestScenes.FlatLitQuad(new(0.90f, 0.90f, 0.90f, 1f), coloredBg, FrameAlphaOutput.LegacyMax);
+        var baseGray = session.Capture(highGray, 64, 64);
+        var tonedGray = session.Capture(highGray, 64, 64, toneCurve: shoulderOne);
+
+        int center = (32 * 64 + 32) * 4;
+        Assert.InRange(baseGray.Rgba[center], (byte)220, (byte)240);
+        Assert.True(tonedGray.Rgba[center] < baseGray.Rgba[center],
+            $"Expected highlight shoulder to compress ~0.90 gray instead of lifting ({baseGray.Rgba[center]} -> {tonedGray.Rgba[center]}).");
+
+        // Zero-alpha background RGB in LegacyMax must remain byte-exact.
+        Assert.Equal(0, baseGray.Rgba[3]);
+        Assert.Equal(baseGray.Rgba[0], tonedGray.Rgba[0]);
+        Assert.Equal(baseGray.Rgba[1], tonedGray.Rgba[1]);
+        Assert.Equal(baseGray.Rgba[2], tonedGray.Rgba[2]);
+        Assert.Equal(baseGray.Rgba[3], tonedGray.Rgba[3]);
+
+        // White (1.0) also compresses monotonically.
+        var whiteQuad = D3D12StylizedPolishTestScenes.FlatLitQuad(Vector4.One, new(0f, 0f, 0f, 1f), FrameAlphaOutput.LegacyMax);
+        var baseWhite = session.Capture(whiteQuad, 64, 64);
+        var tonedWhite = session.Capture(whiteQuad, 64, 64, toneCurve: shoulderOne);
+        Assert.Equal(255, baseWhite.Rgba[center]);
+        Assert.True(tonedWhite.Rgba[center] < baseWhite.Rgba[center]);
+        Assert.Empty(session.LastDebugMessages);
+    }
+
+    [Fact]
+    public void StylizedCastShadow_IgnoresSelfShadowBeyondFarPlaneWhenReceiveSelfShadowIsFalse()
+    {
+        using var session = new D3D12FrameSession();
+        var catalog = TestStylePlugins.AllPresetCatalog;
+        var baseShading = catalog.Find("star-rail").DefaultStylizedShading!;
+        var objectId = Guid.NewGuid();
+        var binding = new SceneRenderingStyleBinding(objectId, new("star-rail"), ModelRole.Character, 0, 1, true);
+
+        // Self-shadow projection puts the quad at light-clip z > 1, while material ReceiveSelfShadow is false.
+        var farShadowProjection = Matrix4x4.CreateTranslation(0f, 0f, 5f);
+        var shadow = new OriginalSelfShadowOptions(
+            farShadowProjection, 64, 64, true, false,
+            OriginalTextureSampling.LinearClamp, OriginalDepthComparison.LessEqual);
+        var frame = D3D12StylizedPolishTestScenes.FlatLitQuad(
+            new(0.85f, 0.85f, 0.90f, 1f), new(0.1f, 0.1f, 0.1f, 1f), FrameAlphaOutput.LegacyMax,
+            selfShadow: shadow, receiveSelfShadow: false);
+
+        var offRoles = new D3D12ViewCharacterMaterial[]
+        {
+            new(objectId, 0, D3D12CharacterMaterialRole.Body,
+                StylizedShading: D3D12StylizedShadingCatalog.ResolveForRole(
+                    baseShading with { CastShadowStrength = 0f, FaceLightStrength = 0f }, D3D12CharacterMaterialRole.Body)),
+        };
+        var onRoles = new D3D12ViewCharacterMaterial[]
+        {
+            new(objectId, 0, D3D12CharacterMaterialRole.Body,
+                StylizedShading: D3D12StylizedShadingCatalog.ResolveForRole(
+                    baseShading with { CastShadowStrength = 0.85f, FaceLightStrength = 0f }, D3D12CharacterMaterialRole.Body)),
+        };
+
+        var offResolved = D3D12ViewRenderingStyles.Resolve(frame, catalog, [binding], offRoles, styleCatalog: TestStylePlugins.AllViewCatalog);
+        var onResolved = D3D12ViewRenderingStyles.Resolve(frame, catalog, [binding], onRoles, styleCatalog: TestStylePlugins.AllViewCatalog);
+
+        var offPixels = session.Capture(offResolved.Scene, 64, 64, surfaceStyles: offResolved.SurfaceStyles);
+        var onPixels = session.Capture(onResolved.Scene, 64, 64, surfaceStyles: onResolved.SurfaceStyles);
+        Assert.Equal(offPixels.Rgba, onPixels.Rgba);
+        Assert.Empty(session.LastDebugMessages);
     }
 
     private static int MaxRegionDelta(byte[] a, byte[] b, int width, int x0, int x1, int y0, int y1)
@@ -816,5 +1021,37 @@ file static class D3D12StylizedPolishTestScenes
             surface,
             options: options,
             materials: [new(true, true, false), new(false, false, false)]);
+    }
+
+    internal static OriginalFrameScene FlatLitQuad(
+        Vector4 diffuse,
+        Vector4 backgroundColor,
+        FrameAlphaOutput alphaOutput,
+        OriginalSelfShadowOptions? selfShadow = null,
+        bool receiveSelfShadow = false)
+    {
+        var vertices = new SceneVertex[]
+        {
+            new(new(-0.4f, -0.4f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(0.4f, -0.4f, 0f), -Vector3.UnitZ, Vector2.UnitX),
+            new(new(0.4f, 0.4f, 0f), -Vector3.UnitZ, Vector2.One),
+            new(new(-0.4f, 0.4f, 0f), -Vector3.UnitZ, Vector2.UnitY),
+        };
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+        var material = new SceneMaterial("flat", 0, 6, diffuse, Vector3.Zero, Vector3.Zero, 1f);
+        var camera = new SceneCamera(new(0, 0, -2.5f), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 20f, 45f, LeftHanded: true);
+        var snapshot = new SceneSnapshot(vertices, indices, [material], camera: camera, lightDirection: -Vector3.UnitZ);
+        var surface = new OriginalStyleScene(
+            snapshot,
+            [new(new(0.5f), DoubleSided: true)],
+            new OriginalStyleProfile(Vector3.One, Vector3.One, Matrix4x4.Identity));
+        var options = new OriginalFrameOptions(
+            OriginalAlphaBlendMode.Normal,
+            WriteDepth: true,
+            Transp: false,
+            AlphaOutput: alphaOutput,
+            SelfShadow: selfShadow,
+            BackgroundColor: backgroundColor);
+        return new OriginalFrameScene(surface, options: options, materials: [new(true, receiveSelfShadow, false)]);
     }
 }

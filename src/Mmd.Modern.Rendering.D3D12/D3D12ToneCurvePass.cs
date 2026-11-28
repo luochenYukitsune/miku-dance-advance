@@ -133,13 +133,11 @@ internal sealed class D3D12ToneCurvePass(D3D12GpuRuntime runtime, D3D12GpuCache 
                 x = saturate(lerp(x, s, contrast));
             }
             if (shoulder > 0) {
-                // Soft highlight shoulder compresses near-white peaks without flattening midtones.
+                // Soft highlight shoulder compresses near-white peaks monotonically without lifting values above knee.
                 float knee = 0.68;
                 if (x > knee) {
                     float t = (x - knee) / (1.0 - knee);
-                    float soft = t / (1.0 + shoulder * t);
-                    float norm = 1.0 / (1.0 + shoulder);
-                    float compressed = knee + (1.0 - knee) * (soft / max(norm, 1e-4) * (1.0 - 0.12 * shoulder));
+                    float compressed = knee + (1.0 - knee) * (t / (1.0 + shoulder * t));
                     x = saturate(compressed);
                 }
             }
@@ -147,7 +145,7 @@ internal sealed class D3D12ToneCurvePass(D3D12GpuRuntime runtime, D3D12GpuCache 
         }
         float4 PSMain(float4 p : SV_Position) : SV_Target {
             float4 c = InputTexture.Load(int3(int2(p.xy), 0));
-            if (c.a <= 0) return float4(0, 0, 0, 0);
+            if (c.a <= 0) return c;
             float3 rgb = c.rgb;
             float peak = max(rgb.r, max(rgb.g, rgb.b));
             if (peak > 0) {

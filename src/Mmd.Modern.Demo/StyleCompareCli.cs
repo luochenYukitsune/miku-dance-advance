@@ -41,7 +41,7 @@ internal static class StyleCompareCli
                 case "--tag": tag = Next(); break;
                 case "--style":
                     foreach (string raw in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                        styles.Add(NormalizeStyleId(raw));
+                        styles.Add(raw);
                     break;
                 case "--scope":
                     string scope = Next();
@@ -134,8 +134,20 @@ internal static class StyleCompareCli
         }
     }
 
-    private static string NormalizeStyleId(string styleId)
-        => string.Equals(styleId, "starrail", StringComparison.OrdinalIgnoreCase) ? "star-rail" : styleId.ToLowerInvariant();
+    private static string ResolveRequestedStyleId(string styleId, HashSet<string> availableStyles)
+    {
+        if (availableStyles.Contains(styleId))
+            return styleId;
+        if (string.Equals(styleId, "starrail", StringComparison.OrdinalIgnoreCase)
+            && availableStyles.Contains("star-rail"))
+            return "star-rail";
+        foreach (string candidate in availableStyles)
+        {
+            if (string.Equals(candidate, styleId, StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        }
+        throw new ArgumentException($"Style '{styleId}' is not loaded. Available plugin styles: {string.Join(", ", availableStyles)}");
+    }
 
     private static int RunPolishCompare(
         string model,
@@ -153,11 +165,8 @@ internal static class StyleCompareCli
         try
         {
             var availableStyles = new HashSet<string>(styleCatalog.Styles.Select(static s => s.StyleId), StringComparer.Ordinal);
-            foreach (string style in requestedStyles)
-            {
-                if (!availableStyles.Contains(style))
-                    throw new ArgumentException($"Style '{style}' is not loaded. Available plugin styles: {string.Join(", ", availableStyles)}");
-            }
+            for (int i = 0; i < requestedStyles.Count; i++)
+                requestedStyles[i] = ResolveRequestedStyleId(requestedStyles[i], availableStyles);
 
             var source = LoadModel(Path.GetFullPath(model));
             var materials = source.Surface.Snapshot.Materials;

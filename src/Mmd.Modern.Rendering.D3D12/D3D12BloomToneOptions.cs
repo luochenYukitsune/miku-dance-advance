@@ -45,7 +45,8 @@ public sealed record D3D12BloomOptions(
 }
 
 /// <summary>Opt-in display-domain tone curve and subtle color grading pass.
-/// Neutral defaults preserve existing colors; disabled by default.</summary>
+/// Disabled by default to preserve existing colors; when enabled, the default Shoulder (0.20) gently
+/// compresses highlights—set Shoulder = 0 (with Contrast = 0, Saturation = 1, null tints) for a neutral pass.</summary>
 public sealed record D3D12ToneCurveOptions(
     bool Enabled = false,
     float Contrast = 0f,

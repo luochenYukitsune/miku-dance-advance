@@ -723,7 +723,7 @@ internal static class D3D12StyleShaderAssembler
                 if (ShadowOptions.z <= 0) return 1;
                 float3 q = v.LightClip.xyz / v.LightClip.w;
                 float2 uv = float2(.5 + .5 * q.x, .5 - .5 * q.y);
-                if (any(uv < 0) || any(uv > 1)) return 1;
+                if (any(uv < 0) || any(uv > 1) || q.z < 0 || q.z > 1) return 1;
                 return MdaSamplePrimaryShadowVisibility(uv, q.z, v.Position.xy);
             }
             float MdaLightResponseDefault(SurfaceOutput v, float3 n, float3 l, float visibility) {
