@@ -282,9 +282,11 @@ internal sealed class D3D12DepthRimPass(D3D12GpuRuntime runtime, D3D12GpuCache c
             } else if (centerDist > 1e-5 && zOpp > 1e-5) {
                 // Screen-space reciprocal view depth (1/z) is linear across a flat perspective plane,
                 // preventing false rim on steep tilted surfaces even at wide WidthPixels.
+                // When the opposite sample is a close foreground occluder (predInvZ <= 0), keep
+                // expectedZ = centerDist so real silhouettes between foreground and backdrop survive.
                 float predInvZ = 2.0 / centerDist - 1.0 / zOpp;
-                if (predInvZ <= 1e-6) return 0.0;
-                expectedZ = max(1.0 / predInvZ, centerDist);
+                if (predInvZ > 1e-6)
+                    expectedZ = max(1.0 / predInvZ, centerDist);
             }
             return saturate((zSample - expectedZ - threshold * 0.5) / threshold);
         }

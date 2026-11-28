@@ -661,6 +661,15 @@ public sealed class D3D12StylizedPolishGpuTests
                 Assert.Empty(session.LastDebugMessages);
             }
         }
+
+        // Narrow center strip (view z=4) flanked by close foreground (z=2) on left and backdrop geometry (z=16) on right
+        // triggers predInvZ <= 0; verify DepthRim falls back to centerDist delta and detects the silhouette rim.
+        var sandwich = D3D12StylizedPolishTestScenes.SandwichDepthRimScene();
+        var sandwichBase = session.Capture(sandwich, 96, 96);
+        var sandwichRim = session.Capture(sandwich, 96, 96, depthRim: rimStandard with { WidthPixels = 4f });
+        int stripRimDelta = MaxRegionDelta(sandwichBase.Rgba, sandwichRim.Rgba, 96, 42, 54, 16, 80);
+        Assert.True(stripRimDelta > 10, $"Expected DepthRim fallback to preserve silhouette rim when predInvZ <= 0, got delta={stripRimDelta}.");
+        Assert.Empty(session.LastDebugMessages);
     }
 
     [Fact]
@@ -1053,5 +1062,37 @@ file static class D3D12StylizedPolishTestScenes
             SelfShadow: selfShadow,
             BackgroundColor: backgroundColor);
         return new OriginalFrameScene(surface, options: options, materials: [new(true, receiveSelfShadow, false)]);
+    }
+
+    internal static OriginalFrameScene SandwichDepthRimScene()
+    {
+        // Camera at (0, 0, -4) looking toward +Z:
+        // Left foreground quad at world z = -2 (view z = 2), narrow center strip at z = 0 (view z = 4),
+        // right backdrop geometry at z = 12 (view z = 16).
+        var vertices = new SceneVertex[]
+        {
+            // Left foreground [-2, -0.04] at z = -2
+            new(new(-2.0f, -2f, -2f), -Vector3.UnitZ, Vector2.Zero),
+            new(new(-0.04f, -2f, -2f), -Vector3.UnitZ, Vector2.UnitX),
+            new(new(-0.04f,  2f, -2f), -Vector3.UnitZ, Vector2.One),
+            new(new(-2.0f,  2f, -2f), -Vector3.UnitZ, Vector2.UnitY),
+            // Narrow center strip [-0.08, 0.08] at z = 0
+            new(new(-0.08f, -3f, 0f), -Vector3.UnitZ, Vector2.Zero),
+            new(new( 0.08f, -3f, 0f), -Vector3.UnitZ, Vector2.UnitX),
+            new(new( 0.08f,  3f, 0f), -Vector3.UnitZ, Vector2.One),
+            new(new(-0.08f,  3f, 0f), -Vector3.UnitZ, Vector2.UnitY),
+            // Backdrop geometry [-8, 8] at z = 12
+            new(new(-8f, -8f, 12f), -Vector3.UnitZ, Vector2.Zero),
+            new(new( 8f, -8f, 12f), -Vector3.UnitZ, Vector2.UnitX),
+            new(new( 8f,  8f, 12f), -Vector3.UnitZ, Vector2.One),
+            new(new(-8f,  8f, 12f), -Vector3.UnitZ, Vector2.UnitY),
+        };
+        uint[] indices = [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11];
+        var material = new SceneMaterial("sandwich", 0, 18, new(0.55f, 0.60f, 0.68f, 1f), Vector3.Zero, Vector3.Zero, 1f);
+        var camera = new SceneCamera(new(0, 0, -4f), Vector3.Zero, Vector3.UnitY, 2f, 0.1f, 30f, 45f, LeftHanded: true);
+        var snapshot = new SceneSnapshot(vertices, indices, [material], camera: camera, lightDirection: -Vector3.UnitZ);
+        var surface = new OriginalStyleScene(snapshot, [new(new(0.5f), DoubleSided: true)], new OriginalStyleProfile(new(0.5f, 0.5f, 0.5f), Vector3.One, Matrix4x4.Identity));
+        var options = new OriginalFrameOptions(OriginalAlphaBlendMode.Normal, true, false, BackgroundColor: new Vector4(0.05f, 0.05f, 0.08f, 1f));
+        return new OriginalFrameScene(surface, options: options, materials: [new(true, false, false)]);
     }
 }

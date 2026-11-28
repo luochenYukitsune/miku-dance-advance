@@ -1,6 +1,6 @@
 ﻿{
     "schemaVersion":  1,
-    "generatedAtUtc":  "2026-11-28T16:03:57.3206153Z",
+    "generatedAtUtc":  "2026-11-28T16:14:09.8659519Z",
     "repositoryRoot":  "D:/desktop/mmopensource/MMD932_modern",
     "productModules":  [
                            "MMD核心",
@@ -8172,8 +8172,8 @@
                                                     "现代渲染引擎"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  19478,
-                      "sha256":  "f3d060bf02d0dfa15ac5d3ae74303042e4f8b76a6db345a054d73e807becc2cc",
+                      "bytes":  19669,
+                      "sha256":  "d65d320a4f5c4056b944af5071a0f75dae154da947258c9e61b91a83c734d583",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
@@ -17556,8 +17556,8 @@
                                                     "GUI"
                                                 ],
                       "kind":  "csharp",
-                      "bytes":  59401,
-                      "sha256":  "83da1812cb1d461f4473c0130e757144a7591b288ba4c244f02d7eb508bd8386",
+                      "bytes":  62400,
+                      "sha256":  "308196f749463c066e259f80dcab85451c7f5a7712277c91e016eb999ec9af50",
                       "verificationStatus":  "evidence-is-scoped-see-current-stage"
                   },
                   {
