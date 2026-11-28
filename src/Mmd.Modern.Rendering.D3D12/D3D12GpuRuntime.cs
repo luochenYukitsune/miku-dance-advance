@@ -111,6 +111,9 @@ public sealed record D3D12FrameStatistics(long FrameId,int SubmissionCount,int R
     public int AnisotropicFiltering {get;init;}=1;
     public ShadowFilterMode ShadowFilter {get;init;}=ShadowFilterMode.Linear;
     public int ScreenSpaceAoPassDrawCalls {get;init;}
+    public int DepthRimPassDrawCalls {get;init;}
+    public int BloomPassDrawCalls {get;init;}
+    public int ToneCurvePassDrawCalls {get;init;}
     public int SharpeningPassDrawCalls {get;init;}
     public SmaaQuality SmaaQuality {get;init;}=SmaaQuality.High;
     public int SpatialSamples {get;init;}=1;

@@ -24,7 +24,8 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
         Vector4 Metrics,              // width, height, 1/width, 1/height
         Vector4 Params);              // strength, radius, sampleCount, projScalePixels
 
-    private (byte[] Vertex, byte[] Raw, byte[] Composite, byte[] MsaaDepthResolve)? shaders;
+    private (byte[] Vertex, byte[] Raw, byte[] Composite)? shaders;
+    private (byte[] Vertex, byte[] Pixel)? msaaResolveShaders;
 
     internal static Format DepthResourceFormat(Format dsvFormat) => dsvFormat switch
     {
@@ -54,7 +55,7 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
         int width = msaaDepth.Width, height = msaaDepth.Height;
         var device = context.Device;
         var commands = context.Commands;
-        var compiled = GetShaders();
+        var compiled = GetResolveShaders();
 
         var root = cache.Get("msaa-depth-resolve:root", () => runtime.CreateRootSignature(
             new RootSignatureDescription(RootSignatureFlags.None,
@@ -86,7 +87,7 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
             {
                 RootSignature = root,
                 VertexShader = compiled.Vertex,
-                PixelShader = compiled.MsaaDepthResolve,
+                PixelShader = compiled.Pixel,
                 BlendState = BlendDescription.Opaque,
                 SampleMask = uint.MaxValue,
                 RasterizerState = RasterizerDescription.CullNone,
@@ -279,32 +280,55 @@ internal sealed class D3D12ScreenSpaceAoPass(D3D12GpuRuntime runtime, D3D12GpuCa
         return new(rawAo, output);
     }
 
+    internal static IEnumerable<D3D12FxcShaderRequest> GetResolvePrewarmRequests()
+    {
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        yield return new(MsaaResolveSource, "VSMain", "msaa-depth-resolve.hlsl", "vs_5_1", flags);
+        yield return new(MsaaResolveSource, "PSResolveDepth", "msaa-depth-resolve.hlsl", "ps_5_1", flags);
+    }
+
     internal static IEnumerable<D3D12FxcShaderRequest> GetPrewarmRequests()
     {
         const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
         yield return new(Source, "VSMain", "ssao-gtao.hlsl", "vs_5_1", flags);
         yield return new(Source, "PSSsaoRaw", "ssao-gtao.hlsl", "ps_5_1", flags);
         yield return new(Source, "PSSsaoComposite", "ssao-gtao.hlsl", "ps_5_1", flags);
-        yield return new(MsaaResolveSource, "PSResolveDepth", "msaa-depth-resolve.hlsl", "ps_5_1", flags);
+        foreach (var req in GetResolvePrewarmRequests())
+            yield return req;
     }
 
-    private (byte[] Vertex, byte[] Raw, byte[] Composite, byte[] MsaaDepthResolve) GetShaders()
+    private (byte[] Vertex, byte[] Pixel) GetResolveShaders()
+    {
+        if (msaaResolveShaders is { } compiled) return compiled;
+        const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
+        compiled = (
+            D3D12FxcShaderCache.Compile(MsaaResolveSource, "VSMain", "msaa-depth-resolve.hlsl", "vs_5_1", flags),
+            D3D12FxcShaderCache.Compile(MsaaResolveSource, "PSResolveDepth", "msaa-depth-resolve.hlsl", "ps_5_1", flags));
+        msaaResolveShaders = compiled;
+        runtime.ShaderCompilations += 2;
+        return compiled;
+    }
+
+    private (byte[] Vertex, byte[] Raw, byte[] Composite) GetShaders()
     {
         if (shaders is { } compiled) return compiled;
         const ShaderFlags flags = ShaderFlags.EnableStrictness | ShaderFlags.OptimizationLevel3;
         compiled = (
             D3D12FxcShaderCache.Compile(Source, "VSMain", "ssao-gtao.hlsl", "vs_5_1", flags),
             D3D12FxcShaderCache.Compile(Source, "PSSsaoRaw", "ssao-gtao.hlsl", "ps_5_1", flags),
-            D3D12FxcShaderCache.Compile(Source, "PSSsaoComposite", "ssao-gtao.hlsl", "ps_5_1", flags),
-            D3D12FxcShaderCache.Compile(MsaaResolveSource, "PSResolveDepth", "msaa-depth-resolve.hlsl", "ps_5_1", flags));
+            D3D12FxcShaderCache.Compile(Source, "PSSsaoComposite", "ssao-gtao.hlsl", "ps_5_1", flags));
         shaders = compiled;
-        runtime.ShaderCompilations += 4;
+        runtime.ShaderCompilations += 3;
         return compiled;
     }
 
     internal const string MsaaResolveSource = """
         cbuffer ResolveConstants : register(b0) { float4 Info; };
         Texture2DMS<float> MsaaDepth : register(t0);
+        float4 VSMain(uint id : SV_VertexID) : SV_Position {
+            float2 uv = float2((id << 1) & 2, id & 2);
+            return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+        }
         float PSResolveDepth(float4 pos : SV_Position) : SV_Target {
             int2 coord = clamp(int2(pos.xy), int2(0, 0), max(int2(Info.yz) - 1, int2(0, 0)));
             int count = max((int)Info.x, 1);

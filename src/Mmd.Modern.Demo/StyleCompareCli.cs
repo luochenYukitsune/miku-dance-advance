@@ -24,8 +24,10 @@ internal static class StyleCompareCli
 
     public static int Run(string[] args)
     {
-        string? model = null, output = null, tag = "untagged";
+        string? model = null, output = null, tag = null;
         var scopes = new List<string>();
+        var styles = new List<string>();
+        bool polishCompare = false;
         int width = 640, height = 900;
         for (int i = 0; i < args.Length; i++)
         {
@@ -33,9 +35,14 @@ internal static class StyleCompareCli
             switch (args[i])
             {
                 case "--style-compare": break;
+                case "--polish-compare": polishCompare = true; break;
                 case "--model": model = Next(); break;
                 case "--output": output = Next(); break;
                 case "--tag": tag = Next(); break;
+                case "--style":
+                    foreach (string raw in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        styles.Add(raw);
+                    break;
                 case "--scope":
                     string scope = Next();
                     if (!AllScopes.Contains(scope)) throw new ArgumentException($"Unknown scope '{scope}'.");
@@ -49,6 +56,8 @@ internal static class StyleCompareCli
             }
         }
         if (model is null || output is null) throw new ArgumentException("--model and --output are required.");
+        if (polishCompare) return RunPolishCompare(model, output, tag, styles, width, height);
+        tag ??= "untagged";
         if (scopes.Count == 0) scopes.AddRange(AllScopes);
 
         Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -123,6 +132,236 @@ internal static class StyleCompareCli
         {
             pluginManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
+    }
+
+    private static string ResolveRequestedStyleId(string styleId, HashSet<string> availableStyles)
+    {
+        if (availableStyles.Contains(styleId))
+            return styleId;
+        if (string.Equals(styleId, "starrail", StringComparison.OrdinalIgnoreCase)
+            && availableStyles.Contains("star-rail"))
+            return "star-rail";
+        foreach (string candidate in availableStyles)
+        {
+            if (string.Equals(candidate, styleId, StringComparison.OrdinalIgnoreCase))
+                return candidate;
+        }
+        throw new ArgumentException($"Style '{styleId}' is not loaded. Available plugin styles: {string.Join(", ", availableStyles)}");
+    }
+
+    private static int RunPolishCompare(
+        string model,
+        string output,
+        string? tag,
+        List<string> requestedStyles,
+        int width,
+        int height)
+    {
+        if (requestedStyles.Count == 0)
+            requestedStyles.AddRange(["star-rail", "genshin"]);
+
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        var pluginManager = LoadStylePlugins(out var styleCatalog, out var presetCatalog);
+        try
+        {
+            var availableStyles = new HashSet<string>(styleCatalog.Styles.Select(static s => s.StyleId), StringComparer.Ordinal);
+            for (int i = 0; i < requestedStyles.Count; i++)
+                requestedStyles[i] = ResolveRequestedStyleId(requestedStyles[i], availableStyles);
+
+            var source = LoadModel(Path.GetFullPath(model));
+            var materials = source.Surface.Snapshot.Materials;
+            var autoRoles = materials.Select(material => D3D12CharacterMaterialRoleGuess.Guess(material.Name)).ToArray();
+            string modelSlug = SanitizeFileName(Path.GetFileNameWithoutExtension(model));
+            string directory = string.IsNullOrWhiteSpace(tag) ? output : Path.Combine(output, tag);
+            string tileDirectory = Path.Combine(directory, "tiles");
+            Directory.CreateDirectory(tileDirectory);
+
+            var objectId = Guid.NewGuid();
+            using var session = new D3D12FrameSession();
+            Console.WriteLine($"D3D12 polish-compare ready (WARP: {session.IsWarp}, model: {modelSlug}, styles: {string.Join(", ", requestedStyles)}).");
+
+            // Mandatory MMD baseline 0-pixel-diff regression check.
+            int mmdDiffPixels = 0;
+            foreach (var (viewName, yaw) in Views)
+            {
+                var frame = BuildFrame(source, yaw);
+                var mmdResolved = D3D12ViewRenderingStyles.Resolve(
+                    frame,
+                    presetCatalog,
+                    [new SceneRenderingStyleBinding(objectId, new(D3D12SurfaceStyleMap.DefaultStyleId), ModelRole.Character, 0, materials.Count, true)],
+                    characterMaterials: null,
+                    styleCatalog: styleCatalog,
+                    guessMaterialRoles: false);
+                var baseline = session.Capture(mmdResolved.Scene, width, height, surfaceStyles: mmdResolved.SurfaceStyles);
+                var off = session.Capture(
+                    mmdResolved.Scene,
+                    width,
+                    height,
+                    surfaceStyles: mmdResolved.SurfaceStyles,
+                    depthRim: D3D12DepthRimOptions.Off,
+                    bloom: D3D12BloomOptions.Off,
+                    toneCurve: D3D12ToneCurveOptions.Off);
+                int viewDiff = CountDifferentPixels(baseline.Rgba, off.Rgba);
+                mmdDiffPixels += viewDiff;
+                Console.WriteLine($"  [mmd/{viewName}] 0-diff check: {viewDiff} different pixel(s).");
+            }
+            if (mmdDiffPixels != 0)
+            {
+                Console.Error.WriteLine($"ERROR: MMD baseline regression check failed with {mmdDiffPixels} different pixel(s).");
+                return 1;
+            }
+
+            var faceForward = Vector3.TransformNormal(-Vector3.UnitZ, source.Surface.Snapshot.World);
+            var depthRimOn = D3D12StylizedPolishDefaults.DepthRim;
+            var bloomOn = D3D12StylizedPolishDefaults.Bloom;
+            var toneCurveOn = D3D12StylizedPolishDefaults.ToneCurve;
+
+            int failures = 0;
+            foreach (string style in requestedStyles)
+            {
+                var baseShading = presetCatalog.Find(style).DefaultStylizedShading;
+                var baselineMaterials = Enumerable.Range(0, materials.Count)
+                    .Select(i => new D3D12ViewCharacterMaterial(
+                        objectId,
+                        i,
+                        autoRoles[i],
+                        StylizedShading: baseShading is null
+                            ? null
+                            : D3D12StylizedShadingCatalog.ResolveForRole(
+                                baseShading with { CastShadowStrength = 0f, FaceLightStrength = 0f, FaceLightDirection = null },
+                                autoRoles[i])))
+                    .ToArray();
+                var enhancedMaterials = Enumerable.Range(0, materials.Count)
+                    .Select(i =>
+                    {
+                        var shading = baseShading is null
+                            ? null
+                            : D3D12StylizedShadingCatalog.ResolveForRole(
+                                baseShading with
+                                {
+                                    CastShadowStrength = D3D12StylizedPolishDefaults.DefaultCastShadowStrength,
+                                    FaceLightStrength = D3D12StylizedPolishDefaults.DefaultFaceLightStrength,
+                                    FaceLightDirection = faceForward,
+                                },
+                                autoRoles[i]);
+                        return new D3D12ViewCharacterMaterial(objectId, i, autoRoles[i], StylizedShading: shading);
+                    })
+                    .ToArray();
+
+                var stages = new (
+                    string Key,
+                    string Label,
+                    D3D12ViewCharacterMaterial[] Materials,
+                    D3D12DepthRimOptions? DepthRim,
+                    D3D12BloomOptions? Bloom,
+                    D3D12ToneCurveOptions? ToneCurve)[]
+                {
+                    ("0-baseline", "Baseline", baselineMaterials, null, null, null),
+                    ("1-face-shadow", "+Face+HardShadow", enhancedMaterials, null, null, null),
+                    ("2-depth-rim", "+DepthRim", enhancedMaterials, depthRimOn, null, null),
+                    ("3-bloom-tone", "+Bloom+ToneCurve", enhancedMaterials, depthRimOn, bloomOn, toneCurveOn),
+                };
+
+                var rowStrips = new List<SKBitmap>(Views.Length);
+                try
+                {
+                    foreach (var (viewName, yaw) in Views)
+                    {
+                        var frame = BuildFrame(source, yaw);
+                        var tiles = new List<(string Label, SKBitmap Tile)>(stages.Length);
+                        try
+                        {
+                            foreach (var stage in stages)
+                            {
+                                SKBitmap tile;
+                                try
+                                {
+                                    var resolved = D3D12ViewRenderingStyles.Resolve(
+                                        frame,
+                                        presetCatalog,
+                                        [new SceneRenderingStyleBinding(objectId, new(style), ModelRole.Character, 0, materials.Count, true)],
+                                        stage.Materials,
+                                        styleCatalog: styleCatalog,
+                                        guessMaterialRoles: true);
+                                    tile = ToBitmap(session.Capture(
+                                        resolved.Scene,
+                                        width,
+                                        height,
+                                        surfaceStyles: resolved.SurfaceStyles,
+                                        depthRim: stage.DepthRim,
+                                        bloom: stage.Bloom,
+                                        toneCurve: stage.ToneCurve));
+                                }
+                                catch (Exception error)
+                                {
+                                    failures++;
+                                    Console.WriteLine($"  [{style}/{viewName}/{stage.Key}] FAILED: {error.GetType().Name}: {error.Message}");
+                                    tile = ErrorTile($"{error.GetType().Name}: {error.Message}", width, height);
+                                }
+                                SavePng(tile, Path.Combine(tileDirectory, $"{modelSlug}-{style}-{viewName}-{stage.Key}.png"));
+                                tiles.Add((stage.Label, tile));
+                            }
+                            rowStrips.Add(Strip(tiles, $"{modelSlug} | {style} | {viewName}", width, height));
+                        }
+                        finally
+                        {
+                            foreach (var (_, tile) in tiles) tile.Dispose();
+                        }
+                    }
+
+                    string sheetPath = Path.Combine(directory, $"{modelSlug}-{style}-polish-compare.png");
+                    using var sheet = StackVertically(rowStrips);
+                    SavePng(sheet, sheetPath);
+                    Console.WriteLine($"Wrote {Path.GetFullPath(sheetPath)}");
+                }
+                finally
+                {
+                    foreach (var row in rowStrips) row.Dispose();
+                }
+            }
+
+            Console.WriteLine(failures == 0 ? "Polish compare completed." : $"{failures} tile(s) failed; see red tiles.");
+            return failures == 0 ? 0 : 1;
+        }
+        finally
+        {
+            pluginManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private static int CountDifferentPixels(byte[] a, byte[] b)
+    {
+        if (a.Length != b.Length) return Math.Max(a.Length, b.Length) / 4;
+        int diff = 0;
+        for (int i = 0; i < a.Length; i += 4)
+        {
+            if (a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] || a[i + 3] != b[i + 3])
+                diff++;
+        }
+        return diff;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "model";
+        var invalid = Path.GetInvalidFileNameChars();
+        return string.Concat(name.Select(ch => invalid.Contains(ch) ? '_' : ch));
+    }
+
+    private static SKBitmap StackVertically(IReadOnlyList<SKBitmap> rows)
+    {
+        int totalWidth = rows.Max(static r => r.Width);
+        int totalHeight = rows.Sum(static r => r.Height);
+        var stacked = new SKBitmap(totalWidth, totalHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var canvas = new SKCanvas(stacked);
+        canvas.Clear(new SKColor(28, 28, 32));
+        int y = 0;
+        foreach (var row in rows)
+        {
+            canvas.DrawBitmap(row, 0, y);
+            y += row.Height;
+        }
+        return stacked;
     }
 
     private static PluginManager LoadStylePlugins(out D3D12ViewStyleCatalog styleCatalog, out D3D12StylePresetCatalog presetCatalog)
@@ -271,7 +510,17 @@ internal static class StyleCompareCli
         using var canvas = new SKCanvas(strip);
         canvas.Clear(new SKColor(28, 28, 32));
         using var label = new SKPaint { Color = SKColors.White, TextSize = 26, IsAntialias = true };
-        using var note = new SKPaint { Color = new SKColor(150, 150, 160), TextSize = 18, IsAntialias = true };
+        SKTypeface? matchedTypeface = null;
+        foreach (char ch in caption)
+        {
+            if (ch > 127)
+            {
+                matchedTypeface = SKFontManager.Default.MatchCharacter(ch);
+                if (matchedTypeface is not null) break;
+            }
+        }
+        using var captionTypeface = matchedTypeface;
+        using var note = new SKPaint { Color = new SKColor(150, 150, 160), TextSize = 18, IsAntialias = true, Typeface = captionTypeface };
         for (int i = 0; i < tiles.Count; i++)
         {
             canvas.DrawText(tiles[i].Label, i * width + 12, 30, label);

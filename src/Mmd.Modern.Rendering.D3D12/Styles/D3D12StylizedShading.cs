@@ -11,7 +11,8 @@ public sealed record D3D12StylizedShading(
     float ShadowStrength, float ShadowValue, float ShadowHue, Vector3 ShadowTint, float FaceFlatten,
     Vector3 WarmColor, float WarmStrength, float RimEdge, float RimStrength,
     float Saturation, float Contrast, float Brightness,
-    float OutlineValue = .5f, float OutlineSaturation = 1.3f)
+    float OutlineValue = .5f, float OutlineSaturation = 1.3f,
+    float CastShadowStrength = 0f, float FaceLightStrength = 0f, Vector3? FaceLightDirection = null)
 {
     /// <summary>x shadow strength (0 off), y shadow value, z albedo hue deepening, w face flatten.</summary>
     internal Vector4 Shade => new(ShadowStrength, ShadowValue, ShadowHue, FaceFlatten);
@@ -21,6 +22,19 @@ public sealed record D3D12StylizedShading(
     internal Vector4 Warm => new(WarmColor, RimEdge);
     /// <summary>x saturation, y contrast, z brightness, w rim strength.</summary>
     internal Vector4 Grade => new(Saturation, Contrast, Brightness, RimStrength);
+    /// <summary>x crisp cel cast-shadow strength, y face bone-driven soft light strength.</summary>
+    internal Vector4 ExtraParams => new(CastShadowStrength, FaceLightStrength, 0, 0);
+    /// <summary>xyz normalized head forward direction, w = 1 when explicitly provided.</summary>
+    internal Vector4 FaceLightDir
+    {
+        get
+        {
+            if (FaceLightDirection is not { } dir) return default;
+            float lenSq = dir.LengthSquared();
+            if (!float.IsFinite(lenSq) || lenSq <= 1e-8f) return default;
+            return new(Vector3.Normalize(dir), 1f);
+        }
+    }
 
     public void Validate()
     {
@@ -36,6 +50,11 @@ public sealed record D3D12StylizedShading(
         Range(WarmStrength, 0, 1, nameof(WarmStrength)); Range(RimEdge, 0, 1, nameof(RimEdge)); Range(RimStrength, 0, 1, nameof(RimStrength));
         Range(OutlineValue, .05f, 1, nameof(OutlineValue)); Range(OutlineSaturation, 0, 2, nameof(OutlineSaturation));
         Range(Saturation, 0, 2, nameof(Saturation)); Range(Contrast, -.5f, .5f, nameof(Contrast)); Range(Brightness, .5f, 2, nameof(Brightness));
+        Range(CastShadowStrength, 0, 1, nameof(CastShadowStrength));
+        Range(FaceLightStrength, 0, 1, nameof(FaceLightStrength));
+        if (FaceLightDirection is { } dir
+            && (!float.IsFinite(dir.X) || !float.IsFinite(dir.Y) || !float.IsFinite(dir.Z) || dir.LengthSquared() <= 1e-8f))
+            throw new ArgumentOutOfRangeException(nameof(FaceLightDirection), "Face light direction must be finite and non-zero.");
     }
 }
 
@@ -47,11 +66,11 @@ public static class D3D12StylizedShadingCatalog
         if (baseShading is null) return null;
         return role switch
         {
-            D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair => baseShading,
-            // Face suppresses most normal-based shading, disables rim light, and halves warm band.
-            D3D12CharacterMaterialRole.Face => baseShading with { FaceFlatten = .85f, RimStrength = 0, WarmStrength = baseShading.WarmStrength * .5f },
+            D3D12CharacterMaterialRole.Body or D3D12CharacterMaterialRole.Hair => baseShading with { FaceLightStrength = 0f, FaceLightDirection = null },
+            // Face suppresses most normal-based shading, disables rim light and cast self-shadow, halves warm band, and keeps face light.
+            D3D12CharacterMaterialRole.Face => baseShading with { FaceFlatten = .85f, RimStrength = 0, WarmStrength = baseShading.WarmStrength * .5f, CastShadowStrength = 0f },
             // Eye keeps authored shading/specular and applies color grading only.
-            D3D12CharacterMaterialRole.Eye => baseShading with { ShadowStrength = 0, RimStrength = 0, WarmStrength = 0 },
+            D3D12CharacterMaterialRole.Eye => baseShading with { ShadowStrength = 0, RimStrength = 0, WarmStrength = 0, CastShadowStrength = 0f, FaceLightStrength = 0f, FaceLightDirection = null },
             _ => null,
         };
     }

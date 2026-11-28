@@ -270,7 +270,8 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                     hasCharacterDirectPalette: directPalette,
                     hasOutline: outline,
                     hasCharacterOutline: charOutline,
-                    hasDynamicVertices: dynamicVerts);
+                    hasDynamicVertices: dynamicVerts,
+                    enableStylizedPolish: true);
                 await D3D12ShaderPrewarmer.PrewarmAsync(spec, 0, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { }
@@ -450,7 +451,8 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                 stylePresets: stylePresets, characterMaterials: characterMaterials,
                 pluginBindings: pluginBindings, outlineWidths: outlineWidths,
                 styleCatalog: styleCatalog, styleGlobalParameters: styleGlobalParameters,
-                boneIndicesByObject: boneIndicesByObject));
+                boneIndicesByObject: boneIndicesByObject,
+                enableStylizedPolish: true));
 
         public IViewRenderer CreateCapture(ViewRenderRequest request, Vector4 background)
             => new OutputRenderer(new D3D12ViewRenderer(request,
@@ -459,7 +461,8 @@ internal sealed class EditorModernRenderEngine : IEditorRenderEngine
                 stylePresets: stylePresets, characterMaterials: characterMaterials,
                 pluginBindings: pluginBindings, outlineWidths: outlineWidths,
                 styleCatalog: styleCatalog, styleGlobalParameters: styleGlobalParameters,
-                boneIndicesByObject: boneIndicesByObject), background);
+                boneIndicesByObject: boneIndicesByObject,
+                enableStylizedPolish: true), background);
     }
 
     private sealed class OutputRenderer(D3D12ViewRenderer renderer, Vector4 background) : IViewRenderer,

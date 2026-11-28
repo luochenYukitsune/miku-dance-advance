@@ -22,7 +22,8 @@ internal static class D3D12ViewShaderPrewarm
         bool straightAlpha = false,
         bool hasLightGizmos = false,
         IReadOnlyList<D3D12ShaderStyleWarmupVariant>? explicitStylizedVariants = null,
-        OriginalFrameOptions? sceneOptions = null)
+        OriginalFrameOptions? sceneOptions = null,
+        bool enableStylizedPolish = false)
     {
         ArgumentNullException.ThrowIfNull(quality);
         bool pathTracing = quality.PipelineMode == RenderPipelineMode.PathTracing;
@@ -90,6 +91,11 @@ internal static class D3D12ViewShaderPrewarm
             IncludeTemporalColorTransfer = temporal,
             IncludeDiffusion = quality.EffectiveDiffusion.Enabled && quality.EffectiveDiffusion.Strength > 0,
             IncludeDiffusionAlphaCoverage = effectiveStraightAlpha,
+            IncludeDepthRim = enableStylizedPolish && !pathTracing && variants.Count > 0,
+            IncludeDepthRimAlphaCoverage = effectiveStraightAlpha,
+            IncludeBloom = enableStylizedPolish && !pathTracing && variants.Count > 0,
+            IncludeBloomAlphaCoverage = effectiveStraightAlpha,
+            IncludeToneCurve = enableStylizedPolish && !pathTracing && variants.Count > 0,
             IncludeAlphaResolve = effectiveStraightAlpha,
             IncludeSpatialAccumulation = !pathTracing && resolved.SpatialSamples > 1,
             IncludeLightGizmos = hasLightGizmos,

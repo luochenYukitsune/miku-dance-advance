@@ -25,6 +25,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject;
     private readonly IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths;
     private readonly D3D12ViewRenderingStylesCache styleCache;
+    private readonly bool enableStylizedPolish;
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     private readonly object prewarmGate = new();
     private CancellationTokenSource? prewarmCts;
@@ -56,7 +57,8 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null,
         D3D12ViewStyleCatalog? styleCatalog = null,
         IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters = null,
-        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null)
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null,
+        bool enableStylizedPolish = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         new ViewRendererCapabilities("d3d12", 4096, 4096, false, true).Validate(request, capture: false);
@@ -81,6 +83,7 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
         this.pluginBindings = D3D12ViewPluginMaterialBindings.Detach(pluginBindings);
         this.styleGlobalParameters = D3D12ViewPluginMaterialBindings.DetachGlobalParameters(styleGlobalParameters);
         this.boneIndicesByObject = DetachBoneIndices(boneIndicesByObject);
+        this.enableStylizedPolish = enableStylizedPolish;
 
         D3D12ViewPluginMaterialBindings.Validate(this.characterMaterials, this.pluginBindings, this.styleCatalog);
         styleCache = new D3D12ViewRenderingStylesCache(
@@ -120,7 +123,9 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
             var scene = D3D12ViewScene.Resolve(frame.Scene, frame.Camera, frame.Light, frame.SelfShadow, frame.MorphChannels, request.EffectiveQuality, frame.ResolvedCamera, frame.CameraParentTransform);
             var style = styleCache.Resolve(scene, frame.RenderingStyles, frame.SceneInputs);
             scene = D3D12ViewScene.ApplyPostStyleOutlineOverrides(style.Scene, request.EffectiveQuality, frame.RenderingStyles, outlineWidths);
+            scene = D3D12ViewQuality.ApplyFocusedCharacterShadow(enableStylizedPolish, scene, style.SurfaceStyles);
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
+            var polish = D3D12ViewQuality.ResolveStylizedPolish(enableStylizedPolish, scene, style.SurfaceStyles, request.EffectiveQuality);
             previewSampling.Prepare(frame.Width, frame.Height, request.EffectiveQuality, scene, style.SurfaceStyles);
             while (true)
             {
@@ -140,10 +145,10 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
                     {
                         if (request.EffectiveQuality.EffectiveTemporalUpscaling.Mode != ViewTemporalUpscalingMode.Off)
                             throw new InvalidOperationException("Recording ahead requires vendor temporal upscaling to be off.");
-                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken, sharpening, temporal);
+                        presenter.PresentRecordedAhead(prepared, frame.Width, frame.Height, gi, upscaling, style.SurfaceStyles, diffusion, cancellationToken, sharpening, temporal, polish.DepthRim, polish.Bloom, polish.ToneCurve);
                     }
                     else presenter.Present(prepared, frame.Width, frame.Height, gi, upscaling, temporal,
-                        style.SurfaceStyles, diffusion, sharpening);
+                        style.SurfaceStyles, diffusion, sharpening, polish.DepthRim, polish.Bloom, polish.ToneCurve);
                     previewSampling.CommitPresentation();
                     break;
                 }
@@ -212,7 +217,8 @@ public sealed class D3D12RealtimeViewRenderer : IRealtimeViewRenderer, IViewRend
     private void StartShaderPrewarm(ViewQualityOptions quality)
     {
         var spec = D3D12ViewShaderPrewarm.BuildFromViewRequest(
-            quality, styleCatalog, characterMaterials, pluginBindings, stylePresets);
+            quality, styleCatalog, characterMaterials, pluginBindings, stylePresets,
+            enableStylizedPolish: enableStylizedPolish);
         CancellationTokenSource? prior;
         CancellationTokenSource next;
         lock (prewarmGate)

@@ -43,6 +43,11 @@ public sealed record D3D12ShaderWarmupSpec
     public bool IncludeTemporalColorTransfer { get; init; }
     public bool IncludeDiffusion { get; init; }
     public bool IncludeDiffusionAlphaCoverage { get; init; }
+    public bool IncludeDepthRim { get; init; }
+    public bool IncludeDepthRimAlphaCoverage { get; init; }
+    public bool IncludeBloom { get; init; }
+    public bool IncludeBloomAlphaCoverage { get; init; }
+    public bool IncludeToneCurve { get; init; }
     public bool IncludeExposure { get; init; }
     public bool IncludeAlphaResolve { get; init; }
     public bool IncludeSpatialAccumulation { get; init; }
@@ -101,6 +106,12 @@ public static class D3D12ShaderPrewarmer
             fxcRequests.AddRange(D3D12RenderScalePass.GetPrewarmRequests());
         if (spec.IncludeDiffusion)
             fxcRequests.AddRange(D3D12DiffusionPass.GetPrewarmRequests(spec.IncludeDiffusionAlphaCoverage));
+        if (spec.IncludeDepthRim)
+            fxcRequests.AddRange(D3D12DepthRimPass.GetPrewarmRequests(spec.IncludeDepthRimAlphaCoverage));
+        if (spec.IncludeBloom)
+            fxcRequests.AddRange(D3D12BloomPass.GetPrewarmRequests(spec.IncludeBloomAlphaCoverage));
+        if (spec.IncludeToneCurve)
+            fxcRequests.AddRange(D3D12ToneCurvePass.GetPrewarmRequests());
         if (spec.IncludeExposure)
             fxcRequests.AddRange(D3D12ExposurePass.GetPrewarmRequests());
         if (spec.IncludeAlphaResolve)
@@ -179,7 +190,10 @@ public static class D3D12ShaderPrewarmer
         D3D12TemporalUpscalingOptions? temporalUpscaling = null,
         D3D12DiffusionOptions? diffusion = null,
         bool includeLightGizmos = false,
-        D3D12SharpeningOptions? sharpening = null)
+        D3D12SharpeningOptions? sharpening = null,
+        D3D12DepthRimOptions? depthRim = null,
+        D3D12BloomOptions? bloom = null,
+        D3D12ToneCurveOptions? toneCurve = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var o = frame.Options;
@@ -265,6 +279,11 @@ public static class D3D12ShaderPrewarmer
             IncludeTemporalColorTransfer = temporal,
             IncludeDiffusion = diffusion is { IsActive: true },
             IncludeDiffusionAlphaCoverage = straightAlpha,
+            IncludeDepthRim = !pathTracing && depthRim is { IsActive: true },
+            IncludeDepthRimAlphaCoverage = straightAlpha,
+            IncludeBloom = bloom is { IsActive: true },
+            IncludeBloomAlphaCoverage = straightAlpha,
+            IncludeToneCurve = toneCurve is { IsActive: true },
             IncludeExposure = (frame.Lighting?.Settings.ExposureEv ?? 0f) != 0f,
             IncludeAlphaResolve = straightAlpha,
             IncludeSpatialAccumulation = !pathTracing && (o?.SpatialSamples ?? 1) > 1,

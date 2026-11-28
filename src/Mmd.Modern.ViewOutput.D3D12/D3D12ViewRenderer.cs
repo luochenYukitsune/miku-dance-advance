@@ -21,6 +21,7 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
     private readonly IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters;
     private readonly IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject;
     private readonly IReadOnlyList<D3D12ViewOutlineWidthBinding> outlineWidths;
+    private readonly bool enableStylizedPolish;
     public IReadOnlyList<SceneObjectRenderRequest> SceneInputRequests { get; }
     private readonly D3D12ViewTemporalClock temporalClock = new();
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -49,7 +50,8 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
         IEnumerable<D3D12ViewOutlineWidthBinding>? outlineWidths = null,
         D3D12ViewStyleCatalog? styleCatalog = null,
         IReadOnlyDictionary<string, StyleMaterialBindingData>? styleGlobalParameters = null,
-        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null)
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, int>>? boneIndicesByObject = null,
+        bool enableStylizedPolish = false)
     {
         ArgumentNullException.ThrowIfNull(request); request.Validate();
         // These are the existing recorder's actual limits, even though D3D12 hardware permits larger textures.
@@ -75,6 +77,7 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
         this.pluginBindings = D3D12ViewPluginMaterialBindings.Detach(pluginBindings);
         this.styleGlobalParameters = D3D12ViewPluginMaterialBindings.DetachGlobalParameters(styleGlobalParameters);
         this.boneIndicesByObject = D3D12RealtimeViewRenderer.DetachBoneIndices(boneIndicesByObject);
+        this.enableStylizedPolish = enableStylizedPolish;
 
         D3D12ViewPluginMaterialBindings.Validate(this.characterMaterials, this.pluginBindings, this.styleCatalog);
         SceneInputRequests = D3D12ViewPluginMaterialBindings.CreateRequests(
@@ -120,7 +123,9 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
                 boneIndicesByObject: boneIndicesByObject);
             scene = D3D12ViewScene.ApplyPostStyleOutlineOverrides(style.Scene, request.EffectiveQuality, frame.RenderingStyles, outlineWidths);
             scene = NormalizeCaptureAlpha(scene);
+            scene = D3D12ViewQuality.ApplyFocusedCharacterShadow(enableStylizedPolish, scene, style.SurfaceStyles);
             D3D12ViewQuality.ValidateDiffusion(scene, request.EffectiveQuality);
+            var polish = D3D12ViewQuality.ResolveStylizedPolish(enableStylizedPolish, scene, style.SurfaceStyles, request.EffectiveQuality);
             // Resolve discontinuities once for both independent histories; capture itself does not reset GI.
             var state = temporalClock.Resolve(frame.Sample, temporalState);
             if (D3D12ViewQuality.PathTracing(request.EffectiveQuality, state, interactive: false, scenePathTracing: scene.Options?.PathTracing) is { } pathTracing && scene.Options is not null)
@@ -152,7 +157,10 @@ public sealed class D3D12ViewRenderer : IViewRenderer, IViewRenderingStylePrefli
                     upscaling: D3D12ViewQuality.Upscaling(request.EffectiveQuality), temporalUpscaling: temporal,
                     surfaceStyles: style.SurfaceStyles, diffusion: D3D12ViewQuality.Diffusion(request.EffectiveQuality),
                     captureMemory: D3D12ViewCaptureMemory.Map(request.CaptureMemory),
-                    sharpening: D3D12ViewQuality.Sharpening(request.EffectiveQuality));
+                    sharpening: D3D12ViewQuality.Sharpening(request.EffectiveQuality),
+                    depthRim: polish.DepthRim,
+                    bloom: polish.Bloom,
+                    toneCurve: polish.ToneCurve);
                 temporalClock.Commit(frame.Sample);
                 cancellationToken.ThrowIfCancellationRequested();
             }
