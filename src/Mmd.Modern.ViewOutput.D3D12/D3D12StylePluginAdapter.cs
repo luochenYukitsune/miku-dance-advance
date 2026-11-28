@@ -353,7 +353,9 @@ public static class D3D12StylePluginAdapter
             shading.Contrast,
             shading.Brightness,
             shading.OutlineValue,
-            shading.OutlineSaturation);
+            shading.OutlineSaturation,
+            CastShadowStrength: D3D12StylizedPolishDefaults.DefaultCastShadowStrength,
+            FaceLightStrength: D3D12StylizedPolishDefaults.DefaultFaceLightStrength);
         result.Validate();
         return result;
     }

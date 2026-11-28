@@ -73,7 +73,9 @@ public sealed partial class D3D12OriginalStyleRenderer
         Vector4 StylizedTintParams = default,
         Vector4 StylizedWarmParams = default,
         Vector4 StylizedGradeParams = default,
-        Vector4 ExtraSurfaceParams = default);
+        Vector4 ExtraSurfaceParams = default,
+        Vector4 StylizedExtraParams = default,
+        Vector4 StylizedFaceLightDir = default);
 
     internal static int[]? ComputePluginTextureTableSlots(
         D3D12SurfaceStyleMap? surfaceStyles,
@@ -353,6 +355,8 @@ public sealed partial class D3D12OriginalStyleRenderer
                     StylizedWarmParams = stylizedShading?.Warm ?? default,
                     StylizedGradeParams = stylizedShading?.Grade ?? default,
                     ExtraSurfaceParams = drawData?.ExtraSurfaceParams ?? default,
+                    StylizedExtraParams = stylizedShading?.ExtraParams ?? default,
+                    StylizedFaceLightDir = stylizedShading?.FaceLightDir ?? default,
                     IncomingLight = new(common.IncomingLight.X, common.IncomingLight.Y, common.IncomingLight.Z, response?.TransitionWidth ?? 0),
                     ShadowOptions = new(
                         flags.ReceiveSelfShadow && options.SelfShadow is { Generate: true } ? common.ShadowOptions.X : 0f,

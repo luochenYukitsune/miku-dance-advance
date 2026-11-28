@@ -29,6 +29,59 @@ internal static class D3D12ViewQuality
         return new(options.Enabled, options.Sharpness);
     }
 
+    internal static (D3D12DepthRimOptions? DepthRim, D3D12BloomOptions? Bloom, D3D12ToneCurveOptions? ToneCurve) ResolveStylizedPolish(
+        bool enabled,
+        OriginalFrameScene scene,
+        D3D12SurfaceStyleMap surfaceStyles,
+        ViewQualityOptions quality)
+    {
+        if (!enabled || surfaceStyles.IsDefault || quality.PipelineMode == RenderPipelineMode.PathTracing)
+            return (null, null, null);
+
+        bool writeDepth = scene.Options?.WriteDepth ?? true;
+        bool bloomSupported = scene.Options?.AlphaOutput == FrameAlphaOutput.Straight
+            || (scene.Options?.BackgroundColor?.W ?? 1f) == 1f;
+
+        return (
+            writeDepth ? D3D12StylizedPolishDefaults.DepthRim : null,
+            bloomSupported ? D3D12StylizedPolishDefaults.Bloom : null,
+            D3D12StylizedPolishDefaults.ToneCurve);
+    }
+
+    internal static OriginalFrameScene ApplyFocusedCharacterShadow(
+        bool enabled,
+        OriginalFrameScene scene,
+        D3D12SurfaceStyleMap surfaceStyles)
+    {
+        if (!enabled || surfaceStyles.IsDefault || scene.Options?.SelfShadow is not { Generate: true, PartialFar: false } shadow)
+            return scene;
+
+        var snapshot = scene.Surface.Snapshot;
+        int totalMaterials = snapshot.Materials.Count;
+        var focusIndices = new List<int>(totalMaterials);
+        for (int i = 0; i < totalMaterials && i < surfaceStyles.Count; i++)
+        {
+            if (!surfaceStyles.IsDefaultStyle(i))
+                focusIndices.Add(i);
+        }
+
+        if (focusIndices.Count == 0 || focusIndices.Count >= totalMaterials)
+            return scene;
+
+        var focusedShadow = shadow with
+        {
+            LightViewProjection = ModernDirectionalShadowProjection.Fit(snapshot, focusIndices),
+        };
+        return new(
+            scene.Surface,
+            scene.Outline,
+            scene.OutlineOptions,
+            scene.Options with { SelfShadow = focusedShadow },
+            scene.Materials,
+            scene.Lighting,
+            scene.EditorOverlay);
+    }
+
     /// <summary>GI owns separate history resources, but follows the same host seek and camera-cut markers as AA.
     /// Preview acceleration is strictly isolated to realtime view rendering and always stripped on offline capture/export.</summary>
     internal static RayGiOptions Gi(ViewQualityOptions quality, ViewTemporalFrameState? state = null,

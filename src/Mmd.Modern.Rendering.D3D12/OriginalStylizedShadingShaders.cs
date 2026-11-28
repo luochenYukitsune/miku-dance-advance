@@ -53,7 +53,24 @@ internal static partial class OriginalFrameShaders
             if(any(baseColor<0) || any(!isfinite(baseColor))) return color;
             float3 n=normalize(v.Normal); float3 l=IncomingLight.xyz;
             float c=MdaStyleLightResponse(v,n,l,1);
+            if(StylizedExtraParams.x>0) {
+                float vis=MdaPrimaryShadowVisibility(v);
+                float hardVis=smoothstep(.42,.58,vis);
+                c*=lerp(1,hardVis,StylizedExtraParams.x);
+            }
             float lit=lerp(c,1,StylizedShadeParams.w);
+            if(StylizedExtraParams.y>0) {
+                float3 headDir=StylizedFaceLightDir.w>.5?normalize(StylizedFaceLightDir.xyz):normalize(float3(n.x,0,n.z)+float3(0,0,-1e-4));
+                float2 hFwd=headDir.xz;
+                float hLen2=dot(hFwd,hFwd);
+                float2 lHoriz=l.xz;
+                float lLen2=dot(lHoriz,lHoriz);
+                float faceCos=(hLen2>1e-5 && lLen2>1e-5)?dot(hFwd*rsqrt(hLen2),lHoriz*rsqrt(lLen2)):dot(headDir,l);
+                float gentleNormal=saturate(dot(normalize(float3(n.x*.35,n.y*.2,n.z*.35-0.65)),l)*.5+.5);
+                float softFace=lerp(.72,1,saturate(lerp(smoothstep(-.45,.35,faceCos),gentleNormal,.35)));
+                float faceLit=max(c,softFace);
+                lit=lerp(lit,faceLit,StylizedExtraParams.y);
+            }
             float peak=max(baseColor.r,max(baseColor.g,baseColor.b));
             float3 chroma=peak>0?baseColor/peak:1;
             float3 shadow=baseColor*lerp(1,chroma,StylizedShadeParams.z)*StylizedShadeParams.y*StylizedTintParams.rgb;

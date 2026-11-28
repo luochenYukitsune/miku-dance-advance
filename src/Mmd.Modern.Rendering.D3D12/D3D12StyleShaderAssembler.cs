@@ -532,6 +532,8 @@ internal static class D3D12StyleShaderAssembler
                 float4 StylizedWarmParams;
                 float4 StylizedGradeParams;
                 float4 MdaExtraSurfaceParams;
+                float4 StylizedExtraParams;
+                float4 StylizedFaceLightDir;
             };
             Texture2D<float4> DiffuseMap : register(t0);
             Texture2D<float4> SphereMap : register(t1);

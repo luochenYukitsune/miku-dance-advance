@@ -27,6 +27,102 @@ public static class ModernDirectionalShadowProjection
         {
             ComputeDeferredWorldBounds(scene, ref minimum, ref maximum);
         }
+        return FitFromWorldBounds(scene, minimum, maximum, paddingFraction);
+    }
+
+    /// <summary>Fits the directional shadow projection strictly around the selected material indices
+    /// (e.g., character materials in a large stage scene) to preserve texel density on the character.</summary>
+    public static Matrix4x4 Fit(SceneSnapshot scene, IReadOnlyList<int> focusMaterialIndices, float paddingFraction = .03f)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(focusMaterialIndices);
+        if (!float.IsFinite(paddingFraction) || paddingFraction is <= 0 or > 1)
+            throw new ArgumentOutOfRangeException(nameof(paddingFraction));
+        if (focusMaterialIndices.Count == 0)
+            return Fit(scene, paddingFraction);
+
+        var selected = new HashSet<int>();
+        foreach (int index in focusMaterialIndices)
+        {
+            if (index >= 0 && index < scene.Materials.Count)
+                selected.Add(index);
+        }
+        if (selected.Count == 0)
+            return Fit(scene, paddingFraction);
+
+        Vector3 minimum = new(float.MaxValue), maximum = new(float.MinValue);
+        bool anyVertex = false;
+
+        if (!scene.HasDeferredDeformation)
+        {
+            foreach (int matIndex in selected)
+            {
+                var material = scene.Materials[matIndex];
+                int end = material.StartIndex + material.IndexCount;
+                for (int i = material.StartIndex; i < end; i++)
+                {
+                    var position = Vector3.Transform(scene.Vertices[(int)scene.Indices[i]].Position, scene.World);
+                    minimum = Vector3.Min(minimum, position);
+                    maximum = Vector3.Max(maximum, position);
+                    anyVertex = true;
+                }
+            }
+        }
+        else
+        {
+            var ranges = scene.DeformationRanges;
+            var hitRanges = new HashSet<int>();
+            var staticView = scene.StaticVertexView;
+            foreach (int matIndex in selected)
+            {
+                var material = scene.Materials[matIndex];
+                int end = material.StartIndex + material.IndexCount;
+                for (int i = material.StartIndex; i < end; i++)
+                {
+                    int vertex = (int)scene.Indices[i];
+                    int rangeIdx = FindDeformationRange(ranges, vertex);
+                    if (rangeIdx >= 0)
+                    {
+                        hitRanges.Add(rangeIdx);
+                    }
+                    else
+                    {
+                        var position = Vector3.Transform(staticView.GetVertex(vertex).Position, scene.World);
+                        minimum = Vector3.Min(minimum, position);
+                        maximum = Vector3.Max(maximum, position);
+                        anyVertex = true;
+                    }
+                }
+            }
+            foreach (int rangeIdx in hitRanges)
+            {
+                AccumulateDeformationBounds(ranges[rangeIdx], scene.World, ref minimum, ref maximum);
+                anyVertex = true;
+            }
+        }
+
+        if (!anyVertex)
+            return Fit(scene, paddingFraction);
+
+        return FitFromWorldBounds(scene, minimum, maximum, paddingFraction);
+    }
+
+    private static int FindDeformationRange(IReadOnlyList<SceneDeformationRange> ranges, int vertex)
+    {
+        int lo = 0, hi = ranges.Count;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (ranges[mid].Start <= vertex) lo = mid + 1;
+            else hi = mid;
+        }
+        if (lo == 0) return -1;
+        var candidate = ranges[lo - 1];
+        return vertex < candidate.Start + candidate.Count ? lo - 1 : -1;
+    }
+
+    private static Matrix4x4 FitFromWorldBounds(SceneSnapshot scene, Vector3 minimum, Vector3 maximum, float paddingFraction)
+    {
         Vector3 extent = maximum - minimum, center = minimum * .5f + maximum * .5f;
         float radius = extent.Length() * .5f;
         if (!Finite(center) || !float.IsFinite(radius))
